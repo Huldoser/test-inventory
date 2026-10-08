@@ -23,6 +23,7 @@ npm test
 | `npm run compare -- vitest 5.0.3`                     | Lists the fixture tests with a real runner and compares the list with the inventory.   |
 | `npm run docs:dev`                                    | The docs site at localhost.                                                            |
 | `npm run corpus`                                      | Scans the open-source projects in `tests/compare/corpus.json` at their pinned commits. |
+| `npm run release -- --dry-run`                        | Checks and prints the steps of a release without changing anything.                    |
 | `node scripts/outdated.ts --dry-run`                  | Lists the dependencies with a newer version, as the weekly issue does.                 |
 
 ## How the code is laid out
@@ -80,16 +81,30 @@ When the output changes, follow the versioning rules on the [output page](https:
 Releases are made from `main`. Changesets collect there until a maintainer releases them; nothing is published until a
 release pull request is merged and its publish is approved.
 
+1. On an up-to-date `main` with no local changes, run `npm run release`. It checks that `main` matches GitHub and that
+   changesets are waiting, makes a `release-x.y.z` branch, runs `changeset version`, updates the lockfile, commits
+   "Release x.y.z", pushes the branch and opens the pull request, with gh when it is installed and otherwise through a
+   link it prints. `changeset version` reads a GitHub token to link each change to its pull request: `GITHUB_TOKEN`
+   when it is set, otherwise the one gh is logged in with. `npm run release -- --dry-run` shows the steps first.
+2. Review the new `CHANGELOG.md` entry and the version in the pull request, and squash merge it when the checks pass.
+3. The push to `main` starts the Release workflow. It builds, tests and packs the package, then waits at the "Publish
+   to npm" job for the `npm` environment. Open the run in the Actions tab, check that it publishes the version you
+   expect, and approve it. It then publishes to npm with provenance, pushes the `vx.y.z` tag, creates the GitHub release
+   and deploys the docs.
+
+The same steps by hand, if the script can't be used:
+
 1. Branch from an up-to-date `main`, for example `release-0.2.0`.
 2. Run `GITHUB_TOKEN=$(gh auth token) npx changeset version`. It raises the version in `package.json`, writes
-   `CHANGELOG.md` with a link to each pull request, and deletes the changesets it used. The token is set for this one
-   command, to look up those links, and is not stored anywhere.
-3. Review the new `CHANGELOG.md` entry and the version.
-4. Commit as "Release x.y.z", push, and open a pull request.
-5. Squash and merge it when the checks pass.
-6. The push to `main` starts the Release workflow. It builds, tests and packs the package, then waits for the `npm`
-   environment. Open the run in the Actions tab, check that it publishes the version you expect, and approve it. It
-   then publishes to npm with provenance, pushes the `vx.y.z` tag, creates the GitHub release and deploys the docs.
+   `CHANGELOG.md` and deletes the changesets it used. The token is set for this one command and stored nowhere.
+3. Run `npm install --package-lock-only` so that `package-lock.json` has the new version too.
+4. Commit as "Release x.y.z", push, and open a pull request, then continue from step 2 above.
+
+npm publishes with trusted publishing: the package's trusted publisher on npmjs.com names this repository, `release.yml`
+and the `npm` environment, and allows `npm publish`. It must exist before a release pull request is merged, or the
+publish fails; no npm token is involved. The first publish of a new package also goes through npm's staged review:
+npm lists a `0.0.0-stage` placeholder, and the real version appears once a maintainer clicks Approve on the package's
+Staged Packages tab on npmjs.com.
 
 The workflow creates the tags. To create one by hand, use `npx changeset git-tag`, never `changeset tag`, which is a
 deprecated name for it.

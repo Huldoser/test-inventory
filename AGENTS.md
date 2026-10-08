@@ -32,3 +32,4 @@ Notes for coding agents working in this repository. People should read CONTRIBUT
 - Test examples use the made-up trading app. No toy titles like `test('a')`.
 - Vitest reads `@module-tag` from the text of test files, so build that word from parts inside `tests/*.test.ts`.
 - Changesets: breaking changes are `minor` before 1.0; never `major`.
+- `npm run release` commits, pushes and opens a pull request. Run it only with `--dry-run`; releasing is for maintainers.

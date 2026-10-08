@@ -69,11 +69,11 @@ jobs:
     name: Publish to npm
     needs: pack
     runs-on: ubuntu-latest
-    # A maintainer approves each publish, and only this job can read the environment's NPM_TOKEN secret.
+    # A maintainer approves each publish. npm's trusted publisher for the package names this workflow and environment.
     environment: npm
     permissions:
       contents: write # the tag and the GitHub release
-      id-token: write # provenance, and trusted publishing once it is set up
+      id-token: write # trusted publishing and provenance
     timeout-minutes: 15
     outputs:
       published: ${{ steps.publish.outputs.published }}
@@ -88,15 +88,12 @@ jobs:
           registry-url: https://registry.npmjs.org/
       # The action runs the Changesets command line, which needs the dependencies; nothing is built here.
       - run: npm ci --ignore-scripts
-      # The tarball from the pack job is published as it is. The tag and the release are created through the API.
+      # The tarball from the pack job is published as it is, with a short-lived token npm issues for this run through
+      # trusted publishing; no npm token is stored anywhere. The tag and the release are created through the API.
       - id: publish
         uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
-        env:
-          # Only needed for 0.1.0: trusted publishing can only be set up for a package that already exists. Once it
-          # is set up, delete the NPM_TOKEN secret. This variable is then empty and npm uses trusted publishing.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   docs-build:
     name: Build the docs
