@@ -15,6 +15,10 @@
   "bugs": {
     "url": "https://github.com/Huldoser/test-inventory/issues"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/Huldoser"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Huldoser/test-inventory.git"
@@ -27,32 +31,71 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./schema/v1.json": "./schema/v1.json",
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "test-inventory": "./dist/bin.js"
+  },
   "files": [
     "dist",
-    "!dist/**/*.map"
+    "schema",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22.12"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json",
+    "schema": "node scripts/schema.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "test:pack": "node scripts/pack-smoke.ts",
+    "publint": "publint --strict",
+    "attw": "attw --pack . --profile esm-only",
+    "licenses": "node scripts/check-licenses.ts",
+    "compare": "node scripts/compare-runners.ts",
+    "corpus": "node scripts/scan-corpus.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write . --ignore-path .gitignore --ignore-path .prettierignore --ignore-path .git/info/exclude",
+    "format:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore --ignore-path .git/info/exclude",
+    "docs:api": "typedoc",
+    "docs:dev": "npm run docs:api && vitepress dev docs",
+    "docs:build": "npm run docs:api && vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "changeset": "changeset"
   },
   "dependencies": {
     "oxc-parser": "0.153.0",
     "tinyglobby": "^0.2.17"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^22.12.0",
     "@vitest/coverage-v8": "5.0.3",
+    "ajv": "^8.20.0",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.9",
+    "publint": "^0.3.25",
+    "ts-json-schema-generator": "2.9.0",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "^4.13.1",
+    "typedoc-vitepress-theme": "^1.1.4",
     "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitepress": "2.0.0-alpha.20",
     "vitest": "5.0.3"
   }
 }

@@ -1,0 +1,900 @@
+{
+  "$id": "https://huldoser.github.io/test-inventory/schema/v1.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/Inventory",
+  "definitions": {
+    "Inventory": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1,
+          "description": "Version of this format. It changes only when a key is removed, renamed or changes meaning."
+        },
+        "tool": {
+          "$ref": "#/definitions/Tool"
+        },
+        "framework": {
+          "$ref": "#/definitions/Framework",
+          "description": "The framework the scan was run for."
+        },
+        "frameworkVersion": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Read from the project, or given with `--framework-version`; null when unknown."
+        },
+        "summary": {
+          "$ref": "#/definitions/Summary"
+        },
+        "suites": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SuiteRecord"
+          }
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TestRecord"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "tool",
+        "framework",
+        "frameworkVersion",
+        "summary",
+        "suites",
+        "tests",
+        "diagnostics"
+      ],
+      "description": "The output of one scan."
+    },
+    "Tool": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "const": "test-inventory"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of test-inventory that produced the output."
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ]
+    },
+    "Framework": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "playwright",
+            "vitest"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Summary": {
+      "type": "object",
+      "properties": {
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Test files scanned."
+        },
+        "suiteCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "testCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fixmeCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "todoCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedToFailCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notLoadedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "onlyCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "conditionalCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parallelCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "serialCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parameterizedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inLoopCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inConditionCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inFunctionCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "typeTestCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "diagnosticCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tagCounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Tests per tag."
+        },
+        "annotationCounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Tests per annotation type."
+        }
+      },
+      "required": [
+        "fileCount",
+        "suiteCount",
+        "testCount",
+        "activeCount",
+        "skipCount",
+        "fixmeCount",
+        "todoCount",
+        "expectedToFailCount",
+        "notLoadedCount",
+        "onlyCount",
+        "conditionalCount",
+        "parallelCount",
+        "serialCount",
+        "parameterizedCount",
+        "inLoopCount",
+        "inConditionCount",
+        "inFunctionCount",
+        "typeTestCount",
+        "diagnosticCount",
+        "tagCounts",
+        "annotationCounts"
+      ],
+      "description": "Counts over the whole scan. Each test count uses the same definition as the matching test key."
+    },
+    "SuiteRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The describe around this one; null at the top level."
+        },
+        "bodyHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hash of the describe's own code (hooks, `test.use()`, `describe.configure()`, helpers), ignoring whitespace, comments, and nested tests and describes; null when nothing is left."
+        },
+        "relativeFilePath": {
+          "type": "string",
+          "description": "Path from the project root, with `/` separators."
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "lineStart": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lineEnd": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "columnStart": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In UTF-16 code units."
+        },
+        "columnEnd": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In UTF-16 code units."
+        },
+        "title": {
+          "type": "string",
+          "description": "As the runner shows it, tags included."
+        },
+        "titleWithoutTags": {
+          "type": "string",
+          "description": "`title` with `@tag` words removed and spaces tidied."
+        },
+        "hasDynamicTitle": {
+          "type": "boolean",
+          "description": "The title could not be resolved to a fixed string, so `title` holds its source text."
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Titles of the describes around this one and of this one, outermost first."
+        },
+        "isSkipped": {
+          "type": "boolean"
+        },
+        "isFixme": {
+          "type": "boolean",
+          "description": "Playwright only."
+        },
+        "isTodo": {
+          "type": "boolean",
+          "description": "Vitest only."
+        },
+        "isExpectedToFail": {
+          "type": "boolean",
+          "description": "Tests in the describe are expected to fail, as with `test.fail()` in its body. Playwright only."
+        },
+        "isOnly": {
+          "type": "boolean"
+        },
+        "isConditional": {
+          "type": "boolean",
+          "description": "The state applies only when a condition holds."
+        },
+        "condition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Source text of the condition, shortened when long; null when unconditional."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasDynamicReason": {
+          "type": "boolean",
+          "description": "The reason could not be worked out to a string, so `reason` holds its source text."
+        },
+        "isParallel": {
+          "type": "boolean"
+        },
+        "isSerial": {
+          "type": "boolean",
+          "description": "Playwright only."
+        },
+        "isShuffled": {
+          "type": "boolean",
+          "description": "Vitest only."
+        },
+        "isParameterized": {
+          "type": "boolean",
+          "description": "Declared with `.each` or `.for`."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Annotation"
+          }
+        },
+        "locks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Playwright only."
+        },
+        "meta": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/MetaValue"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Vitest only; literal values only."
+        }
+      },
+      "required": [
+        "id",
+        "parentId",
+        "bodyHash",
+        "relativeFilePath",
+        "fileName",
+        "lineStart",
+        "lineEnd",
+        "columnStart",
+        "columnEnd",
+        "title",
+        "titleWithoutTags",
+        "hasDynamicTitle",
+        "path",
+        "isSkipped",
+        "isFixme",
+        "isTodo",
+        "isExpectedToFail",
+        "isOnly",
+        "isConditional",
+        "condition",
+        "reason",
+        "hasDynamicReason",
+        "isParallel",
+        "isSerial",
+        "isShuffled",
+        "isParameterized",
+        "tags",
+        "annotations",
+        "locks",
+        "meta"
+      ],
+      "description": "A describe block, with what is written on the describe itself. Inherited values are on the tests."
+    },
+    "Annotation": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lineStart": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "type",
+        "description",
+        "lineStart"
+      ]
+    },
+    "MetaValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MetaValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/MetaValue"
+          }
+        }
+      ]
+    },
+    "TestRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Derived from the file path, the describe titles, the title and its position among tests with the same title."
+        },
+        "bodyHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Hash of the test body, ignoring whitespace and comments; null when the test has no body."
+        },
+        "suiteId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The nearest describe; null outside any describe."
+        },
+        "suitePath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Titles of the describes around the test, outermost first."
+        },
+        "relativeFilePath": {
+          "type": "string",
+          "description": "Path from the project root, with `/` separators."
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "lineStart": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lineEnd": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "columnStart": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In UTF-16 code units."
+        },
+        "columnEnd": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In UTF-16 code units."
+        },
+        "title": {
+          "type": "string",
+          "description": "As the runner shows it, tags included."
+        },
+        "titleWithoutTags": {
+          "type": "string",
+          "description": "`title` with `@tag` words removed and spaces tidied."
+        },
+        "hasDynamicTitle": {
+          "type": "boolean",
+          "description": "The title could not be resolved to a fixed string, so `title` holds its source text."
+        },
+        "fullName": {
+          "type": "string",
+          "description": "`suitePath` and `title` joined with \" > \"."
+        },
+        "isTypeTest": {
+          "type": "boolean",
+          "description": "Declared in a Vitest type test file (`*.test-d.ts`, `*.spec-d.ts`)."
+        },
+        "state": {
+          "$ref": "#/definitions/TestState"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "isSkipped": {
+          "type": "boolean"
+        },
+        "isFixme": {
+          "type": "boolean"
+        },
+        "isTodo": {
+          "type": "boolean"
+        },
+        "isExpectedToFail": {
+          "type": "boolean"
+        },
+        "isNotLoaded": {
+          "type": "boolean",
+          "description": "The runner refuses to load the file; a diagnostic at `stateLine` says why."
+        },
+        "isOnly": {
+          "type": "boolean",
+          "description": "The test or a describe around it uses `.only`."
+        },
+        "isConditional": {
+          "type": "boolean",
+          "description": "The state applies only when a condition holds, as with `test.skip(condition)` or `skipIf`."
+        },
+        "condition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Source text of the condition, shortened when long; null when unconditional."
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasDynamicReason": {
+          "type": "boolean",
+          "description": "The reason could not be worked out to a string, so `reason` holds its source text."
+        },
+        "stateSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StateSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for active tests."
+        },
+        "stateLine": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The line that sets the state; null for active tests."
+        },
+        "isParallel": {
+          "type": "boolean",
+          "description": "Both `isParallel` and `isSerial` false means the framework's default mode."
+        },
+        "isSerial": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "From the test and every describe around it, outermost first, without duplicates."
+        },
+        "annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Annotation"
+          }
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Comment lines directly above the test. By default only filled for tests that are not active."
+        },
+        "locks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "From the test and its describes. Playwright only."
+        },
+        "meta": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/MetaValue"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Merged from the describes and the test. Vitest only; literal values only."
+        },
+        "isParameterized": {
+          "type": "boolean",
+          "description": "Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it."
+        },
+        "caseCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How many times the runner repeats the test: the cases of its own table times those of each describe table around it. Null when a table is not written out in the file, or the test is not parameterized."
+        },
+        "isInLoop": {
+          "type": "boolean",
+          "description": "Declared inside a loop, `forEach` or `map`."
+        },
+        "isInCondition": {
+          "type": "boolean",
+          "description": "Declared inside `if`, `?:`, `&&` or `switch`."
+        },
+        "isInFunction": {
+          "type": "boolean",
+          "description": "Declared inside a plain function."
+        }
+      },
+      "required": [
+        "id",
+        "bodyHash",
+        "suiteId",
+        "suitePath",
+        "relativeFilePath",
+        "fileName",
+        "lineStart",
+        "lineEnd",
+        "columnStart",
+        "columnEnd",
+        "title",
+        "titleWithoutTags",
+        "hasDynamicTitle",
+        "fullName",
+        "isTypeTest",
+        "state",
+        "isActive",
+        "isSkipped",
+        "isFixme",
+        "isTodo",
+        "isExpectedToFail",
+        "isNotLoaded",
+        "isOnly",
+        "isConditional",
+        "condition",
+        "reason",
+        "hasDynamicReason",
+        "stateSource",
+        "stateLine",
+        "isParallel",
+        "isSerial",
+        "tags",
+        "annotations",
+        "comments",
+        "locks",
+        "meta",
+        "isParameterized",
+        "caseCount",
+        "isInLoop",
+        "isInCondition",
+        "isInFunction"
+      ],
+      "description": "A test, with the effective values the runner applies, including those inherited from its describes."
+    },
+    "TestState": {
+      "description": "The state the runner applies to a test, after describes and file-level calls are taken into account. `notLoaded`: the runner refuses to load the file, so none of its tests run. Other values may be added in later releases.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "active",
+            "skip",
+            "fixme",
+            "todo",
+            "expectedToFail",
+            "notLoaded"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "StateSource": {
+      "description": "Where a test's state is set: on the test, on a describe around it, or at file level. Other values may be added in later releases.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "test",
+            "suite",
+            "file"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Diagnostic": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/DiagnosticCode"
+        },
+        "level": {
+          "$ref": "#/definitions/DiagnosticLevel"
+        },
+        "message": {
+          "type": "string",
+          "description": "One sentence describing the problem."
+        },
+        "relativeFilePath": {
+          "type": "string"
+        },
+        "lineStart": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for problems with the whole file."
+        },
+        "columnStart": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null for problems with the whole file."
+        },
+        "testId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The affected test; null when none."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Source text involved, shortened when long; null when none."
+        }
+      },
+      "required": [
+        "code",
+        "level",
+        "message",
+        "relativeFilePath",
+        "lineStart",
+        "columnStart",
+        "testId",
+        "source"
+      ]
+    },
+    "DiagnosticCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "unresolved-test-import",
+            "parse-error",
+            "read-error",
+            "framework-mismatch",
+            "unresolved-tag",
+            "unresolved-annotation",
+            "unresolved-cases",
+            "test-in-loop",
+            "dynamic-title",
+            "duplicate-title",
+            "duplicate-id",
+            "internal-error",
+            "invalid-chain",
+            "skip-without-body",
+            "test-without-body",
+            "describe-not-called",
+            "async-describe",
+            "nested-test",
+            "tag-without-at",
+            "removed-api",
+            "only-in-skipped-describe",
+            "config-may-change-state",
+            "symlink-ignored",
+            "invalid-import",
+            "globals-not-enabled",
+            "unknown-framework-version",
+            "unsupported-framework-version",
+            "local-test-object",
+            "state-in-helper",
+            "unresolved-option",
+            "dynamic-reason",
+            "no-files-matched",
+            "unsupported-file",
+            "approximate-framework-version"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "DiagnosticLevel": {
+      "type": "string",
+      "enum": [
+        "error",
+        "warning"
+      ],
+      "description": "`error`: tests may be missing from the output. `warning`: a value is missing or approximate."
+    }
+  }
+}
