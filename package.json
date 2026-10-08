@@ -65,6 +65,7 @@
     "licenses": "node scripts/check-licenses.ts",
     "compare": "node scripts/compare-runners.ts",
     "corpus": "node scripts/scan-corpus.ts",
+    "release": "node scripts/release.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write . --ignore-path .gitignore --ignore-path .prettierignore --ignore-path .git/info/exclude",
