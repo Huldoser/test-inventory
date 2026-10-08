@@ -13,9 +13,8 @@
     "erasableSyntaxOnly": true,
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
+    "newLine": "lf",
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "rootDir": "src",
     "outDir": "dist"
   },

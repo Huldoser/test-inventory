@@ -1,0 +1,8 @@
+dist/
+coverage/
+package-lock.json
+schema/
+tests/golden/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+docs/api/

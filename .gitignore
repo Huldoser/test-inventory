@@ -2,3 +2,12 @@ node_modules/
 dist/
 coverage/
 *.tgz
+docs/api/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+# Secrets and local credentials
+.env*
+.npmrc
+*.pem
+*.key

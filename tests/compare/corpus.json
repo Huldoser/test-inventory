@@ -1,0 +1,158 @@
+[
+  {
+    "name": "freeCodeCamp end-to-end tests",
+    "repository": "https://github.com/freeCodeCamp/freeCodeCamp.git",
+    "commit": "34b1acdeea5443824e818d6b6b6d8a4c7a5fcad0",
+    "license": "BSD-3-Clause",
+    "framework": "playwright",
+    "patterns": ["e2e/**/*.spec.ts"],
+    "expected": { "files": 84, "tests": 268 }
+  },
+  {
+    "name": "Vue core",
+    "repository": "https://github.com/vuejs/core.git",
+    "commit": "4ab865a848a1da3d10fb674f857e5fff13094644",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/__tests__/**/*.{spec,test}.{ts,tsx}"],
+    "expected": { "files": 196, "tests": 3592 }
+  },
+  {
+    "name": "SvelteKit test apps",
+    "repository": "https://github.com/sveltejs/kit.git",
+    "commit": "3bc9234a3a556c85eb0ccd4947a4340046d29e15",
+    "license": "MIT",
+    "framework": "playwright",
+    "patterns": ["packages/kit/test/apps/**/*.test.{js,ts}"],
+    "expected": { "files": 10, "tests": 404 }
+  },
+  {
+    "name": "SvelteKit unit tests",
+    "repository": "https://github.com/sveltejs/kit.git",
+    "commit": "3bc9234a3a556c85eb0ccd4947a4340046d29e15",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/src/**/*.spec.{js,ts}"],
+    "expected": { "files": 78, "tests": 705 }
+  },
+  {
+    "name": "Playwright test suite",
+    "repository": "https://github.com/microsoft/playwright.git",
+    "commit": "4357c237cfde9135fb5b7894c22a45468321a973",
+    "license": "Apache-2.0",
+    "framework": "playwright",
+    "patterns": ["tests/**/*.spec.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 538, "tests": 1489 }
+  },
+  {
+    "name": "Supabase end-to-end tests",
+    "repository": "https://github.com/supabase/supabase.git",
+    "commit": "18080d88f7ebc507f0477ee5d42b5cea8e01e653",
+    "license": "Apache-2.0",
+    "framework": "playwright",
+    "patterns": ["e2e/**/*.spec.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 32, "tests": 263 }
+  },
+  {
+    "name": "Supabase unit tests",
+    "repository": "https://github.com/supabase/supabase.git",
+    "commit": "18080d88f7ebc507f0477ee5d42b5cea8e01e653",
+    "license": "Apache-2.0",
+    "framework": "vitest",
+    "patterns": ["apps/studio/**/*.test.{ts,tsx}", "packages/**/*.test.{ts,tsx}"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 815, "tests": 8113 }
+  },
+  {
+    "name": "Storybook unit tests",
+    "repository": "https://github.com/storybookjs/storybook.git",
+    "commit": "e57cf305a78dbd1e473143200fd7702baaf4442c",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["code/**/*.test.{ts,tsx}"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 827, "tests": 9456 }
+  },
+  {
+    "name": "TanStack Router end-to-end tests",
+    "repository": "https://github.com/TanStack/router.git",
+    "commit": "663282b0ebbc494aee3595ed95867ee29d01938e",
+    "license": "MIT",
+    "framework": "playwright",
+    "patterns": ["e2e/**/*.spec.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 309, "tests": 203 }
+  },
+  {
+    "name": "TanStack Router unit tests",
+    "repository": "https://github.com/TanStack/router.git",
+    "commit": "663282b0ebbc494aee3595ed95867ee29d01938e",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/*.test.{ts,tsx}"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 450, "tests": 4801 }
+  },
+  {
+    "name": "Vite",
+    "repository": "https://github.com/vitejs/vite.git",
+    "commit": "b6c20f6a8126d8561891e5fb9368e8fc9da37538",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/*.spec.ts", "playground/**/*.spec.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 180, "tests": 1893 }
+  },
+  {
+    "name": "Vitest",
+    "repository": "https://github.com/vitest-dev/vitest.git",
+    "commit": "3e3624c5e5ecf77b20065da1aeb60f1182db0ccd",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["test/**/*.test.{ts,tsx}", "packages/**/*.test.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 509, "tests": 3434 }
+  },
+  {
+    "name": "Nuxt",
+    "repository": "https://github.com/nuxt/nuxt.git",
+    "commit": "0296ca413dc7ab2e29555e7109f35581b81d5c41",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/*.test.ts", "test/**/*.test.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 266, "tests": 2603 }
+  },
+  {
+    "name": "Excalidraw",
+    "repository": "https://github.com/excalidraw/excalidraw.git",
+    "commit": "4c00f31ddcc20086bac1020428819fe0b9a30bce",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/*.test.{ts,tsx}", "excalidraw-app/**/*.test.{ts,tsx}"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 142, "tests": 2154 }
+  },
+  {
+    "name": "Sentry end-to-end test apps",
+    "repository": "https://github.com/getsentry/sentry-javascript.git",
+    "commit": "dffd6b1bf3945d98d23e0f362ec366abf7153f85",
+    "license": "MIT",
+    "framework": "playwright",
+    "patterns": ["dev-packages/e2e-tests/test-applications/**/*.test.ts"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 714, "tests": 2188 }
+  },
+  {
+    "name": "Sentry SDK unit tests",
+    "repository": "https://github.com/getsentry/sentry-javascript.git",
+    "commit": "dffd6b1bf3945d98d23e0f362ec366abf7153f85",
+    "license": "MIT",
+    "framework": "vitest",
+    "patterns": ["packages/**/test/**/*.test.{ts,tsx}"],
+    "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
+    "expected": { "files": 853, "tests": 10120 }
+  }
+]

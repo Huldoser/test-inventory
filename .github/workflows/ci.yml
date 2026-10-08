@@ -1,0 +1,259 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a pull request replaces the run in progress; runs on main all finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [22, 24, 26]
+        include:
+          # Arm on Linux and Windows, and Intel on macOS, where macos-latest is Arm.
+          - os: ubuntu-24.04-arm
+            node: 26
+          - os: windows-11-arm
+            node: 26
+          - os: macos-15-intel
+            node: 26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # Coverage is measured once, on Linux, where every test runs. The symbolic link tests are skipped on Windows.
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: npm run coverage -- --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=html
+      - if: matrix.os != 'ubuntu-latest' || matrix.node != 24
+        run: npm test
+      - name: Coverage summary
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        run: |
+          node -e "
+            const total = require('./coverage/coverage-summary.json').total;
+            const rows = ['statements', 'branches', 'functions', 'lines'].map((key) => '| ' + key + ' | ' + total[key].pct + '% | ' + total[key].covered + ' / ' + total[key].total + ' |');
+            console.log(['### Coverage', '', '| | | |', '| --- | --- | --- |', ...rows].join('\n'));
+          " >> "$GITHUB_STEP_SUMMARY"
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage/
+
+  lint:
+    name: Lint and format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
+  package:
+    name: Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:pack
+      - if: runner.os == 'Linux'
+        run: npm run publint
+      - if: runner.os == 'Linux'
+        run: npm run attw
+      - if: runner.os == 'Linux'
+        run: npm run licenses
+
+  oldest-node:
+    name: Packed CLI and library on Node 22.12.0
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The scripts need a newer Node.js to run as TypeScript, so the package is built and packed with Node 24.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm pack --pack-destination "$RUNNER_TEMP"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.12.0
+      # The package under test is installed from its tarball, as a user installs it, so no lockfile applies.
+      - name: Use the packed CLI and library
+        working-directory: ${{ runner.temp }}
+        run: | # zizmor: ignore[adhoc-packages]
+          mkdir app && cd app
+          npm init --yes > /dev/null
+          npm install --no-audit --no-fund ../test-inventory-*.tgz
+          mkdir tests
+          printf "import { test } from '@playwright/test';\ntest('places a market order', async () => {});\n" > tests/orders.spec.ts
+          npx test-inventory "tests/*.spec.ts" --framework playwright --framework-version 1.63.0 --output inventory.json
+          node -e "process.exit(require('./inventory.json').summary.testCount === 1 ? 0 : 1)"
+          node --input-type=module -e "import { scanSource } from 'test-inventory'; import schema from 'test-inventory/schema/v1.json' with { type: 'json' }; console.log(schema.\$id, scanSource({ code: '', relativeFilePath: 'a.test.ts', framework: 'vitest' }).summary.testCount)"
+          node -e "console.log(typeof require('test-inventory').scan)"
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DUCKDB_VERSION: 1.5.6
+      DUCKDB_SHA256: 6e89deac1ebbc36eed0291caf8b567b030c7b86ac35998f71854e22b3c5d5e2f
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Each page's "last updated" date comes from its last commit.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # jq and Python come with the runner; the recipes in the docs also need the DuckDB command line.
+      - name: Install DuckDB
+        run: |
+          curl -sSfL -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip"
+          echo "${DUCKDB_SHA256}  duckdb.zip" | sha256sum --check
+          unzip -q duckdb.zip -d "$RUNNER_TEMP/duckdb"
+          echo "$RUNNER_TEMP/duckdb" >> "$GITHUB_PATH"
+      - run: npx vitest run tests/docs.test.ts
+        env:
+          DOCS_RECIPES: all
+      - run: npm run docs:build
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The gitleaks command line is MIT licensed and free; the gitleaks action needs a paid license for organizations.
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP" gitleaks
+      - run: '"$RUNNER_TEMP/gitleaks" git --redact --verbose .'
+
+  # Mistakes and security problems in the workflows, found offline and with no more than read access.
+  workflows:
+    name: Check the workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      ZIZMOR_VERSION: 1.30.1
+      ZIZMOR_SHA256: e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Both are MIT licensed; their release binaries are pinned by checksum.
+      - name: Install actionlint and zizmor
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check
+          tar -xzf actionlint.tar.gz actionlint
+          curl -sSfL -o zizmor.tar.gz "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ZIZMOR_SHA256}  zizmor.tar.gz" | sha256sum --check
+          tar -xzf zizmor.tar.gz zizmor
+      # actionlint also runs the runner's shellcheck over each run step.
+      - run: '"$RUNNER_TEMP/actionlint" -no-color'
+      - run: '"$RUNNER_TEMP/zizmor" --offline --format=github .github/workflows'
+
+  # The fixture projects are compared with real runners; a difference no rule explains fails the job.
+  compare:
+    name: Compare with ${{ matrix.framework }} ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - framework: playwright
+            version: 1.42.1
+          - framework: playwright
+            version: 1.63.0
+          - framework: playwright
+            version: 1.64.0
+          - framework: vitest
+            version: 3.0.9
+          - framework: vitest
+            version: 5.0.3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run compare -- ${{ matrix.framework }} ${{ matrix.version }}
+
+  # It clones over the network, so a failure shows in the summary without blocking a merge.
+  corpus:
+    name: Scan public projects
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run corpus

@@ -3,8 +3,8 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
-    "declaration": false,
-    "declarationMap": false
+    "declaration": false
   },
-  "include": ["src", "tests", "vitest.config.ts"]
+  "include": ["src", "scripts", "tests", "docs/.vitepress/config.ts", "vitest.config.ts"],
+  "exclude": ["tests/fixtures"]
 }

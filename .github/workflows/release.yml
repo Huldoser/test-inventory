@@ -1,0 +1,138 @@
+name: Release
+
+# Releases are made on main. A release pull request, made with `changeset version` as CONTRIBUTING.md describes, raises
+# the version and writes the changelog. When it is merged, this workflow builds, tests and packs the package, waits for
+# approval in the `npm` environment, publishes the packed tarball with provenance, pushes the tag, creates the GitHub
+# release and deploys the docs. A push with changesets still waiting for a release publishes nothing.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Select version or publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      publish-plan-artifact-id: ${{ steps.select.outputs.publish-plan-artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is cached in this workflow, so a cache written by another workflow can't change what is published.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # Install scripts of dependencies never run in this workflow; none of them needs one.
+      - run: npm ci --ignore-scripts
+      - id: select
+        uses: changesets/action/select-mode@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+
+  pack:
+    name: Build, test and pack
+    needs: select
+    if: needs.select.outputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    outputs:
+      pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      # The tarball is tested here too, since the push to main that triggers a release runs CI in parallel.
+      - run: npm test
+      - id: pack
+        uses: changesets/action/pack@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          publish-plan-artifact-id: ${{ needs.select.outputs.publish-plan-artifact-id }}
+
+  publish:
+    name: Publish to npm
+    needs: pack
+    runs-on: ubuntu-latest
+    # A maintainer approves each publish, and only this job can read the environment's NPM_TOKEN secret.
+    environment: npm
+    permissions:
+      contents: write # the tag and the GitHub release
+      id-token: write # provenance, and trusted publishing once it is set up
+    timeout-minutes: 15
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org/
+      # The action runs the Changesets command line, which needs the dependencies; nothing is built here.
+      - run: npm ci --ignore-scripts
+      # The tarball from the pack job is published as it is. The tag and the release are created through the API.
+      - id: publish
+        uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
+        env:
+          # Only needed for 0.1.0: trusted publishing can only be set up for a package that already exists. Once it
+          # is set up, delete the NPM_TOKEN secret. This variable is then empty and npm uses trusted publishing.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  docs-build:
+    name: Build the docs
+    needs: publish
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Each page's "last updated" date comes from its last commit.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - run: npm run docs:build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/.vitepress/dist
+
+  docs-deploy:
+    name: Deploy the docs
+    needs: docs-build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    timeout-minutes: 10
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
