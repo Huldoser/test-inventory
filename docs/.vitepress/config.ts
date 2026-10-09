@@ -7,14 +7,31 @@ const apiSidebar = JSON.parse(
   readFileSync(new URL('../api/typedoc-sidebar.json', import.meta.url), 'utf8'),
 ) as DefaultTheme.SidebarItem[];
 
+const base = '/test-inventory/';
+
 export default defineConfig({
   title: 'test-inventory',
   description: 'Test metadata from source code, not from test results.',
-  base: '/test-inventory/',
+  base,
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: ['**/README.md'],
+  // Links in `head` are written as they are, without the base.
+  head: [
+    ['link', { rel: 'icon', href: `${base}favicon.ico`, sizes: '32x32' }],
+    ['link', { rel: 'icon', href: `${base}favicon.svg`, type: 'image/svg+xml' }],
+    ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
+    ['meta', { property: 'og:image', content: `https://huldoser.github.io${base}social-preview.png` }],
+    ['meta', { property: 'og:image:width', content: '1280' }],
+    ['meta', { property: 'og:image:height', content: '640' }],
+    [
+      'meta',
+      { property: 'og:image:alt', content: 'test-inventory: test metadata from source code, not from test results.' },
+    ],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+  ],
   themeConfig: {
+    logo: { light: '/mark-small-light.svg', dark: '/mark-small-dark.svg', alt: 'test-inventory' },
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Reference', link: '/reference/output' },

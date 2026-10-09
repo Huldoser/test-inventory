@@ -5,6 +5,10 @@ hero:
   name: test-inventory
   text: Test metadata from source code, not from test results.
   tagline: Lists every test declaration in a Playwright or Vitest suite as JSON, by reading the code. Nothing is run.
+  image:
+    light: /mark-light.svg
+    dark: /mark-dark.svg
+    alt: test-inventory
   actions:
     - theme: brand
       text: Get started
