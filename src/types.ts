@@ -61,7 +61,8 @@ export type DiagnosticCode =
   | 'dynamic-reason'
   | 'no-files-matched'
   | 'unsupported-file'
-  | 'approximate-framework-version';
+  | 'approximate-framework-version'
+  | 'test-in-function';
 
 export type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 

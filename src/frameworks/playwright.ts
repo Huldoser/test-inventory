@@ -384,7 +384,7 @@ export class PlaywrightAdapter implements Adapter {
         problem: problem(
           'test-without-body',
           call,
-          `${callee}() has no test body, so Playwright fails to load the file.`,
+          `${callee}() has no test body, so Playwright fails to load the file and runs no tests at all.`,
         ),
       };
     }
@@ -535,7 +535,7 @@ export class PlaywrightAdapter implements Adapter {
             problem(
               'tag-without-at',
               tag.node,
-              `Tag "${value}" does not start with "@", so Playwright fails to load the file.`,
+              `Tag "${value}" does not start with "@", so Playwright fails to load the file and runs no tests at all.`,
               value,
             ),
           );

@@ -1,6 +1,6 @@
 // @module-tag market-data
 // Every Vitest form the scanner reads, written as one strategy-engine suite. Not meant to run.
-import { bench, beforeEach, describe, expect, it, test } from 'vitest';
+import { beforeEach, describe, expect, it, test } from 'vitest';
 import { HISTORICAL_CLOSES } from './closes';
 
 describe('sma', () => {
@@ -24,11 +24,7 @@ describe('sma', () => {
 
 describe.concurrent('position sizing', () => {
   it('risks 1% of the account', () => {});
-  it.sequential('caps the size at the cash available', () => {});
-});
-
-describe.sequential('stop orders', () => {
-  it('triggers below the stop price', () => {});
+  it('caps the size at the cash available', { concurrent: false }, () => {});
 });
 
 describe.shuffle('backtests', { tags: ['slow'] }, () => {
@@ -36,7 +32,7 @@ describe.shuffle('backtests', { tags: ['slow'] }, () => {
 });
 
 describe('fees', () => {
-  test('charges the minimum commission', () => {}, { retry: 2 });
+  test('charges the minimum commission', { retry: 2 }, () => {});
   test.fails('rounds a half cent up', () => {});
   test.todo('charges a borrow fee');
   test('charges the exchange fee');
@@ -57,8 +53,4 @@ describe('market data client', () => {
 
 describe(() => {
   it('is never collected', () => {});
-});
-
-describe('benchmarks', () => {
-  bench('sma over ten years of closes', () => {});
 });

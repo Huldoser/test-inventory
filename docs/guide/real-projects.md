@@ -53,6 +53,11 @@ errors and the larger warning counts have these causes:
 - **Sentry unit, 21 `unresolved-test-import` errors.** 7 files are Bun tests that import `test`, `it` and
   `describe` from `bun:test`, and 5 import them from `@effect/vitest`, an installed package that wraps Vitest. Each
   name is reported once per file.
+- **Vue core, 80 `test-in-function` warnings.** `render.spec.ts` declares its tests in `testRender()`, which it calls
+  three times, once for each way to render, and `Teleport.spec.ts` calls `runSharedTests()` in an eager and a defer
+  describe. Vitest registers those tests once per call, in the describe around the call; the scan lists each test once,
+  where it is written. Seven other projects have a few such warnings, 72 in all, such as freeCodeCamp's
+  `donatePageTests()`, which runs in a signed-in and a signed-out describe.
 - **Vite, 11 `local-test-object` warnings.** `const it = await createModuleRunnerTester(...)` builds a test object
   from a helper; its calls are read as tests.
 - **Vitest's own suite.** 10 `nested-test` warnings come from tests written inside test bodies, which Vitest's

@@ -79,6 +79,33 @@ When the file exports the function, or nothing in the file calls it by name, the
 affects, and a `state-in-helper` warning says the call was not applied. That includes a function passed as a value,
 as in `test.beforeEach(skipWithoutMarketData)`.
 
+## Tests in helper functions
+
+The runner registers a test when the `test()` call runs, in the describe that is being collected at that moment. For
+a test declared in a function, that is the describe around each call of the function, not the place where the test
+is written. The scan lists the test once, where it is written:
+
+```ts
+function validatesQuantity(side: string) {
+  test(`${side} rejects a zero quantity`, async ({ orderTicket }) => {});
+}
+
+test.describe('buy orders', () => {
+  validatesQuantity('buy');
+});
+
+test.describe.skip('short sells', () => {
+  validatesQuantity('short');
+});
+```
+
+Playwright lists two tests here, one in each describe, and the one in `short sells` is skipped. The scan lists one
+active test outside any describe, with `isInFunction: true` and a `test-in-function` warning. The warning appears when
+the function is called more than once, from another describe, in a loop or in a test, when nothing in the file calls
+it by name, or when the file exports it. A function called once, where it is written, gets no warning, because the
+record is then where the runner puts the test. Tests in a callback passed to another function, as in
+`withPaperAccount(() => { test(...) })`, get no warning either.
+
 ## Loops and tables are one record
 
 A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true` and a `test-in-loop` warning.

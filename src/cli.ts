@@ -143,8 +143,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
     );
     return FAILED;
   }
-  if (inventory.diagnostics.some((diagnostic) => diagnostic.code === 'no-files-matched')) {
-    io.stderr.write('test-inventory: no test files match the patterns.\n');
+  const unmatched = inventory.diagnostics.find((diagnostic) => diagnostic.code === 'no-files-matched');
+  if (unmatched) {
+    io.stderr.write(`test-inventory: ${unmatched.message[0].toLowerCase()}${unmatched.message.slice(1)}\n`);
   }
   // A reader that stops early, as `| head` does, closes the pipe: an EPIPE error, which ends the output quietly.
   const quiet = () => undefined;

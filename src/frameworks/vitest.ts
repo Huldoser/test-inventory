@@ -107,6 +107,8 @@ class VitestBindings implements TestObjects {
   readonly kinds = new Map<string, Kind>();
   readonly hooks = new Map<string, string>();
   readonly namespaces = new Set<string>();
+  /** Names `bench` is imported as from Vitest 5, which no longer exports it. */
+  readonly benches = new Set<string>();
   /** The import specifiers and declarators that bind those names, to tell them from local names that shadow them. */
   readonly declarations = new Set<Node>();
   readonly problems: Problem[] = [];
@@ -134,7 +136,7 @@ class VitestBindings implements TestObjects {
             ),
           );
         } else {
-          this.bindImported(exportName(specifier.imported), specifier.local.name, specifier, version);
+          this.bindImported(exportName(specifier.imported), specifier.local.name, version);
         }
       }
     }
@@ -189,20 +191,14 @@ class VitestBindings implements TestObjects {
     return node.type === 'Identifier' && this.namespaces.has(node.name);
   }
 
-  private bindImported(imported: string, local: string, node: Node, version: [number, number] | null): void {
+  private bindImported(imported: string, local: string, version: [number, number] | null): void {
     const kind = KINDS.get(imported);
     if (kind) {
       this.kinds.set(local, kind);
     } else if (HOOKS.has(imported)) {
       this.hooks.set(local, imported);
     } else if (imported === 'bench' && atLeast(version, 5, 0)) {
-      this.problems.push(
-        problem(
-          'removed-api',
-          node,
-          "Vitest 5 no longer exports bench from 'vitest'; benchmarks in this file are not tests.",
-        ),
-      );
+      this.benches.add(local);
     }
   }
 
@@ -258,7 +254,30 @@ export class VitestAdapter implements Adapter {
   }
 
   classify(call: CallExpression, context: CallContext): ApiCall | null {
-    return this.hookCall(call, context) ?? this.contextSkip(call, context) ?? this.chainCall(call, context);
+    return (
+      this.benchCall(call, context) ??
+      this.hookCall(call, context) ??
+      this.contextSkip(call, context) ??
+      this.chainCall(call, context)
+    );
+  }
+
+  /** A call to `bench` imported from Vitest 5, which is undefined there, so the call throws. */
+  private benchCall(call: CallExpression, context: CallContext): ApiCall | null {
+    const base = readChain(call.callee)?.base;
+    if (base?.type !== 'Identifier' || !this.bindings.benches.has(base.name)) return null;
+    const declaration = this.file.values.declarationOf(base.name, context.scopes);
+    if (declaration === null || !this.bindings.declarations.has(declaration)) return null;
+    const callee = snippet(text(this.file, call.callee));
+    return {
+      kind: 'invalid',
+      problem: problem(
+        'removed-api',
+        call,
+        `Vitest 5 no longer exports bench from 'vitest'; ${callee}(...) fails. Benchmarks are not tests.`,
+        callee,
+      ),
+    };
   }
 
   private chainCall(call: CallExpression, context: CallContext): ApiCall | null {

@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileDiagnostic } from './diagnostics.ts';
-import { findFiles, readFailure } from './files.ts';
+import { findFiles, normalizePattern, readFailure } from './files.ts';
 import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
@@ -39,7 +39,9 @@ function versionDiagnostics(
   }
   const [major, minor] = majorMinor(version) as [number, number];
   const [oldestMajor, oldestMinor] = OLDEST[framework];
-  if (major < oldestMajor || (major === oldestMajor && minor < oldestMinor)) {
+  // A range gets the newest rules of its major, so only its major has to be supported.
+  const tooOld = major < oldestMajor || (major === oldestMajor && minor < oldestMinor && range === null);
+  if (tooOld) {
     return [
       fileDiagnostic(
         'unsupported-framework-version',
@@ -56,6 +58,17 @@ function versionDiagnostics(
       `Only the range "${range}" was found for ${name}, so the rules of the newest ${major}.x release apply.`,
     ),
   ];
+}
+
+/** For a pattern that names a folder, which matches no file, a pattern that matches the test files in it. */
+function folderHint(root: string, patterns: string[], framework: Framework): string {
+  const folder = patterns.find((pattern) => {
+    const target = path.resolve(root, normalizePattern(pattern));
+    return existsSync(target) && statSync(target).isDirectory();
+  });
+  if (folder === undefined) return '';
+  const example = `${folder.replace(/[\\/]+$/, '')}/**/*.${framework === 'playwright' ? 'spec' : 'test'}.ts`;
+  return ` "${folder}" is a folder; to scan the test files in it, use a pattern such as "${example}".`;
 }
 
 /**
@@ -90,7 +103,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   projectDiagnostics.push(...found.diagnostics);
   if (found.files.length === 0) {
     const list = patterns.map((pattern) => `"${pattern}"`).join(', ');
-    projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', `No test files match ${list} in the root.`));
+    const message = `No test files match ${list} in the root.${folderHint(root, patterns, framework)}`;
+    projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', message));
   }
 
   const readerFor = moduleResolver(root);

@@ -880,7 +880,8 @@
             "dynamic-reason",
             "no-files-matched",
             "unsupported-file",
-            "approximate-framework-version"
+            "approximate-framework-version",
+            "test-in-function"
           ]
         },
         {

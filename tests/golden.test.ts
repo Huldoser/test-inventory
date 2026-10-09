@@ -34,4 +34,14 @@ describe('golden output', () => {
     const inventory = scanSource({ code, relativeFilePath: `tests/${file}`, framework: 'playwright' });
     await expect(golden(inventory)).toMatchFileSnapshot('golden/syntax/playwright-rejected.json');
   });
+
+  it.each(['3.0.0', '4.0.0', '5.0.0'])(
+    'of forms for which Vitest refuses the whole file, for version %s',
+    async (frameworkVersion) => {
+      const file = 'vitest-rejected.test.ts';
+      const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');
+      const inventory = scanSource({ code, relativeFilePath: `tests/${file}`, framework: 'vitest', frameworkVersion });
+      await expect(golden(inventory)).toMatchFileSnapshot(`golden/syntax/vitest-rejected-${frameworkVersion}.json`);
+    },
+  );
 });

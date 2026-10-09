@@ -72,7 +72,7 @@ describe('run', () => {
     const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/orders.spec.ts': SPEC });
     const result = await cli(['e2e/**/*.spec.ts', '--framework', 'playwright'], root);
     expect(result.code).toBe(0);
-    expect(result.stderr).toBe('test-inventory: no test files match the patterns.\n');
+    expect(result.stderr).toBe('test-inventory: no test files match "e2e/**/*.spec.ts" in the root.\n');
     expect(JSON.parse(result.stdout)).toMatchObject({ summary: { fileCount: 0 } });
   });
 

@@ -52,7 +52,8 @@ describe('alerts', () => {
       {
         code: 'duplicate-title',
         level: 'error',
-        message: 'Another test in the file has the same title path, so Playwright fails to load the file.',
+        message:
+          'Another test in the file has the same title path, so Playwright fails to load the file and runs no tests at all.',
         testId: second.id,
       },
     ]);
@@ -458,13 +459,42 @@ test('confirms an order in steps', async () => {
     expect(codes(inventory)).toEqual(['invalid-chain', 'invalid-chain', 'invalid-chain']);
     expect(onlyTest(inventory)).toMatchObject({ state: 'active', isNotLoaded: false });
   });
+});
 
-  it('leaves Vitest files as they are, as Vitest rejects calls, not files', () => {
-    const inventory = scanVitest(`${VITEST_IMPORT}
-test.serial('places a bracket order', () => {});
-test('places a market order', () => {});
+describe('files Vitest refuses to load', () => {
+  it.each([
+    ['a chain Vitest does not have', "test.serial('places a bracket order', () => {});"],
+    ['sequential, removed in Vitest 5', "describe.sequential('stop orders', () => {});"],
+    ['options as the third argument', "test('fills a stop order', () => {}, { retry: 3 });"],
+    ['a benchmark, removed in Vitest 5', "bench('sizes 1,000 positions', () => {});"],
+  ])('marks every test not loaded for %s, at the line of the problem', (_, problem) => {
+    const inventory = scanVitest(`import { bench, describe, test } from 'vitest';
+describe('orders', () => {
+  test.skip('places a stop order', () => {});
+  test('cancels an order', () => {});
+  ${problem}
+});
 `);
-    expect(codes(inventory)).toEqual(['invalid-chain']);
-    expect(onlyTest(inventory).state).toBe('active');
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource, test.stateLine])).toEqual([
+      ['places a stop order', 'notLoaded', 'file', 5],
+      ['cancels an order', 'notLoaded', 'file', 5],
+    ]);
+    expect(inventory.summary).toMatchObject({ activeCount: 0, skipCount: 0, notLoadedCount: 2 });
+  });
+
+  it('loads a file whose invalid calls are in test, hook or helper bodies, which run after it loads', () => {
+    const inventory = scanVitest(`import { beforeEach, test } from 'vitest';
+function allowSlowBroker() {
+  test.setTimeout(30_000);
+}
+beforeEach(() => {
+  test.slow();
+});
+test('places a market order', () => {
+  allowSlowBroker();
+});
+`);
+    expect(codes(inventory)).toEqual(['invalid-chain', 'invalid-chain']);
+    expect(onlyTest(inventory)).toMatchObject({ state: 'active', isNotLoaded: false });
   });
 });
