@@ -294,7 +294,7 @@ class RecordBuilder {
       seen.set(group, keys);
       if (keys.has(key)) {
         const message = playwright
-          ? 'Another test in the file has the same title path, so Playwright fails to load the file.'
+          ? 'Another test in the file has the same title path, so Playwright fails to load the file and runs no tests at all.'
           : 'Another test in the same describe has the same title.';
         const item = problem('duplicate-title', test.call, message, test.declaration.title.text);
         found.push({ index, problem: playwright ? { ...item, level: 'error' } : item });

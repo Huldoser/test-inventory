@@ -38,12 +38,16 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'no-files-matched': 'warning',
   'unsupported-file': 'warning',
   'approximate-framework-version': 'warning',
+  'test-in-function': 'warning',
 };
 
-/** Problems for which the runner refuses to load the whole file, so that none of its tests run. */
+/**
+ * Problems for which the runner refuses to load the whole file, so that none of its tests run. In Vitest, these are
+ * calls that throw while the file is collected.
+ */
 export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   playwright: new Set(['test-without-body', 'tag-without-at', 'invalid-chain', 'duplicate-title']),
-  vitest: new Set(),
+  vitest: new Set(['invalid-chain', 'removed-api']),
 };
 
 export function toDiagnostic(

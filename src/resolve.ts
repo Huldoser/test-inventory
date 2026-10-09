@@ -199,7 +199,8 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
   return (fromFile) => (specifier) => {
     const directory = path.dirname(fromFile);
     let candidates: string[];
-    if (specifier.startsWith('./') || specifier.startsWith('../')) {
+    // `.` and `..` are paths too: the index of the file's folder, or of the folder above.
+    if (/^\.\.?(?:\/|$)/.test(specifier)) {
       candidates = [path.resolve(directory, specifier)];
     } else if (specifier.startsWith('#')) {
       candidates = subpathImportFiles(specifier, directory);

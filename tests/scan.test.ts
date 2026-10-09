@@ -99,6 +99,32 @@ describe('scan', () => {
     ]);
   });
 
+  it('does not report a folder that a pattern names and that does not exist as unreadable', async () => {
+    const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/orders.spec.ts': SPEC });
+    for (const pattern of ['e2e/**/*.spec.ts', 'tests/orders.spec.ts/**/*.ts']) {
+      const inventory = await scanProject(root, { patterns: [pattern] });
+      expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['no-files-matched']);
+    }
+  });
+
+  it.each([
+    ['playwright', '1.63.0', 'tests', 'tests/**/*.spec.ts'],
+    ['vitest', '5.0.3', 'src/', 'src/**/*.test.ts'],
+  ] as const)('says how to scan the test files in a folder given as the pattern, for %s', async (...row) => {
+    const [framework, frameworkVersion, pattern, example] = row;
+    const root = project({
+      'tests/orders.spec.ts': SPEC,
+      'src/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
+    });
+    const inventory = await scanProject(root, { patterns: [pattern], framework, frameworkVersion });
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'no-files-matched',
+        message: `No test files match "${pattern}" in the root. "${pattern}" is a folder; to scan the test files in it, use a pattern such as "${example}".`,
+      },
+    ]);
+  });
+
   it('does not read files inside a folder named like a test file', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -158,6 +184,20 @@ describe('scan follows a custom test object to its fixtures file', () => {
     ],
   ])('through %s', async (_, from, files) => {
     const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/portfolio.spec.ts': spec(from), ...files });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['shows the buying power']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    ['.', 'tests/portfolio.spec.ts'],
+    ['..', 'tests/portfolio/buying-power.spec.ts'],
+  ])("through the index of the folder '%s'", async (from, file) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      [file]: spec(from),
+      'tests/index.ts': "import { test as base } from '@playwright/test';\nexport const test = base.extend({});\n",
+    });
     const inventory = await scanProject(root);
     expect(inventory.tests.map((test) => test.title)).toEqual(['shows the buying power']);
     expect(inventory.diagnostics).toEqual([]);
@@ -537,6 +577,30 @@ describe('scan reads the framework version', () => {
         level: 'warning',
         relativeFilePath: 'package.json',
         message: 'Only the range "^1.50.0" was found for Playwright, so the rules of the newest 1.x release apply.',
+      },
+    ]);
+  });
+
+  it('treats a range that starts below the oldest supported version as approximate, when its major is supported', async () => {
+    const supported = project({
+      'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '^1.40.0' } }),
+      'tests/a.spec.ts': SPEC,
+    });
+    expect((await scanProject(supported)).diagnostics).toMatchObject([
+      {
+        code: 'approximate-framework-version',
+        message: 'Only the range "^1.40.0" was found for Playwright, so the rules of the newest 1.x release apply.',
+      },
+    ]);
+    const old = project({
+      'package.json': JSON.stringify({ devDependencies: { vitest: '^2.1.0' } }),
+      'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
+    });
+    const inventory = await scanProject(old, { patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unsupported-framework-version',
+        message: 'Vitest 2.1.0 is older than 3.0, the oldest supported version; the results follow 3.0.',
       },
     ]);
   });

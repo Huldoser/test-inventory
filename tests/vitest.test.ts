@@ -47,13 +47,27 @@ vitest.test('validates an order', () => {});
     expect(inventory.tests).toEqual([]);
   });
 
-  it('reports bench imported from vitest in Vitest 5', () => {
-    const code = `import { bench, describe } from 'vitest';
+  it('reports calls to bench imported from vitest in Vitest 5, which no longer exports it', () => {
+    const code = `import { bench, describe, test } from 'vitest';
 describe('sma', () => {
   bench('20-day average over 10 years of closes', () => {});
+  bench.skip('200-day average over 10 years of closes', () => {});
+  test('reports its own timing', () => {
+    const bench = startTimer('sma');
+    bench.stop();
+  });
 });`;
-    expect(codes(scanVitest(code))).toEqual(['removed-api']);
+    expect(scanVitest(code).diagnostics).toMatchObject([
+      { code: 'removed-api', lineStart: 3, source: 'bench' },
+      { code: 'removed-api', lineStart: 4, source: 'bench.skip' },
+    ]);
     expect(codes(scanVitest(code, { frameworkVersion: '4.1.0' }))).toEqual([]);
+    expect(
+      codes(
+        scanVitest(`import { bench, test } from 'vitest';
+test('sizes a position', () => {});`),
+      ),
+    ).toEqual([]);
   });
 
   it('reports a file that imports Playwright or Jest', () => {
@@ -299,7 +313,7 @@ test('fills a limit order', () => {}, 5_000);
 `;
     expect(scanVitest(code, { frameworkVersion: '3.2.4' }).tests.map((test) => test.state)).toEqual(['skip', 'active']);
     const inventory = scanVitest(code, { frameworkVersion: '4.0.0' });
-    expect(titles(inventory)).toEqual(['fills a limit order']);
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([['fills a limit order', 'notLoaded']]);
     expect(inventory.diagnostics).toMatchObject([
       { code: 'removed-api', level: 'error', source: '{ retry: 3, skip: true }' },
     ]);
@@ -307,16 +321,24 @@ test('fills a limit order', () => {}, 5_000);
 
   it('reports sequential from Vitest 5 and reads it as the default mode before', () => {
     const code = `${VITEST_IMPORT}
+const ordered = describe.sequential;
 describe.concurrent('indicators', () => {
   describe.sequential('rsi', () => {
     test('stays between 0 and 100', () => {});
   });
   test.sequential('sma averages', () => {});
+  ordered('macd', () => {
+    test('crosses the signal line', () => {});
+  });
 });
 `;
     const before = scanVitest(code, { frameworkVersion: '4.1.2' });
-    expect(before.tests.map((test) => test.isParallel)).toEqual([false, false]);
-    expect(codes(scanVitest(code))).toEqual(['removed-api', 'removed-api']);
+    expect(before.tests.map((test) => test.isParallel)).toEqual([false, false, false]);
+    expect(scanVitest(code).diagnostics).toMatchObject([
+      { code: 'removed-api', message: 'sequential was removed in Vitest 5; describe.sequential(...) fails.' },
+      { code: 'removed-api', message: 'sequential was removed in Vitest 5; test.sequential(...) fails.' },
+      { code: 'removed-api', message: 'sequential was removed in Vitest 5; ordered(...) fails.' },
+    ]);
   });
 
   it('reports chains that are not part of the API', () => {
@@ -682,6 +704,24 @@ test.each\`
   });
 });
 
+describe('Vitest tests declared in helper functions', () => {
+  it('warns about shared tests that a helper declares in each describe that calls it', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+function behavesLikeAnOrder(type: string) {
+  it(\`rejects a \${type} order without a quantity\`, () => {});
+}
+describe('market orders', () => behavesLikeAnOrder('market'));
+describe('limit orders', () => behavesLikeAnOrder('limit'));
+`);
+    expect(onlyTest(inventory).suitePath).toEqual([]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['test-in-function', 3],
+      ['dynamic-title', 3],
+    ]);
+    expect(inventory.diagnostics[0].message).toContain('the function is called 2 times');
+  });
+});
+
 describe('Vitest local names', () => {
   it('does not take a local name that shadows a Vitest function for it', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
@@ -756,7 +796,6 @@ describeWithBroker('live broker', () => {
 const suiteOf = describe;
 const describeOnCi = process.env.CI ? describe.concurrent.skipIf(!process.env.BROKER_URL) : describe.concurrent;
 const testOnCi = process.env.CI ? test.concurrent : it.concurrent.skip;
-const ordered = describe.sequential;
 const mixed = process.env.CI ? it.skip : describe;
 const tableOnCi = process.env.CI ? describe.each([['AAPL']]) : describe.each([['MSFT']]);
 suiteOf('fees', () => {});
@@ -765,7 +804,6 @@ describeOnCi('broker', () => {
 });
 mixed('rounds the fee', () => {});
 tableOnCi('quotes for %s', () => {});
-ordered('fills', () => {});
 `);
     expect(inventory.suites.map((suite) => [suite.title, suite.isSkipped, suite.isParallel])).toEqual([
       ['fees', false, false],
@@ -775,9 +813,7 @@ ordered('fills', () => {});
     expect(inventory.tests.map((test) => [test.fullName, test.state, test.isParallel])).toEqual([
       ['broker > sends an order', 'active', true],
     ]);
-    expect(inventory.diagnostics).toMatchObject([
-      { code: 'removed-api', message: 'sequential was removed in Vitest 5; ordered(...) fails.' },
-    ]);
+    expect(inventory.diagnostics).toEqual([]);
   });
 
   it('reads functions kept in a variable from globals, also derived with extend', () => {

@@ -80,7 +80,7 @@ the file around it.
 | `caseCount`                                                                     | number or null | How many times the runner repeats the test: its own cases times those of each describe table around it. `null` when a table is not written out in the file, or the test is not parameterized.                                                                                                                                          |
 | `isInLoop`                                                                      | boolean        | Declared inside a loop, `forEach` or `map`.                                                                                                                                                                                                                                                                                            |
 | `isInCondition`                                                                 | boolean        | Declared inside `if`, `?:`, `&&`, `\|\|`, `??` or `switch`.                                                                                                                                                                                                                                                                            |
-| `isInFunction`                                                                  | boolean        | Declared inside a plain function.                                                                                                                                                                                                                                                                                                      |
+| `isInFunction`                                                                  | boolean        | Declared inside a plain function. When calls of the function would place it elsewhere, a `test-in-function` warning says so.                                                                                                                                                                                                           |
 
 ### How the state is chosen
 
@@ -99,7 +99,8 @@ function are joined, and `stateLine` is the line of the call inside the function
 file are followed too. A function that is exported, or that nothing in the file calls, changes no record and gets a
 `state-in-helper` warning.
 
-When a file has a problem that makes the runner refuse to load it, such as a Playwright test without a body, every
+When a file has a problem that makes the runner refuse to load it, such as a Playwright test without a body or a
+Vitest call to an API that the version removed, every
 test in it is `notLoaded`: `stateSource` is `file`, `stateLine` is the line of the first such problem, and
 `condition` and `reason` are `null`. The [diagnostic](/reference/diagnostics#files-the-runner-refuses-to-load) says
 why. Everything else about the tests stays as written, so fixing the file brings their states back.

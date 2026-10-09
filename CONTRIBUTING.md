@@ -34,7 +34,7 @@ npm test
 - `tests/fixtures/` holds realistic projects of a made-up trading app, one per common setup: Playwright end-to-end
   tests, a Node.js service, React, Vue, browser mode and a monorepo. `tests/examples.ts` lists them, and
   `tests/golden/` holds their scan output. `tests/fixtures/syntax` holds one file per framework that uses every form
-  the scanner reads.
+  the scanner reads, and one with the forms for which the runner refuses the whole file.
 
 ## Tests
 

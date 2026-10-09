@@ -227,8 +227,8 @@ test.only();
 `);
     expect(inventory.tests).toEqual([]);
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-      'test() has no test body, so Playwright fails to load the file.',
-      'test.only() has no test body, so Playwright fails to load the file.',
+      'test() has no test body, so Playwright fails to load the file and runs no tests at all.',
+      'test.only() has no test body, so Playwright fails to load the file and runs no tests at all.',
     ]);
   });
 
@@ -1092,6 +1092,118 @@ test('places an order', async () => {
       ['state-in-helper', 13, expect.stringContaining('no test, hook or describe in the file calls')],
       ['state-in-helper', 17, expect.stringContaining('test.skip() is in a function that is exported')],
     ]);
+  });
+});
+
+describe('Playwright tests declared in helper functions', () => {
+  const REGISTERS =
+    'The runner registers the test at each call of the function, in the describe around the call; it is listed once, where it is written.';
+
+  it('warns when the helper is called twice, never, or from another describe than where it is written', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function validatesQuantity(side: string) {
+  test(\`\${side} rejects a zero quantity\`, async ({ orderTicket }) => {});
+}
+const legacyAlertTests = () => {
+  test('creates a price alert', async () => {});
+};
+function buyingPowerTests() {
+  test('shows the buying power', async () => {});
+}
+test.describe('buy orders', { tag: '@orders' }, () => {
+  validatesQuantity('buy');
+});
+test.describe.skip('short sells', () => {
+  validatesQuantity('short');
+  buyingPowerTests();
+});
+`);
+    const warnings = inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'test-in-function');
+    expect(warnings.map((diagnostic) => [diagnostic.level, diagnostic.lineStart, diagnostic.message])).toEqual([
+      ['warning', 3, `The test is declared in a function, and the function is called 2 times. ${REGISTERS}`],
+      [
+        'warning',
+        6,
+        `The test is declared in a function, and nothing in the file calls the function by name. ${REGISTERS}`,
+      ],
+      [
+        'warning',
+        9,
+        `The test is declared in a function, and the function is called in another place than where it is written. ${REGISTERS}`,
+      ],
+    ]);
+    expect(warnings.map((diagnostic) => diagnostic.testId)).toEqual(inventory.tests.map((test) => test.id));
+    // The record stays where the test is written: no describe, so no tag and no skip from the describes that call it.
+    expect(testNamed(inventory, 'shows the buying power')).toMatchObject({ suitePath: [], state: 'active', tags: [] });
+  });
+
+  it('warns for an exported helper, and for calls in a loop, in a test body or through a helper called elsewhere', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+export function registerFillTests() {
+  test('fills at the limit price', async () => {});
+}
+function quoteTests() {
+  test('streams a quote', async () => {});
+}
+for (const venue of ['NASDAQ', 'NYSE']) quoteTests();
+function cleanupTests() {
+  test('cancels open orders', async () => {});
+}
+test('places an order', async () => {
+  cleanupTests();
+});
+function sideTests() {
+  function quantityTests() {
+    test('rejects a zero quantity', async () => {});
+  }
+  quantityTests();
+}
+test.describe('buy orders', () => sideTests());
+`);
+    expect(
+      inventory.diagnostics.map((diagnostic) => [
+        diagnostic.code,
+        diagnostic.lineStart,
+        diagnostic.message.split('.')[0],
+      ]),
+    ).toEqual([
+      ['test-in-function', 3, 'The test is declared in a function, and the file exports the function'],
+      [
+        'test-in-function',
+        6,
+        'The test is declared in a function, and the function is called in another place than where it is written',
+      ],
+      [
+        'test-in-function',
+        10,
+        'The test is declared in a function, and the function is called in another place than where it is written',
+      ],
+      [
+        'test-in-function',
+        17,
+        'The test is declared in a function, and the function is called in another place than where it is written',
+      ],
+    ]);
+  });
+
+  it('does not warn for a helper called once where it is written, or for tests in a callback', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function orderFormTests() {
+  test('shows the order form', async () => {});
+}
+orderFormTests();
+test.describe('alerts', () => {
+  const alertTests = () => {
+    test('creates a price alert', async () => {});
+  };
+  alertTests();
+});
+withPaperAccount(() => {
+  test('places a paper order', async () => {});
+});
+`);
+    expect(titles(inventory)).toEqual(['shows the order form', 'creates a price alert', 'places a paper order']);
+    expect(inventory.diagnostics).toEqual([]);
   });
 });
 

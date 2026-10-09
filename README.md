@@ -4,7 +4,7 @@ Test metadata from source code, not from test results.
 
 test-inventory reads Playwright and Vitest test files and lists every test declaration as JSON: its title, file and
 lines, the describes around it, its tags and annotations, and whether it is active, skipped, fixme, todo, expected
-to fail or in a file Playwright refuses to load, with the condition when the state only applies sometimes. It parses
+to fail or in a file the runner refuses to load, with the condition when the state only applies sometimes. It parses
 the code and runs nothing, so it needs no browsers, no build and no runner configuration.
 
 Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/)

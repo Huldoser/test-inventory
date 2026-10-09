@@ -84,6 +84,8 @@ export async function findFiles(
   for (const failure of failures) {
     const where = relative(failure.path);
     if (failure.kind === 'folder') {
+      // A folder a pattern names that isn't there holds no tests; `no-files-matched` reports a scan that found none.
+      if (failure.error.code === 'ENOENT' || failure.error.code === 'ENOTDIR') continue;
       const message = `The folder could not be read: ${readFailure(failure.error)}; test files in it are missing.`;
       diagnostics.push(fileDiagnostic('read-error', `${where}/`, message));
     } else if (EXTENSIONS.test(where)) {

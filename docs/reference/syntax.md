@@ -29,7 +29,7 @@ Playwright 1.42 and newer.
 | `test.describe.configure({ mode })`                                                                                                           | The mode of the describe or file.                                                                                                             |
 | `test.info().annotations.push({ type, description })`                                                                                         | An annotation of the test.                                                                                                                    |
 | `test.use`, `test.slow`, `test.setTimeout`, `test.step`, `test.step.skip` (1.50), `test.expect`, `test.info`, `test.abort` (1.60), hooks      | Known; not tests.                                                                                                                             |
-| Any other chain, such as `test.only.skip`                                                                                                     | An `invalid-chain` error: Playwright fails to load the file.                                                                                  |
+| Any other chain, such as `test.only.skip`                                                                                                     | An `invalid-chain` error: Playwright fails to load the file and runs no tests at all.                                                         |
 
 ### Details
 
@@ -68,7 +68,8 @@ Vitest 3.0 and newer.
 | Options `skip`, `only`, `todo`, `fails`, `concurrent`, `sequential`, `shuffle`, `tags` (4.1), `meta`       | Read when written in the file.                                            |
 | `// @module-tag name`                                                                                      | A tag on every test in the file, from Vitest 4.1.                         |
 | `.sequential`                                                                                              | The default mode before Vitest 5; a `removed-api` error from Vitest 5.    |
-| `bench` imported from `vitest`                                                                             | A `removed-api` error from Vitest 5. Benchmarks are never tests.          |
+| `bench(...)`, with `bench` imported from `vitest`                                                          | A `removed-api` error from Vitest 5. Benchmarks are never tests.          |
+| Any other chain, such as `test.fixme`                                                                      | An `invalid-chain` error.                                                 |
 
 ## In both
 

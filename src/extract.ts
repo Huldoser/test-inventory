@@ -73,6 +73,34 @@ interface Context {
   isInFunction: boolean;
   /** The plain function being walked outside any test or hook, whose states apply to the code that calls it. */
   helper: Node | null;
+  /** The innermost function with a name being walked outside any test or hook; calling it registers its tests. */
+  declaredIn: Node | null;
+}
+
+/** Where a function is written or called: in which describe, function, conditions and loop. */
+interface Placement {
+  scope: Scope;
+  helper: Node | null;
+  guards: string | null;
+  isInLoop: boolean;
+  /** In a test or hook body. */
+  inBody: boolean;
+}
+
+/** Where a function with a name is written, and the function with a name around it. */
+interface Written extends Placement {
+  declaredIn: Node | null;
+}
+
+/** Whether a function is called where it is written, so that its tests are registered there. */
+function calledWhereWritten(call: Placement, written: Placement): boolean {
+  return (
+    call.scope === written.scope &&
+    call.helper === written.helper &&
+    call.guards === written.guards &&
+    call.isInLoop === written.isInLoop &&
+    !call.inBody
+  );
 }
 
 /** What a helper function does when called: set a state or mode, or call another helper in the file. */
@@ -122,6 +150,12 @@ class Walker {
   private readonly values: Values;
   private readonly effects = new Map<Node, Effect[]>();
   private readonly helperCalls: HelperCall[] = [];
+  /** Where each function with a name is written, outside test and hook bodies. */
+  private readonly written = new Map<Node, Written>();
+  /** Every call by name to a function declared in the file. */
+  private readonly callSites = new Map<Node, Placement[]>();
+  /** The function with a name each test is declared in, which registers the test when it is called. */
+  private readonly declaredIn = new Map<PendingTest, Node>();
 
   constructor(parsed: ParsedFile, adapter: Adapter, values: Values) {
     this.parsed = parsed;
@@ -149,8 +183,11 @@ class Walker {
       isInCondition: false,
       isInFunction: false,
       helper: null,
+      declaredIn: null,
     });
-    this.applyHelpers();
+    const exported = this.exportedFunctions(this.parsed.program);
+    this.applyHelpers(exported);
+    this.checkFunctionTests(exported);
     return {
       suites: this.suites,
       tests: this.tests,
@@ -225,16 +262,38 @@ class Walker {
       case 'ArrowFunctionExpression': {
         // A function outside any test or hook runs when it is called; what it sets applies where it is called.
         const helper = context.test || context.hookScope ? null : node;
+        const named = helper !== null && this.isNamed(node);
+        if (named) this.written.set(node, { ...this.placement(context), declaredIn: context.declaredIn });
         this.visitChildren(node, {
           ...context,
           isInFunction: true,
           helper: helper ?? context.helper,
           guards: helper ? [] : context.guards,
+          declaredIn: named ? node : context.declaredIn,
         });
         return;
       }
     }
     this.visitChildren(node, context);
+  }
+
+  /** Whether a function has a name it can be called by: `function name() {}` or `const name = () => {}`. */
+  private isNamed(fn: Node): boolean {
+    const parent = this.parents.at(-2);
+    return (
+      (fn.type === 'FunctionDeclaration' && fn.id !== null) ||
+      (parent?.type === 'VariableDeclarator' && parent.id.type === 'Identifier' && parent.init === fn)
+    );
+  }
+
+  private placement(context: Context): Placement {
+    return {
+      scope: context.scope,
+      helper: context.helper,
+      guards: joinConditions(context.guards),
+      isInLoop: context.isInLoop,
+      inBody: context.test !== null || context.hookScope !== null,
+    };
   }
 
   private guarded(context: Context, guard: string | null): Context {
@@ -354,6 +413,9 @@ class Walker {
     const callee = unwrap(call.callee);
     const fn = callee.type === 'Identifier' ? this.functionNamed(callee.name, this.scopes) : null;
     if (!fn) return;
+    const sites = this.callSites.get(fn) ?? [];
+    sites.push(this.placement(context));
+    this.callSites.set(fn, sites);
     if (context.helper) {
       this.effectsOf(context.helper).push({ kind: 'call', fn, guards: context.guards });
     } else {
@@ -389,8 +451,7 @@ class Walker {
    * Applies what helper functions set to the tests, hooks and describes that call them, through nested helpers too,
    * with the conditions around each call. A helper no test or hook reaches, or that the file exports, is reported.
    */
-  private applyHelpers(): void {
-    const exported = this.exportedFunctions(this.parsed.program);
+  private applyHelpers(exported: Set<Node>): void {
     const reached = new Set<Node>();
     const expand = (fn: Node, guards: string[], path: Set<Node>): Exclude<Effect, { kind: 'call' }>[] => {
       if (path.has(fn) || exported.has(fn)) return [];
@@ -419,6 +480,39 @@ class Walker {
           own.call,
           `${callee}() is in a function that ${why}; it applies to the tests that call the function, so it is not applied here.`,
           callee,
+        ),
+      );
+    }
+  }
+
+  /** Why calling a function with a name doesn't register its tests where they are written; null when it does. */
+  private misplaced(fn: Node, exported: Set<Node>): string | null {
+    if (exported.has(fn)) return 'the file exports the function';
+    const sites = this.callSites.get(fn) ?? [];
+    if (sites.length === 0) return 'nothing in the file calls the function by name';
+    if (sites.length > 1) return `the function is called ${sites.length} times`;
+    const written = this.written.get(fn) as Written;
+    return calledWhereWritten(sites[0], written)
+      ? null
+      : 'the function is called in another place than where it is written';
+  }
+
+  /**
+   * Warns about tests declared in a function with a name, or in one around it, whose calls register them somewhere
+   * else than where they are written: the runner adds a test to the describe around each call.
+   */
+  private checkFunctionTests(exported: Set<Node>): void {
+    for (const [test, innermost] of this.declaredIn) {
+      let why: string | null = null;
+      for (let fn: Node | null = innermost; fn && !why; fn = (this.written.get(fn) as Written).declaredIn) {
+        why = this.misplaced(fn, exported);
+      }
+      if (!why) continue;
+      test.problems.push(
+        problem(
+          'test-in-function',
+          test.call,
+          `The test is declared in a function, and ${why}. The runner registers the test at each call of the function, in the describe around the call; it is listed once, where it is written.`,
         ),
       );
     }
@@ -453,6 +547,7 @@ class Walker {
       problems: [...declaration.problems],
     };
     this.tests.push(test);
+    if (context.declaredIn) this.declaredIn.set(test, context.declaredIn);
     context.scope.suite?.cuts.push(statement);
     if (declaration.fn) {
       this.visitCallback(declaration.fn, {
