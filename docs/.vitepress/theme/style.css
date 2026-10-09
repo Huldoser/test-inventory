@@ -1,0 +1,29 @@
+/*
+ * The logo's emerald (#0e7f3c) as the brand color, 5.1:1 on white. On the green and gray tints behind tips and inline
+ * code it falls below 4.5:1, so text on those tints uses the darker shade in light mode.
+ */
+:root {
+  --vp-c-brand-1: #0e7f3c;
+  --vp-c-brand-2: #0b6a32;
+  --vp-c-brand-3: #0e7f3c;
+  --vp-c-brand-soft: rgba(14, 127, 60, 0.14);
+
+  --vp-c-tip-1: var(--vp-c-brand-2);
+  --vp-code-color: var(--vp-c-brand-2);
+  --vp-code-link-color: var(--vp-c-brand-2);
+
+  /* Button labels are white in both modes, so hover and active darken the button instead of lightening it. */
+  --vp-button-brand-hover-bg: #0b6a32;
+  --vp-button-brand-active-bg: #0a5f2d;
+}
+
+.dark {
+  --vp-c-brand-1: #3fd686;
+  --vp-c-brand-2: #2fbf73;
+  --vp-c-brand-3: #0e7f3c;
+  --vp-c-brand-soft: rgba(14, 127, 60, 0.16);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-code-color: var(--vp-c-brand-1);
+  --vp-code-link-color: var(--vp-c-brand-1);
+}
