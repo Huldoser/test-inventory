@@ -174,3 +174,8 @@ for file, count in sorted(smoke.items()):
 1 tests/portfolio.spec.ts
 1 tests/watchlist.spec.ts
 ```
+
+---
+
+If these recipes save you time, consider [sponsoring test-inventory](https://github.com/sponsors/Huldoser). A query you
+miss here is welcome as an [issue](https://github.com/Huldoser/test-inventory/issues).

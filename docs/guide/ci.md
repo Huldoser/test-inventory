@@ -143,3 +143,8 @@ stage('Test inventory') {
   }
 }
 ```
+
+---
+
+If test-inventory runs in your pipeline, [sponsoring it](https://github.com/sponsors/Huldoser) helps keep it working
+with each new Playwright and Vitest release.
