@@ -11,6 +11,10 @@ import { scan, scanSource, type Inventory } from 'test-inventory';
 Scans the files that match the patterns and returns the inventory. The options are the same as on the
 [command line](/guide/cli), in camel case.
 
+<!-- types: scan, ScanOptions, Framework, CommentsMode -->
+
+To count the tests that are always skipped in the web app:
+
 ```ts
 const inventory = await scan({
   patterns: ['tests/**/*.spec.ts'],
@@ -27,6 +31,10 @@ console.log(`${skipped.length} tests are always skipped`);
 
 Scans the code of one file without reading anything from disk. Use it in editors, linters or tests.
 
+<!-- types: scanSource, ScanSourceOptions -->
+
+To read the state of a test from code that is not on disk:
+
 ```ts
 const inventory = scanSource({
   code: "import { test } from 'vitest';\ntest.todo('charges the daily borrow fee');",
@@ -39,6 +47,13 @@ inventory.tests[0].state; // 'todo'
 
 Because it reads no files, `scanSource` cannot follow a custom `test` object imported from a fixtures file. Tests
 that use one are reported with an `unresolved-test-import` diagnostic; `scan` follows the import.
+
+## Inventory
+
+Both functions return an inventory, the object the command line writes as JSON. The
+[output reference](/reference/output) describes each of its records key by key.
+
+<!-- types: Inventory, Tool -->
 
 ## Errors
 
@@ -56,5 +71,3 @@ import schema from 'test-inventory/schema/v1.json' with { type: 'json' };
 
 It is also published at [huldoser.github.io/test-inventory/schema/v1.json](https://huldoser.github.io/test-inventory/schema/v1.json),
 the URL in its `$id`.
-
-The [API reference](/api/) lists every exported function and type.

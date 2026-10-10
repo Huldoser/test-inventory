@@ -8,6 +8,7 @@ import type { Problem, Span, StateSetting } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import type { Diagnostic, Framework, MetaValue, StateSource, SuiteRecord, TestRecord, TestState } from './types.ts';
 
+/** @inline */
 export type CommentsMode = 'all' | 'non-active' | 'none';
 
 export interface FileRecords {
