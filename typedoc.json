@@ -12,7 +12,7 @@
   "sort": ["source-order"],
   "hidePageHeader": true,
   "hideBreadcrumbs": true,
-  "sourceLinkTemplate": "https://github.com/Huldoser/test-inventory/blob/main/{path}#L{line}",
+  "disableSources": true,
   "intentionallyNotExported": ["Count"],
   "excludeTags": ["@asType", "@minimum", "@pattern"]
 }
