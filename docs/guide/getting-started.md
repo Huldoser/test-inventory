@@ -8,25 +8,17 @@ needs Node.js 22.12 or newer, and runs on Linux, macOS and Windows, on x64 and A
 
 ## Install
 
-::: code-group
-
-```sh [npm]
+```sh
 npm install --save-dev test-inventory
 ```
 
-```sh [pnpm]
-pnpm add --save-dev test-inventory
-```
+Or try it without adding it to the project. npx downloads the package for one run, after asking:
 
-```sh [yarn]
-yarn add --dev test-inventory
-```
+<!-- scan: trading-web -->
 
-```sh [bun]
-bun add --dev test-inventory
+```sh
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 ```
-
-:::
 
 ## Scan a Playwright suite
 
@@ -57,27 +49,11 @@ test.describe('orders', { tag: '@orders' }, () => {
 
 Run the scan from the project root:
 
-::: code-group
-
 <!-- scan: trading-web -->
 
-```sh [npm]
+```sh
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --pretty --output inventory.json
 ```
-
-```sh [pnpm]
-pnpm exec test-inventory "tests/**/*.spec.ts" --framework playwright --pretty --output inventory.json
-```
-
-```sh [yarn]
-yarn test-inventory "tests/**/*.spec.ts" --framework playwright --pretty --output inventory.json
-```
-
-```sh [bun]
-bunx test-inventory "tests/**/*.spec.ts" --framework playwright --pretty --output inventory.json
-```
-
-:::
 
 The test's record in `inventory.json`, shortened:
 
