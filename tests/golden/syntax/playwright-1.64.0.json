@@ -5,7 +5,7 @@
     "version": "<version>"
   },
   "framework": "playwright",
-  "frameworkVersion": "1.63.0",
+  "frameworkVersion": "1.64.0",
   "summary": {
     "fileCount": 1,
     "suiteCount": 10,
@@ -373,7 +373,9 @@
       "isParameterized": false,
       "tags": [],
       "annotations": [],
-      "locks": [],
+      "locks": [
+        "user-settings"
+      ],
       "meta": null
     }
   ],
@@ -1387,7 +1389,9 @@
       "tags": [],
       "annotations": [],
       "comments": [],
-      "locks": [],
+      "locks": [
+        "user-settings"
+      ],
       "meta": null,
       "isParameterized": false,
       "caseCount": null,

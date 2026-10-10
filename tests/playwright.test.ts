@@ -405,6 +405,53 @@ test.describe('account settings', { lock: 'user-settings' }, () => {
     expect(onlyTest(scanPlaywright(code, { frameworkVersion: '1.62.0' })).locks).toEqual([]);
   });
 
+  it('reads locks from describe.configure from Playwright 1.64, for the file or the describe it is called in', () => {
+    const code = `${PLAYWRIGHT_IMPORT}
+import { ALERTS_LOCK } from './locks';
+test.describe.configure({ lock: 'user-settings' });
+test.describe('risk profile', () => {
+  test.describe.configure({ lock: ['risk-profile'], mode: 'serial' });
+  test('raises the daily loss limit', { lock: 'watchlist' }, async () => {});
+  test.describe('alerts', () => {
+    test.describe.configure({ lock: ALERTS_LOCK });
+    test('mutes alerts for an hour', async () => {});
+  });
+});
+test('logs out', async () => {});
+`;
+    const inventory = scanPlaywright(code, { frameworkVersion: '1.64.0' });
+    expect(inventory.tests.map((test) => [test.title, test.locks, test.isSerial])).toEqual([
+      ['raises the daily loss limit', ['user-settings', 'risk-profile', 'watchlist'], true],
+      ['mutes alerts for an hour', ['user-settings', 'risk-profile'], true],
+      ['logs out', ['user-settings'], false],
+    ]);
+    expect(inventory.suites.map((suite) => [suite.title, suite.locks])).toEqual([
+      ['risk profile', ['risk-profile']],
+      ['alerts', []],
+    ]);
+    expect(inventory.diagnostics).toMatchObject([{ code: 'unresolved-option', lineStart: 8, source: 'ALERTS_LOCK' }]);
+    const before = scanPlaywright(code, { frameworkVersion: '1.63.0' });
+    expect(before.tests.map((test) => test.locks)).toEqual([['watchlist'], [], []]);
+    expect(codes(before)).toEqual([]);
+  });
+
+  it('applies locks set by describe.configure in a helper where the helper is called', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+function lockBrokerAccount() {
+  test.describe.configure({ lock: 'broker-account' });
+}
+test.describe('withdrawals', () => {
+  lockBrokerAccount();
+  test('withdraws to the linked bank account', async () => {});
+});
+`,
+      { frameworkVersion: '1.64.0' },
+    );
+    expect(onlyTest(inventory).locks).toEqual(['broker-account']);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it('reads annotations pushed with test.info() in the test body', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 test.describe('statements', { annotation: { type: 'owner', description: 'reporting team' } }, () => {

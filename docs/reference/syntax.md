@@ -26,7 +26,7 @@ Playwright 1.42 and newer.
 | `test.skip()`, `test.skip(condition, description)`, `test.skip(({ browserName }) => condition, description)`; the same for `fixme` and `fail` | At file or describe level, a state for every test in the scope. In a test body or hook, a state for that test or the tests the hook runs for. |
 | `test.describe(title, callback)`, with details, or anonymous `test.describe(callback)`                                                        | A describe.                                                                                                                                   |
 | `test.describe.only`, `.skip`, `.fixme`, `.serial`, `.serial.only`, `.parallel`, `.parallel.only`                                             | A describe with that state or mode.                                                                                                           |
-| `test.describe.configure({ mode })`                                                                                                           | The mode of the describe or file.                                                                                                             |
+| `test.describe.configure({ mode, lock })`                                                                                                     | The mode of the describe or file. `lock`, from Playwright 1.64, adds locks to every test in it.                                               |
 | `test.info().annotations.push({ type, description })`                                                                                         | An annotation of the test.                                                                                                                    |
 | `test.use`, `test.slow`, `test.setTimeout`, `test.step`, `test.step.skip` (1.50), `test.expect`, `test.info`, `test.abort` (1.60), hooks      | Known; not tests.                                                                                                                             |
 | Any other chain, such as `test.only.skip`                                                                                                     | An `invalid-chain` error: Playwright fails to load the file and runs no tests at all.                                                         |
@@ -55,21 +55,22 @@ Vitest 3.0 and newer.
 
 ### Calls
 
-| Call                                                                                                       | Read as                                                                   |
-| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `test(title, fn)`, `test(title, options, fn)`, `test(title, fn, timeout)`                                  | A test. Without a function, a todo.                                       |
-| `test(title, fn, options)`                                                                                 | Accepted before Vitest 4; a `removed-api` error from Vitest 4.            |
-| `.concurrent`, `.only`, `.skip`, `.todo`, `.fails`, in any order and combination                           | `.only` wins over `.skip`, which wins over `.todo`.                       |
-| `.each(table)`, `.for(table)`, also as tagged templates                                                    | One parameterized record, with `caseCount` when the table is in the file. |
-| `.skipIf(condition)`, `.runIf(condition)`                                                                  | A conditional skip. `runIf(x)` is stored as the condition `!(x)`.         |
-| `describe` with `.concurrent`, `.shuffle`, `.skip`, `.only`, `.todo`, `.each`, `.for`, `.skipIf`, `.runIf` | A describe. `describe(title)` without a function is a todo.               |
-| `describe(fn)` without a title                                                                             | A `describe-not-called` error: Vitest never calls the function.           |
-| `context.skip()`, `skip(note)`, `skip(condition, note)` in a test, `beforeEach` or `aroundEach`            | A state for that test, or for the tests in the describe.                  |
-| Options `skip`, `only`, `todo`, `fails`, `concurrent`, `sequential`, `shuffle`, `tags` (4.1), `meta`       | Read when written in the file.                                            |
-| `// @module-tag name`                                                                                      | A tag on every test in the file, from Vitest 4.1.                         |
-| `.sequential`                                                                                              | The default mode before Vitest 5; a `removed-api` error from Vitest 5.    |
-| `bench(...)`, with `bench` imported from `vitest`                                                          | A `removed-api` error from Vitest 5. Benchmarks are never tests.          |
-| Any other chain, such as `test.fixme`                                                                      | An `invalid-chain` error.                                                 |
+| Call                                                                                                       | Read as                                                                    |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `test(title, fn)`, `test(title, options, fn)`, `test(title, fn, timeout)`                                  | A test. Without a function, a todo.                                        |
+| `test(title, fn, options)`                                                                                 | Accepted before Vitest 4; a `removed-api` error from Vitest 4.             |
+| `.concurrent`, `.only`, `.skip`, `.todo`, `.fails`, in any order and combination                           | `.only` wins over `.skip`, which wins over `.todo`.                        |
+| `.each(table)`, `.for(table)`, also as tagged templates                                                    | One parameterized record, with `caseCount` when the table is in the file.  |
+| `.skipIf(condition)`, `.runIf(condition)`                                                                  | A conditional skip. `runIf(x)` is stored as the condition `!(x)`.          |
+| `describe` with `.concurrent`, `.shuffle`, `.skip`, `.only`, `.todo`, `.each`, `.for`, `.skipIf`, `.runIf` | A describe. `describe(title)` without a function is a todo.                |
+| `describe(fn)` without a title                                                                             | A `describe-not-called` error: Vitest never calls the function.            |
+| `context.skip()`, `skip(note)`, `skip(condition, note)` in a test, `beforeEach` or `aroundEach`            | A state for that test, or for the tests in the describe.                   |
+| Options `skip`, `only`, `todo`, `fails`, `concurrent`, `sequential`, `shuffle`, `tags` (4.1), `meta`       | Read when written in the file.                                             |
+| `// @module-tag name`                                                                                      | A tag on every test in the file, from Vitest 4.1.                          |
+| `.sequential`                                                                                              | The default mode before Vitest 5; a `removed-api` error from Vitest 5.     |
+| `bench(...)`, with `bench` imported from `vitest`                                                          | A `removed-api` error from Vitest 5. Benchmarks are never tests.           |
+| `vi.mock`, `vi.unmock`, `vi.hoisted` below the top level of the file                                       | A `removed-api` error from Vitest 5, except in files with in-source tests. |
+| Any other chain, such as `test.fixme`                                                                      | An `invalid-chain` error.                                                  |
 
 ## In both
 

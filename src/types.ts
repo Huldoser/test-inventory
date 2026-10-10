@@ -242,7 +242,7 @@ export interface TestRecord {
   annotations: Annotation[];
   /** Comment lines directly above the test. By default only filled for tests that are not active. */
   comments: string[];
-  /** From the test and its describes. Playwright only. */
+  /** From the test, its describes and the `test.describe.configure()` calls around it. Playwright only. */
   locks: string[];
   /** Merged from the describes and the test. Vitest only; literal values only. */
   meta: Record<string, MetaValue> | null;

@@ -93,7 +93,8 @@ export type ApiCall =
       hasDynamicReason: boolean;
       problems: Problem[];
     }
-  | { kind: 'mode'; mode: Mode }
+  /** `test.describe.configure()`: a mode, locks (Playwright 1.64), or both. */
+  | { kind: 'configure'; mode: Mode | null; locks: string[]; problems: Problem[] }
   | { kind: 'hook'; fn: FunctionNode | null; testContext: unknown }
   | { kind: 'annotations'; items: Annotation[]; problems: Problem[] }
   | { kind: 'invalid'; problem: Problem }

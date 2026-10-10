@@ -103,22 +103,28 @@ function calledWhereWritten(call: Placement, written: Placement): boolean {
   );
 }
 
-/** What a helper function does when called: set a state or mode, or call another helper in the file. */
+/** What a helper function does when called: set a state, a mode or locks, or call another helper in the file. */
 type Effect =
   | { kind: 'state'; setting: StateSetting; call: CallExpression }
-  | { kind: 'mode'; mode: Mode; call: CallExpression }
+  | { kind: 'configure'; mode: Mode | null; locks: string[]; call: CallExpression }
   | { kind: 'call'; fn: Node; guards: string[] };
 
 /** A call to a helper function from a test, a hook, or the body of a describe or the file. */
 interface HelperCall {
   fn: Node;
   target: PendingTest | Scope;
-  /** The describe or file the helper is called in directly, where a mode it sets applies; null in a test or hook. */
+  /** The describe or file the helper is called in directly, where a mode or locks it sets apply; null in a test or hook. */
   scope: Scope | null;
   guards: string[];
 }
 
 const LOOP_METHODS = new Set(['forEach', 'map']);
+
+/** What `test.describe.configure()` sets on the describe or file it is called in: the last mode wins, locks add up. */
+function configure(scope: Scope, settings: { mode: Mode | null; locks: string[] }): void {
+  if (settings.mode) scope.mode = settings.mode;
+  scope.details.locks.push(...settings.locks);
+}
 
 /** Joins conditions with `&&`, adding parentheses where a part could otherwise be read differently. */
 function joinConditions(parts: string[]): string | null {
@@ -364,9 +370,13 @@ class Walker {
         else (context.test ?? context.hookScope ?? context.scope).states.push(setting);
         return true;
       }
-      case 'mode':
-        if (context.helper) this.effectsOf(context.helper).push({ kind: 'mode', mode: api.mode, call });
-        else if (!context.test && !context.hookScope) context.scope.mode = api.mode;
+      case 'configure':
+        this.problems.push(...api.problems);
+        if (context.helper) {
+          this.effectsOf(context.helper).push({ kind: 'configure', mode: api.mode, locks: api.locks, call });
+        } else if (!context.test && !context.hookScope) {
+          configure(context.scope, api);
+        }
         return true;
       case 'hook':
         if (context.test) return false;
@@ -458,7 +468,7 @@ class Walker {
       reached.add(fn);
       return (this.effects.get(fn) ?? []).flatMap((effect) => {
         if (effect.kind === 'call') return expand(effect.fn, [...guards, ...effect.guards], new Set([...path, fn]));
-        if (effect.kind === 'mode') return [effect];
+        if (effect.kind === 'configure') return [effect];
         const condition = joinConditions([...guards, ...(effect.setting.condition ? [effect.setting.condition] : [])]);
         return [{ ...effect, setting: { ...effect.setting, condition } }];
       });
@@ -466,7 +476,7 @@ class Walker {
     for (const call of this.helperCalls) {
       for (const effect of expand(call.fn, call.guards, new Set())) {
         if (effect.kind === 'state') call.target.states.push(effect.setting);
-        else if (call.scope) call.scope.mode = effect.mode;
+        else if (call.scope) configure(call.scope, effect);
       }
     }
     for (const [fn, effects] of this.effects) {

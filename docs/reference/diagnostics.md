@@ -24,20 +24,20 @@ when tests may be missing from the output, and `warning` when a value is missing
 
 ## Declarations
 
-| Code                       | Level                        | When                                                                                                                                                                                                                |
-| -------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid-chain`            | error                        | A chain the framework does not have, such as `test.only.skip` in Playwright, or one that needs a newer version.                                                                                                     |
-| `test-without-body`        | error                        | Playwright `test('title')` without a function, which makes Playwright fail to load the file and run no tests at all.                                                                                                |
-| `describe-not-called`      | error                        | Vitest `describe(fn)` without a title. Vitest never calls the function.                                                                                                                                             |
-| `async-describe`           | error                        | A Playwright describe callback that awaits. Playwright does not wait for it: tests declared after the first `await` end up in the describe around it, or are not collected at all.                                  |
-| `tag-without-at`           | error                        | A Playwright tag that does not start with `@`, which makes Playwright fail to load the file and run no tests at all.                                                                                                |
-| `removed-api`              | error                        | An API the framework version removed: Vitest 5 `sequential` and `bench`, or options as the third argument from Vitest 4. The call throws.                                                                           |
-| `duplicate-id`             | error                        | Two records in a file have the same id. Ids include a position among equal titles, so only a hash collision causes this.                                                                                            |
-| `duplicate-title`          | warning, error in Playwright | Playwright: two tests in the file have the same title path, without anonymous describes, so Playwright fails to load the file and runs no tests at all. Vitest: two tests in the same describe have the same title. |
-| `state-in-helper`          | warning                      | A `test.skip()`, `test.fixme()`, `test.fail()` or `describe.configure()` is in a function that the file exports or never calls, so it is not applied to any record.                                                 |
-| `skip-without-body`        | warning                      | Playwright `test.skip('title')` without a function: Playwright reads the title as a condition and skips every test in the scope.                                                                                    |
-| `nested-test`              | warning                      | A test or describe declared inside a test body or hook. The runner does not collect it, so it is not listed.                                                                                                        |
-| `only-in-skipped-describe` | warning                      | A test with `.only` inside a skipped describe. It is still skipped.                                                                                                                                                 |
+| Code                       | Level                        | When                                                                                                                                                                                                                                  |
+| -------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid-chain`            | error                        | A chain the framework does not have, such as `test.only.skip` in Playwright, or one that needs a newer version.                                                                                                                       |
+| `test-without-body`        | error                        | Playwright `test('title')` without a function, which makes Playwright fail to load the file and run no tests at all.                                                                                                                  |
+| `describe-not-called`      | error                        | Vitest `describe(fn)` without a title. Vitest never calls the function.                                                                                                                                                               |
+| `async-describe`           | error                        | A Playwright describe callback that awaits. Playwright does not wait for it: tests declared after the first `await` end up in the describe around it, or are not collected at all.                                                    |
+| `tag-without-at`           | error                        | A Playwright tag that does not start with `@`, which makes Playwright fail to load the file and run no tests at all.                                                                                                                  |
+| `removed-api`              | error                        | An API the framework version removed: Vitest 5 `sequential` and `bench`, `vi.mock`, `vi.unmock` or `vi.hoisted` below the top level of the file from Vitest 5, or options as the third argument from Vitest 4. Vitest fails the file. |
+| `duplicate-id`             | error                        | Two records in a file have the same id. Ids include a position among equal titles, so only a hash collision causes this.                                                                                                              |
+| `duplicate-title`          | warning, error in Playwright | Playwright: two tests in the file have the same title path, without anonymous describes, so Playwright fails to load the file and runs no tests at all. Vitest: two tests in the same describe have the same title.                   |
+| `state-in-helper`          | warning                      | A `test.skip()`, `test.fixme()`, `test.fail()` or `describe.configure()` is in a function that the file exports or never calls, so it is not applied to any record.                                                                   |
+| `skip-without-body`        | warning                      | Playwright `test.skip('title')` without a function: Playwright reads the title as a condition and skips every test in the scope.                                                                                                      |
+| `nested-test`              | warning                      | A test or describe declared inside a test body or hook. The runner does not collect it, so it is not listed.                                                                                                                          |
+| `only-in-skipped-describe` | warning                      | A test with `.only` inside a skipped describe. It is still skipped.                                                                                                                                                                   |
 
 ## Values
 
@@ -59,8 +59,8 @@ Some problems make the runner fail while it loads a file:
 
 - Playwright: `test-without-body`, `tag-without-at`, `invalid-chain` and `duplicate-title`. Playwright then stops
   before it runs any test, in this file or any other.
-- Vitest: `invalid-chain` and `removed-api`, since the call throws. Vitest reports the file as failed and runs none of
-  its tests; other files still run.
+- Vitest: `invalid-chain` and `removed-api`. Vitest reports the file as failed and runs none of its tests; other
+  files still run.
 
 Every test in such a file gets `state: "notLoaded"`, with `stateSource: "file"` and `stateLine` at the first of these
 problems. These tests are counted in `notLoadedCount`, not in `activeCount`. Everything else about them is kept, so

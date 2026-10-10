@@ -646,7 +646,7 @@
           "items": {
             "type": "string"
           },
-          "description": "From the test and its describes. Playwright only."
+          "description": "From the test, its describes and the `test.describe.configure()` calls around it. Playwright only."
         },
         "meta": {
           "anyOf": [
