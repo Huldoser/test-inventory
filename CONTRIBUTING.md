@@ -79,7 +79,7 @@ When the output changes, follow the versioning rules on the [output page](https:
 ## Releases
 
 Releases are made from `main`. Changesets collect there until a maintainer releases them; nothing is published until a
-release pull request is merged and its publish is approved.
+release pull request is merged, and npm lists the new version only once a maintainer approves it on npmjs.com.
 
 1. On an up-to-date `main` with no local changes, run `npm run release`. It checks that `main` matches GitHub and that
    changesets are waiting, makes a `release-x.y.z` branch, runs `changeset version`, updates the lockfile, commits
@@ -87,10 +87,12 @@ release pull request is merged and its publish is approved.
    link it prints. `changeset version` reads a GitHub token to link each change to its pull request: `GITHUB_TOKEN`
    when it is set, otherwise the one gh is logged in with. `npm run release -- --dry-run` shows the steps first.
 2. Review the new `CHANGELOG.md` entry and the version in the pull request, and squash merge it when the checks pass.
-3. The push to `main` starts the Release workflow. It builds, tests and packs the package, then waits at the "Publish
-   to npm" job for the `npm` environment. Open the run in the Actions tab, check that it publishes the version you
-   expect, and approve it. It then publishes to npm with provenance, pushes the `vx.y.z` tag, creates the GitHub release
-   and deploys the docs.
+3. The push to `main` starts the Release workflow. It builds, tests and packs the package, publishes it to npm with
+   provenance, pushes the `vx.y.z` tag, creates the GitHub release and deploys the docs. Merging is the approval: only
+   `main` may use the `npm` environment, and the ruleset on `main` requires a pull request with passing checks.
+4. npm holds the new version until a maintainer approves it: sign in on npmjs.com and click Approve on the package's
+   Staged Packages tab. Until then the run shows the version as published, but `npm view test-inventory@x.y.z` finds
+   nothing. Don't re-run the publish job: npm already has the version.
 
 The same steps by hand, if the script can't be used:
 
@@ -102,9 +104,12 @@ The same steps by hand, if the script can't be used:
 
 npm publishes with trusted publishing: the package's trusted publisher on npmjs.com names this repository, `release.yml`
 and the `npm` environment, and allows `npm publish`. It must exist before a release pull request is merged, or the
-publish fails; no npm token is involved. The first publish of a new package also goes through npm's staged review:
-npm lists a `0.0.0-stage` placeholder, and the real version appears once a maintainer clicks Approve on the package's
-Staged Packages tab on npmjs.com.
+publish fails with `E404 Not Found`; no npm token is involved. A maintainer with two-factor authentication sets it up
+on the package's settings page on npmjs.com, or in a terminal:
+
+```sh
+npm trust github test-inventory --file release.yml --repo Huldoser/test-inventory --env npm --allow-publish
+```
 
 The workflow creates the tags. To create one by hand, use `npx changeset git-tag`, never `changeset tag`, which is a
 deprecated name for it.
