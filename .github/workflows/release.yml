@@ -1,9 +1,10 @@
 name: Release
 
 # Releases are made on main. A release pull request, made with `changeset version` as CONTRIBUTING.md describes, raises
-# the version and writes the changelog. When it is merged, this workflow builds, tests and packs the package, waits for
-# approval in the `npm` environment, publishes the packed tarball with provenance, pushes the tag, creates the GitHub
-# release and deploys the docs. A push with changesets still waiting for a release publishes nothing.
+# the version and writes the changelog. When it is merged, this workflow builds, tests and packs the package, publishes
+# the packed tarball with provenance, pushes the tag, creates the GitHub release and deploys the docs. npm lists the new
+# version once a maintainer approves it on npmjs.com. A push with changesets still waiting for a release publishes
+# nothing.
 
 on:
   push:
@@ -69,7 +70,8 @@ jobs:
     name: Publish to npm
     needs: pack
     runs-on: ubuntu-latest
-    # A maintainer approves each publish. npm's trusted publisher for the package names this workflow and environment.
+    # Merging the release pull request is the approval: only main may use the `npm` environment, and npm's trusted
+    # publisher for the package names this workflow and environment.
     environment: npm
     permissions:
       contents: write # the tag and the GitHub release

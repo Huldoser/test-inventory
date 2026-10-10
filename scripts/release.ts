@@ -3,9 +3,9 @@
 // Prepares the next release from an up-to-date main with pending changesets: a release-<version> branch where
 // `changeset version` has raised the version and written the changelog, with the lockfile updated, committed as
 // "Release <version>" and pushed, and the pull request for it, opened with gh when it is installed and otherwise
-// through a link. Nothing is published here: the Release workflow publishes once the pull request is merged and the
-// publish is approved, as CONTRIBUTING.md describes. With --dry-run it checks and prints each step instead; it fetches
-// main to compare with it, and changes no file and no branch.
+// through a link. Nothing is published here: the Release workflow publishes once the pull request is merged, and npm
+// lists the version once a maintainer approves it on npmjs.com, as CONTRIBUTING.md describes. With --dry-run it checks
+// and prints each step instead; it fetches main to compare with it, and changes no file and no branch.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -164,7 +164,7 @@ function main(): number {
         `\nThe pull request's description, without the changelog entry until it is written:\n\n${body.trimEnd()}`,
       );
     console.log(
-      '\nNext: wait for CI to pass, squash merge the pull request, and approve the "Publish to npm" job in the Release run.',
+      '\nNext: wait for CI to pass, squash merge the pull request, and approve the new version on npmjs.com once the Release run has published it.',
     );
     return problems.length > 0 ? 1 : 0;
   } catch (error) {
