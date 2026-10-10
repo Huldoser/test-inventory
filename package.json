@@ -1,6 +1,6 @@
 {
   "name": "test-inventory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Test metadata from source code, not from test results.",
   "keywords": [
     "testing",
