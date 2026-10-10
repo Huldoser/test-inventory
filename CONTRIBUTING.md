@@ -80,7 +80,7 @@ When the output changes, follow the versioning rules on the [output page](https:
 ## Releases
 
 Releases are made from `main`. Changesets collect there until a maintainer releases them; nothing is published until a
-release pull request is merged, and npm lists the new version only once a maintainer approves it on npmjs.com.
+release pull request is merged.
 
 1. On an up-to-date `main` with no local changes, run `npm run release`. It checks that `main` matches GitHub and that
    changesets are waiting, makes a `release-x.y.z` branch, runs `changeset version`, updates the lockfile, commits
@@ -91,9 +91,9 @@ release pull request is merged, and npm lists the new version only once a mainta
 3. The push to `main` starts the Release workflow. It builds, tests and packs the package, publishes it to npm with
    provenance, pushes the `vx.y.z` tag, creates the GitHub release and deploys the docs. Merging is the approval: only
    `main` may use the `npm` environment, and the ruleset on `main` requires a pull request with passing checks.
-4. npm holds the new version until a maintainer approves it: sign in on npmjs.com and click Approve on the package's
-   Staged Packages tab. Until then the run shows the version as published, but `npm view test-inventory@x.y.z` finds
-   nothing. Don't re-run the publish job: npm already has the version.
+4. npm lists the new version a few minutes after the run publishes it. Check with
+   `npm view test-inventory@x.y.z --prefer-online`. Until then it finds nothing; don't re-run the publish job, as npm
+   already has the version.
 
 The same steps by hand, if the script can't be used:
 
