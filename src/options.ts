@@ -3,6 +3,7 @@ import type { Framework } from './types.ts';
 
 export type { CommentsMode };
 
+/** @inline */
 export interface ScanOptions {
   /** Glob patterns for the test files, relative to `root`. */
   patterns: string[];
@@ -17,6 +18,7 @@ export interface ScanOptions {
   comments?: CommentsMode;
 }
 
+/** @inline */
 export interface ScanSourceOptions {
   code: string;
   /** Path of the file from the project root, used in the output and in ids. */

@@ -18,7 +18,8 @@ Notes for coding agents working in this repository. People should read CONTRIBUT
 - `tests/fixtures/`: realistic trading-app projects and per-framework syntax files. Never run by the test suite.
 - `tests/golden/`: expected scan output, updated only with `npx vitest run tests/golden.test.ts -u` and reviewed.
 - `tests/docs.test.ts`: checks the docs against the fixtures. Code and JSON blocks in docs carry a `<!-- code: -->`,
-  `<!-- output: -->`, `<!-- scan: -->` or `<!-- recipe: -->` comment; see CONTRIBUTING.md.
+  `<!-- output: -->`, `<!-- scan: -->` or `<!-- recipe: -->` comment; see CONTRIBUTING.md. Types are never copied
+  into the docs: a `<!-- types: -->` comment inserts them from `src/` when the docs are built.
 
 ## Conventions that are easy to get wrong
 

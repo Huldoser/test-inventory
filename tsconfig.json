@@ -5,6 +5,14 @@
     "rootDir": ".",
     "declaration": false
   },
-  "include": ["src", "scripts", "tests", "docs/.vitepress/config.ts", "docs/.vitepress/theme", "vitest.config.ts"],
+  "include": [
+    "src",
+    "scripts",
+    "tests",
+    "docs/.vitepress/config.ts",
+    "docs/.vitepress/declarations.ts",
+    "docs/.vitepress/theme",
+    "vitest.config.ts"
+  ],
   "exclude": ["tests/fixtures"]
 }

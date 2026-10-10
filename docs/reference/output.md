@@ -28,6 +28,15 @@ published with each release.
 - Paths are relative to the project root and use `/` on every system.
 - Lines and columns start at 1. A line ends at `\n`, `\r\n` or `\r`, and columns count UTF-16 code units, as editors do.
 
+In the TypeScript declarations on this page, ids and hashes are a `Hash`, lines and columns a `Position`, and counts a
+`Count`:
+
+::: details Hash, Position and Count
+
+<!-- types: Hash, Position, Count -->
+
+:::
+
 ## Top level
 
 | Key                | Type           | Meaning                                                                                                            |
@@ -40,6 +49,12 @@ published with each release.
 | `suites`           | array          | One record per describe.                                                                                           |
 | `tests`            | array          | One record per test declaration.                                                                                   |
 | `diagnostics`      | array          | What the scan could not read, or read only in part.                                                                |
+
+::: details TypeScript
+
+<!-- types: Inventory, Tool, Framework -->
+
+:::
 
 ## Tests
 
@@ -82,6 +97,12 @@ the file around it.
 | `isInCondition`                                                                 | boolean        | Declared inside `if`, `?:`, `&&`, `\|\|`, `??` or `switch`.                                                                                                                                                                                                                                                                            |
 | `isInFunction`                                                                  | boolean        | Declared inside a plain function. When calls of the function would place it elsewhere, a `test-in-function` warning says so.                                                                                                                                                                                                           |
 
+::: details TypeScript
+
+<!-- types: TestRecord, TestState, StateSource, Annotation, MetaValue -->
+
+:::
+
 ### How the state is chosen
 
 The state is the one the runner applies. The test's own skip, fixme or todo comes first: `test.fixme()` in a skipped
@@ -123,6 +144,12 @@ record.
 | `isParameterized`                                                                  | boolean                | `describe.each` or `describe.for`.                                                                                                                                             |
 | `tags`, `annotations`, `locks`, `meta`                                             |                        | Written on this describe.                                                                                                                                                      |
 
+::: details TypeScript
+
+<!-- types: SuiteRecord -->
+
+:::
+
 ## Summary
 
 Each count uses the same definition as the matching key: `skipCount` counts tests with `isSkipped: true`.
@@ -133,6 +160,12 @@ Each count uses the same definition as the matching key: `skipCount` counts test
 
 `tagCounts` maps each tag to the number of tests with it. `annotationCounts` maps each annotation type to the number
 of tests with at least one annotation of that type. Both are sorted by name.
+
+::: details TypeScript
+
+<!-- types: Summary -->
+
+:::
 
 ## Diagnostics
 
@@ -145,6 +178,12 @@ of tests with at least one annotation of that type. Both are sorted by name.
 | `lineStart`, `columnStart` | number or null | Where the problem is. `null` for the whole file.                                     |
 | `testId`                   | string or null | The test it concerns.                                                                |
 | `source`                   | string or null | The code involved, cut at 200 characters.                                            |
+
+::: details TypeScript
+
+<!-- types: Diagnostic, DiagnosticLevel, DiagnosticCode -->
+
+:::
 
 ## Versioning
 

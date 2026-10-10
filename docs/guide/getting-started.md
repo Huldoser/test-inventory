@@ -100,3 +100,8 @@ Include the source files when they contain [in-source tests](https://vitest.dev/
 - [Query recipes](/guide/recipes) in jq, DuckDB, Node.js and Python, and [CI recipes](/guide/ci).
 - Every key in the [output](/reference/output).
 - The [diagnostics](/reference/diagnostics): what the scan could not read, and why.
+
+---
+
+If test-inventory turns out to be useful to you, [sponsoring its development](https://github.com/sponsors/Huldoser) pays
+for the time that keeps it current with new Playwright and Vitest versions.
