@@ -28,7 +28,6 @@ const DEV_ONLY = new Set(['MPL-2.0', 'Python-2.0']);
  */
 const CI_TOOLS = new Map([
   ['actionlint', 'MIT'],
-  ['duckdb', 'MIT'],
   ['gitleaks', 'MIT'],
   ['zizmor', 'MIT'],
 ]);

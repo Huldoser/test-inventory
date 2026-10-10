@@ -33,14 +33,10 @@ jobs:
       - run: npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 
       - name: Fail on focused tests
-        run: jq -e '.summary.onlyCount == 0' inventory.json
+        run: node -e "if (require('./inventory.json').summary.onlyCount > 0) process.exit(1)"
 
       - name: List tests that don't run
-        run: |
-          {
-            echo '### Tests that do not run'
-            jq -r '.tests[] | select(.state != "active") | "- `\(.state)` \(.fullName) (\(.relativeFilePath):\(.lineStart))"' inventory.json
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: node scripts/not-running.mjs >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -48,20 +44,26 @@ jobs:
           path: inventory.json
 ```
 
-`jq` is installed on GitHub's runners. `jq -e` exits with 1 when the expression is false, which fails the step. For
-the [trading-web](/guide/examples#playwright-end-to-end-tests) example, the summary step writes:
+The focused-test check exits with 1 when a test or a describe uses `.only`, which fails the step. The summary step
+runs a script kept in the repository, so it can be read, linted and run locally like any other code:
 
 <!-- recipe: trading-web -->
 
-::: code-group
+```js
+// scripts/not-running.mjs
+import { readFileSync } from 'node:fs';
 
-```sh [jq]
-jq -r '.tests[] | select(.state != "active") | "- `\(.state)` \(.fullName) (\(.relativeFilePath):\(.lineStart))"' inventory.json
+const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
+console.log('### Tests that do not run');
+for (const test of tests.filter((test) => test.state !== 'active')) {
+  console.log(`- \`${test.state}\` ${test.fullName} (${test.relativeFilePath}:${test.lineStart})`);
+}
 ```
 
-:::
+For the [trading-web](/guide/examples#playwright-end-to-end-tests) example, it writes:
 
 ```text
+### Tests that do not run
 - `skip` price alerts > notifies when the price crosses above the alert (tests/alerts.spec.ts:11)
 - `skip` price alerts > does not notify for a price that was never reached (tests/alerts.spec.ts:16)
 - `skip` price alerts > deletes an alert (tests/alerts.spec.ts:21)
@@ -95,11 +97,18 @@ stopped-running:
     - run: npx test-inventory "tests/**/*.spec.ts" --framework playwright --root ../base --output base.json
     - run: npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
     - name: List tests that stopped running
-      run: |
-        jq -r --slurpfile base base.json '
-          ($base[0].tests | map(select(.isActive) | .id)) as $active
-          | .tests[] | select(.isActive | not) | select(.id as $id | $active | index($id))
-          | "\(.state) \(.fullName) (\(.relativeFilePath):\(.lineStart))"' inventory.json
+      run: node scripts/stopped-running.mjs base.json inventory.json
+```
+
+```js
+// scripts/stopped-running.mjs
+import { readFileSync } from 'node:fs';
+
+const [base, head] = process.argv.slice(2).map((file) => JSON.parse(readFileSync(file, 'utf8')));
+const active = new Set(base.tests.filter((test) => test.isActive).map((test) => test.id));
+for (const test of head.tests.filter((test) => !test.isActive && active.has(test.id))) {
+  console.log(`${test.state} ${test.fullName} (${test.relativeFilePath}:${test.lineStart})`);
+}
 ```
 
 A renamed test gets a new id, so it shows up as removed and added rather than as stopped.
@@ -114,14 +123,12 @@ test-inventory:
   script:
     - npm ci
     - npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
-    - node -e "const { summary } = require('./inventory.json'); process.exit(summary.onlyCount > 0 ? 1: 0)"
+    - node -e "if (require('./inventory.json').summary.onlyCount > 0) process.exit(1)"
   artifacts:
     paths:
       - inventory.json
     expire_in: 30 days
 ```
-
-The `node` image has no `jq`, so the focused-test check uses Node.js.
 
 ## Azure Pipelines
 
@@ -138,7 +145,7 @@ The `node` image has no `jq`, so the focused-test check uses Node.js.
 stage('Test inventory') {
   steps {
     sh 'npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json'
-    sh "jq -e '.summary.onlyCount == 0' inventory.json"
+    sh '''node -e "if (require('./inventory.json').summary.onlyCount > 0) process.exit(1)"'''
     archiveArtifacts artifacts: 'inventory.json'
   }
 }

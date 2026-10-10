@@ -34,11 +34,11 @@ there and the code is 0. Globs that match no files are not an error either: the 
 `no-files-matched` warning, and one line on standard error says so.
 
 There are no options to fail a build on skipped tests or on diagnostics. The output is data; a check that needs a
-rule can read it, for example with `jq`:
+rule can read it, for example with Node.js:
 
 ```sh
-npx test-inventory "tests/**/*.spec.ts" --framework playwright \
-  | jq -e '.summary.onlyCount == 0' > /dev/null
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
+node -e "if (require('./inventory.json').summary.onlyCount > 0) process.exit(1)"
 ```
 
 ## Framework version

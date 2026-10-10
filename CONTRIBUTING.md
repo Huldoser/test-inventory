@@ -58,9 +58,8 @@ is ticked, or a maintainer adds the `no docs` label. A release pull request, whi
 - `<!-- output: trading-web -->`: every key in the JSON block has the same value in that fixture's golden output.
   Every JSON block needs one.
 - `<!-- scan: trading-web -->`: the command scans that fixture with the patterns in `tests/examples.ts`.
-- `<!-- recipe: trading-web -->`: above a code group of recipes, which run on that fixture's golden output and must
-  print the block after the group. jq, DuckDB and Python run when they are installed; CI sets `DOCS_RECIPES=all` to
-  require them.
+- `<!-- recipe: trading-web -->`: above a Node.js recipe, which runs on that fixture's golden output and must print
+  the next block.
 - `<!-- types: ScanOptions, Framework -->`: no block is written. The docs build puts those declarations there, with
   their comments, as they are in `src/`, so the docs never show a type that differs from the code.
 
