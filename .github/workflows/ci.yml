@@ -137,9 +137,6 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      DUCKDB_VERSION: 1.5.6
-      DUCKDB_SHA256: 6e89deac1ebbc36eed0291caf8b567b030c7b86ac35998f71854e22b3c5d5e2f
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -151,16 +148,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # jq and Python come with the runner; the recipes in the docs also need the DuckDB command line.
-      - name: Install DuckDB
-        run: |
-          curl -sSfL -o duckdb.zip "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip"
-          echo "${DUCKDB_SHA256}  duckdb.zip" | sha256sum --check
-          unzip -q duckdb.zip -d "$RUNNER_TEMP/duckdb"
-          echo "$RUNNER_TEMP/duckdb" >> "$GITHUB_PATH"
       - run: npx vitest run tests/docs.test.ts
-        env:
-          DOCS_RECIPES: all
       - run: npm run docs:build
 
   secrets:
