@@ -94,3 +94,9 @@ test.describe('market data', async () => {
   await Promise.resolve();
   test('loads candles', async () => {});
 });
+
+test.describe('account settings', () => {
+  test.describe.configure({ lock: 'user-settings' });
+
+  test('changes the base currency', async () => {});
+});

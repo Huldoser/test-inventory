@@ -7,7 +7,15 @@ import type {
   TemplateLiteral,
   VariableDeclarator,
 } from 'oxc-parser';
-import { isFunctionNode, isImportMetaVitest, propertyKey, propertyName, unwrap, type FunctionNode } from '../ast.ts';
+import {
+  childNodes,
+  isFunctionNode,
+  isImportMetaVitest,
+  propertyKey,
+  propertyName,
+  unwrap,
+  type FunctionNode,
+} from '../ast.ts';
 import type {
   Adapter,
   ApiCall,
@@ -95,6 +103,55 @@ const HOOKS = new Map<string, number | null>([
 ]);
 /** First members that show a name imported from a local file is used as Vitest's `test`. */
 const TEST_MEMBERS = new Set([...MODIFIERS.test, ...MODIFIERS.describe, ...TABLES, ...CONDITIONS, ...KINDS.keys()]);
+/** Calls Vitest moves to the top of the file before running it: `vi.mock`, `vi.unmock` and `vi.hoisted`. */
+const HOISTED_OBJECTS = new Set(['vi', 'vitest']);
+const HOISTED_METHODS = new Set(['mock', 'unmock', 'hoisted']);
+
+/**
+ * The hoisted calls that are not written at the top level of the file, where Vitest moves them. Vitest 5 fails such a
+ * file while it loads it. As in Vitest, `const value = vi.hoisted(...)` and `await vi.hoisted(...)` count as top
+ * level, and a file with in-source tests is never checked.
+ */
+function nestedHoistedCalls(program: Program): CallExpression[] {
+  if (hasInSourceTests(program)) return [];
+  const topLevel = new Set<Node>(program.body);
+  for (const statement of program.body) {
+    if (statement.type === 'ExpressionStatement') topLevel.add(statement.expression);
+  }
+  const found: CallExpression[] = [];
+  const parents: Node[] = [];
+  const visit = (node: Node): void => {
+    if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression') {
+      const { object, property } = node.callee;
+      const method = !node.callee.computed && property.type === 'Identifier' ? property.name : '';
+      if (object.type === 'Identifier' && HOISTED_OBJECTS.has(object.name) && HOISTED_METHODS.has(method)) {
+        if (!topLevel.has(method === 'hoisted' ? hoistedValue(node, parents) : node)) found.push(node);
+      }
+    }
+    parents.push(node);
+    for (const child of childNodes(node)) visit(child);
+    parents.pop();
+  };
+  visit(program);
+  return found;
+}
+
+/** Whether the file has in-source tests, which read `import.meta.vitest`. */
+function hasInSourceTests(node: Node): boolean {
+  return (node.type === 'MemberExpression' && isImportMetaVitest(node)) || childNodes(node).some(hasInSourceTests);
+}
+
+/** What Vitest moves for a `vi.hoisted` call: the declaration it initializes, the `await` around it, or the call. */
+function hoistedValue(call: CallExpression, parents: readonly Node[]): Node {
+  const declaration = parents.findLast((node) => node.type === 'VariableDeclaration');
+  const init = declaration?.type === 'VariableDeclaration' ? declaration.declarations[0]?.init : null;
+  const value = init ? unwrap(init) : null;
+  if (declaration && (value === call || (value?.type === 'AwaitExpression' && unwrap(value.argument) === call))) {
+    return declaration;
+  }
+  const parent = parents.at(-1);
+  return parent?.type === 'AwaitExpression' ? parent : call;
+}
 
 /** The names through which a test or hook body can skip its test: `context.skip()` or a destructured `skip()`. */
 interface SkipNames {
@@ -243,6 +300,19 @@ export class VitestAdapter implements Adapter {
     this.readModule = readModule;
     this.bindings = new VitestBindings(parsed.program, file.version);
     this.problems = [...this.bindings.problems];
+    if (atLeast(file.version, 5, 0)) {
+      for (const call of nestedHoistedCalls(parsed.program)) {
+        const callee = snippet(text(this.file, call.callee));
+        this.problems.push(
+          problem(
+            'removed-api',
+            call,
+            `Vitest 5 fails a file that calls ${callee}(...) anywhere but its top level, because the call is hoisted there.`,
+            callee,
+          ),
+        );
+      }
+    }
     this.imports = moduleImports(parsed.program, (source) => source === 'vitest' || MISMATCHED_SOURCES.has(source));
     if (atLeast(file.version, 4, 1)) {
       // Vitest's own pattern, over the whole text as Vitest reads it, so the same tags come out.

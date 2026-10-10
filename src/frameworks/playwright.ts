@@ -489,17 +489,32 @@ export class PlaywrightAdapter implements Adapter {
 
   private configure(call: CallExpression, context: CallContext): ApiCall {
     const options = call.arguments[0] ? readOptions(this.file, context.scopes, call.arguments[0]) : null;
-    const mode = options?.values.get('mode');
-    if (mode?.resolved.ok && ['parallel', 'serial', 'default'].includes(mode.resolved.value as string)) {
-      return { kind: 'mode', mode: mode.resolved.value as Mode };
+    const option = options?.values.get('mode');
+    const mode =
+      option?.resolved.ok && ['parallel', 'serial', 'default'].includes(option.resolved.value as string)
+        ? (option.resolved.value as Mode)
+        : null;
+    const problems = mode
+      ? []
+      : [
+          ...(options ? unresolvedOptions(this.file, options, 'the mode is unknown') : []),
+          ...(option && !option.resolved.ok
+            ? [unresolvedOption(this.file, 'mode', option.node, option.resolved.importedFrom, 'the mode is unknown')]
+            : []),
+        ];
+    const locks: string[] = [];
+    const lock = options?.values.get('lock');
+    if (lock && atLeast(this.file.version, 1, 64)) {
+      const strings = readStrings(this.file, context.scopes, lock);
+      locks.push(...strings.values);
+      for (const { node: unresolved, importedFrom } of strings.unresolved) {
+        problems.push(unresolvedOption(this.file, 'lock', unresolved, importedFrom, 'the lock is missing'));
+      }
     }
-    const problems = [
-      ...(options ? unresolvedOptions(this.file, options, 'the mode is unknown') : []),
-      ...(mode && !mode.resolved.ok
-        ? [unresolvedOption(this.file, 'mode', mode.node, mode.resolved.importedFrom, 'the mode is unknown')]
-        : []),
-    ];
-    return problems.length > 0 ? { kind: 'invalid', problem: problems[0] } : { kind: 'other' };
+    if (!mode && locks.length === 0) {
+      return problems.length > 0 ? { kind: 'invalid', problem: problems[0] } : { kind: 'other' };
+    }
+    return { kind: 'configure', mode, locks, problems };
   }
 
   /** `test.info().annotations.push(...)` inside a test body. */

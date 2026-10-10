@@ -70,6 +70,66 @@ test('sizes a position', () => {});`),
     ).toEqual([]);
   });
 
+  it('refuses a file from Vitest 5 when vi.mock, vi.unmock or vi.hoisted is not at its top level', () => {
+    const code = `import { describe, test, vi } from 'vitest';
+describe('quote cache', () => {
+  vi.mock('./market-data-client', () => ({ fetchQuote: vi.fn() }));
+  test('returns the cached quote for AAPL', () => {
+    vi.unmock('./clock');
+    vi.doMock('./clock');
+  });
+});
+function fakeBroker() {
+  return vi.hoisted(() => ({ placeOrder: vi.fn() }));
+}
+test('evicts quotes older than a minute', () => {});
+`;
+    const inventory = scanVitest(code);
+    expect(inventory.tests.map((test) => [test.state, test.stateLine])).toEqual([
+      ['notLoaded', 3],
+      ['notLoaded', 3],
+    ]);
+    expect(inventory.diagnostics).toMatchObject([
+      { code: 'removed-api', lineStart: 3, columnStart: 3, source: 'vi.mock' },
+      { code: 'removed-api', lineStart: 5, columnStart: 5, source: 'vi.unmock' },
+      { code: 'removed-api', lineStart: 10, columnStart: 10, source: 'vi.hoisted' },
+    ]);
+    const before = scanVitest(code, { frameworkVersion: '4.1.0' });
+    expect(before.tests.map((test) => test.state)).toEqual(['active', 'active']);
+    expect(codes(before)).toEqual([]);
+  });
+
+  it('accepts hoisted calls at the top level, in declarations and awaits, and in files with in-source tests', () => {
+    expect(
+      codes(
+        scanVitest(`import { expect, test, vi } from 'vitest';
+vi.mock('./broker', () => ({ placeOrder: vi.fn() }));
+vitest.unmock('./clock');
+const { submit } = vi.hoisted(() => ({ submit: vi.fn() }));
+const fees = await vi.hoisted(async () => ({ rate: 0.001 }));
+await vi.hoisted(async () => {});
+vi.hoisted(() => {});
+test('charges the fee rate', () => {
+  vi.doMock('./broker');
+  expect(fees.rate).toBe(0.001);
+});
+`),
+      ),
+    ).toEqual([]);
+    const inSource = scanVitest(`import { vi } from 'vitest';
+export function sma(closes: number[]): number {
+  return closes.reduce((sum, close) => sum + close, 0) / closes.length;
+}
+if (import.meta.vitest) {
+  const { test } = import.meta.vitest;
+  vi.mock('./prices');
+  test('averages the closes', () => {});
+}
+`);
+    expect(onlyTest(inSource).state).toBe('active');
+    expect(codes(inSource)).toEqual([]);
+  });
+
   it('reports a file that imports Playwright or Jest', () => {
     const inventory = scanVitest(`
 import { test } from '@playwright/test';

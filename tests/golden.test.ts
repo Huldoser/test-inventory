@@ -18,7 +18,7 @@ describe('golden output', () => {
   });
 
   describe.each([
-    ['playwright', 'playwright.spec.ts', ['1.42.0', '1.49.0', '1.50.0', '1.57.0', '1.60.0', '1.63.0']],
+    ['playwright', 'playwright.spec.ts', ['1.42.0', '1.49.0', '1.50.0', '1.57.0', '1.60.0', '1.63.0', '1.64.0']],
     ['vitest', 'vitest.test.ts', ['3.0.0', '4.0.0', '4.1.0', '5.0.0']],
   ] as const)('of the %s syntax tour', (framework, file, versions) => {
     const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');

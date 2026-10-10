@@ -267,7 +267,11 @@ class RecordBuilder {
       ]),
       annotations: [...describes.flatMap((scope) => scope.details.annotations), ...pending.annotations],
       comments,
-      locks: unique([...describes.flatMap((scope) => scope.details.locks), ...declaration.details.locks]),
+      locks: unique([
+        ...fileScope.details.locks,
+        ...describes.flatMap((scope) => scope.details.locks),
+        ...declaration.details.locks,
+      ]),
       meta: Object.keys(meta).length > 0 ? meta : null,
       isParameterized: tables.length > 0,
       caseCount: tables.length > 0 ? repetitions(tables.map((item) => item.caseCount)) : null,
