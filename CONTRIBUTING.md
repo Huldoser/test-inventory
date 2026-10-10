@@ -61,6 +61,8 @@ is ticked, or a maintainer adds the `no docs` label. A release pull request, whi
 - `<!-- recipe: trading-web -->`: above a code group of recipes, which run on that fixture's golden output and must
   print the block after the group. jq, DuckDB and Python run when they are installed; CI sets `DOCS_RECIPES=all` to
   require them.
+- `<!-- types: ScanOptions, Framework -->`: no block is written. The docs build puts those declarations there, with
+  their comments, as they are in `src/`, so the docs never show a type that differs from the code.
 
 It also checks that the reference pages list every diagnostic, command line option and output key.
 

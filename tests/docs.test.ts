@@ -1,11 +1,12 @@
 // Checks that the docs and the README stay true to the code: code shown from the example projects is in their
-// files, JSON shown is in their scan output, recipes print what the docs say, and the reference pages list every
-// diagnostic, option and key.
+// files, JSON shown is in their scan output, types shown are declared in src/, recipes print what the docs say, and
+// the reference pages list every diagnostic, option and key.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { declarations, typeNames } from '../docs/.vitepress/declarations.ts';
 import { HELP } from '../src/cli.ts';
 import { LEVELS } from '../src/diagnostics.ts';
 import type { Inventory } from '../src/index.ts';
@@ -135,6 +136,20 @@ describe('docs', () => {
       }
     },
   );
+
+  it.each(
+    pages().flatMap((page) =>
+      readFileSync(path.join(repository, page), 'utf8')
+        .split('\n')
+        .flatMap((line, index) => {
+          const names = typeNames(line);
+          return names ? [[`${page}:${index + 1}`, names] as const] : [];
+        }),
+    ),
+  )('show types that are declared in src/ at %s', (_, names) => {
+    // The docs build inserts the declarations and fails on a name it can't find; this finds it without a build.
+    expect(declarations(names)).not.toBe('');
+  });
 
   it.each(marked('scan').map((block) => [at(block), block] as const))(
     'show the command that scanned the example project at %s',

@@ -13,18 +13,29 @@ type Position = number;
 /** @pattern ^[0-9a-f]{16}$ */
 type Hash = string;
 
+/** @inline */
 export type Framework = 'playwright' | 'vitest';
 
 /**
  * The state the runner applies to a test, after describes and file-level calls are taken into account. `notLoaded`:
  * the runner refuses to load the file, so none of its tests run.
+ *
+ * @inline
  */
 export type TestState = 'active' | 'skip' | 'fixme' | 'todo' | 'expectedToFail' | 'notLoaded';
 
-/** Where a test's state is set: on the test, on a describe around it, or at file level. */
+/**
+ * Where a test's state is set: on the test, on a describe around it, or at file level.
+ *
+ * @inline
+ */
 export type StateSource = 'test' | 'suite' | 'file';
 
-/** `error`: tests may be missing from the output. `warning`: a value is missing or approximate. */
+/**
+ * `error`: tests may be missing from the output. `warning`: a value is missing or approximate.
+ *
+ * @inline
+ */
 export type DiagnosticLevel = 'error' | 'warning';
 
 export type DiagnosticCode =
@@ -81,6 +92,7 @@ export interface Inventory {
   diagnostics: Diagnostic[];
 }
 
+/** @inline */
 export interface Tool {
   name: 'test-inventory';
   /** Version of test-inventory that produced the output. */
@@ -249,6 +261,7 @@ export interface TestRecord {
   isInFunction: boolean;
 }
 
+/** @inline */
 export interface Annotation {
   type: string;
   description: string | null;
