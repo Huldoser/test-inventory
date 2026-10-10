@@ -1,7 +1,7 @@
 // Checks that the docs and the README stay true to the code: code shown from the example projects is in their
 // files, JSON shown is in their scan output, types shown are declared in src/, recipes print what the docs say, and
 // the reference pages list every diagnostic, option and key.
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -20,9 +20,9 @@ interface Block {
   line: number;
   lang: string;
   code: string;
-  /** The `<!-- kind: value -->` comment right above the block, or above the code group it is in. */
+  /** The `<!-- kind: value -->` comment right above the block. */
   marker: { kind: string; value: string } | null;
-  /** For a recipe, the output block after its code group. */
+  /** For a recipe, the next block, which shows what it prints. */
   output: string | null;
 }
 
@@ -44,36 +44,28 @@ function blocks(page: string): Block[] {
   const lines = readFileSync(path.join(repository, page), 'utf8').split('\n');
   const found: Block[] = [];
   let marker: Block['marker'] = null;
-  let group: Block[] | null = null;
-  let recipe: Block[] | null = null;
+  // A recipe waiting for the block that shows its output; text may come in between.
+  let recipe: Block | null = null;
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     const comment = /^<!-- ([\w-]+): (.+?) -->$/.exec(line);
     const fence = /^```(\w*)/.exec(line);
     if (comment) {
       marker = { kind: comment[1], value: comment[2] };
-    } else if (line === '::: code-group') {
-      group = [];
-    } else if (line === ':::' && group) {
-      // A recipe's output is the next block after its code group.
-      if (marker?.kind === 'recipe') recipe = group;
-      group = null;
-      marker = null;
     } else if (fence) {
       const start = index;
       const code: string[] = [];
       while (!lines[++index].startsWith('```')) code.push(lines[index]);
       const block: Block = { page, line: start + 1, lang: fence[1], code: code.join('\n'), marker, output: null };
       if (recipe) {
-        for (const item of recipe) item.output = block.code;
+        recipe.output = block.code;
         recipe = null;
       } else {
         found.push(block);
-        group?.push(block);
+        if (marker?.kind === 'recipe') recipe = block;
       }
-      // A recipe's marker covers its whole code group; any other covers one block.
-      if (marker?.kind !== 'recipe') marker = null;
-    } else if (line.trim() !== '' && !group) {
+      marker = null;
+    } else if (line.trim() !== '') {
       marker = null;
     }
   }
@@ -167,70 +159,28 @@ describe('docs', () => {
   );
 });
 
-/** jq, DuckDB and Python run when installed; `DOCS_RECIPES=all`, set in CI, makes a missing one fail instead. */
-const RUNNERS: Record<string, { command: string; available: boolean; run: (code: string, dir: string) => string }> = {
-  sh: {
-    command: 'jq',
-    available: spawnSync('jq', ['--version']).status === 0,
-    run: (code, dir) => {
-      const args = [...code.matchAll(/'[^']*'|\S+/g)].map((match) => match[0].replace(/^'(.*)'$/s, '$1'));
-      expect(args[0]).toBe('jq');
-      return execFileSync('jq', args.slice(1), { cwd: dir, encoding: 'utf8' });
-    },
-  },
-  sql: {
-    command: 'duckdb',
-    available: spawnSync('duckdb', ['--version']).status === 0,
-    run: (code, dir) => execFileSync('duckdb', ['-list', '-noheader', '-c', code], { cwd: dir, encoding: 'utf8' }),
-  },
-  js: {
-    command: 'node',
-    available: true,
-    run: (code, dir) => {
-      writeFileSync(path.join(dir, 'recipe.mjs'), code);
-      return execFileSync(process.execPath, ['recipe.mjs'], { cwd: dir, encoding: 'utf8' });
-    },
-  },
-  python: {
-    command: process.platform === 'win32' ? 'python' : 'python3',
-    available: spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['--version']).status === 0,
-    run: (code, dir) => {
-      writeFileSync(path.join(dir, 'recipe.py'), code);
-      const command = process.platform === 'win32' ? 'python' : 'python3';
-      return execFileSync(command, ['recipe.py'], {
-        cwd: dir,
-        encoding: 'utf8',
-        env: { ...process.env, PYTHONUTF8: '1' },
-      });
-    },
-  },
-};
-
 describe('recipes', () => {
   const recipes = marked('recipe');
 
-  it('have one output and a version in each language', () => {
+  it('are Node.js scripts, each followed by what it prints', () => {
     expect(recipes.length).toBeGreaterThan(0);
     for (const block of recipes) {
+      expect(block.lang, at(block)).toBe('js');
       expect(block.output, at(block)).not.toBeNull();
-      expect(Object.keys(RUNNERS), at(block)).toContain(block.lang);
     }
   });
 
-  it.each(recipes.map((block) => [`${block.lang} at ${at(block)}`, block] as const))(
-    'print the output shown for %s',
-    (_, block) => {
-      const runner = RUNNERS[block.lang];
-      if (!runner.available && process.env.DOCS_RECIPES !== 'all') return;
-      const dir = mkdtempSync(path.join(tmpdir(), 'test-inventory-recipe-'));
-      try {
-        writeFileSync(path.join(dir, 'inventory.json'), readFileSync(goldenPath(block.marker?.value ?? '')));
-        expect(runner.run(block.code, dir).replaceAll('\r\n', '\n').trimEnd()).toBe(block.output);
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    },
-  );
+  it.each(recipes.map((block) => [at(block), block] as const))('print the output shown at %s', (_, block) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'test-inventory-recipe-'));
+    try {
+      writeFileSync(path.join(dir, 'inventory.json'), readFileSync(goldenPath(block.marker?.value ?? '')));
+      writeFileSync(path.join(dir, 'recipe.mjs'), block.code);
+      const printed = execFileSync(process.execPath, ['recipe.mjs'], { cwd: dir, encoding: 'utf8' });
+      expect(printed.replaceAll('\r\n', '\n').trimEnd()).toBe(block.output);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('tables', () => {

@@ -1,13 +1,10 @@
 # Query recipes
 
-The output is plain JSON, so any tool that reads JSON can answer questions about a test suite. Each recipe below
-answers one question in [jq](https://jqlang.org), [DuckDB](https://duckdb.org) SQL, Node.js and Python, and reads
-`inventory.json` from the current folder. The output under each recipe is what all four print for the
-[trading-web](/guide/examples#playwright-end-to-end-tests) example project; the test suite runs them on that
+The output is plain JSON, so any language can answer questions about a test suite. Each recipe below is a Node.js
+script that answers one question. It reads `inventory.json` from the current folder: save it as a `.mjs` file and run
+it with `node`. The output under each recipe is what it prints for the
+[trading-web](/guide/examples#playwright-end-to-end-tests) example project; the test suite runs the recipes on that
 project's scan, so they stay correct.
-
-Run a DuckDB query with `duckdb -list -noheader -f query.sql`. DuckDB reads the JSON file as a table with one row;
-`unnest(tests)` turns its tests into rows.
 
 ## Tests that don't run, and why
 
@@ -15,21 +12,7 @@ Skipped, fixme, todo and expected-to-fail tests, with the reason given in the co
 
 <!-- recipe: trading-web -->
 
-::: code-group
-
-```sh [jq]
-jq -r '.tests[] | select(.state != "active") | "\(.state) \(.relativeFilePath):\(.lineStart) \(.fullName)" + (if .reason then " (\(.reason))" else "" end)' inventory.json
-```
-
-```sql [DuckDB]
-SELECT t.state || ' ' || t.relativeFilePath || ':' || t.lineStart || ' ' || t.fullName
-  || coalesce(' (' || t.reason || ')', '')
-FROM (SELECT unnest(tests) AS t FROM 'inventory.json')
-WHERE t.state <> 'active'
-ORDER BY t.relativeFilePath, t.lineStart;
-```
-
-```js [Node.js]
+```js
 import { readFileSync } from 'node:fs';
 
 const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
@@ -38,20 +21,6 @@ for (const test of tests.filter((test) => test.state !== 'active')) {
   console.log(`${test.state} ${test.relativeFilePath}:${test.lineStart} ${test.fullName}${reason}`);
 }
 ```
-
-```python [Python]
-import json
-
-with open("inventory.json", encoding="utf-8") as file:
-    inventory = json.load(file)
-
-for test in inventory["tests"]:
-    if test["state"] != "active":
-        reason = f" ({test['reason']})" if test["reason"] else ""
-        print(f"{test['state']} {test['relativeFilePath']}:{test['lineStart']} {test['fullName']}{reason}")
-```
-
-:::
 
 ```text
 skip tests/alerts.spec.ts:11 price alerts > notifies when the price crosses above the alert (Alerts only trigger while the market is open)
@@ -70,23 +39,7 @@ Ticket numbers such as `TRD-412` in the comments above a test or in its reason. 
 
 <!-- recipe: trading-web -->
 
-::: code-group
-
-```sh [jq]
-jq -r '.tests[] | select(.state != "active") | ((.comments + [.reason // ""]) | join(" ") | [scan("[A-Z]+-[0-9]+")] | unique[]) as $ticket | "\($ticket) \(.relativeFilePath):\(.lineStart) \(.fullName)"' inventory.json
-```
-
-```sql [DuckDB]
-SELECT ticket || ' ' || t.relativeFilePath || ':' || t.lineStart || ' ' || t.fullName
-FROM (SELECT unnest(tests) AS t FROM 'inventory.json'),
-  unnest(list_sort(list_distinct(regexp_extract_all(
-    array_to_string(t.comments, ' ') || ' ' || coalesce(t.reason, ''), '[A-Z]+-[0-9]+'
-  )))) AS tickets(ticket)
-WHERE t.state <> 'active'
-ORDER BY t.relativeFilePath, t.lineStart, ticket;
-```
-
-```js [Node.js]
+```js
 import { readFileSync } from 'node:fs';
 
 const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
@@ -96,22 +49,6 @@ for (const test of tests.filter((test) => test.state !== 'active')) {
   for (const ticket of tickets) console.log(`${ticket} ${test.relativeFilePath}:${test.lineStart} ${test.fullName}`);
 }
 ```
-
-```python [Python]
-import json
-import re
-
-with open("inventory.json", encoding="utf-8") as file:
-    inventory = json.load(file)
-
-for test in inventory["tests"]:
-    if test["state"] != "active":
-        text = " ".join(test["comments"] + [test["reason"] or ""])
-        for ticket in sorted(set(re.findall(r"[A-Z]+-[0-9]+", text))):
-            print(f"{ticket} {test['relativeFilePath']}:{test['lineStart']} {test['fullName']}")
-```
-
-:::
 
 ```text
 TRD-301 tests/login.spec.ts:25 login > asks for a one-time code on a new device
@@ -126,21 +63,7 @@ Tests tagged `@smoke`, counted per file. Tags include those inherited from descr
 
 <!-- recipe: trading-web -->
 
-::: code-group
-
-```sh [jq]
-jq -r '[.tests[] | select(.tags | index("@smoke"))] | group_by(.relativeFilePath)[] | "\(length) \(.[0].relativeFilePath)"' inventory.json
-```
-
-```sql [DuckDB]
-SELECT count(*) || ' ' || t.relativeFilePath
-FROM (SELECT unnest(tests) AS t FROM 'inventory.json')
-WHERE list_contains(t.tags, '@smoke')
-GROUP BY t.relativeFilePath
-ORDER BY t.relativeFilePath;
-```
-
-```js [Node.js]
+```js
 import { readFileSync } from 'node:fs';
 
 const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
@@ -152,20 +75,6 @@ for (const [file, smoke] of [...perFile].sort(([a], [b]) => (a < b ? -1 : 1))) {
   console.log(`${smoke.length} ${file}`);
 }
 ```
-
-```python [Python]
-import json
-from collections import Counter
-
-with open("inventory.json", encoding="utf-8") as file:
-    inventory = json.load(file)
-
-smoke = Counter(test["relativeFilePath"] for test in inventory["tests"] if "@smoke" in test["tags"])
-for file, count in sorted(smoke.items()):
-    print(f"{count} {file}")
-```
-
-:::
 
 ```text
 4 tests/login.spec.ts
