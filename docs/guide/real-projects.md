@@ -9,28 +9,27 @@ an error that says why.
 
 ## Scans
 
-Each scan ran the command line in its own process, the median of five runs, on a desktop Ryzen 7 9800X3D under WSL 2
-with Node.js 26.9. Folders named `fixtures` and `__fixtures__` are left out: they hold test inputs, some with syntax
-errors on purpose, that the projects' runners never load.
+Folders named `fixtures` and `__fixtures__` are left out: they hold test inputs, some with syntax errors on purpose,
+that the projects' runners never load.
 
-| Project                                                                                             | Framework  | Files |  Tests | Time   | Peak memory |
-| --------------------------------------------------------------------------------------------------- | ---------- | ----: | -----: | ------ | ----------: |
-| [freeCodeCamp/freeCodeCamp](https://github.com/freeCodeCamp/freeCodeCamp) `34b1acd`, end to end     | Playwright |    84 |    268 | 0.28 s |       93 MB |
-| [vuejs/core](https://github.com/vuejs/core) `4ab865a`                                               | Vitest     |   196 |  3,592 | 1.22 s |      191 MB |
-| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, test apps                                | Playwright |    10 |    404 | 0.36 s |      100 MB |
-| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, unit                                     | Vitest     |    78 |    705 | 0.46 s |      105 MB |
-| [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                           | Playwright |   538 |  1,489 | 2.02 s |      206 MB |
-| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, end to end                     | Playwright |    32 |    263 | 0.31 s |      108 MB |
-| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                           | Vitest     |   815 |  8,113 | 2.05 s |      196 MB |
-| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                         | Vitest     |   827 |  9,456 | 2.12 s |      214 MB |
-| [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                         | Playwright |   309 |    203 | 0.61 s |      132 MB |
-| [TanStack/router](https://github.com/TanStack/router) `663282b`, unit                               | Vitest     |   450 |  4,801 | 1.88 s |      221 MB |
-| [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                             | Vitest     |   180 |  1,893 | 0.57 s |      151 MB |
-| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) `3e3624c`                                 | Vitest     |   509 |  3,434 | 1.03 s |      177 MB |
-| [nuxt/nuxt](https://github.com/nuxt/nuxt) `0296ca4`                                                 | Vitest     |   266 |  2,603 | 0.84 s |      170 MB |
-| [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                         | Vitest     |   142 |  2,154 | 0.83 s |      187 MB |
-| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end | Playwright |   714 |  2,188 | 1.26 s |      174 MB |
-| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit       | Vitest     |   853 | 10,120 | 2.48 s |      215 MB |
+| Project                                                                                             | Framework  | Files |  Tests |
+| --------------------------------------------------------------------------------------------------- | ---------- | ----: | -----: |
+| [freeCodeCamp/freeCodeCamp](https://github.com/freeCodeCamp/freeCodeCamp) `34b1acd`, end to end     | Playwright |    84 |    268 |
+| [vuejs/core](https://github.com/vuejs/core) `4ab865a`                                               | Vitest     |   196 |  3,592 |
+| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, test apps                                | Playwright |    10 |    404 |
+| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, unit                                     | Vitest     |    78 |    705 |
+| [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                           | Playwright |   538 |  1,489 |
+| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, end to end                     | Playwright |    32 |    263 |
+| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                           | Vitest     |   815 |  8,113 |
+| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                         | Vitest     |   827 |  9,456 |
+| [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                         | Playwright |   309 |    203 |
+| [TanStack/router](https://github.com/TanStack/router) `663282b`, unit                               | Vitest     |   450 |  4,801 |
+| [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                             | Vitest     |   180 |  1,893 |
+| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) `3e3624c`                                 | Vitest     |   509 |  3,434 |
+| [nuxt/nuxt](https://github.com/nuxt/nuxt) `0296ca4`                                                 | Vitest     |   266 |  2,603 |
+| [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                         | Vitest     |   142 |  2,154 |
+| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end | Playwright |   714 |  2,188 |
+| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit       | Vitest     |   853 | 10,120 |
 
 No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings about values the scan can't work out
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The

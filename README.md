@@ -95,13 +95,6 @@ const todo = inventory.tests.filter((test) => test.isTodo).map((test) => test.fu
   iteration or case.
 - Conditions such as `browserName === 'webkit'` are kept as source text, not evaluated.
 
-## Performance
-
-Files are read one at a time and the JSON is written one record at a time. Scanning the 196 Vitest files of
-[vuejs/core](https://github.com/vuejs/core) at commit 4ab865a (3,592 tests) took 1.22 s and 187 MB of peak memory,
-the median of nine runs of the command line pinned to two cores with `taskset -c 0,1`, on a 16-core Ryzen 7 9800X3D
-desktop under WSL 2 with Node.js 26.9.
-
 ## Support
 
 If test-inventory is useful to you, [star it on GitHub](https://github.com/Huldoser/test-inventory) or
