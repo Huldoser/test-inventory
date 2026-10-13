@@ -32,6 +32,12 @@ const CI_TOOLS = new Map([
   ['zizmor', 'MIT'],
 ]);
 
+/**
+ * Packages whose package.json has no license field, at an exact version, with the license their repository states.
+ * format comes with the llms.txt plugin of the docs, through remark-frontmatter; github.com/samsonjs/format is MIT.
+ */
+const STATED = new Map([['format@0.2.2', 'MIT']]);
+
 interface Dependency {
   version?: string;
   license?: string;
@@ -54,7 +60,8 @@ function collect(dependencies: Record<string, Dependency>, found: Map<string, st
       skipped.add(name);
       continue;
     }
-    found.set(`${name}@${dependency.version}`, dependency.license ?? 'unknown');
+    const key = `${name}@${dependency.version}`;
+    found.set(key, dependency.license ?? STATED.get(key) ?? 'unknown');
     collect(dependency.dependencies ?? {}, found, skipped);
   }
 }

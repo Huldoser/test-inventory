@@ -8,8 +8,11 @@ import {
   bindAll,
   exportName,
   followImport,
+  followModule,
   moduleImports,
   requiredModule,
+  type FollowImport,
+  type Framework,
   type ModuleImport,
   type TestObjects,
 } from './bindings.ts';
@@ -79,7 +82,11 @@ const ADDED_IN = new Map<string, [number, number]>([
 
 function isPlaywrightSource(source: string): boolean {
   return (
-    source === '@playwright/test' || source === 'playwright/test' || source.startsWith('@playwright/experimental-ct-')
+    source === '@playwright/test' ||
+    source === 'playwright/test' ||
+    source.startsWith('@playwright/experimental-ct-') ||
+    // Files generated from Gherkin features import Playwright's `test` from playwright-bdd, which extends it.
+    source === 'playwright-bdd'
   );
 }
 
@@ -91,8 +98,13 @@ class PlaywrightBindings implements TestObjects {
   /** The import specifiers and declarators that bind those names, to tell them from local names that shadow them. */
   readonly declarations = new Set<Node>();
   readonly mismatches: Problem[] = [];
+  /** Names imported from other modules, which may be test objects there. */
+  private readonly imported: Map<string, ModuleImport>;
+  private readonly follow: FollowImport;
 
-  constructor(program: Program) {
+  constructor(program: Program, follow: FollowImport) {
+    this.imported = moduleImports(program, (source) => isPlaywrightSource(source) || MISMATCHED_SOURCES.has(source));
+    this.follow = follow;
     for (const statement of program.body) {
       if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
       const source = statement.source.value;
@@ -123,14 +135,14 @@ class PlaywrightBindings implements TestObjects {
   }
 
   isTestName(name: string): boolean {
-    return this.testNames.has(name);
+    return this.testNames.has(name) || this.importsTestObject(name);
   }
 
   isTestObject(expression: Expression): boolean {
     const node = unwrap(expression);
     switch (node.type) {
       case 'Identifier':
-        return this.testNames.has(node.name);
+        return this.testNames.has(node.name) || this.importsTestObject(node.name);
       case 'MemberExpression':
         return propertyName(node) === 'test' && this.isModule(node.object);
       case 'ConditionalExpression':
@@ -151,7 +163,13 @@ class PlaywrightBindings implements TestObjects {
   }
 
   reexports(source: string, imported: string): boolean {
-    return isPlaywrightSource(source) && (imported === 'test' || imported === 'default');
+    return isPlaywrightSource(source) ? imported === 'test' || imported === 'default' : this.follow(source, imported);
+  }
+
+  /** Whether a name is imported from another module that exports it as a test object, as `base` from './base'. */
+  private importsTestObject(name: string): boolean {
+    const from = this.imported.get(name);
+    return from !== undefined && this.follow(from.source, from.imported);
   }
 
   /** Whether an expression is the Playwright module object, from a namespace import or `require`. */
@@ -192,6 +210,12 @@ class PlaywrightBindings implements TestObjects {
   }
 }
 
+const PLAYWRIGHT: Framework = {
+  name: 'Playwright',
+  isSource: isPlaywrightSource,
+  testObjects: (program, follow) => new PlaywrightBindings(program, follow),
+};
+
 export class PlaywrightAdapter implements Adapter {
   readonly problems: Problem[];
   readonly fileTags: string[] = [];
@@ -208,7 +232,14 @@ export class PlaywrightAdapter implements Adapter {
   constructor(program: Program, file: FileContext, readModule: ModuleReader | null) {
     this.file = file;
     this.readModule = readModule;
-    this.bindings = new PlaywrightBindings(program);
+    // A test object the file builds from an imported one, as in `const test = base.extend({...})`, is followed
+    // quietly: a call through the import itself is what reports an import that can't be followed.
+    const followed = new Map<string, boolean>();
+    this.bindings = new PlaywrightBindings(program, (source, imported) => {
+      const key = `${source}\0${imported}`;
+      if (!followed.has(key)) followed.set(key, followModule(source, imported, readModule, PLAYWRIGHT).exported);
+      return followed.get(key) === true;
+    });
     this.problems = [...this.bindings.mismatches];
     this.imports = moduleImports(program, (source) => isPlaywrightSource(source) || MISMATCHED_SOURCES.has(source));
   }
@@ -329,11 +360,7 @@ export class PlaywrightAdapter implements Adapter {
     const imported = this.imports.get(name) as ModuleImport;
     let result = this.followed.get(name);
     if (!result) {
-      result = followImport(name, imported, this.readModule, this.file, {
-        name: 'Playwright',
-        isSource: isPlaywrightSource,
-        testObjects: (program) => new PlaywrightBindings(program),
-      });
+      result = followImport(name, imported, this.readModule, this.file, PLAYWRIGHT);
       this.followed.set(name, result);
       if (result.exported) {
         this.bindings.testNames.add(name);

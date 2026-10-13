@@ -29,18 +29,26 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 });
 ```
 
-The one import that is followed is a custom `test` object, one file deep. It is found through:
+Two kinds of import are followed: a custom `test` object, and a function that declares tests, as described under
+[tests in helper functions](#tests-in-helper-functions). They are found through:
 
 - a relative path, as in `../fixtures`;
-- a path alias from `compilerOptions.paths` or `baseUrl` in the root `tsconfig.json`, and the file it `extends`, one
-  level;
+- a path alias from `compilerOptions.paths` or `baseUrl` in the tsconfig nearest the importing file, with every file
+  it `extends`, packages such as `@trading/tsconfig` included. Without a `tsconfig.json`, the nearest
+  `tsconfig.base.json` is used, as in an Nx workspace; a solution-style tsconfig takes them from the projects it
+  `references`;
 - an `imports` entry in the nearest `package.json`, as in `#fixtures`;
-- a workspace package linked into `node_modules`, when its `exports`, `types` or `main` point to TypeScript source.
+- a workspace package whose `exports`, `types` or `main` point to TypeScript source, or to build output with the
+  source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
+  install, from the `workspaces` of `package.json` or from `pnpm-workspace.yaml`.
+
+A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
+`export * from './base'`, or build it with `extend` on a test object it imports from another file.
 
 Installed packages are not followed. When a call shaped like a test, outside any test or hook body, uses a name from
-an import that can't be followed, an `unresolved-test-import` error names the import and says why: the file is missing
-or can't be parsed, the package is installed, or the file builds or re-exports its test object from another module.
-The tests that use it are missing. The error needs a name that reads like a test function, as in
+an import that can't be followed, an `unresolved-test-import` error names the import and says where the chain of
+files ends: a file that is missing or can't be parsed, an installed package, or a file that doesn't export a test
+object. The tests that use it are missing. The error needs a name that reads like a test function, as in
 `brokerTest('routes to NASDAQ', ...)`, or a member such as `.describe` after it. Helpers shaped the same way, such as
 `waitForFill('AAPL', (order) => ...)`, are not reported. `scanSource()` reads no files, so it follows no imports.
 
@@ -62,8 +70,8 @@ helper named `expectFill('AAPL', 100, 'filled', check)`, are not tests.
 ## States set in helper functions
 
 In Playwright, a `test.skip()`, `test.fixme()`, `test.fail()` or `test.describe.configure()` call inside a plain
-function of the same file applies to the tests, hooks and describes that call that function by name, also through
-helpers that call other helpers:
+function applies to the tests, hooks and describes that call that function by name, also through helpers that call
+other helpers. A function called from the file or a describe may also be imported from another file:
 
 ```ts
 function skipWithoutMarketData() {
@@ -83,7 +91,8 @@ as in `test.beforeEach(skipWithoutMarketData)`.
 
 The runner registers a test when the `test()` call runs, in the describe that is being collected at that moment. For
 a test declared in a function, that is the describe around each call of the function, not the place where the test
-is written. The scan lists the test once, where it is written:
+is written. The scan does the same: it reads the function at each call from the file or a describe, with that call's
+arguments, so titles built from them are worked out:
 
 ```ts
 function validatesQuantity(side: string) {
@@ -99,16 +108,24 @@ test.describe.skip('short sells', () => {
 });
 ```
 
-Playwright lists two tests here, one in each describe, and the one in `short sells` is skipped. The scan lists one
-active test outside any describe, with `isInFunction: true` and a `test-in-function` warning. The warning appears when
-the function is called more than once, from another describe, in a loop or in a test, when nothing in the file calls
-it by name, or when the file exports it. A function called once, where it is written, gets no warning, because the
-record is then where the runner puts the test. Tests in a callback passed to another function, as in
-`withPaperAccount(() => { test(...) })`, get no warning either.
+Playwright lists two tests here, and so does the scan: `buy orders > buy rejects a zero quantity`, and
+`short sells > short rejects a zero quantity`, which is skipped. Both have `isInFunction: true` and the line of the
+`test()` call.
+
+A function imported from another file is followed the same way, through the imports above. Its records give the call
+in the scanned file as their location, since that is the line that registers the tests, and `declaredAt` gives the
+file and line where the helper writes the test.
+
+A `test-in-function` warning remains for tests in a function the scan can't place: one that nothing in the file calls
+by name, one the file only exports, and one called only from tests or hooks, where the runner doesn't collect tests.
+Such a test is listed where it is written. Tests in a callback passed to another function, as in
+`withPaperAccount(() => { test(...) })`, are listed where they are written, with no warning.
 
 ## Loops and tables are one record
 
 A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true` and a `test-in-loop` warning.
+In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
+Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the table is
 written in the file. The runner creates one test per iteration or per case; expanding them is planned for a later
 release.
@@ -121,6 +138,7 @@ condition written as a constant, such as `test.skip(true)` or `test.skipIf(false
 
 ## What a scan never sees
 
-Tests created inside a function imported from another file, as in `registerOrderTests(orderTicket)`, are not listed,
-and nothing in the output says so: the call does not look like a test. When a call does look like a test and goes
+Tests created inside a function from an installed package, or from a file the scan can't read, as in
+`registerOrderTests(orderTicket)`, are not listed, and nothing in the output says so: the call does not look like a
+test. When a call does look like a test and goes
 through an import that can't be followed, an `unresolved-test-import` error says tests are missing.

@@ -109,6 +109,75 @@ describe('a custom test object imported through a tsconfig path alias', () => {
   });
 });
 
+describe('the tsconfig, found the way TypeScript finds it', () => {
+  it('is the nearest one above the test file', async () => {
+    const inventory = await scanSpec({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': FIXTURES,
+      'tsconfig.json': '{ "compilerOptions": { "paths": { "@/*": ["missing/*"] } } }',
+      'tests/tsconfig.json':
+        '{ "extends": "../tsconfig.json", "compilerOptions": { "paths": { "@/*": ["../fixtures/*"] } } }',
+      'tests/portfolio.spec.ts': spec('@/index'),
+      'tests/orders/limit-orders.spec.ts': spec('@/index'),
+    });
+    expect(inventory.summary.testCount).toBe(2);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('extends packages by name and by file, through further extends, with ${configDir} filled in', async () => {
+    const inventory = await scanSpec({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': FIXTURES,
+      'node_modules/@trading/tsconfig/package.json': '{ "name": "@trading/tsconfig", "tsconfig": "./base.json" }',
+      'node_modules/@trading/tsconfig/base.json': '{ "extends": "./aliases", "compilerOptions": { "strict": true } }',
+      'node_modules/@trading/tsconfig/aliases.json':
+        '{ "compilerOptions": { "paths": { "@trading/fixtures": ["${configDir}/fixtures/index.ts"] } } }',
+      'node_modules/@trading/strict/tsconfig.json': '{ "compilerOptions": { "strict": true } }',
+      'tsconfig.json': '{ "extends": ["@trading/strict", "@trading/tsconfig", "@trading/tsconfig/aliases"] }',
+      'tests/portfolio.spec.ts': spec('@trading/fixtures'),
+    });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('is tsconfig.base.json when there is no tsconfig.json, as in an Nx workspace', async () => {
+    const inventory = await scanSpec({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'libs/testing/src/index.ts': FIXTURES,
+      'tsconfig.base.json': '{ "compilerOptions": { "paths": { "@trading/testing": ["libs/testing/src/index.ts"] } } }',
+      'tests/portfolio.spec.ts': spec('@trading/testing'),
+    });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('takes paths from the first project a solution-style tsconfig references that sets them', async () => {
+    const inventory = await scanSpec({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': FIXTURES,
+      'tsconfig.json':
+        '{ "files": [], "references": [{ "path": "./tsconfig.node.json" }, { "path": "./config" }, { "path": 1 }, { "path": "./tsconfig.app.json" }] }',
+      'tsconfig.node.json': '{ "compilerOptions": { "strict": true } }',
+      'config/README.md': 'No tsconfig here.\n',
+      'tsconfig.app.json': '{ "compilerOptions": { "paths": { "@/*": ["./*"] } } }',
+      'tests/portfolio.spec.ts': spec('@/fixtures'),
+    });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads a tsconfig that extends itself once, and skips files it extends that are missing', async () => {
+    const inventory = await scanSpec({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': FIXTURES,
+      'tsconfig.json':
+        '{ "extends": ["./tsconfig.json", "./missing.json", "./missing"], "compilerOptions": { "paths": { "@/*": ["./*"] } } }',
+      'tests/portfolio.spec.ts': spec('@/fixtures'),
+    });
+    expect(inventory.summary.testCount).toBe(1);
+  });
+});
+
 describe('a custom test object imported through package.json imports', () => {
   it.each([
     ['a path', { '#fixtures': './fixtures/index.ts' }, '#fixtures'],
@@ -185,6 +254,12 @@ describe('a custom test object from a workspace package', () => {
       '@trading/test-utils/fixtures',
     ],
     ['a subpath pattern', { exports: { './*': './src/*.ts' } }, '@trading/test-utils/fixtures'],
+    [
+      'build output, to the source next to it',
+      { exports: { '.': { types: './dist/types/index.d.ts', import: './dist/esm/index.js' } } },
+      '@trading/test-utils',
+    ],
+    ['a built main, to the source next to it', { main: './lib/fixtures.cjs' }, '@trading/test-utils'],
   ])('is followed to its source through %s', async (_, manifest, from) => {
     const root = workspace(manifest, { 'tests/portfolio.spec.ts': spec(from) });
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
@@ -193,7 +268,11 @@ describe('a custom test object from a workspace package', () => {
   });
 
   it.each([
-    ['only built JavaScript', { exports: './dist/index.js', types: './dist/index.d.ts' }, '@trading/test-utils'],
+    [
+      'only built JavaScript with no source next to it',
+      { exports: './dist/bundle.js', types: './build', main: 'index.js' },
+      '@trading/test-utils',
+    ],
     ['a subpath it does not export', { exports: { '.': './src/index.ts' } }, '@trading/test-utils/fixtures'],
     ['a subpath without exports', { main: './src/index.ts' }, '@trading/test-utils/fixtures'],
   ])('is reported when it points to %s', async (_, manifest, from) => {
@@ -201,6 +280,52 @@ describe('a custom test object from a workspace package', () => {
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
     expect(messages(inventory)).toEqual([
       `'test' is imported from '${from}', which is a workspace package whose exports, types and main don't point to TypeScript source; tests that use it are missing.`,
+    ]);
+  });
+
+  const WORKSPACE = {
+    'packages/test-utils/package.json': JSON.stringify({ name: '@trading/test-utils', exports: './src/index.ts' }),
+    'packages/test-utils/src/index.ts': FIXTURES,
+    'packages/legacy/package.json': JSON.stringify({ name: '@trading/legacy-utils', exports: './index.ts' }),
+    'packages/notes/package.json': '{}',
+  };
+  const withWorkspaces = (workspaces: unknown) =>
+    JSON.stringify({ devDependencies: { '@playwright/test': '1.63.0' }, workspaces });
+
+  it.each([
+    ['package.json workspaces', { 'package.json': withWorkspaces(['packages/*', '!packages/legacy']) }],
+    ['package.json workspaces.packages', { 'package.json': withWorkspaces({ packages: ['packages/*/'] }) }],
+    [
+      'a pnpm-workspace.yaml list',
+      {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'pnpm-workspace.yaml':
+          '# Trading monorepo\npackages:\n  - \'packages/*\'\n  # Tools come later.\n  - "tools/*" # with comments\n\ncatalog:\n  vitest: 5.0.3\n',
+      },
+    ],
+    [
+      'a pnpm-workspace.yaml flow list',
+      { 'package.json': PLAYWRIGHT_PACKAGE, 'pnpm-workspace.yaml': "packages: ['packages/*', tools/*]\n" },
+    ],
+  ])('is followed without an install, from %s', async (_, files) => {
+    const inventory = await scanSpec({
+      ...WORKSPACE,
+      ...files,
+      'tests/portfolio.spec.ts': spec('@trading/test-utils'),
+      'tests/watchlist.spec.ts': spec('@trading/test-utils'),
+    });
+    expect(inventory.summary.testCount).toBe(2);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reports a package the workspace leaves out or does not have', async () => {
+    const inventory = await scanSpec({
+      ...WORKSPACE,
+      'package.json': withWorkspaces(['packages/*', '!packages/legacy']),
+      'tests/legacy.spec.ts': spec('@trading/legacy-utils'),
+    });
+    expect(messages(inventory)).toEqual([
+      "'test' is imported from '@trading/legacy-utils', which is not a local file, a path alias or a workspace package; tests that use it are missing.",
     ]);
   });
 

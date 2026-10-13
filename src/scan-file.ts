@@ -1,10 +1,11 @@
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
-import { extract } from './extract.ts';
+import { extract, type Frame } from './extract.ts';
+import { parseModule } from './frameworks/bindings.ts';
 import { problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
-import type { ModuleReader } from './model.ts';
-import { parseFile } from './parse.ts';
+import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
+import { parseFile, type ParsedFile } from './parse.ts';
 import { buildRecords, type CommentsMode, type FileRecords } from './records.ts';
 import { snippet } from './source.ts';
 import type { Framework } from './types.ts';
@@ -25,6 +26,21 @@ export interface FileResult extends FileRecords {
 }
 
 const TYPE_TEST = /\.(test|spec)-d\.[cm]?[jt]sx?$/;
+
+/** A file read for the scan: the scanned file, or a module a helper function is imported from. */
+function frame(
+  parsed: ParsedFile,
+  relativeFilePath: string,
+  settings: FileSettings,
+  readModule: ModuleReader | null,
+): Frame {
+  const file: FileContext = { source: parsed.source, values: new Values(), version: settings.version };
+  const adapter: Adapter =
+    settings.framework === 'playwright'
+      ? new PlaywrightAdapter(parsed.program, file, readModule)
+      : new VitestAdapter(parsed, file, readModule);
+  return { parsed, adapter, values: file.values, readModule, relativeFilePath };
+}
 
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
 export function scanFile(code: string, relativeFilePath: string, settings: FileSettings): FileResult {
@@ -48,12 +64,11 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       // The parser keeps what it could read after some errors; after others it returns nothing.
       if (parsed.program.body.length === 0) return { suites: [], tests: [], diagnostics, usesGlobals: false };
     }
-    const file: FileContext = { source: parsed.source, values: new Values(), version: settings.version };
-    const adapter =
-      settings.framework === 'playwright'
-        ? new PlaywrightAdapter(parsed.program, file, settings.readModule)
-        : new VitestAdapter(parsed, file, settings.readModule);
-    const extraction = extract(parsed, adapter, file.values);
+    const main = frame(parsed, relativeFilePath, settings, settings.readModule);
+    const extraction = extract(main, (module: ModuleSource) => {
+      const helper = parseModule(module);
+      return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule);
+    });
     const records = buildRecords(extraction, parsed, {
       relativeFilePath,
       framework: settings.framework,

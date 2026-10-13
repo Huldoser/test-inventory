@@ -1,5 +1,5 @@
-import type { CallExpression, Node, Program } from 'oxc-parser';
-import { childNodes, isImportMetaVitest, propertyName, unwrap, type FunctionNode } from './ast.ts';
+import type { CallExpression, Expression, Node, Program } from 'oxc-parser';
+import { childNodes, isFunctionNode, isImportMetaVitest, propertyName, unwrap, type FunctionNode } from './ast.ts';
 import { exportName } from './frameworks/bindings.ts';
 import { problem } from './frameworks/common.ts';
 import type {
@@ -7,6 +7,8 @@ import type {
   ApiCall,
   Details,
   Mode,
+  ModuleReader,
+  ModuleSource,
   Problem,
   Span,
   StateSetting,
@@ -14,7 +16,7 @@ import type {
   TestDeclaration,
 } from './model.ts';
 import type { ParsedFile } from './parse.ts';
-import { snippet, splitLines } from './source.ts';
+import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation } from './types.ts';
 import { isScopeNode, type Values } from './values.ts';
 
@@ -29,10 +31,22 @@ export interface Scope {
   suite: PendingSuite | null;
 }
 
+/** Where a test or describe registered through an imported helper is written, in the helper's module. */
+export interface DeclaredAt {
+  relativeFilePath: string;
+  source: SourceText;
+  start: number;
+}
+
 export interface PendingSuite {
   scope: Scope;
   declaration: SuiteDeclaration;
   call: CallExpression;
+  /** For a describe declared in an imported helper, the call in the scanned file that registers it; null otherwise. */
+  site: Span | null;
+  declaredAt: DeclaredAt | null;
+  /** Where the scanned file registers the describe: its own call, or the outermost helper call that declares it. */
+  order: number;
   /** Statements of the tests and describes directly inside, left out of the describe's body hash. */
   cuts: Span[];
 }
@@ -41,6 +55,11 @@ export interface PendingTest {
   scope: Scope;
   declaration: TestDeclaration;
   call: CallExpression;
+  /** For a test declared in an imported helper, the call in the scanned file that registers it; null otherwise. */
+  site: Span | null;
+  declaredAt: DeclaredAt | null;
+  /** Where the scanned file registers the test: its own call, or the outermost helper call that declares it. */
+  order: number;
   /** States from the declaration, then from calls in the body such as `test.skip(condition)`. */
   states: StateSetting[];
   annotations: Annotation[];
@@ -49,6 +68,24 @@ export interface PendingTest {
   isInFunction: boolean;
   comments: string[];
   problems: Problem[];
+}
+
+/** A file the walk reads code from: the scanned file, or a module a helper function is imported from. */
+export interface Frame {
+  parsed: ParsedFile;
+  adapter: Adapter;
+  values: Values;
+  readModule: ModuleReader | null;
+  relativeFilePath: string;
+}
+
+/** Reads a module a helper is imported from as a frame; null when it can't be parsed. */
+export type OpenModule = (module: ModuleSource) => Frame | null;
+
+/** A function walked at a call, and the file it is written in. */
+interface Callee {
+  fn: FunctionNode;
+  frame: Frame;
 }
 
 export interface Extraction {
@@ -75,7 +112,25 @@ interface Context {
   helper: Node | null;
   /** The innermost function with a name being walked outside any test or hook; calling it registers its tests. */
   declaredIn: Node | null;
+  /**
+   * Set while a function is walked where it is written although it is also walked at its calls: only the states it sets
+   * are collected, for calls from tests and hooks, and its tests and describes are not recorded again.
+   */
+  quiet: boolean;
+  /** The start of the outermost helper call being walked from the file or a describe; null outside one. */
+  registeredAt: number | null;
 }
+
+/** A function with a name, waiting to be walked where it is written once the calls in the file are known. */
+interface Deferred {
+  fn: FunctionNode;
+  context: Context;
+  scopes: Node[];
+  parents: Node[];
+}
+
+/** How many helpers deep a call is followed into the functions it calls, far more than real suites nest. */
+const MAX_DEPTH = 16;
 
 /** Where a function is written or called: in which describe, function, conditions and loop. */
 interface Placement {
@@ -109,12 +164,10 @@ type Effect =
   | { kind: 'configure'; mode: Mode | null; locks: string[]; call: CallExpression }
   | { kind: 'call'; fn: Node; guards: string[] };
 
-/** A call to a helper function from a test, a hook, or the body of a describe or the file. */
+/** A call to a helper function from a test or a hook, whose states apply to that test or the tests the hook covers. */
 interface HelperCall {
   fn: Node;
   target: PendingTest | Scope;
-  /** The describe or file the helper is called in directly, where a mode or locks it sets apply; null in a test or hook. */
-  scope: Scope | null;
   guards: string[];
 }
 
@@ -151,22 +204,45 @@ class Walker {
   private readonly suites: PendingSuite[] = [];
   private readonly tests: PendingTest[] = [];
   private readonly problems: Problem[] = [];
-  private readonly parsed: ParsedFile;
-  private readonly adapter: Adapter;
-  private readonly values: Values;
+  /** The scanned file. */
+  private readonly main: Frame;
+  /** The file whose code is being walked: the scanned file, or the module of an imported helper. */
+  private frame: Frame;
+  /** While an imported helper is walked, the call in the scanned file that walks it; records and problems point there. */
+  private site: CallExpression | null = null;
+  private readonly openModule: OpenModule;
+  private readonly frames = new Map<ModuleSource, Frame | null>();
+  /** Problems of helper modules' own imports, reported once, at the first call that walks the module. */
+  private readonly moduleProblems = new Set<Problem>();
+  /** The file each describe is written in, so that a describe's body hash only leaves out code from its own file. */
+  private readonly suiteFrames = new WeakMap<PendingSuite, Frame>();
   private readonly effects = new Map<Node, Effect[]>();
   private readonly helperCalls: HelperCall[] = [];
   /** Where each function with a name is written, outside test and hook bodies. */
   private readonly written = new Map<Node, Written>();
-  /** Every call by name to a function declared in the file. */
-  private readonly callSites = new Map<Node, Placement[]>();
+  /**
+   * Every call by name to a function declared in the file, once per call: a call inside a helper is walked again each
+   * time the helper is, and the first walk, from where the helper is called, places it.
+   */
+  private readonly callSites = new Map<Node, Map<Node, Placement>>();
   /** The function with a name each test is declared in, which registers the test when it is called. */
   private readonly declaredIn = new Map<PendingTest, Node>();
+  private readonly deferred: Deferred[] = [];
+  private readonly isDeferred = new Set<Node>();
+  /** Functions walked at one of their calls, so that their tests are recorded where they are registered. */
+  private readonly walkedAtCall = new Set<Node>();
+  /** The functions being walked at their calls, innermost last, to stop recursion. */
+  private readonly callStack: Node[] = [];
+  /** Problems already reported, since a function walked at several calls finds the same ones each time. */
+  private readonly reported = new Set<string>();
+  /** For each file's program, the scopes around each function in it. */
+  private readonly scopeChains = new Map<Node, Map<Node, Node[]>>();
 
-  constructor(parsed: ParsedFile, adapter: Adapter, values: Values) {
-    this.parsed = parsed;
-    this.adapter = adapter;
-    this.values = values;
+  constructor(main: Frame, openModule: OpenModule) {
+    this.main = main;
+    this.frame = main;
+    this.openModule = openModule;
+    const { adapter } = main;
     this.fileScope = {
       kind: 'file',
       parent: null,
@@ -179,7 +255,7 @@ class Walker {
   }
 
   run(): Extraction {
-    this.visit(this.parsed.program, {
+    this.visit(this.main.parsed.program, {
       scope: this.fileScope,
       test: null,
       hookScope: null,
@@ -190,15 +266,22 @@ class Walker {
       isInFunction: false,
       helper: null,
       declaredIn: null,
+      quiet: false,
+      registeredAt: null,
     });
-    const exported = this.exportedFunctions(this.parsed.program);
+    // Functions defined inside these are deferred in turn; the loop reaches them too, as they are added to the end.
+    for (const entry of this.deferred) this.walkWhereWritten(entry);
+    // Records follow the order the file registers them in; the sort is stable, so one call's tests keep theirs.
+    this.tests.sort((a, b) => a.order - b.order);
+    this.suites.sort((a, b) => a.order - b.order);
+    const exported = this.exportedFunctions(this.main.parsed.program);
     this.applyHelpers(exported);
     this.checkFunctionTests(exported);
     return {
       suites: this.suites,
       tests: this.tests,
-      problems: [...this.adapter.problems, ...this.problems],
-      usesGlobals: this.adapter.usesGlobals,
+      problems: [...this.main.adapter.problems, ...this.problems],
+      usesGlobals: this.main.adapter.usesGlobals,
     };
   }
 
@@ -217,10 +300,13 @@ class Walker {
 
   private visitNode(node: Node, context: Context): void {
     switch (node.type) {
-      case 'CallExpression':
-        this.helperCall(node, context);
+      case 'CallExpression': {
+        const helper = this.helperCall(node, context);
         if (this.call(node, context) || this.loopCall(node, context)) return;
-        break;
+        this.visitChildren(node, context);
+        if (helper) this.walkAtCall(helper, node, context);
+        return;
+      }
       case 'IfStatement': {
         // In-source tests sit inside `if (import.meta.vitest)`, which is how they are written, not a condition.
         if (isImportMetaVitest(node.test)) break;
@@ -269,13 +355,21 @@ class Walker {
         // A function outside any test or hook runs when it is called; what it sets applies where it is called.
         const helper = context.test || context.hookScope ? null : node;
         const named = helper !== null && this.isNamed(node);
-        if (named) this.written.set(node, { ...this.placement(context), declaredIn: context.declaredIn });
+        // In an imported helper's module, a function runs only when it is called, and is walked then.
+        if (named && this.frame !== this.main) return;
+        if (named && !this.isDeferred.has(node)) {
+          // Its calls decide where its tests are registered, and a call may come after it, so it waits.
+          this.written.set(node, { ...this.placement(context), declaredIn: context.declaredIn });
+          this.isDeferred.add(node);
+          this.deferred.push({ fn: node, context, scopes: [...this.scopes], parents: [...this.parents] });
+          return;
+        }
+        if (named) return;
         this.visitChildren(node, {
           ...context,
           isInFunction: true,
           helper: helper ?? context.helper,
           guards: helper ? [] : context.guards,
-          declaredIn: named ? node : context.declaredIn,
         });
         return;
       }
@@ -318,7 +412,7 @@ class Walker {
   }
 
   private text(node: Node): string {
-    return snippet(this.parsed.source.slice(node.start, node.end));
+    return snippet(this.frame.parsed.source.slice(node.start, node.end));
   }
 
   /** `symbols.forEach((symbol) => test(...))` declares its tests in a loop. */
@@ -337,7 +431,7 @@ class Walker {
   }
 
   private call(call: CallExpression, context: Context): boolean {
-    const api = this.adapter.classify(call, {
+    const api = this.frame.adapter.classify(call, {
       scopes: this.scopes,
       testContext: context.testContext,
       inTest: context.test !== null,
@@ -356,7 +450,8 @@ class Walker {
         this.declareSuite(call, api, context);
         return true;
       case 'modifier': {
-        (context.test?.problems ?? this.problems).push(...api.problems);
+        if (context.test) context.test.problems.push(...api.problems.map((item) => this.here(item)));
+        else for (const item of api.problems) this.report(item);
         if (api.condition.applies === 'never') return true;
         const own = api.condition.applies === 'sometimes' ? [api.condition.text as string] : [];
         const setting: StateSetting = {
@@ -364,14 +459,14 @@ class Walker {
           condition: joinConditions([...context.guards, ...own]),
           reason: api.reason,
           hasDynamicReason: api.hasDynamicReason,
-          line: this.parsed.source.line(call.start),
+          line: this.lineOf(call),
         };
         if (context.helper) this.effectsOf(context.helper).push({ kind: 'state', setting, call });
         else (context.test ?? context.hookScope ?? context.scope).states.push(setting);
         return true;
       }
       case 'configure':
-        this.problems.push(...api.problems);
+        for (const item of api.problems) this.report(item);
         if (context.helper) {
           this.effectsOf(context.helper).push({ kind: 'configure', mode: api.mode, locks: api.locks, call });
         } else if (!context.test && !context.hookScope) {
@@ -392,11 +487,11 @@ class Walker {
         return true;
       case 'annotations':
         context.test?.annotations.push(...api.items);
-        context.test?.problems.push(...api.problems);
+        context.test?.problems.push(...api.problems.map((item) => this.here(item)));
         return true;
       case 'invalid': {
         const afterLoad = context.test !== null || context.hookScope !== null || context.helper !== null;
-        this.problems.push(afterLoad ? { ...api.problem, afterLoad } : api.problem);
+        this.report(afterLoad ? { ...api.problem, afterLoad } : api.problem);
         return true;
       }
       case 'other':
@@ -411,28 +506,223 @@ class Walker {
   }
 
   /** The function a name refers to when it is declared in the file, as a function or a variable holding one. */
-  private functionNamed(name: string, scopes: readonly Node[]): Node | null {
-    const declaration = this.values.declarationOf(name, scopes);
+  private functionNamed(name: string, scopes: readonly Node[]): FunctionNode | null {
+    return this.functionIn(this.frame, name, scopes);
+  }
+
+  private functionIn(frame: Frame, name: string, scopes: readonly Node[]): FunctionNode | null {
+    const declaration = frame.values.declarationOf(name, scopes);
     if (declaration?.type === 'FunctionDeclaration') return declaration;
     const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
     return init?.type === 'ArrowFunctionExpression' || init?.type === 'FunctionExpression' ? init : null;
   }
 
-  /** Records a call to a function declared in the file, so that the states it sets can follow the call. */
-  private helperCall(call: CallExpression, context: Context): void {
+  /**
+   * Records a call to a function declared in the file. A call from the file or a describe returns the function, to be
+   * walked there: its tests are registered in the describe around the call, and what it sets applies there. A call
+   * from a test, a hook or another function is applied later, through the states the function sets.
+   */
+  private helperCall(call: CallExpression, context: Context): Callee | null {
     const callee = unwrap(call.callee);
-    const fn = callee.type === 'Identifier' ? this.functionNamed(callee.name, this.scopes) : null;
-    if (!fn) return;
-    const sites = this.callSites.get(fn) ?? [];
-    sites.push(this.placement(context));
+    if (callee.type !== 'Identifier') return null;
+    const fn = this.functionNamed(callee.name, this.scopes);
+    if (!fn) {
+      const runsHere = !context.test && !context.hookScope && !context.helper;
+      const imported = runsHere && this.callStack.length < MAX_DEPTH ? this.importedFunction(callee.name) : null;
+      return imported && !this.callStack.includes(imported.fn) ? imported : null;
+    }
+    const sites = this.callSites.get(fn) ?? new Map<Node, Placement>();
+    if (!sites.has(call)) sites.set(call, this.placement(context));
     this.callSites.set(fn, sites);
     if (context.helper) {
       this.effectsOf(context.helper).push({ kind: 'call', fn, guards: context.guards });
-    } else {
-      const target = context.test ?? context.hookScope ?? context.scope;
-      const scope = context.test || context.hookScope ? null : context.scope;
-      this.helperCalls.push({ fn, target, scope, guards: context.guards });
+    } else if (context.test || context.hookScope) {
+      this.helperCalls.push({
+        fn,
+        target: context.test ?? (context.hookScope as Scope),
+        guards: context.guards,
+      });
+    } else if (!this.callStack.includes(fn) && this.callStack.length < MAX_DEPTH) {
+      return { fn, frame: this.frame };
     }
+    return null;
+  }
+
+  /** The function a name imported from a local module stands for, in the file that writes it; null otherwise. */
+  private importedFunction(name: string): Callee | null {
+    const declaration = this.frame.values.declarationOf(name, this.scopes);
+    const source = this.frame.values.importSource(name, this.scopes);
+    if (source === null) return null;
+    const imported = declaration?.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
+    const frame = this.openFrom(this.frame, source);
+    return frame ? this.exportedFunction(frame, imported, []) : null;
+  }
+
+  /** A module a file imports, read as a frame once; null when it can't be read or parsed. */
+  private openFrom(frame: Frame, source: string): Frame | null {
+    const module = frame.readModule?.(source);
+    if (!module || 'reason' in module) return null;
+    if (!this.frames.has(module)) this.frames.set(module, this.openModule(module));
+    return this.frames.get(module) ?? null;
+  }
+
+  /**
+   * The function a module exports under a name, written there or re-exported from another module, as a barrel file
+   * does; null when the export isn't a function the scan can find.
+   */
+  private exportedFunction(frame: Frame, name: string, seen: readonly Frame[]): Callee | null {
+    if (seen.includes(frame) || seen.length >= MAX_DEPTH) return null;
+    const within = [...seen, frame];
+    const { program } = frame.parsed;
+    const local = (localName: string): Callee | null => {
+      const fn = this.functionIn(frame, localName, [program]);
+      return fn ? { fn, frame } : null;
+    };
+    const from = (source: string, exported: string): Callee | null => {
+      const module = this.openFrom(frame, source);
+      return module ? this.exportedFunction(module, exported, within) : null;
+    };
+    for (const statement of program.body) {
+      if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
+        const declaration = statement.declaration;
+        if (declaration.type === 'FunctionDeclaration' || isFunctionNode(declaration))
+          return { fn: declaration, frame };
+        return declaration.type === 'Identifier' ? local(declaration.name) : null;
+      }
+      if (statement.type === 'ExportAllDeclaration' && !statement.exported) {
+        const found = from(statement.source.value, name);
+        if (found) return found;
+      }
+      if (statement.type !== 'ExportNamedDeclaration') continue;
+      const declaration = statement.declaration;
+      if (declaration?.type === 'FunctionDeclaration' && declaration.id?.name === name)
+        return { fn: declaration, frame };
+      if (declaration?.type === 'VariableDeclaration') {
+        const declarator = declaration.declarations.find(
+          (item) => item.id.type === 'Identifier' && item.id.name === name,
+        );
+        if (declarator) return local(name);
+      }
+      const specifier = statement.specifiers.find((item) => exportName(item.exported) === name);
+      if (specifier) {
+        const localName = exportName(specifier.local);
+        return statement.source ? from(statement.source.value, localName) : local(localName);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Walks a function at one of its calls from the file or a describe, as the runner runs it there: with the scopes
+   * where it is written, and its parameters bound to the call's arguments so that titles built from them resolve. A
+   * function imported from another module is walked in that module, and what it registers points at this call.
+   */
+  private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context): void {
+    this.walkedAtCall.add(fn);
+    // Arguments are worked out where the call is, in the file and scopes of the caller.
+    const spread = call.arguments.findIndex((item) => item.type === 'SpreadElement');
+    const args = (spread === -1 ? call.arguments : call.arguments.slice(0, spread)).map((item) =>
+      this.frame.values.resolve(item as Expression, this.scopes),
+    );
+    const caller = this.frame;
+    const site = this.site;
+    if (frame !== caller) {
+      this.frame = frame;
+      this.site ??= call;
+    }
+    const scopes = this.scopeChain(fn);
+    const saved = this.scopes.splice(0, this.scopes.length, ...scopes);
+    this.callStack.push(fn);
+    frame.values.withArguments(fn, args, scopes, () => {
+      this.visitCallback(fn, {
+        ...context,
+        isInFunction: true,
+        declaredIn: null,
+        registeredAt: context.registeredAt ?? call.start,
+      });
+    });
+    this.callStack.pop();
+    this.scopes.splice(0, this.scopes.length, ...saved);
+    // What the module's own imports couldn't resolve is reported at the call, as it is why tests may be missing.
+    if (frame !== caller) {
+      for (const item of frame.adapter.problems.filter((found) => !this.moduleProblems.has(found))) {
+        this.moduleProblems.add(item);
+        this.report(item);
+      }
+    }
+    this.frame = caller;
+    this.site = site;
+  }
+
+  /**
+   * Walks a deferred function where it is written. One that was walked at its calls only collects the states it sets,
+   * for calls from tests and hooks; one that wasn't records its tests where they are written, as nothing places them.
+   */
+  private walkWhereWritten({ fn, context, scopes, parents }: Deferred): void {
+    const savedScopes = this.scopes.splice(0, this.scopes.length, ...scopes);
+    const savedParents = this.parents.splice(0, this.parents.length, ...parents);
+    this.visitChildren(fn, {
+      ...context,
+      isInFunction: true,
+      helper: fn,
+      guards: [],
+      declaredIn: fn,
+      quiet: this.walkedAtCall.has(fn),
+    });
+    this.scopes.splice(0, this.scopes.length, ...savedScopes);
+    this.parents.splice(0, this.parents.length, ...savedParents);
+  }
+
+  /** The scopes around a function where it is written, outermost first, to resolve names in it at its calls. */
+  private scopeChain(fn: Node): Node[] {
+    const { program } = this.frame.parsed;
+    let chains = this.scopeChains.get(program);
+    if (!chains) {
+      const found = new Map<Node, Node[]>();
+      const around: Node[] = [];
+      const visit = (node: Node) => {
+        if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) found.set(node, [...around]);
+        const isScope = isScopeNode(node);
+        if (isScope) around.push(node);
+        for (const child of childNodes(node)) visit(child);
+        if (isScope) around.pop();
+      };
+      visit(program);
+      chains = found;
+      this.scopeChains.set(program, chains);
+    }
+    return chains.get(fn) as Node[];
+  }
+
+  /** Reports a problem not tied to a test, once, however many times a function with it is walked. */
+  private report(found: Problem): void {
+    const item = this.here(found);
+    // Problems found in code point at it.
+    const key = `${item.code}\0${(item.node as Span).start}\0${item.message}`;
+    if (this.reported.has(key)) return;
+    this.reported.add(key);
+    this.problems.push(item);
+  }
+
+  /** A problem found in an imported helper points at the call in the scanned file that walks the helper. */
+  private here(item: Problem): Problem {
+    return this.site ? { ...item, node: this.site } : item;
+  }
+
+  /** The line in the scanned file of code being walked: its own, or that of the call walking an imported helper. */
+  private lineOf(node: Span): number {
+    return this.main.parsed.source.line((this.site ?? node).start);
+  }
+
+  /** Where an imported helper writes a test or describe; null for code in the scanned file. */
+  private declaredAt(call: CallExpression): DeclaredAt | null {
+    if (!this.site) return null;
+    return { relativeFilePath: this.frame.relativeFilePath, source: this.frame.parsed.source, start: call.start };
+  }
+
+  /** Leaves a test or describe out of the describe's body hash, when both are written in the same file. */
+  private cut(scope: Scope, call: CallExpression): void {
+    if (scope.suite && this.suiteFrames.get(scope.suite) === this.frame) scope.suite.cuts.push(this.statement(call));
   }
 
   /** Functions the file exports, whose callers in other files are not followed. */
@@ -475,14 +765,14 @@ class Walker {
     };
     for (const call of this.helperCalls) {
       for (const effect of expand(call.fn, call.guards, new Set())) {
+        // `describe.configure()` does nothing in a test or hook body.
         if (effect.kind === 'state') call.target.states.push(effect.setting);
-        else if (call.scope) configure(call.scope, effect);
       }
     }
     for (const [fn, effects] of this.effects) {
       const own = effects.find((effect) => effect.kind !== 'call');
-      if (!own || (reached.has(fn) && !exported.has(fn))) continue;
-      const callee = snippet(this.parsed.source.slice(own.call.callee.start, own.call.callee.end));
+      if (!own || ((reached.has(fn) || this.walkedAtCall.has(fn)) && !exported.has(fn))) continue;
+      const callee = snippet(this.frame.parsed.source.slice(own.call.callee.start, own.call.callee.end));
       const why = exported.has(fn) ? 'is exported' : 'no test, hook or describe in the file calls';
       this.problems.push(
         problem(
@@ -498,7 +788,7 @@ class Walker {
   /** Why calling a function with a name doesn't register its tests where they are written; null when it does. */
   private misplaced(fn: Node, exported: Set<Node>): string | null {
     if (exported.has(fn)) return 'the file exports the function';
-    const sites = this.callSites.get(fn) ?? [];
+    const sites = [...(this.callSites.get(fn)?.values() ?? [])];
     if (sites.length === 0) return 'nothing in the file calls the function by name';
     if (sites.length > 1) return `the function is called ${sites.length} times`;
     const written = this.written.get(fn) as Written;
@@ -530,35 +820,38 @@ class Walker {
 
   private nested(call: CallExpression, context: Context): boolean {
     if (!context.test && !context.hookScope) return false;
-    this.problems.push(
+    this.report(
       problem(
         'nested-test',
         call,
         'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.',
-        snippet(this.parsed.source.slice(call.start, call.end)),
+        snippet(this.frame.parsed.source.slice(call.start, call.end)),
       ),
     );
     return true;
   }
 
   private declareTest(call: CallExpression, declaration: TestDeclaration, context: Context): void {
-    if (this.nested(call, context)) return;
+    if (context.quiet || this.nested(call, context)) return;
     const statement = this.statement(call);
     const test: PendingTest = {
       scope: context.scope,
       declaration,
       call,
+      site: this.site,
+      declaredAt: this.declaredAt(call),
+      order: context.registeredAt ?? call.start,
       states: [...declaration.states],
       annotations: [...declaration.details.annotations],
       isInLoop: context.isInLoop,
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
       comments: this.commentsAbove(statement.start),
-      problems: [...declaration.problems],
+      problems: declaration.problems.map((item) => this.here(item)),
     };
     this.tests.push(test);
     if (context.declaredIn) this.declaredIn.set(test, context.declaredIn);
-    context.scope.suite?.cuts.push(statement);
+    this.cut(context.scope, call);
     if (declaration.fn) {
       this.visitCallback(declaration.fn, {
         ...context,
@@ -572,8 +865,8 @@ class Walker {
   }
 
   private declareSuite(call: CallExpression, declaration: SuiteDeclaration, context: Context): void {
-    if (this.nested(call, context)) return;
-    this.problems.push(...declaration.problems);
+    if (context.quiet || this.nested(call, context)) return;
+    for (const item of declaration.problems) this.report(item);
     const scope: Scope = {
       kind: 'describe',
       parent: context.scope,
@@ -583,10 +876,19 @@ class Walker {
       details: declaration.details,
       suite: null,
     };
-    const suite: PendingSuite = { scope, declaration, call, cuts: [] };
+    const suite: PendingSuite = {
+      scope,
+      declaration,
+      call,
+      site: this.site,
+      declaredAt: this.declaredAt(call),
+      order: context.registeredAt ?? call.start,
+      cuts: [],
+    };
     scope.suite = suite;
     this.suites.push(suite);
-    context.scope.suite?.cuts.push(this.statement(call));
+    this.cut(context.scope, call);
+    this.suiteFrames.set(suite, this.frame);
     if (declaration.fn) {
       this.visitCallback(declaration.fn, {
         ...context,
@@ -608,7 +910,7 @@ class Walker {
 
   /** Comment lines on the lines directly above a statement, with no blank line in between. */
   private commentsAbove(start: number): string[] {
-    const { comments, source } = this.parsed;
+    const { comments, source } = this.frame.parsed;
     const lines: string[] = [];
     let next = start;
     // Comments are in source order; find the last one that ends before the statement.
@@ -629,6 +931,7 @@ class Walker {
   }
 }
 
-export function extract(parsed: ParsedFile, adapter: Adapter, values: Values): Extraction {
-  return new Walker(parsed, adapter, values).run();
+/** Walks the scanned file; `openModule` reads the modules of imported helpers that the file calls. */
+export function extract(main: Frame, openModule: OpenModule): Extraction {
+  return new Walker(main, openModule).run();
 }

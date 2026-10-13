@@ -88,9 +88,9 @@ const todo = inventory.tests.filter((test) => test.isTodo).map((test) => test.fu
 
 - Config files are not read, so `grep`, projects and Vitest tag options in them do not change the output.
 - Values imported from other files are not worked out. A tag or title that comes from an import gets a diagnostic
-  that names the module. A custom `test` object is followed one file deep, through a relative path, a tsconfig path
-  alias, a `#` import in package.json or a workspace package; one that can't be followed gets an error. Tests
-  declared inside a function imported from another file are not listed.
+  that names the module. A custom `test` object is followed through as many files as it takes, through relative
+  paths, tsconfig path aliases, `#` imports in package.json and workspace packages; one that can't be followed gets
+  an error. Tests declared in helper functions are listed at each call, also for helpers imported from other files.
 - A test in a loop or a `.each` table is one record, with `isInLoop` or `caseCount`; the runner creates one test per
   iteration or case.
 - Conditions such as `browserName === 'webkit'` are kept as source text, not evaluated.

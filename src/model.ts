@@ -113,6 +113,8 @@ export interface CallContext {
 export interface ModuleSource {
   code: string;
   relativeFilePath: string;
+  /** Reads the modules this module imports in turn. */
+  readModule: ModuleReader;
 }
 
 /** Reads the module an import refers to, or says why it can't, as in "could not be read". */

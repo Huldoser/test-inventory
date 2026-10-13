@@ -268,6 +268,17 @@
           "minimum": 1,
           "description": "In UTF-16 code units."
         },
+        "declaredAt": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DeclaredAt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where a helper imported from another file writes the describe; the record's location is then the call that registers it. Null for code written in the scanned file."
+        },
         "title": {
           "type": "string",
           "description": "As the runner shows it, tags included."
@@ -385,6 +396,7 @@
         "lineEnd",
         "columnStart",
         "columnEnd",
+        "declaredAt",
         "title",
         "titleWithoutTags",
         "hasDynamicTitle",
@@ -408,6 +420,29 @@
         "meta"
       ],
       "description": "A describe block, with what is written on the describe itself. Inherited values are on the tests."
+    },
+    "DeclaredAt": {
+      "type": "object",
+      "properties": {
+        "relativeFilePath": {
+          "type": "string",
+          "description": "The helper's file, from the project root."
+        },
+        "lineStart": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "columnStart": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In UTF-16 code units."
+        }
+      },
+      "required": [
+        "relativeFilePath",
+        "lineStart",
+        "columnStart"
+      ]
     },
     "Annotation": {
       "type": "object",
@@ -523,6 +558,17 @@
           "type": "integer",
           "minimum": 1,
           "description": "In UTF-16 code units."
+        },
+        "declaredAt": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DeclaredAt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where a helper imported from another file writes the test; the record's location is then the call that registers it. Null for code written in the scanned file."
         },
         "title": {
           "type": "string",
@@ -702,6 +748,7 @@
         "lineEnd",
         "columnStart",
         "columnEnd",
+        "declaredAt",
         "title",
         "titleWithoutTags",
         "hasDynamicTitle",

@@ -1,5 +1,5 @@
 import type { Expression, Node, TSEnumDeclaration } from 'oxc-parser';
-import { propertyName, unwrap } from './ast.ts';
+import { propertyName, unwrap, type FunctionNode } from './ast.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -16,6 +16,14 @@ type Binding = { declaration: Node } & (
 );
 
 const UNRESOLVED: Resolved = { ok: false, importedFrom: null };
+
+/** A function read at one of its calls: what each of its simple parameters is given there. */
+interface BoundCall {
+  fn: Node;
+  parameters: Map<string, () => Resolved>;
+  /** Constants are worked out again for each call, since they may be built from the parameters. */
+  cache: Map<Expression, Resolved>;
+}
 
 function isPrimitive(value: Value): value is string | number | boolean | null | undefined {
   return typeof value !== 'object' || value === null;
@@ -76,6 +84,33 @@ export class Values {
   private readonly bindingsByScope = new Map<Node, Map<string, Binding>>();
   private readonly cache = new Map<Expression, Resolved>();
   private readonly pending = new Set<Expression>();
+  /** The functions being read at one of their calls, innermost last. */
+  private readonly calls: BoundCall[] = [];
+
+  /**
+   * Runs `read` with a function's parameters bound to the arguments of one call, worked out where the call is, so that
+   * titles and values built from them resolve, as in `test(\`${side} rejects a zero quantity\`)` inside
+   * `validatesQuantity('buy')`. `args` stop at a spread argument, after which no position is known. A missing argument
+   * takes the parameter's default value, worked out in `scopes`, the scopes around the function.
+   */
+  withArguments<T>(fn: FunctionNode, args: readonly Resolved[], scopes: readonly Node[], read: () => T): T {
+    const parameters = new Map<string, () => Resolved>();
+    for (const [index, parameter] of fn.params.entries()) {
+      const target = parameter.type === 'AssignmentPattern' ? parameter.left : parameter;
+      if (target.type !== 'Identifier') continue;
+      const argument = args.at(index);
+      if (argument) parameters.set(target.name, () => argument);
+      else if (parameter.type === 'AssignmentPattern') {
+        parameters.set(target.name, () => this.resolve(parameter.right, [...scopes, fn]));
+      }
+    }
+    this.calls.push({ fn, parameters, cache: new Map() });
+    try {
+      return read();
+    } finally {
+      this.calls.pop();
+    }
+  }
 
   /** `scopes` lists the scope nodes around the expression, outermost first. */
   resolve(node: Expression, scopes: readonly Node[]): Resolved {
@@ -180,6 +215,12 @@ export class Values {
     return this.lookup(name, scopes)?.binding.declaration ?? null;
   }
 
+  /** The module a name is imported from where it is used; null when it isn't an import. */
+  importSource(name: string, scopes: readonly Node[]): string | null {
+    const binding = this.lookup(name, scopes)?.binding;
+    return binding?.kind === 'import' ? binding.source : null;
+  }
+
   /** Whether a name refers to a function or class declared in the file. */
   isFunction(name: string, scopes: readonly Node[]): boolean {
     return this.lookup(name, scopes)?.binding.kind === 'function';
@@ -203,19 +244,27 @@ export class Values {
       case 'import':
         return { ok: false, importedFrom: binding.source };
       case 'function':
-      case 'other':
         return UNRESOLVED;
+      case 'other':
+        return this.resolveParameter(name, binding.declaration);
     }
   }
 
+  /** A parameter of a function read at one of its calls: the argument given there. */
+  private resolveParameter(name: string, fn: Node): Resolved {
+    const call = this.calls.findLast((item) => item.fn === fn);
+    return call?.parameters.get(name)?.() ?? UNRESOLVED;
+  }
+
   private resolveConstant(init: Expression, scopes: readonly Node[]): Resolved {
-    const cached = this.cache.get(init);
+    const cache = this.calls.at(-1)?.cache ?? this.cache;
+    const cached = cache.get(init);
     if (cached) return cached;
     if (this.pending.has(init)) return UNRESOLVED;
     this.pending.add(init);
     const resolved = this.resolve(init, scopes);
     this.pending.delete(init);
-    this.cache.set(init, resolved);
+    cache.set(init, resolved);
     return resolved;
   }
 

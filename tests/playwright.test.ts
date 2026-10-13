@@ -82,6 +82,32 @@ ct('renders the order form', async ({ mount }) => {});
     expect(titles(inventory)).toEqual(['renders the chart', 'renders the order form']);
   });
 
+  it('recognizes the files playwright-bdd generates from Gherkin features', () => {
+    const inventory = scanPlaywright(`// Generated from: features/limit-orders.feature
+import { test } from 'playwright-bdd';
+
+test.describe('Limit orders', () => {
+  test('Rejects a limit price far from the last trade', { tag: ['@orders'] }, async ({ Given, When, Then }) => {
+    await Given('I am on the order ticket for "AAPL"');
+    await When('I place a buy limit order at 1 dollar');
+    await Then('I see "Limit price is more than 50% away from the last trade."');
+  });
+});
+
+// == technical section ==
+
+test.use({
+  $test: [({}, use) => use(test), { scope: 'test', box: true }],
+  $uri: [({}, use) => use('features/limit-orders.feature'), { scope: 'test', box: true }],
+});
+`);
+    expect(onlyTest(inventory)).toMatchObject({
+      fullName: 'Limit orders > Rejects a limit price far from the last trade',
+      tags: ['@orders'],
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('ignores type-only imports and functions that only share the name', () => {
     const inventory = scanPlaywright(`
 import type { test } from '@playwright/test';
@@ -433,6 +459,21 @@ test('logs out', async () => {});
     const before = scanPlaywright(code, { frameworkVersion: '1.63.0' });
     expect(before.tests.map((test) => test.locks)).toEqual([['watchlist'], [], []]);
     expect(codes(before)).toEqual([]);
+  });
+
+  it('keeps the mode of describe.configure when its lock cannot be worked out', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+import { BROKER_LOCK } from './locks';
+test.describe('withdrawals', () => {
+  test.describe.configure({ mode: 'serial', lock: BROKER_LOCK });
+  test('withdraws to the linked bank account', async () => {});
+});
+`,
+      { frameworkVersion: '1.64.0' },
+    );
+    expect(onlyTest(inventory)).toMatchObject({ isSerial: true, locks: [] });
+    expect(inventory.diagnostics).toMatchObject([{ code: 'unresolved-option', lineStart: 4, source: 'BROKER_LOCK' }]);
   });
 
   it('applies locks set by describe.configure in a helper where the helper is called', () => {
@@ -787,7 +828,7 @@ defineOrderTests('buy');
       ['retries the order', true, false, false],
       ['sends a live order', false, true, false],
       ['runs on CI only', false, true, false],
-      ['`places a ${side} order`', false, false, true],
+      ['places a buy order', false, false, true],
     ]);
     expect(codes(inventory).filter((code) => code === 'test-in-loop')).toHaveLength(4);
   });
@@ -1146,7 +1187,7 @@ describe('Playwright tests declared in helper functions', () => {
   const REGISTERS =
     'The runner registers the test at each call of the function, in the describe around the call; it is listed once, where it is written.';
 
-  it('warns when the helper is called twice, never, or from another describe than where it is written', () => {
+  it("records a helper's tests at each call, in the describe around it, and warns for one nothing calls", () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 function validatesQuantity(side: string) {
   test(\`\${side} rejects a zero quantity\`, async ({ orderTicket }) => {});
@@ -1165,26 +1206,82 @@ test.describe.skip('short sells', () => {
   buyingPowerTests();
 });
 `);
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart, test.state, test.tags])).toEqual([
+      ['creates a price alert', 6, 'active', []],
+      ['buy orders > buy rejects a zero quantity', 3, 'active', ['@orders']],
+      ['short sells > short rejects a zero quantity', 3, 'skip', []],
+      ['short sells > shows the buying power', 9, 'skip', []],
+    ]);
     const warnings = inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'test-in-function');
     expect(warnings.map((diagnostic) => [diagnostic.level, diagnostic.lineStart, diagnostic.message])).toEqual([
-      ['warning', 3, `The test is declared in a function, and the function is called 2 times. ${REGISTERS}`],
       [
         'warning',
         6,
         `The test is declared in a function, and nothing in the file calls the function by name. ${REGISTERS}`,
       ],
-      [
-        'warning',
-        9,
-        `The test is declared in a function, and the function is called in another place than where it is written. ${REGISTERS}`,
-      ],
     ]);
-    expect(warnings.map((diagnostic) => diagnostic.testId)).toEqual(inventory.tests.map((test) => test.id));
-    // The record stays where the test is written: no describe, so no tag and no skip from the describes that call it.
-    expect(testNamed(inventory, 'shows the buying power')).toMatchObject({ suitePath: [], state: 'active', tags: [] });
+    expect(warnings[0].testId).toBe(testNamed(inventory, 'creates a price alert').id);
   });
 
-  it('warns for an exported helper, and for calls in a loop, in a test body or through a helper called elsewhere', () => {
+  it('works out titles from the arguments of each call, through nested helpers and default values', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function orderTests(side: string) {
+  test.describe(\`\${side} orders\`, () => {
+    quantityTests(side);
+  });
+}
+function quantityTests(side: string, minimum = 1) {
+  test(\`\${side} needs at least \${minimum} share\`, async () => {});
+}
+orderTests('buy');
+if (process.env.SHORT_SELLING) orderTests('short');
+`);
+    expect(inventory.tests.map((test) => [test.fullName, test.isInCondition, test.hasDynamicTitle])).toEqual([
+      ['buy orders > buy needs at least 1 share', false, false],
+      ['short orders > short needs at least 1 share', true, false],
+    ]);
+    expect(inventory.suites.map((suite) => suite.title)).toEqual(['buy orders', 'short orders']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reports a fixed title in a loop as a duplicate, unless a describe in the loop varies the title path', () => {
+    const repeated = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+for (const symbol of ['AAPL', 'MSFT']) {
+  test('shows a quote', async () => {});
+}
+`);
+    expect(repeated.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.level])).toEqual([
+      ['test-in-loop', 'warning'],
+      ['duplicate-title', 'error'],
+    ]);
+    expect(onlyTest(repeated).state).toBe('notLoaded');
+    const varied = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+for (const symbol of ['AAPL', 'MSFT']) {
+  test.describe(\`\${symbol} quotes\`, () => {
+    test('shows a quote', async () => {});
+  });
+}
+`);
+    expect(codes(varied)).toEqual(['dynamic-title', 'test-in-loop']);
+    expect(onlyTest(varied).state).toBe('active');
+  });
+
+  it('reports a helper that registers the same title twice, as Playwright refuses the file', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function smokeTests(area = 'orders') {
+  test(\`loads the \${area} page\`, async () => {});
+}
+smokeTests();
+smokeTests();
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['loads the orders page', 'notLoaded'],
+      ['loads the orders page', 'notLoaded'],
+    ]);
+    expect(codes(inventory)).toEqual(['duplicate-title']);
+  });
+
+  it('warns for an exported helper or one called from a test body, and records calls in a loop or through helpers', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 export function registerFillTests() {
   test('fills at the limit price', async () => {});
@@ -1216,21 +1313,68 @@ test.describe('buy orders', () => sideTests());
     ).toEqual([
       ['test-in-function', 3, 'The test is declared in a function, and the file exports the function'],
       [
-        'test-in-function',
+        'test-in-loop',
         6,
-        'The test is declared in a function, and the function is called in another place than where it is written',
+        'The test is declared in a loop; it is listed once, while the runner creates one test per iteration',
+      ],
+      [
+        'duplicate-title',
+        6,
+        'The test is declared in a loop with the same title on each pass, so Playwright fails to load the file and runs no tests at all',
       ],
       [
         'test-in-function',
         10,
         'The test is declared in a function, and the function is called in another place than where it is written',
       ],
-      [
-        'test-in-function',
-        17,
-        'The test is declared in a function, and the function is called in another place than where it is written',
-      ],
     ]);
+    expect(testNamed(inventory, 'streams a quote').isInLoop).toBe(true);
+    expect(testNamed(inventory, 'rejects a zero quantity').suitePath).toEqual(['buy orders']);
+  });
+
+  it('stops at a helper that calls itself, and at helpers more than 16 calls deep', () => {
+    const levels = Array.from(
+      { length: 17 },
+      (_, index) =>
+        `function level${index + 1}() {\n  ${index < 16 ? `level${index + 2}();` : "test('still lists the deepest test', async () => {});"}\n}`,
+    );
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function retryTests() {
+  test('retries a rejected order', async () => {});
+  retryTests();
+}
+retryTests();
+${levels.join('\n')}
+level1();
+`);
+    expect(titles(inventory)).toEqual(['retries a rejected order', 'still lists the deepest test']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('warns for a helper called only from tests, and for one nested in a helper nothing calls', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function cleanupTests() {
+  test('cancels open orders', async () => {});
+}
+test('places an order', async () => {
+  cleanupTests();
+});
+test('closes a position', async () => {
+  cleanupTests();
+});
+function unusedSuite() {
+  function settlementTests() {
+    test('settles a trade', async () => {});
+  }
+  settlementTests();
+}
+`);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.lineStart, diagnostic.message.split('.')[0]])).toEqual(
+      [
+        [3, 'The test is declared in a function, and the function is called 2 times'],
+        [13, 'The test is declared in a function, and nothing in the file calls the function by name'],
+      ],
+    );
   });
 
   it('does not warn for a helper called once where it is written, or for tests in a callback', () => {

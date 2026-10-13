@@ -14,20 +14,20 @@ that the projects' runners never load.
 
 | Project                                                                                             | Framework  | Files |  Tests |
 | --------------------------------------------------------------------------------------------------- | ---------- | ----: | -----: |
-| [freeCodeCamp/freeCodeCamp](https://github.com/freeCodeCamp/freeCodeCamp) `34b1acd`, end to end     | Playwright |    84 |    268 |
-| [vuejs/core](https://github.com/vuejs/core) `4ab865a`                                               | Vitest     |   196 |  3,592 |
+| [freeCodeCamp/freeCodeCamp](https://github.com/freeCodeCamp/freeCodeCamp) `34b1acd`, end to end     | Playwright |    84 |    273 |
+| [vuejs/core](https://github.com/vuejs/core) `4ab865a`                                               | Vitest     |   196 |  3,729 |
 | [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, test apps                                | Playwright |    10 |    404 |
-| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, unit                                     | Vitest     |    78 |    705 |
-| [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                           | Playwright |   538 |  1,489 |
+| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, unit                                     | Vitest     |    78 |    707 |
+| [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                           | Playwright |   538 |  5,984 |
 | [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, end to end                     | Playwright |    32 |    263 |
-| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                           | Vitest     |   815 |  8,113 |
-| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                         | Vitest     |   827 |  9,456 |
-| [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                         | Playwright |   309 |    203 |
+| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                           | Vitest     |   815 |  8,305 |
+| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                         | Vitest     |   827 |  9,458 |
+| [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                         | Playwright |   309 |  1,487 |
 | [TanStack/router](https://github.com/TanStack/router) `663282b`, unit                               | Vitest     |   450 |  4,801 |
-| [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                             | Vitest     |   180 |  1,893 |
-| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) `3e3624c`                                 | Vitest     |   509 |  3,434 |
+| [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                             | Vitest     |   180 |  1,919 |
+| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) `3e3624c`                                 | Vitest     |   509 |  3,438 |
 | [nuxt/nuxt](https://github.com/nuxt/nuxt) `0296ca4`                                                 | Vitest     |   266 |  2,603 |
-| [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                         | Vitest     |   142 |  2,154 |
+| [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                         | Vitest     |   142 |  2,216 |
 | [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end | Playwright |   714 |  2,188 |
 | [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit       | Vitest     |   853 | 10,120 |
 
@@ -35,28 +35,24 @@ No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings a
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The
 errors and the larger warning counts have these causes:
 
-- **Playwright's own suite, 428 `unresolved-test-import` errors.** Its tests import `test` from fixtures files such
-  as `pageTest.ts` and `browserTest.ts`, which build it in several layers from other local files and pick a browser,
-  Android or Electron test object at run time. Only one file is followed, so these tests are missing and each import
-  is reported. Two more files import it from a folder that re-exports a pinned Playwright with
-  `module.exports = require(...)`. Its 23 `local-test-object` warnings are variables such as
-  `const it = base.extend(...)` over those same layered objects, read on trust. Its one `state-in-helper` warning is
-  a `test.skip()` inside a fixture, which skips the tests that use the fixture. The framework version is unknown
-  because the repository is Playwright itself.
-- **TanStack Router end to end, 216 `unresolved-test-import` errors.** 213 files import `test` from
-  `@tanstack/router-e2e-utils`, a package of the same repository. The checkout is not installed, so the package is
-  not linked into `node_modules` and can't be followed. In the other 3, a helper module re-exports `test` from another
-  local file.
+- **Playwright's own suite, 118 `unresolved-test-import` errors.** Its tests import `test` from fixtures files such
+  as `pageTest.ts` and `browserTest.ts`, which build it in several layers from other local files; those are followed.
+  98 imports end at the copy of Playwright that `tests/playwright-test/stable-test-runner` pins in its own
+  `node_modules`, which a checkout without an install doesn't have. The other 20 are in `tests/installation`, whose
+  `npmTest.ts` builds its test object on `_baseTest`, an internal export of Playwright, not on `test`. Its 4
+  `local-test-object` warnings are variables such as `const test = baseTest.extend(...)` over that pinned copy, read
+  on trust. Its one `state-in-helper` warning is a `test.skip()` inside a fixture, which skips the tests that use the
+  fixture. The framework version is unknown because the repository is Playwright itself.
 - **Nuxt, 24 `unresolved-test-import` errors.** Playwright tests that the Vitest pattern also matches import `test`
   from a helper that builds it from `@nuxt/test-utils/playwright`.
 - **Sentry unit, 21 `unresolved-test-import` errors.** 7 files are Bun tests that import `test`, `it` and
   `describe` from `bun:test`, and 5 import them from `@effect/vitest`, an installed package that wraps Vitest. Each
   name is reported once per file.
-- **Vue core, 80 `test-in-function` warnings.** `render.spec.ts` declares its tests in `testRender()`, which it calls
+- **Vue core, 217 tests in helper functions.** `render.spec.ts` declares its tests in `testRender()`, which it calls
   three times, once for each way to render, and `Teleport.spec.ts` calls `runSharedTests()` in an eager and a defer
-  describe. Vitest registers those tests once per call, in the describe around the call; the scan lists each test once,
-  where it is written. Seven other projects have a few such warnings, 72 in all, such as freeCodeCamp's
-  `donatePageTests()`, which runs in a signed-in and a signed-out describe.
+  describe. The scan records those tests at each call, in the describe around it, as Vitest registers them. Other
+  projects do the same in places, such as freeCodeCamp's `donatePageTests()`, which runs in a signed-in and a
+  signed-out describe.
 - **Vite, 11 `local-test-object` warnings.** `const it = await createModuleRunnerTester(...)` builds a test object
   from a helper; its calls are read as tests.
 - **Vitest's own suite.** 10 `nested-test` warnings come from tests written inside test bodies, which Vitest's
@@ -68,7 +64,8 @@ errors and the larger warning counts have these causes:
 ## Compared with the runners
 
 Three of the projects were installed and listed with their own runner, and the lists were matched with the scan by
-file and line, as described in [Compared with the runners](/guide/runners).
+file and line, as described in [Compared with the runners](/guide/runners). This was done with test-inventory 0.1.1,
+before tests in helper functions were recorded at each call.
 
 | Project and runner                                   | Records | Listed by the runner | Differences |
 | ---------------------------------------------------- | ------: | -------------------: | ----------: |

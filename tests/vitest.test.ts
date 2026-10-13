@@ -765,7 +765,37 @@ test.each\`
 });
 
 describe('Vitest tests declared in helper functions', () => {
-  it('warns about shared tests that a helper declares in each describe that calls it', () => {
+  it('reports a problem in a helper once, however many calls walk it', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { VENUE } from './venues';
+function venueTests(side: string) {
+  describe(VENUE, () => {
+    it(\`routes a \${side} order\`, () => {});
+  });
+}
+venueTests('buy');
+venueTests('sell');
+`);
+    expect(inventory.tests.map((test) => test.fullName)).toEqual([
+      'VENUE > routes a buy order',
+      'VENUE > routes a sell order',
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['dynamic-title', 4],
+    ]);
+  });
+
+  it('allows a fixed title in a loop, as Vitest runs duplicate titles', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+for (const symbol of ['AAPL', 'MSFT']) {
+  it('parses a quote', () => {});
+}
+`);
+    expect(codes(inventory)).toEqual(['test-in-loop']);
+    expect(onlyTest(inventory).state).toBe('active');
+  });
+
+  it('records shared tests that a helper declares in each describe that calls it', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 function behavesLikeAnOrder(type: string) {
   it(\`rejects a \${type} order without a quantity\`, () => {});
@@ -773,12 +803,11 @@ function behavesLikeAnOrder(type: string) {
 describe('market orders', () => behavesLikeAnOrder('market'));
 describe('limit orders', () => behavesLikeAnOrder('limit'));
 `);
-    expect(onlyTest(inventory).suitePath).toEqual([]);
-    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
-      ['test-in-function', 3],
-      ['dynamic-title', 3],
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart])).toEqual([
+      ['market orders > rejects a market order without a quantity', 3],
+      ['limit orders > rejects a limit order without a quantity', 3],
     ]);
-    expect(inventory.diagnostics[0].message).toContain('the function is called 2 times');
+    expect(inventory.diagnostics).toEqual([]);
   });
 });
 
