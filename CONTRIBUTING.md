@@ -133,9 +133,26 @@ only when `main` has no unreleased changes that the docs describe.
 
 ## Dependencies
 
-Dependencies stay on their newest versions. Every Monday a workflow opens or updates the "Outdated dependencies"
-issue; nothing updates them automatically. A dependency held back on purpose is listed in `scripts/outdated.ts` with
-the reason, and the issue shows it apart.
+Dependencies stay on their newest versions; nothing updates them automatically, and `npm outdated` lists the ones
+with a newer version. Update them in a pull request, after reading their changelogs. CI installs the versions in the
+lockfile with `npm ci`, but npm never publishes the lockfile: users install the runtime dependencies from the ranges
+in `package.json`.
+
+The range of a dependency decides what `npm update` may install, and `tests/dependencies.test.ts` checks it:
+
+- An exact version for a package whose version shows in files that CI compares: `oxc-parser` decides the scan output,
+  the goldens record the version of `vitest`, `ts-json-schema-generator` writes `schema/v1.json`, and `prettier`
+  formats every file. The `@vitest/` packages have the version of `vitest`. A prerelease, such as VitePress
+  2.0.0-alpha.20, is exact too, since `^` would also accept the next alphas.
+- `~` for a package whose minor releases can change results: `typescript` doesn't follow semantic versioning, and the
+  minor releases of `eslint` and `typescript-eslint` can report more errors. `@types/node` has the version of the
+  oldest supported Node.js in `engines`, so that newer APIs are not used by accident.
+- `^` for every other package, so that users get the fixes of the runtime dependencies and share one copy with their
+  other tools. On a 0.x version, such as `tinyglobby` `^0.2.17`, `^` only accepts patch releases.
+- A peer dependency, if one is added, takes the widest range that works.
+
+`typescript` stays on 6.0: typescript-eslint, TypeDoc and ts-json-schema-generator use the TypeScript 6 API, which
+TypeScript 7 does not have.
 
 ## Pull requests
 

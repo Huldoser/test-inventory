@@ -217,7 +217,7 @@ jobs:
           - framework: vitest
             version: 3.0.9
           - framework: vitest
-            version: 5.0.3
+            version: 5.0.4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

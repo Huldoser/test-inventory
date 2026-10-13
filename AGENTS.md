@@ -29,6 +29,7 @@ Notes for coding agents working in this repository. People should read CONTRIBUT
 - A test id must not change when the test moves to another line.
 - Code problems become diagnostics; only invalid options throw, and only `TypeError`.
 - Runtime dependencies are `oxc-parser` (exact version) and `tinyglobby` only. Ask before adding one.
+- A dependency's range follows the Dependencies section of CONTRIBUTING.md; `tests/dependencies.test.ts` checks it.
 - Comments explain why, not what. No coverage-ignore comments except for type-only modules and impossible defaults.
 - Test examples use the made-up trading app. No toy titles like `test('a')`.
 - Vitest reads `@module-tag` from the text of test files, so build that word from parts inside `tests/*.test.ts`.
