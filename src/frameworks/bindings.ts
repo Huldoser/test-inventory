@@ -257,7 +257,8 @@ const MAX_DEPTH = 16;
 /**
  * Whether `name` from `source` is a test object, following the module through the modules it re-exports from or builds
  * on, as deep as it takes. When it isn't, the reason says where the chain ends; it is null for a module that has
- * nothing to do with the framework, as when a call only looked like a test.
+ * nothing to do with the framework, as when a call only looked like a test. Each module is followed once for a name,
+ * however many imports lead to it, as fixtures files that build on several others share their bases.
  */
 export function followModule(
   source: string,
@@ -265,25 +266,39 @@ export function followModule(
   readModule: ModuleReader | null,
   framework: Framework,
   path: readonly string[] = [],
-): { exported: boolean; reason: string | null } {
+  followed = new Map<string, Followed>(),
+): Followed {
   // Without a reader, as in scanSource, nothing can be read.
   const module = readModule ? readModule(source) : { reason: 'could not be read' };
   if ('reason' in module) return { exported: false, reason: module.reason };
   if (path.includes(module.relativeFilePath)) return { exported: false, reason: 'imports it back, in a cycle' };
   if (path.length >= MAX_DEPTH) return { exported: false, reason: `is more than ${MAX_DEPTH} modules deep` };
+  const key = `${module.relativeFilePath}\0${name}`;
+  let result = followed.get(key);
+  if (!result) {
+    result = followExports(module, name, framework, [...path, module.relativeFilePath], followed);
+    followed.set(key, result);
+  }
+  return result;
+}
+
+interface Followed {
+  exported: boolean;
+  reason: string | null;
+}
+
+/** Whether a module exports `name` as a test object; `within` is the chain of modules followed to it, itself last. */
+function followExports(
+  module: ModuleSource,
+  name: string,
+  framework: Framework,
+  within: readonly string[],
+  followed: Map<string, Followed>,
+): Followed {
   const { program, error } = parseModule(module);
   if (error) return { exported: false, reason: 'could not be parsed' };
-  const within = [...path, module.relativeFilePath];
-  const results = new Map<string, { exported: boolean; reason: string | null }>();
-  const followFrom = (from: string, imported: string) => {
-    const key = `${from}\0${imported}`;
-    let result = results.get(key);
-    if (!result) {
-      result = followModule(from, imported, module.readModule, framework, within);
-      results.set(key, result);
-    }
-    return result;
-  };
+  const followFrom = (from: string, imported: string) =>
+    followModule(from, imported, module.readModule, framework, within, followed);
   const objects = framework.testObjects(program, (from, imported) => followFrom(from, imported).exported);
   if (exportsTestObject(program, name, objects)) return { exported: true, reason: null };
   const unrecognized = `does not export a ${framework.name} test object that could be recognized`;
