@@ -166,6 +166,19 @@ describe('the tsconfig, found the way TypeScript finds it', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('reads each project once when solution-style tsconfigs reference each other', async () => {
+    const inventory = await scanSpec({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': FIXTURES,
+      'tsconfig.json': '{ "files": [], "references": [{ "path": "./apps/web" }, { "path": "./tsconfig.e2e.json" }] }',
+      'apps/web/tsconfig.json': '{ "references": [{ "path": "../.." }, { "path": "../../tsconfig.json" }] }',
+      'tsconfig.e2e.json': '{ "compilerOptions": { "paths": { "@/*": ["./*"] } } }',
+      'tests/portfolio.spec.ts': spec('@/fixtures'),
+    });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('reads a tsconfig that extends itself once, and skips files it extends that are missing', async () => {
     const inventory = await scanSpec({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -326,6 +339,32 @@ describe('a custom test object from a workspace package', () => {
     });
     expect(messages(inventory)).toEqual([
       "'test' is imported from '@trading/legacy-utils', which is not a local file, a path alias or a workspace package; tests that use it are missing.",
+    ]);
+  });
+
+  it('does not search outside the workspace folder, through patterns or links', async () => {
+    const outside = project({
+      'package.json': JSON.stringify({ name: '@trading/quotes', exports: './src/index.ts' }),
+      'src/index.ts': FIXTURES,
+    });
+    const root = project({
+      ...WORKSPACE,
+      'package.json': withWorkspaces([
+        `${path.dirname(outside).replaceAll('\\', '/')}/*`,
+        '../*',
+        '!../legacy',
+        'packages/*',
+        'vendor/*',
+      ]),
+      'tests/portfolio.spec.ts': spec('@trading/test-utils'),
+      'tests/quotes.spec.ts': spec('@trading/quotes'),
+    });
+    mkdirSync(path.join(root, 'vendor'));
+    symlinkSync(outside, path.join(root, 'vendor', 'quotes'), 'junction');
+    const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(messages(inventory)).toEqual([
+      "'test' is imported from '@trading/quotes', which is not a local file, a path alias or a workspace package; tests that use it are missing.",
     ]);
   });
 
