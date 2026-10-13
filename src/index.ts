@@ -3,6 +3,7 @@ export { scanSource } from './scan-source.ts';
 export type { CommentsMode, ScanOptions, ScanSourceOptions } from './options.ts';
 export type {
   Annotation,
+  DeclaredAt,
   Diagnostic,
   DiagnosticCode,
   DiagnosticLevel,

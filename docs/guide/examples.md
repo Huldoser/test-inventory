@@ -24,7 +24,7 @@ export const test = base.extend<TradingFixtures>({
 export { expect } from '@playwright/test';
 ```
 
-The scan follows that import one file deep, sees `base.extend()` on Playwright's `test`, and reads the specs that use
+The scan follows that import, sees `base.extend()` on Playwright's `test`, and reads the specs that use
 it like any other:
 
 <!-- code: trading-web/tests/orders/order-lifecycle.spec.ts -->

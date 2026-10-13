@@ -37,8 +37,11 @@ import {
   bindAll,
   exportName,
   followImport,
+  followModule,
   moduleImports,
   requiredModule,
+  type FollowImport,
+  type Framework,
   type ModuleImport,
   type TestObjects,
 } from './bindings.ts';
@@ -169,8 +172,13 @@ class VitestBindings implements TestObjects {
   /** The import specifiers and declarators that bind those names, to tell them from local names that shadow them. */
   readonly declarations = new Set<Node>();
   readonly problems: Problem[] = [];
+  /** Names imported from other modules, which may be test objects there. */
+  private readonly imported: Map<string, ModuleImport>;
+  private readonly follow: FollowImport;
 
-  constructor(program: Program, version: [number, number] | null) {
+  constructor(program: Program, version: [number, number] | null, follow: FollowImport) {
+    this.imported = moduleImports(program, (source) => source === 'vitest' || MISMATCHED_SOURCES.has(source));
+    this.follow = follow;
     for (const statement of program.body) {
       if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
       const source = statement.source.value;
@@ -217,12 +225,12 @@ class VitestBindings implements TestObjects {
   }
 
   isTestName(name: string): boolean {
-    return this.kinds.has(name);
+    return this.kinds.has(name) || this.importsTestObject(name);
   }
 
   isTestObject(expression: Expression): boolean {
     const node = unwrap(expression);
-    if (node.type === 'Identifier') return this.kinds.get(node.name) === 'test';
+    if (node.type === 'Identifier') return this.kinds.get(node.name) === 'test' || this.importsTestObject(node.name);
     if (node.type === 'MemberExpression') {
       return KINDS.get(propertyName(node) ?? '') === 'test' && this.isNamespace(node.object);
     }
@@ -240,7 +248,13 @@ class VitestBindings implements TestObjects {
   }
 
   reexports(source: string, imported: string): boolean {
-    return source === 'vitest' && KINDS.has(imported);
+    return source === 'vitest' ? KINDS.has(imported) : this.follow(source, imported);
+  }
+
+  /** Whether a name is imported from another module that exports it as a test object, as `base` from './base'. */
+  private importsTestObject(name: string): boolean {
+    const from = this.imported.get(name);
+    return from !== undefined && this.follow(from.source, from.imported);
   }
 
   isNamespace(expression: Expression): boolean {
@@ -298,7 +312,14 @@ export class VitestAdapter implements Adapter {
   constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) {
     this.file = file;
     this.readModule = readModule;
-    this.bindings = new VitestBindings(parsed.program, file.version);
+    // A test object the file builds from an imported one, as in `const it = base.extend({...})`, is followed quietly:
+    // a call through the import itself is what reports an import that can't be followed.
+    const followed = new Map<string, boolean>();
+    this.bindings = new VitestBindings(parsed.program, file.version, (source, imported) => {
+      const key = `${source}\0${imported}`;
+      if (!followed.has(key)) followed.set(key, followModule(source, imported, readModule, this.framework()).exported);
+      return followed.get(key) === true;
+    });
     this.problems = [...this.bindings.problems];
     if (atLeast(file.version, 5, 0)) {
       for (const call of nestedHoistedCalls(parsed.program)) {
@@ -496,16 +517,22 @@ export class VitestAdapter implements Adapter {
     return links.length === 0 ? looksLikeDeclaration(args) : TEST_MEMBERS.has(links[0].name);
   }
 
+  /** Vitest as followed modules are read, with the rules of the scanned version. */
+  private framework(): Framework {
+    const version = this.file.version;
+    return {
+      name: 'Vitest',
+      isSource: (source) => source === 'vitest',
+      testObjects: (program, follow) => new VitestBindings(program, version, follow),
+    };
+  }
+
   /** Follows the import of `name` once, and reports it once when it can't be followed and `report` is set. */
   private follow(name: string, report: boolean): boolean {
     const imported = this.imports.get(name) as ModuleImport;
     let result = this.followed.get(name);
     if (!result) {
-      result = followImport(name, imported, this.readModule, this.file, {
-        name: 'Vitest',
-        isSource: (source) => source === 'vitest',
-        testObjects: (program) => new VitestBindings(program, this.file.version),
-      });
+      result = followImport(name, imported, this.readModule, this.file, this.framework());
       this.followed.set(name, result);
       if (result.exported) {
         this.bindings.kinds.set(name, KINDS.get(imported.imported) ?? 'test');

@@ -1,12 +1,21 @@
 import type { FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
-import type { Extraction, PendingSuite, PendingTest, Scope } from './extract.ts';
+import type { DeclaredAt as Written, Extraction, PendingSuite, PendingTest, Scope } from './extract.ts';
 import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Problem, Span, StateSetting } from './model.ts';
 import type { ParsedFile } from './parse.ts';
-import type { Diagnostic, Framework, MetaValue, StateSource, SuiteRecord, TestRecord, TestState } from './types.ts';
+import type {
+  DeclaredAt,
+  Diagnostic,
+  Framework,
+  MetaValue,
+  StateSource,
+  SuiteRecord,
+  TestRecord,
+  TestState,
+} from './types.ts';
 
 /** @inline */
 export type CommentsMode = 'all' | 'non-active' | 'none';
@@ -112,10 +121,16 @@ class RecordBuilder {
     return toDiagnostic(item, this.options.relativeFilePath, this.parsed.source, testId);
   }
 
-  private position(node: Node) {
+  private position(node: Span) {
     const start = this.parsed.source.position(node.start);
     const end = this.parsed.source.position(node.end);
     return { lineStart: start.line, lineEnd: end.line, columnStart: start.column, columnEnd: end.column };
+  }
+
+  private declaredAt(written: Written | null): DeclaredAt | null {
+    if (!written) return null;
+    const { line, column } = written.source.position(written.start);
+    return { relativeFilePath: written.relativeFilePath, lineStart: line, columnStart: column };
   }
 
   /** Each describe's titles without tags, outermost first; anonymous describes are left out. */
@@ -146,7 +161,8 @@ class RecordBuilder {
       bodyHash: fn ? hashNodes(bodyNodes(fn), pending.cuts) : null,
       relativeFilePath: this.options.relativeFilePath,
       fileName: this.fileName,
-      ...this.position(call),
+      ...this.position(pending.site ?? call),
+      declaredAt: this.declaredAt(pending.declaredAt),
       title: title?.text ?? '',
       titleWithoutTags: title?.withoutTags ?? '',
       hasDynamicTitle: title?.isDynamic ?? false,
@@ -172,7 +188,9 @@ class RecordBuilder {
   }
 
   private test(pending: PendingTest): TestRecord {
-    const { declaration, call } = pending;
+    const { declaration } = pending;
+    // A test from an imported helper is placed at the call in this file that registers it.
+    const located = pending.site ?? pending.call;
     const scopes = outward(pending.scope);
     const describes = scopes.filter((scope) => scope.kind === 'describe').reverse();
     const title = declaration.title;
@@ -212,7 +230,7 @@ class RecordBuilder {
         this.diagnostic(
           problem(
             'test-in-loop',
-            call,
+            located,
             'The test is declared in a loop; it is listed once, while the runner creates one test per iteration.',
           ),
           id,
@@ -224,7 +242,7 @@ class RecordBuilder {
         this.diagnostic(
           problem(
             'only-in-skipped-describe',
-            call,
+            located,
             'The test uses .only, but a describe around it is skipped, so it is skipped too.',
           ),
           id,
@@ -238,7 +256,8 @@ class RecordBuilder {
       suitePath,
       relativeFilePath: this.options.relativeFilePath,
       fileName: this.fileName,
-      ...this.position(call),
+      ...this.position(located),
+      declaredAt: this.declaredAt(pending.declaredAt),
       title: title.text,
       titleWithoutTags: title.withoutTags,
       hasDynamicTitle: title.isDynamic,
@@ -293,6 +312,16 @@ class RecordBuilder {
       if (test.declaration.title.isDynamic) continue;
       const describes = outward(test.scope).filter((scope) => scope.kind === 'describe');
       const titles = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []).reverse();
+      // In a loop, a title path that never changes is registered again on each pass.
+      const repeated =
+        playwright && test.isInLoop && describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
+      if (repeated) {
+        const message =
+          'The test is declared in a loop with the same title on each pass, so Playwright fails to load the file and runs no tests at all.';
+        const item = problem('duplicate-title', test.site ?? test.call, message, test.declaration.title.text);
+        found.push({ index, problem: { ...item, level: 'error' } });
+        continue;
+      }
       const group = playwright ? null : test.scope;
       const key = JSON.stringify(playwright ? [...titles, test.declaration.title.text] : test.declaration.title.text);
       const keys = seen.get(group) ?? new Set<string>();
@@ -301,7 +330,7 @@ class RecordBuilder {
         const message = playwright
           ? 'Another test in the file has the same title path, so Playwright fails to load the file and runs no tests at all.'
           : 'Another test in the same describe has the same title.';
-        const item = problem('duplicate-title', test.call, message, test.declaration.title.text);
+        const item = problem('duplicate-title', test.site ?? test.call, message, test.declaration.title.text);
         found.push({ index, problem: playwright ? { ...item, level: 'error' } : item });
       }
       keys.add(key);

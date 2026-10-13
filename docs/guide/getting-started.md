@@ -82,6 +82,18 @@ The test's record in `inventory.json`, shortened:
 The test imports `test` from a local fixtures file. The scan follows that one import to check that it exports a
 Playwright test object created with `test.extend()`.
 
+### Gherkin features with playwright-bdd
+
+[playwright-bdd](https://github.com/vitalets/playwright-bdd) turns `.feature` files into Playwright test files. Generate
+them first, then scan the generated folder:
+
+```sh
+npx bddgen
+npx test-inventory ".features-gen/**/*.spec.js" --framework playwright --output inventory.json
+```
+
+The records point at the generated files, and each starts with a comment that names its feature file.
+
 ## Scan a Vitest suite
 
 <!-- scan: strategy-engine -->

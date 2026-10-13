@@ -239,45 +239,91 @@ describe('scan follows a custom test object to its fixtures file', () => {
       'does not export a Playwright test object that could be recognized',
     ],
     [
-      're-exports from another local file',
+      're-exports from a missing local file',
       { 'fixtures/index.ts': "export { test } from './base';\n" },
-      're-exports it from another module, which is not followed',
+      "re-exports it from './base', which could not be read",
     ],
     [
-      're-exports an import from another local file',
+      're-exports an import from a missing local file',
       { 'fixtures/index.ts': "import { test } from './base';\nexport { test };\n" },
-      're-exports it from another module, which is not followed',
+      "re-exports it from './base', which could not be read",
     ],
     [
-      'builds test from another local file',
+      'builds test from a missing local file',
       { 'fixtures/index.ts': "import { base } from './base';\nexport const test = base.extend({});\n" },
-      'builds it from another module, which is not followed',
+      "builds it from './base', which could not be read",
     ],
     [
-      're-exports everything from another local file',
+      're-exports everything from a missing local file',
       { 'fixtures/index.ts': "export * from './base';\n" },
-      're-exports it from another module, which is not followed',
+      "re-exports it from './base', which could not be read",
     ],
     [
-      're-exports another module with CommonJS',
+      're-exports a missing module with CommonJS',
       { 'fixtures/index.js': "'use strict';\nmodule.exports = require('./vendor/playwright');\n" },
-      're-exports it from another module, which is not followed',
+      "re-exports it from './vendor/playwright', which could not be read",
     ],
     [
-      'exports a variable holding a test object built from another local file',
+      'exports a variable holding a test object built from a missing local file',
       {
         'fixtures/index.ts':
           "import { baseTest } from './base';\nconst browserTest = baseTest.extend({});\nexport const test = browserTest;\n",
       },
-      'builds it from another module, which is not followed',
+      "builds it from './base', which could not be read",
     ],
     [
-      'renames a test object built from another local file',
+      'renames a test object built from a missing local file',
       {
         'fixtures/index.ts':
           "import { baseTest } from './base';\nconst browserTest = baseTest.extend({});\nexport { browserTest as test };\n",
       },
-      'builds it from another module, which is not followed',
+      "builds it from './base', which could not be read",
+    ],
+    [
+      'takes test from a member of an object from a missing local file',
+      { 'fixtures/index.ts': "import { accounts } from './accounts';\nexport const test = accounts.paperTest;\n" },
+      "builds it from './accounts', which could not be read",
+    ],
+    [
+      'picks test with a condition, from a missing local file on either side',
+      {
+        'fixtures/index.ts':
+          "import { paperTest } from './paper';\nexport const test = process.env.LIVE ? undefined : paperTest;\n",
+      },
+      "builds it from './paper', which could not be read",
+    ],
+    [
+      'passes a test object from a missing local file to a helper, after a spread',
+      {
+        'fixtures/index.ts':
+          "import { brokerFixtures } from './fixtures';\nimport { accountTest } from './accounts';\nexport const test = withBroker(...brokerFixtures, accountTest);\n",
+      },
+      "builds it from './accounts', which could not be read",
+    ],
+    [
+      'builds test with an expression the scan does not follow',
+      {
+        'fixtures/index.ts':
+          "import { test as base } from '@playwright/test';\nimport { fixtures } from './fixtures';\nexport const test = [base.extend(fixtures)][0];\n",
+      },
+      'does not export a Playwright test object that could be recognized',
+    ],
+    [
+      'builds test from a local file that does not export one',
+      {
+        'fixtures/index.ts': "export { test } from './accounts';\n",
+        'fixtures/accounts.ts': "import { test as paper } from './paper';\nexport const test = paper.extend({});\n",
+        'fixtures/paper.ts': "export const test = { account: 'paper' };\n",
+      },
+      "re-exports it from './accounts', which builds it from './paper', which does not export a Playwright test object that could be recognized",
+    ],
+    [
+      're-exports test from itself through another file',
+      {
+        'fixtures/index.ts': "export { test } from './accounts';\n",
+        'fixtures/accounts.ts': "export { test } from './index';\n",
+      },
+      "re-exports it from './accounts', which re-exports it from './index', which imports it back, in a cycle",
     ],
     [
       'builds test from its own variables in a way that is not recognized',
@@ -302,6 +348,21 @@ describe('scan follows a custom test object to its fixtures file', () => {
           "import { test as base } from '@playwright/test';\nexport const trading = base.extend({});\nexport default 1;\nexport * as all from '@playwright/test';\n",
       },
       'does not export a Playwright test object that could be recognized',
+    ],
+    [
+      'exports something else from Playwright under the name',
+      { 'fixtures/index.ts': "export { expect, expect as test } from '@playwright/test';\n" },
+      'does not export a Playwright test object that could be recognized',
+    ],
+    [
+      'reaches it through more modules than are followed',
+      Object.fromEntries(
+        Array.from({ length: 17 }, (_, index): [string, string] => [
+          index === 0 ? 'fixtures/index.ts' : `fixtures/layer-${index}.ts`,
+          `export * from './layer-${index + 1}';\n`,
+        ]),
+      ),
+      `${Array.from({ length: 16 }, (_, index) => `re-exports it from './layer-${index + 1}', which `).join('')}is more than 16 modules deep`,
     ],
     ['does not parse', { 'fixtures/index.ts': 'export const test = ;\n' }, 'could not be parsed'],
   ])('reports a fixtures file that %s', async (_, files, reason) => {
@@ -391,6 +452,47 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.tests[1].bodyHash).toBe(inventory.tests[0].bodyHash);
   });
 
+  it('follows test objects through barrels and extend chains across files', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/portfolio.spec.ts': spec('../fixtures'),
+      'fixtures/index.ts': "export * from './trading';\nexport { expect } from '@playwright/test';\n",
+      'fixtures/trading.ts':
+        "import { test as accounts } from './accounts';\nexport const test = accounts.extend<{ venue: string }>({ venue: 'NASDAQ' });\n",
+      'fixtures/accounts.ts':
+        "import { test as base } from './base';\nexport const test = base.extend({ account: 'paper' });\n",
+      'fixtures/base.ts': "export { test } from '@playwright/test';\n",
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['shows the buying power']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('recognizes a test object a test file builds from an imported one, without reading it on trust', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.ts':
+        "import { test as base } from '../fixtures';\nconst buyTest = base.extend({ side: 'buy' });\nconst sellTest = base.extend({ side: 'sell' });\nbuyTest('places a market order', async ({ side }) => {});\nsellTest('closes a position', async ({ side }) => {});\n",
+      'fixtures/index.ts':
+        "import { test as base } from '@playwright/test';\nexport const test = base.extend({ account: 'paper' });\n",
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['places a market order', 'closes a position']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('recognizes a Vitest test object a test file builds from an imported one', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/fees.test.ts':
+        "import { test as base } from './context';\nconst withBroker = base.extend({ broker: 'paper' });\nconst withVenue = base.extend({ venue: 'NASDAQ' });\nwithBroker('charges the minimum', () => {});\nwithVenue('charges the exchange fee', () => {});\n",
+      'tests/context.ts': "export { test } from 'vitest';\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests.map((test) => test.title)).toEqual(['charges the minimum', 'charges the exchange fee']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows each name once, even when used many times', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -411,7 +513,7 @@ describe('scan follows a custom test object to its fixtures file', () => {
       'tests/other.test.ts': "import { it } from './context-other';\nit('never found', () => {});\n",
       'tests/broken.test.ts': "import { it } from './broken';\nit('never found', () => {});\n",
       'tests/broken.ts': 'export const it = ;\n',
-      'tests/relay.test.ts': "import { it } from './relay';\nit('never found', () => {});\n",
+      'tests/relay.test.ts': "import { it } from './relay';\nit('found through the relay', () => {});\n",
       'tests/relay.ts': "export * from './context';\n",
       'tests/quiet.test.ts':
         "import { compile } from './missing-compiler';\nimport { parse } from './broken';\ncompile('<div/>', () => {});\nparse('x', () => {});\n",
@@ -422,13 +524,195 @@ describe('scan follows a custom test object to its fixtures file', () => {
       ['fees > charges the minimum', 'skip'],
       ['fees > rounds up', 'active'],
       ['fees > charges the exchange fee', 'active'],
+      ['found through the relay', 'active'],
     ]);
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
       "'it' is imported from './broken', which could not be parsed; tests that use it are missing.",
       "'it' is imported from './nowhere', which could not be read; tests that use it are missing.",
       "'it' is imported from './context-other', which does not export a Vitest test object that could be recognized; tests that use it are missing.",
-      "'it' is imported from './relay', which re-exports it from another module, which is not followed; tests that use it are missing.",
     ]);
+  });
+});
+
+describe('scan follows helper functions imported from other files', () => {
+  const ORDERS_HELPERS = `import { test } from '@playwright/test';
+
+export function validatesQuantity(side: string) {
+  test.skip(side === 'short', 'Short sells need a borrow check');
+  // TRD-218 short sells need a borrow check first
+  test(\`\${side} rejects a zero quantity\`, async ({ page }) => {});
+}
+`;
+
+  it('records the tests at each call, at the call, with where the helper writes them', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/orders.ts': ORDERS_HELPERS,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { validatesQuantity } from '../helpers/orders';
+
+test.describe('buy orders', { tag: '@orders' }, () => {
+  validatesQuantity('buy');
+});
+test.describe('short sells', () => {
+  validatesQuantity('short');
+});
+`,
+    });
+    const inventory = await scanProject(root);
+    // The condition is kept as source text, as everywhere, and the state is set on the line of each call.
+    expect(
+      inventory.tests.map((test) => [test.fullName, test.lineStart, test.condition, test.stateLine, test.tags]),
+    ).toEqual([
+      ['buy orders > buy rejects a zero quantity', 5, "side === 'short'", 5, ['@orders']],
+      ['short sells > short rejects a zero quantity', 8, "side === 'short'", 8, []],
+    ]);
+    expect(inventory.tests.map((test) => test.declaredAt)).toEqual([
+      { relativeFilePath: 'helpers/orders.ts', lineStart: 6, columnStart: 3 },
+      { relativeFilePath: 'helpers/orders.ts', lineStart: 6, columnStart: 3 },
+    ]);
+    expect(inventory.tests[1].comments).toEqual(['TRD-218 short sells need a borrow check first']);
+    expect(inventory.tests[0].bodyHash).toBe(inventory.tests[1].bodyHash);
+    expect(inventory.tests.every((test) => test.isInFunction && test.relativeFilePath === 'tests/orders.spec.ts')).toBe(
+      true,
+    );
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('finds the helper through barrels, default exports and renamed exports, and in nested helpers', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts':
+        "import { test as base } from '@playwright/test';\nexport const test = base.extend({ account: 'paper' });\n",
+      'helpers/index.ts':
+        "export * from './missing';\nexport * from './orders';\nexport { default as alertTests } from './alerts';\n",
+      'helpers/orders.ts': `import { test } from '../fixtures';
+import { watchlistTests as listTests } from './watchlist';
+
+function quantityTests(side: string) {
+  test(\`\${side} rejects a zero quantity\`, async ({ account }) => {});
+}
+const orderTests = (side: string) => {
+  test.describe(\`\${side} orders\`, () => {
+    quantityTests(side);
+    listTests(side);
+  });
+};
+export { orderTests as placesOrders };
+`,
+      'helpers/watchlist.ts':
+        "import { test } from '@playwright/test';\nexport const watchlistTests = (side: string) => {\n  test(`adds the ${side} symbol to the watchlist`, async () => {});\n};\n",
+      'helpers/alerts.ts':
+        "import { test } from '@playwright/test';\nexport default function (symbol: string) {\n  test(`alerts on ${symbol}`, async () => {});\n}\n",
+      'helpers/positions.ts': `import { test } from '@playwright/test';
+const positionTests = (symbol: string) => {
+  function closeTest(reason: string) {
+    test(\`closes \${symbol} at \${reason}\`, async () => {});
+  }
+  closeTest('the stop-loss');
+};
+export default positionTests;
+`,
+      'tests/trading.spec.ts': `import { alertTests, placesOrders } from '../helpers';
+import positionTests from '../helpers/positions';
+
+placesOrders('buy');
+alertTests('AAPL');
+positionTests('MSFT');
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart, test.declaredAt?.relativeFilePath])).toEqual([
+      ['buy orders > buy rejects a zero quantity', 4, 'helpers/orders.ts'],
+      ['buy orders > adds the buy symbol to the watchlist', 4, 'helpers/watchlist.ts'],
+      ['alerts on AAPL', 5, 'helpers/alerts.ts'],
+      ['closes MSFT at the stop-loss', 6, 'helpers/positions.ts'],
+    ]);
+    expect(inventory.suites.map((suite) => [suite.title, suite.lineStart, suite.declaredAt])).toEqual([
+      ['buy orders', 4, { relativeFilePath: 'helpers/orders.ts', lineStart: 8, columnStart: 3 }],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reports what goes wrong in a helper at the call that walks it', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/venues.ts': `import { test } from '../fixtures/missing';
+import { test as playwrightTest } from '@playwright/test';
+import { VENUE } from './venues-list';
+
+export function venueTests() {
+  test('routes to the venue', async () => {});
+  playwrightTest.describe(VENUE, () => {
+    playwrightTest(VENUE, async () => {});
+  });
+}
+`,
+      'tests/routing.spec.ts': "import { venueTests } from '../helpers/venues';\n\nvenueTests();\nvenueTests();\n",
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['dynamic-title', 3],
+      ['dynamic-title', 3],
+      ['unresolved-test-import', 3],
+      ['dynamic-title', 4],
+      ['dynamic-title', 4],
+    ]);
+  });
+
+  it('leaves alone imports that are not local functions, and calls from test bodies', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/orders.ts': `${ORDERS_HELPERS}export const SIDES = ['buy'];
+export default 'not a function';
+export { SIDES as sides };
+export const defaultSide = 'buy';
+`,
+      'helpers/cycle-a.ts': "export * from './cycle-b';\n",
+      'helpers/cycle-b.ts': "export * from './cycle-a';\n",
+      'helpers/broken.ts': 'export function = ;\n',
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import helperDefault, { sides, defaultSide, validatesQuantity } from '../helpers/orders';
+import { cycled } from '../helpers/cycle-a';
+import { broken } from '../helpers/broken';
+import { formatQuote } from '@trading/quotes';
+
+helperDefault();
+sides();
+defaultSide();
+cycled();
+broken();
+formatQuote();
+test('places an order', async () => {
+  validatesQuantity('buy');
+});
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['places an order']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('follows helpers in Vitest suites too, and not without a reader in scanSource', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'src/shared/fee-tests.ts':
+        "import { it } from 'vitest';\nexport function feeTests(venue: string) {\n  it(`charges the ${venue} fee`, () => {});\n}\n",
+      'src/fees.test.ts':
+        "import { describe } from 'vitest';\nimport { feeTests } from './shared/fee-tests';\ndescribe('fees', () => feeTests('NASDAQ'));\n",
+    });
+    const inventory = await scan({ root, patterns: ['src/*.test.ts'], framework: 'vitest' });
+    expect(onlyTest(inventory)).toMatchObject({
+      fullName: 'fees > charges the NASDAQ fee',
+      lineStart: 3,
+      declaredAt: { relativeFilePath: 'src/shared/fee-tests.ts', lineStart: 3, columnStart: 3 },
+    });
+    const source = scanSource({
+      code: "import { describe } from 'vitest';\nimport { feeTests } from './shared/fee-tests';\ndescribe('fees', () => feeTests('NASDAQ'));\n",
+      relativeFilePath: 'src/fees.test.ts',
+      framework: 'vitest',
+    });
+    expect(source.tests).toEqual([]);
   });
 });
 

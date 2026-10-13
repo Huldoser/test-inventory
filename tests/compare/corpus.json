@@ -6,7 +6,7 @@
     "license": "BSD-3-Clause",
     "framework": "playwright",
     "patterns": ["e2e/**/*.spec.ts"],
-    "expected": { "files": 84, "tests": 268 }
+    "expected": { "files": 84, "tests": 273 }
   },
   {
     "name": "Vue core",
@@ -15,7 +15,7 @@
     "license": "MIT",
     "framework": "vitest",
     "patterns": ["packages/**/__tests__/**/*.{spec,test}.{ts,tsx}"],
-    "expected": { "files": 196, "tests": 3592 }
+    "expected": { "files": 196, "tests": 3729 }
   },
   {
     "name": "SvelteKit test apps",
@@ -33,7 +33,7 @@
     "license": "MIT",
     "framework": "vitest",
     "patterns": ["packages/**/src/**/*.spec.{js,ts}"],
-    "expected": { "files": 78, "tests": 705 }
+    "expected": { "files": 78, "tests": 707 }
   },
   {
     "name": "Playwright test suite",
@@ -43,7 +43,7 @@
     "framework": "playwright",
     "patterns": ["tests/**/*.spec.ts"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 538, "tests": 1489 }
+    "expected": { "files": 538, "tests": 5984 }
   },
   {
     "name": "Supabase end-to-end tests",
@@ -63,7 +63,7 @@
     "framework": "vitest",
     "patterns": ["apps/studio/**/*.test.{ts,tsx}", "packages/**/*.test.{ts,tsx}"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 815, "tests": 8113 }
+    "expected": { "files": 815, "tests": 8305 }
   },
   {
     "name": "Storybook unit tests",
@@ -73,7 +73,7 @@
     "framework": "vitest",
     "patterns": ["code/**/*.test.{ts,tsx}"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 827, "tests": 9456 }
+    "expected": { "files": 827, "tests": 9458 }
   },
   {
     "name": "TanStack Router end-to-end tests",
@@ -83,7 +83,7 @@
     "framework": "playwright",
     "patterns": ["e2e/**/*.spec.ts"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 309, "tests": 203 }
+    "expected": { "files": 309, "tests": 1487 }
   },
   {
     "name": "TanStack Router unit tests",
@@ -103,7 +103,7 @@
     "framework": "vitest",
     "patterns": ["packages/**/*.spec.ts", "playground/**/*.spec.ts"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 180, "tests": 1893 }
+    "expected": { "files": 180, "tests": 1919 }
   },
   {
     "name": "Vitest",
@@ -113,7 +113,7 @@
     "framework": "vitest",
     "patterns": ["test/**/*.test.{ts,tsx}", "packages/**/*.test.ts"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 509, "tests": 3434 }
+    "expected": { "files": 509, "tests": 3438 }
   },
   {
     "name": "Nuxt",
@@ -133,7 +133,7 @@
     "framework": "vitest",
     "patterns": ["packages/**/*.test.{ts,tsx}", "excalidraw-app/**/*.test.{ts,tsx}"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 142, "tests": 2154 }
+    "expected": { "files": 142, "tests": 2216 }
   },
   {
     "name": "Sentry end-to-end test apps",

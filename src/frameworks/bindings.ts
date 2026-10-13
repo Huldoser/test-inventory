@@ -131,74 +131,118 @@ export function exportsTestObject(program: Program, name: string, objects: TestO
   return false;
 }
 
-/** Whether a module re-exports `name` from another module, which the scan does not follow. */
-export function reexportsFromModule(program: Program, name: string, isFramework: (source: string) => boolean): boolean {
-  const imported = moduleImports(program, isFramework);
-  return program.body.some((statement) => {
-    const required = commonJsReexport(statement);
-    if (required !== null) return !isFramework(required);
-    if (statement.type === 'ExportAllDeclaration') return !statement.exported && !isFramework(statement.source.value);
-    if (statement.type !== 'ExportNamedDeclaration') return false;
-    // `export { test } from './fixtures'`, or `import { test } from './fixtures'` and then `export { test }`.
-    const fromModule = (local: string) =>
-      statement.source ? !isFramework(statement.source.value) : imported.has(local);
-    return statement.specifiers.some(
-      (specifier) => exportName(specifier.exported) === name && fromModule(exportName(specifier.local)),
-    );
-  });
+/** Where a module gets a name it exports from another module, and how: by re-exporting it or by building on it. */
+interface ImportOrigin {
+  source: string;
+  imported: string;
+  how: 're-exports' | 'builds';
 }
 
 /**
- * Whether a module exports `name` as a value built from something imported from another module, directly or through
- * its own variables, as in `const test = baseTest.extend({...})` and then `export const browserTest = test`.
+ * The module and name a module's export comes from when it re-exports it, as in `export { test } from './base'`, or
+ * builds it from something imported, directly or through its own variables, as in `const test = base.extend({...})`.
  */
-export function buildsFromModule(program: Program, name: string, isFramework: (source: string) => boolean): boolean {
+function importOrigin(program: Program, name: string, isFramework: (source: string) => boolean): ImportOrigin | null {
   const imported = moduleImports(program, isFramework);
+  for (const statement of program.body) {
+    const required = commonJsReexport(statement);
+    if (required !== null && !isFramework(required)) return { source: required, imported: name, how: 're-exports' };
+    if (statement.type === 'ExportAllDeclaration' && !statement.exported && !isFramework(statement.source.value)) {
+      return { source: statement.source.value, imported: name, how: 're-exports' };
+    }
+    if (statement.type !== 'ExportNamedDeclaration') continue;
+    for (const specifier of statement.specifiers) {
+      if (exportName(specifier.exported) !== name) continue;
+      const local = exportName(specifier.local);
+      // `export { test } from './fixtures'`, or `import { test } from './fixtures'` and then `export { test }`.
+      if (statement.source) {
+        if (isFramework(statement.source.value)) continue;
+        return { source: statement.source.value, imported: local, how: 're-exports' };
+      }
+      const from = imported.get(local);
+      if (from) return { source: from.source, imported: from.imported, how: 're-exports' };
+    }
+  }
   const values = new Map<string, Node>();
   for (const declarator of topLevelDeclarators(program)) {
     if (declarator.id.type === 'Identifier' && declarator.init) values.set(declarator.id.name, declarator.init);
   }
   const seen = new Set<string>();
-  const builtFromImport = (local: string): boolean => {
+  // The import a local name is, or is built from: the object `extend` is called on, the test objects a call such as
+  // `mergeTests(a, b)` combines, either side of `?:`, or another local name. Values only passed along, such as a
+  // fixtures object in `base.extend(fixtures)`, are not what the test object is built on.
+  const builtFrom = (local: string): ModuleImport | null => {
     const value = values.get(local);
-    if (!value || seen.has(local)) return false;
+    if (imported.has(local) || !value || seen.has(local)) return imported.get(local) ?? null;
     seen.add(local);
-    return usesImport(value);
+    return builtOn(value);
   };
-  const usesImport = (node: Node): boolean =>
-    (node.type === 'Identifier' && (imported.has(node.name) || builtFromImport(node.name))) ||
-    childNodes(node).some(usesImport);
+  const builtOn = (node: Node): ModuleImport | null => {
+    const expression = unwrap(node as Expression);
+    switch (expression.type) {
+      case 'Identifier':
+        return builtFrom(expression.name);
+      case 'MemberExpression':
+        return builtOn(expression.object);
+      case 'ConditionalExpression':
+        return builtOn(expression.consequent) ?? builtOn(expression.alternate);
+      case 'CallExpression': {
+        const callee = unwrap(expression.callee);
+        if (callee.type === 'MemberExpression' && propertyName(callee) === 'extend') return builtOn(callee.object);
+        for (const argument of expression.arguments) {
+          const found = argument.type === 'SpreadElement' ? null : builtOn(argument);
+          if (found) return found;
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  };
   // `export { test as browserTest }` exports a variable under another name.
   const locals = program.body.flatMap((statement) =>
     statement.type === 'ExportNamedDeclaration' && !statement.source
       ? statement.specifiers.filter((item) => exportName(item.exported) === name).map((item) => exportName(item.local))
       : [],
   );
-  return [name, ...locals].some(builtFromImport);
+  for (const local of [name, ...locals]) {
+    const found = values.has(local) ? builtFrom(local) : null;
+    if (found) return { source: found.source, imported: found.imported, how: 'builds' };
+  }
+  return null;
 }
 
-/** Whether a module imports or requires any of the given sources. */
+/** Whether a module imports, re-exports or requires any of the given sources. */
 export function importsFrom(program: Program, matches: (source: string) => boolean): boolean {
   const requires = (node: Node): boolean => {
     const source = node.type === 'CallExpression' ? requiredModule(node) : null;
     return (source !== null && matches(source)) || childNodes(node).some(requires);
   };
   return program.body.some(
-    (statement) => (statement.type === 'ImportDeclaration' && matches(statement.source.value)) || requires(statement),
+    (statement) =>
+      ((statement.type === 'ImportDeclaration' || statement.type === 'ExportAllDeclaration') &&
+        matches(statement.source.value)) ||
+      (statement.type === 'ExportNamedDeclaration' && statement.source !== null && matches(statement.source.value)) ||
+      requires(statement),
   );
 }
+
+/** Whether a name a module imports from another module is a test object there, which follows that module in turn. */
+export type FollowImport = (source: string, imported: string) => boolean;
 
 /** How a framework recognizes the modules and test objects of a followed file. */
 export interface Framework {
   name: string;
   isSource: (source: string) => boolean;
-  testObjects: (program: Program) => TestObjects;
+  /** The test objects of a followed module, which uses `follow` for the names it imports from other modules. */
+  testObjects: (program: Program, follow: FollowImport) => TestObjects;
 }
 
 /** Parsed modules, kept while their source is, so that a fixtures file many tests import is parsed once. */
 const parsedModules = new WeakMap<ModuleSource, ParsedFile>();
 
-function parseModule(module: ModuleSource): ParsedFile {
+/** Shared with the walk of imported helpers, so that a module both read and walked is parsed once. */
+export function parseModule(module: ModuleSource): ParsedFile {
   let parsed = parsedModules.get(module);
   if (!parsed) {
     parsed = parseFile(module.relativeFilePath, module.code);
@@ -207,10 +251,51 @@ function parseModule(module: ModuleSource): ParsedFile {
   return parsed;
 }
 
+/** How many modules deep an import is followed, far more than real fixture chains need. */
+const MAX_DEPTH = 16;
+
 /**
- * Follows one import to see whether the module exports a test object. Only one level is followed. A module that has
- * nothing to do with the framework is not reported: the call only looked like a test.
+ * Whether `name` from `source` is a test object, following the module through the modules it re-exports from or builds
+ * on, as deep as it takes. When it isn't, the reason says where the chain ends; it is null for a module that has
+ * nothing to do with the framework, as when a call only looked like a test.
  */
+export function followModule(
+  source: string,
+  name: string,
+  readModule: ModuleReader | null,
+  framework: Framework,
+  path: readonly string[] = [],
+): { exported: boolean; reason: string | null } {
+  // Without a reader, as in scanSource, nothing can be read.
+  const module = readModule ? readModule(source) : { reason: 'could not be read' };
+  if ('reason' in module) return { exported: false, reason: module.reason };
+  if (path.includes(module.relativeFilePath)) return { exported: false, reason: 'imports it back, in a cycle' };
+  if (path.length >= MAX_DEPTH) return { exported: false, reason: `is more than ${MAX_DEPTH} modules deep` };
+  const { program, error } = parseModule(module);
+  if (error) return { exported: false, reason: 'could not be parsed' };
+  const within = [...path, module.relativeFilePath];
+  const results = new Map<string, { exported: boolean; reason: string | null }>();
+  const followFrom = (from: string, imported: string) => {
+    const key = `${from}\0${imported}`;
+    let result = results.get(key);
+    if (!result) {
+      result = followModule(from, imported, module.readModule, framework, within);
+      results.set(key, result);
+    }
+    return result;
+  };
+  const objects = framework.testObjects(program, (from, imported) => followFrom(from, imported).exported);
+  if (exportsTestObject(program, name, objects)) return { exported: true, reason: null };
+  const unrecognized = `does not export a ${framework.name} test object that could be recognized`;
+  const origin = importOrigin(program, name, framework.isSource);
+  if (origin) {
+    const end = followFrom(origin.source, origin.imported).reason ?? unrecognized;
+    return { exported: false, reason: `${origin.how} it from '${origin.source}', which ${end}` };
+  }
+  return { exported: false, reason: importsFrom(program, framework.isSource) ? unrecognized : null };
+}
+
+/** Follows the import of `name` in a test file, with the diagnostic to report when it isn't a test object. */
 export function followImport(
   name: string,
   imported: ModuleImport,
@@ -218,28 +303,14 @@ export function followImport(
   file: FileContext,
   framework: Framework,
 ): { exported: boolean; problem: Problem | null } {
-  const unresolved = (reason: string) =>
-    problem(
-      'unresolved-test-import',
-      imported.node,
-      `'${name}' is imported from '${imported.source}', which ${reason}; tests that use it are missing.`,
-      snippet(text(file, imported.node)),
-    );
-  // Without a reader, as in scanSource, nothing can be read.
-  const module = readModule ? readModule(imported.source) : { reason: 'could not be read' };
-  if ('reason' in module) return { exported: false, problem: unresolved(module.reason) };
-  const { program, error } = parseModule(module);
-  if (error) return { exported: false, problem: unresolved('could not be parsed') };
-  if (exportsTestObject(program, imported.imported, framework.testObjects(program))) {
-    return { exported: true, problem: null };
-  }
-  let reason: string | null = null;
-  if (reexportsFromModule(program, imported.imported, framework.isSource)) {
-    reason = 're-exports it from another module, which is not followed';
-  } else if (buildsFromModule(program, imported.imported, framework.isSource)) {
-    reason = 'builds it from another module, which is not followed';
-  } else if (importsFrom(program, framework.isSource)) {
-    reason = `does not export a ${framework.name} test object that could be recognized`;
-  }
-  return { exported: false, problem: reason ? unresolved(reason) : null };
+  const { exported, reason } = followModule(imported.source, imported.imported, readModule, framework);
+  const problemFound = reason
+    ? problem(
+        'unresolved-test-import',
+        imported.node,
+        `'${name}' is imported from '${imported.source}', which ${reason}; tests that use it are missing.`,
+        snippet(text(file, imported.node)),
+      )
+    : null;
+  return { exported, problem: problemFound };
 }

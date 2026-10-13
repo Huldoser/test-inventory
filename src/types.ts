@@ -146,6 +146,11 @@ export interface SuiteRecord {
   columnStart: Position;
   /** In UTF-16 code units. */
   columnEnd: Position;
+  /**
+   * Where a helper imported from another file writes the describe; the record's location is then the
+   * call that registers it. Null for code written in the scanned file.
+   */
+  declaredAt: DeclaredAt | null;
   /** As the runner shows it, tags included. */
   title: string;
   /** `title` with `@tag` words removed and spaces tidied. */
@@ -203,6 +208,11 @@ export interface TestRecord {
   columnStart: Position;
   /** In UTF-16 code units. */
   columnEnd: Position;
+  /**
+   * Where a helper imported from another file writes the test; the record's location is then the
+   * call that registers it. Null for code written in the scanned file.
+   */
+  declaredAt: DeclaredAt | null;
   /** As the runner shows it, tags included. */
   title: string;
   /** `title` with `@tag` words removed and spaces tidied. */
@@ -259,6 +269,15 @@ export interface TestRecord {
   isInCondition: boolean;
   /** Declared inside a plain function. */
   isInFunction: boolean;
+}
+
+/** @inline */
+export interface DeclaredAt {
+  /** The helper's file, from the project root. */
+  relativeFilePath: string;
+  lineStart: Position;
+  /** In UTF-16 code units. */
+  columnStart: Position;
 }
 
 /** @inline */

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseSync } from 'oxc-parser';
-import type { MarkdownRenderer } from 'vitepress';
+import type { Plugin } from 'vitepress';
 
 // The files that declare what src/index.ts exports. Other files reuse some of the names, such as `Position`.
 const FILES = ['types.ts', 'options.ts', 'records.ts', 'scan.ts', 'scan-source.ts'];
@@ -68,21 +68,19 @@ export function typeNames(line: string): string[] | null {
 }
 
 /**
- * Replaces each `<!-- types: ... -->` line with a TypeScript block holding those declarations, read from src/ when the
- * page is built, so the docs show the types as they are in the code.
+ * Expands each `<!-- types: ... -->` line in the Markdown source, before VitePress and the llms.txt plugin read it, so
+ * the pages and their Markdown copies both show the types as they are in the code.
  */
-export function typesFromSource(md: MarkdownRenderer): void {
-  md.block.ruler.before('html_block', 'types', (state, line, _endLine, silent) => {
-    const names = typeNames(state.src.slice(state.bMarks[line] + state.tShift[line], state.eMarks[line]));
-    if (!names) return false;
-    if (!silent) {
-      const token = state.push('fence', 'code', 0);
-      token.info = 'ts';
-      token.markup = '```';
-      token.content = `${declarations(names)}\n`;
-      token.map = [line, line + 1];
-    }
-    state.line = line + 1;
-    return true;
-  });
+export function typesInMarkdown(): Plugin {
+  return {
+    name: 'test-inventory:types',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.endsWith('.md')) return null;
+      const expanded = code.replace(/^<!-- types: .+ -->$/gm, (line) => {
+        return `\`\`\`ts\n${declarations(typeNames(line) as string[])}\n\`\`\``;
+      });
+      return expanded === code ? null : { code: expanded, map: null };
+    },
+  };
 }

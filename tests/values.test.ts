@@ -108,6 +108,42 @@ test(SYMBOL, async () => {});
     expect(titles(inventory)).toEqual(['SYMBOL', 'SYMBOL', 'SYMBOL', 'AAPL']);
   });
 
+  it('reads the arguments of the call a helper is walked at, where the call is', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const VENUE = 'NASDAQ';
+const SIDES = ['buy'];
+function routeTests(side, { venue }, ...rest) {
+  const title = \`routes a \${side} order\`;
+  test(title, async () => {});
+  test(\`to \${venue}\`, async () => {});
+  test(\`with \${rest}\`, async () => {});
+}
+function venueTests(venue) {
+  function sideTests() {
+    test(\`\${venue} accepts market orders\`, async () => {});
+  }
+  sideTests();
+}
+function quoteTests(symbol) {
+  test(\`quotes \${symbol}\`, async () => {});
+}
+routeTests('buy', { venue: VENUE }, 1);
+routeTests(...SIDES);
+venueTests(VENUE);
+quoteTests();
+`);
+    expect(titles(inventory)).toEqual([
+      'routes a buy order',
+      '`to ${venue}`',
+      '`with ${rest}`',
+      'title',
+      '`to ${venue}`',
+      '`with ${rest}`',
+      'NASDAQ accepts market orders',
+      '`quotes ${symbol}`',
+    ]);
+  });
+
   it('skips declarations without a name', () => {
     expect(resolve("export default class {}\nconst VENUE = 'NYSE';\nVENUE;")).toEqual({ ok: true, value: 'NYSE' });
     expect(resolve("export default function () {}\nconst VENUE = 'NYSE';\nVENUE;")).toEqual({
