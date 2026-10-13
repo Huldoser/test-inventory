@@ -1351,6 +1351,59 @@ level1();
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  // Each helper calls the next one ten times, so the innermost one is reached 10,000 times on five levels.
+  const routes = (innermost: string, call: (level: number, index: number) => string) =>
+    Array.from({ length: 5 }, (_, level) => {
+      const body =
+        level < 4 ? Array.from({ length: 10 }, (_, index) => call(level + 2, index)).join('\n  ') : innermost;
+      return `function route${level + 1}(venue: string) {\n  ${body}\n}`;
+    }).join('\n');
+
+  it('stops following helper calls after 10,000 in a file, with one warning where it stops', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+${routes('test(`routes the order to ${venue}`, async () => {});', (level, index) => `route${level}(\`\${venue}.${index}\`);`)}
+test.describe('order routing', () => {
+  route1('NASDAQ');
+  route1('LSE');
+});
+`);
+    expect(inventory.tests.length).toBeGreaterThan(8_000);
+    expect(inventory.tests.length).toBeLessThan(10_000);
+    expect(inventory.tests[0].fullName).toBe('order routing > routes the order to NASDAQ.0.0.0.0');
+    expect(inventory.tests.some((test) => test.title.includes('LSE'))).toBe(false);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.message])).toEqual([
+      [
+        'test-in-function',
+        "The file's helper functions are called more than 10,000 times, counting the calls inside them, so the scan stops following them here. Tests they register from here on are missing, or listed once where they are written.",
+      ],
+    ]);
+  });
+
+  it('applies the states of a helper reached many times from a test once for each condition, up to 10,000', () => {
+    const skip = "test.skip(venue === 'LSE', 'The exchange is closed');";
+    const sameConditions = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+${routes(skip, (level) => `route${level}(venue);`)}
+test('fills a market order', async () => {
+  route1('NASDAQ');
+});
+`);
+    expect(onlyTest(sameConditions)).toMatchObject({ state: 'skip', condition: "venue === 'LSE'" });
+    expect(sameConditions.diagnostics).toEqual([]);
+    const eachCondition = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+${routes(skip, (level, index) => `if (session === ${index}) route${level}(venue);`)}
+test('fills a market order', async () => {
+  route1('NASDAQ');
+});
+`);
+    expect(onlyTest(eachCondition).state).toBe('skip');
+    expect(eachCondition.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.message])).toEqual([
+      [
+        'state-in-helper',
+        'route1() calls helper functions more than 10,000 times, counting the calls inside them, so the states they set past that are not applied.',
+      ],
+    ]);
+  });
+
   it('warns for a helper called only from tests, and for one nested in a helper nothing calls', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 function cleanupTests() {
