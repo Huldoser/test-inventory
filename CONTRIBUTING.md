@@ -24,7 +24,6 @@ npm test
 | `npm run docs:dev`                                    | The docs site at localhost.                                                            |
 | `npm run corpus`                                      | Scans the open-source projects in `tests/compare/corpus.json` at their pinned commits. |
 | `npm run release -- --dry-run`                        | Checks and prints the steps of a release without changing anything.                    |
-| `node scripts/outdated.ts --dry-run`                  | Lists the dependencies with a newer version, as the weekly issue does.                 |
 
 ## How the code is laid out
 
