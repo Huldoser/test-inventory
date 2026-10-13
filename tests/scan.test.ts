@@ -15,6 +15,23 @@ async function scanProject(root: string, options: Partial<ScanOptions> = {}) {
   return inventory;
 }
 
+/**
+ * Barrels in twelve layers of four, each re-exporting all four of the next layer, so that a search that misses them
+ * passes 4^11 paths through them. They end in `layer-0-0.ts`.
+ */
+function barrels(folder: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (let layer = 0; layer < 12; layer++) {
+    for (let index = 0; index < 4; index++) {
+      files[`${folder}/layer-${layer}-${index}.ts`] =
+        layer < 11
+          ? [0, 1, 2, 3].map((next) => `export * from './layer-${layer + 1}-${next}';\n`).join('')
+          : "export const MARKET_OPEN = '09:30';\n";
+    }
+  }
+  return files;
+}
+
 describe('scan', () => {
   it('finds files by glob, sorted, with / in paths, leaving out node_modules and ignored files', async () => {
     const root = project({
@@ -502,6 +519,20 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect((await scanProject(root)).diagnostics).toHaveLength(1);
   });
 
+  it('follows each fixtures file once, however many re-exports lead to it', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      ...barrels('fixtures'),
+      'fixtures/index.ts': "export * from './layer-0-0';\nexport * from './trading';\n",
+      'fixtures/trading.ts':
+        "import { test as base } from '@playwright/test';\nexport const test = base.extend({ account: 'paper' });\nexport { expect } from '@playwright/test';\n",
+      'tests/portfolio.spec.ts': spec('../fixtures'),
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['shows the buying power']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a Vitest test object extended in a local file', async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,
@@ -631,6 +662,25 @@ positionTests('MSFT');
     expect(inventory.suites.map((suite) => [suite.title, suite.lineStart, suite.declaredAt])).toEqual([
       ['buy orders', 4, { relativeFilePath: 'helpers/orders.ts', lineStart: 8, columnStart: 3 }],
     ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('searches each barrel once for a helper, however many re-exports lead to it', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      ...barrels('helpers'),
+      'helpers/index.ts': "export * from './layer-0-0';\nexport * from './orders';\n",
+      'helpers/orders.ts': ORDERS_HELPERS,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { validatesQuantity } from '../helpers';
+
+test.describe('buy orders', () => {
+  validatesQuantity('buy');
+});
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(['buy orders > buy rejects a zero quantity']);
     expect(inventory.diagnostics).toEqual([]);
   });
 

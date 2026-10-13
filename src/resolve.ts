@@ -150,7 +150,8 @@ function tsconfigLayers(
  * `paths` and `baseUrl` from a tsconfig and the files it extends, later files overriding earlier ones. A solution-style
  * tsconfig without them, as Vite projects have, takes them from the first project in its `references` that sets them.
  */
-function tsconfigPaths(file: string): PathOptions {
+function tsconfigPaths(file: string, seen = new Set<string>()): PathOptions {
+  seen.add(file);
   const configDir = path.dirname(file);
   const options: PathOptions = { paths: null, pathsBase: configDir, baseUrl: null, configDir };
   const layers = tsconfigLayers(file);
@@ -174,7 +175,8 @@ function tsconfigPaths(file: string): PathOptions {
       if (typeof target !== 'string') continue;
       const referenced = path.resolve(configDir, target);
       const referencedFile = target.endsWith('.json') ? referenced : path.join(referenced, 'tsconfig.json');
-      const found = isFile(referencedFile) ? tsconfigPaths(referencedFile) : null;
+      // Projects may reference each other; each tsconfig is read once.
+      const found = isFile(referencedFile) && !seen.has(referencedFile) ? tsconfigPaths(referencedFile, seen) : null;
       if (found && (found.paths ?? found.baseUrl)) return found;
     }
   }
@@ -291,15 +293,18 @@ function workspacePackages(directory: string): Map<string, string> {
       (item): item is string => typeof item === 'string',
     );
     if (patterns) {
+      // Packages are inside the workspace. A pattern or a link that leads out of its folder could send the search through
+      // the whole disk, so neither is followed.
+      const inside = patterns.filter(
+        (item) => !path.isAbsolute(item.replace(/^!/, '')) && !/(^|\/)\.\.(\/|$)/.test(item),
+      );
       const manifests = globSync(
-        patterns.filter((item) => !item.startsWith('!')).map((item) => `${item.replace(/\/+$/, '')}/package.json`),
+        inside.filter((item) => !item.startsWith('!')).map((item) => `${item.replace(/\/+$/, '')}/package.json`),
         {
           cwd: folder,
           absolute: true,
-          ignore: [
-            '**/node_modules/**',
-            ...patterns.filter((item) => item.startsWith('!')).map((item) => item.slice(1)),
-          ],
+          followSymbolicLinks: false,
+          ignore: ['**/node_modules/**', ...inside.filter((item) => item.startsWith('!')).map((item) => item.slice(1))],
         },
       );
       const packages = new Map<string, string>();

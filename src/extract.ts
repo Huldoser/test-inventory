@@ -132,6 +132,13 @@ interface Deferred {
 /** How many helpers deep a call is followed into the functions it calls, far more than real suites nest. */
 const MAX_DEPTH = 16;
 
+/**
+ * How many helper calls are followed in one file, and from each call in a test or hook, counting the calls inside the
+ * helpers; far more than real suites make. Helpers that call each other in several places multiply: ten calls at each
+ * of six levels are a million.
+ */
+const MAX_CALLS = 10_000;
+
 /** Where a function is written or called: in which describe, function, conditions and loop. */
 interface Placement {
   scope: Scope;
@@ -166,6 +173,7 @@ type Effect =
 
 /** A call to a helper function from a test or a hook, whose states apply to that test or the tests the hook covers. */
 interface HelperCall {
+  call: CallExpression;
   fn: Node;
   target: PendingTest | Scope;
   guards: string[];
@@ -233,6 +241,8 @@ class Walker {
   private readonly walkedAtCall = new Set<Node>();
   /** The functions being walked at their calls, innermost last, to stop recursion. */
   private readonly callStack: Node[] = [];
+  /** Helper calls walked in the file so far, up to MAX_CALLS. */
+  private callsWalked = 0;
   /** Problems already reported, since a function walked at several calls finds the same ones each time. */
   private readonly reported = new Set<string>();
   /** For each file's program, the scopes around each function in it. */
@@ -529,7 +539,7 @@ class Walker {
     if (!fn) {
       const runsHere = !context.test && !context.hookScope && !context.helper;
       const imported = runsHere && this.callStack.length < MAX_DEPTH ? this.importedFunction(callee.name) : null;
-      return imported && !this.callStack.includes(imported.fn) ? imported : null;
+      return imported && !this.callStack.includes(imported.fn) ? this.withinLimit(imported, call) : null;
     }
     const sites = this.callSites.get(fn) ?? new Map<Node, Placement>();
     if (!sites.has(call)) sites.set(call, this.placement(context));
@@ -538,12 +548,32 @@ class Walker {
       this.effectsOf(context.helper).push({ kind: 'call', fn, guards: context.guards });
     } else if (context.test || context.hookScope) {
       this.helperCalls.push({
+        call,
         fn,
         target: context.test ?? (context.hookScope as Scope),
         guards: context.guards,
       });
     } else if (!this.callStack.includes(fn) && this.callStack.length < MAX_DEPTH) {
-      return { fn, frame: this.frame };
+      return this.withinLimit({ fn, frame: this.frame }, call);
+    }
+    return null;
+  }
+
+  /** The function to walk at a call, while the file has calls left to walk; past MAX_CALLS, the call is reported once. */
+  private withinLimit(callee: Callee, call: CallExpression): Callee | null {
+    if (this.callsWalked < MAX_CALLS) {
+      this.callsWalked++;
+      return callee;
+    }
+    if (this.callsWalked === MAX_CALLS) {
+      this.callsWalked++;
+      this.report(
+        problem(
+          'test-in-function',
+          call,
+          `The file's helper functions are called more than ${MAX_CALLS.toLocaleString('en-US')} times, counting the calls inside them, so the scan stops following them here. Tests they register from here on are missing, or listed once where they are written.`,
+        ),
+      );
     }
     return null;
   }
@@ -555,7 +585,7 @@ class Walker {
     if (source === null) return null;
     const imported = declaration?.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
     const frame = this.openFrom(this.frame, source);
-    return frame ? this.exportedFunction(frame, imported, []) : null;
+    return frame ? this.exportedFunction(frame, imported, new Set(), 0) : null;
   }
 
   /** A module a file imports, read as a frame once; null when it can't be read or parsed. */
@@ -568,11 +598,13 @@ class Walker {
 
   /**
    * The function a module exports under a name, written there or re-exported from another module, as a barrel file
-   * does; null when the export isn't a function the scan can find.
+   * does; null when the export isn't a function the scan can find. Each module is searched once for a name, however many
+   * barrels lead to it: one searched before didn't have it, or the search would have ended there.
    */
-  private exportedFunction(frame: Frame, name: string, seen: readonly Frame[]): Callee | null {
-    if (seen.includes(frame) || seen.length >= MAX_DEPTH) return null;
-    const within = [...seen, frame];
+  private exportedFunction(frame: Frame, name: string, searched: Set<string>, depth: number): Callee | null {
+    const key = `${frame.relativeFilePath}\0${name}`;
+    if (searched.has(key) || depth >= MAX_DEPTH) return null;
+    searched.add(key);
     const { program } = frame.parsed;
     const local = (localName: string): Callee | null => {
       const fn = this.functionIn(frame, localName, [program]);
@@ -580,7 +612,7 @@ class Walker {
     };
     const from = (source: string, exported: string): Callee | null => {
       const module = this.openFrom(frame, source);
-      return module ? this.exportedFunction(module, exported, within) : null;
+      return module ? this.exportedFunction(module, exported, searched, depth + 1) : null;
     };
     for (const statement of program.body) {
       if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
@@ -753,8 +785,16 @@ class Walker {
    */
   private applyHelpers(exported: Set<Node>): void {
     const reached = new Set<Node>();
+    // For one call from a test or hook: the conditions each helper was expanded under, and how many expansions it took.
+    let expanded = new Map<Node, Set<string>>();
+    let steps = 0;
     const expand = (fn: Node, guards: string[], path: Set<Node>): Exclude<Effect, { kind: 'call' }>[] => {
       if (path.has(fn) || exported.has(fn)) return [];
+      // A helper reached again under the same conditions sets the same states again.
+      const conditions = expanded.get(fn) ?? new Set<string>();
+      const key = guards.join('\0');
+      if (conditions.has(key) || ++steps > MAX_CALLS) return [];
+      expanded.set(fn, conditions.add(key));
       reached.add(fn);
       return (this.effects.get(fn) ?? []).flatMap((effect) => {
         if (effect.kind === 'call') return expand(effect.fn, [...guards, ...effect.guards], new Set([...path, fn]));
@@ -764,9 +804,22 @@ class Walker {
       });
     };
     for (const call of this.helperCalls) {
+      expanded = new Map();
+      steps = 0;
       for (const effect of expand(call.fn, call.guards, new Set())) {
         // `describe.configure()` does nothing in a test or hook body.
         if (effect.kind === 'state') call.target.states.push(effect.setting);
+      }
+      if (steps > MAX_CALLS) {
+        const callee = snippet(this.frame.parsed.source.slice(call.call.callee.start, call.call.callee.end));
+        this.problems.push(
+          problem(
+            'state-in-helper',
+            call.call,
+            `${callee}() calls helper functions more than ${MAX_CALLS.toLocaleString('en-US')} times, counting the calls inside them, so the states they set past that are not applied.`,
+            callee,
+          ),
+        );
       }
     }
     for (const [fn, effects] of this.effects) {

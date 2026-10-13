@@ -40,7 +40,8 @@ Two kinds of import are followed: a custom `test` object, and a function that de
 - an `imports` entry in the nearest `package.json`, as in `#fixtures`;
 - a workspace package whose `exports`, `types` or `main` point to TypeScript source, or to build output with the
   source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
-  install, from the `workspaces` of `package.json` or from `pnpm-workspace.yaml`.
+  install, from the `workspaces` of `package.json` or from `pnpm-workspace.yaml`. Patterns and links that lead out of
+  the workspace folder are not followed.
 
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
 `export * from './base'`, or build it with `extend` on a test object it imports from another file.
@@ -115,6 +116,9 @@ Playwright lists two tests here, and so does the scan: `buy orders > buy rejects
 A function imported from another file is followed the same way, through the imports above. Its records give the call
 in the scanned file as their location, since that is the line that registers the tests, and `declaredAt` gives the
 file and line where the helper writes the test.
+
+Helpers are followed up to 16 calls deep, and at up to 10,000 calls in a file, counting the calls inside helpers; real
+suites make far fewer. Past 10,000, a `test-in-function` warning marks the call where the scan stopped.
 
 A `test-in-function` warning remains for tests in a function the scan can't place: one that nothing in the file calls
 by name, one the file only exports, and one called only from tests or hooks, where the runner doesn't collect tests.
