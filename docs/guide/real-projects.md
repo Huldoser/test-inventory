@@ -9,7 +9,8 @@ them were checked against the runners' own lists. `npm run corpus` repeats the s
 [`tests/compare/corpus.json`](https://github.com/Huldoser/test-inventory/blob/main/tests/compare/corpus.json),
 with the number of files and tests each scan found. A scan fails when it finds fewer, when a file gets a
 `parse-error` or `internal-error`, or when a file calls `test`, `it` or `describe` but gets neither a test record nor
-an error that says why.
+an error that says why. The projects that use Vitest are also listed with Vitest's static parser and compared with
+the scan, as described in [Compared with the runners](/guide/runners#checked-in-ci).
 
 ## Scans
 

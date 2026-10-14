@@ -5,7 +5,12 @@
 // parse-error or internal-error diagnostic, which means the scanner could not read code that its runner accepts;
 // when it finds fewer files or tests than corpus.json records; or when a file that calls something shaped like a
 // test gets no test record and no error that explains why.
+//
+// Vitest projects are also listed with Vitest's own static parser, which needs no install, and the list is compared
+// with a scan that applies the rules of the same Vitest version. A difference that no known cause in
+// scripts/compare-vitest-list.ts explains fails the run too.
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Node } from 'oxc-parser';
@@ -13,6 +18,7 @@ import { glob } from 'tinyglobby';
 import { childNodes } from '../src/ast.ts';
 import { scan, type Framework } from '../src/index.ts';
 import { parseFile } from '../src/parse.ts';
+import { compareWithVitest, type Difference, type ListedModule } from './compare-vitest-list.ts';
 import { run } from './run.ts';
 
 interface Project {
@@ -44,6 +50,31 @@ function hasTestShapedCall(file: string, code: string): boolean {
   return visit(parseFile(file, code).program);
 }
 
+/** The Vitest that lists the Vitest projects: the one this repository installs. */
+const vitestVersion = (
+  JSON.parse(readFileSync(createRequire(import.meta.url).resolve('vitest/package.json'), 'utf8')) as { version: string }
+).version;
+
+/** Lists a Vitest project with Vitest's parser and compares the list with a scan under that Vitest version's rules. */
+async function compareWithVitestList(
+  project: Project,
+  checkout: string,
+): Promise<{ listed: number; differences: Difference[] }> {
+  const ignore = ['**/node_modules/**', ...(project.ignore ?? [])];
+  const script = path.join(import.meta.dirname, 'list-vitest-tests.ts');
+  const output = run('node', [script, checkout, JSON.stringify(project.patterns), JSON.stringify(ignore)], checkout);
+  const modules = JSON.parse(output) as ListedModule[];
+  const inventory = await scan({
+    root: checkout,
+    patterns: project.patterns,
+    ignore: project.ignore,
+    framework: 'vitest',
+    frameworkVersion: vitestVersion,
+  });
+  const listed = modules.reduce((count, module) => count + module.tests.length, 0);
+  return { listed, differences: compareWithVitest(checkout, inventory, modules) };
+}
+
 const projects = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, '../tests/compare/corpus.json'), 'utf8'),
 ) as Project[];
@@ -55,6 +86,13 @@ const lines = [
   '| --- | --- | --- | --- | --- |',
 ];
 const problems: string[] = [];
+const compared = [
+  `### Compared with Vitest ${vitestVersion}'s static parser`,
+  '',
+  '| Project | Listed by Vitest | Differences | Unexplained |',
+  '| --- | --- | --- | --- |',
+];
+const causes = new Map<string, number>();
 
 try {
   for (const project of projects) {
@@ -111,7 +149,18 @@ try {
     lines.push(
       `| ${project.name} (${project.framework}, ${project.commit.slice(0, 8)}) | ${fileCount} | ${testCount} | ${seconds} s | ${codes} |`,
     );
+    if (project.framework === 'vitest') {
+      const { listed, differences } = await compareWithVitestList(project, checkout);
+      const unexplained = differences.filter((difference) => difference.cause === null);
+      compared.push(`| ${project.name} | ${listed} | ${differences.length} | ${unexplained.length} |`);
+      for (const { cause } of differences) if (cause) causes.set(cause, (causes.get(cause) ?? 0) + 1);
+      for (const { at, detail } of unexplained) {
+        problems.push(`${project.name}: ${at}: Vitest's list and the scan differ, for no known reason: ${detail}`);
+      }
+    }
   }
+  lines.push('', ...compared, '', '| Known cause | Differences |', '| --- | --- |');
+  for (const [cause, count] of [...causes].sort((a, b) => b[1] - a[1])) lines.push(`| ${cause} | ${count} |`);
   lines.push('', `Peak memory: ${Math.round(process.resourceUsage().maxRSS / 1024)} MB.`);
   if (problems.length > 0) lines.push('', '#### Problems', '', ...problems.map((problem) => `- ${problem}`));
   const report = `${lines.join('\n')}\n`;
