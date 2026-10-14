@@ -1,3 +1,7 @@
+---
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo.
+---
+
 # Examples
 
 Each example below is a small project of a made-up trading app, in a common setup. The projects are in

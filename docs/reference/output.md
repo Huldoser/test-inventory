@@ -1,3 +1,7 @@
+---
+description: Every key of the JSON output for tests, suites, the summary and diagnostics, and how it is versioned.
+---
+
 # Output
 
 A scan returns one JSON object. Its [JSON Schema](https://huldoser.github.io/test-inventory/schema/v1.json) is

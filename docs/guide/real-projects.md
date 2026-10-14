@@ -1,3 +1,7 @@
+---
+description: The open-source test suites CI scans at pinned commits on every pull request.
+---
+
 # Real projects
 
 CI scans the test suites of well-known open-source projects at pinned commits on every pull request, and a few of

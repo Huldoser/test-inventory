@@ -1,3 +1,7 @@
+---
+description: How the inventory differs from playwright test --list and vitest list, and how CI compares them.
+---
+
 # Compared with the runners
 
 Playwright and Vitest can list their tests too: `playwright test --list --reporter=json` and
