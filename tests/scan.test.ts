@@ -33,7 +33,7 @@ function barrels(folder: string): Record<string, string> {
 }
 
 describe('scan', () => {
-  it('finds files by glob, sorted, with / in paths, leaving out node_modules and ignored files', async () => {
+  it('finds files by glob, sorted, with / in paths, leaving out node_modules, .git and ignored files', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
       'tests/watchlist.spec.ts': SPEC,
@@ -41,14 +41,18 @@ describe('scan', () => {
       'tests/alerts.spec.ts': SPEC,
       'tests/legacy/old.spec.ts': SPEC,
       'tests/node_modules/pkg/vendored.spec.ts': SPEC,
+      // Both runners also find files whose path has a name starting with a dot.
+      'tests/.auth/login.spec.ts': SPEC,
+      'tests/.git/hooks/pre-push.spec.ts': SPEC,
     });
     const inventory = await scanProject(root, { ignore: ['tests/legacy/**'] });
     expect(inventory.tests.map((test) => test.relativeFilePath)).toEqual([
+      'tests/.auth/login.spec.ts',
       'tests/alerts.spec.ts',
       'tests/orders/market.spec.ts',
       'tests/watchlist.spec.ts',
     ]);
-    expect(inventory.summary.fileCount).toBe(3);
+    expect(inventory.summary.fileCount).toBe(4);
     expect(inventory.frameworkVersion).toBe('1.63.0');
   });
 

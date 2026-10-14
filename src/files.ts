@@ -69,11 +69,13 @@ export async function findFiles(
 ): Promise<{ files: FoundFile[]; diagnostics: Diagnostic[] }> {
   const failures: Failure[] = [];
   // Only files match; a folder named like a test file, such as a screenshot folder `checkout.spec.ts/`, is not expanded.
+  // As in both runners, names that start with a dot match too, as in `.storybook/`.
   const matches = await glob(
     patterns.map((pattern) => normalizePattern(pattern, platform)),
     {
       cwd: root,
-      ignore: ['**/node_modules/**', ...ignore.map((pattern) => normalizePattern(pattern, platform))],
+      dot: true,
+      ignore: ['**/node_modules/**', '**/.git/**', ...ignore.map((pattern) => normalizePattern(pattern, platform))],
       onlyFiles: true,
       expandDirectories: false,
       fs: recordingFs(failures),
