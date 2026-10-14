@@ -1,0 +1,50 @@
+name: The scan reads my test wrong
+description: A test is missing or listed twice, or its record has the wrong title, state, tags or location.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        A short test file that shows the problem is the most useful part of a report. Rename what you can't share,
+        but keep the calls to `test` and `describe` and their modifiers as they are.
+  - type: textarea
+    id: test-file
+    attributes:
+      label: Test file
+      description: The smallest file that shows the problem, and the fixtures file it imports `test` from, if any.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran, or the options passed to `scan()` or `scanSource()`.
+      placeholder: npx test-inventory "tests/**/*.spec.ts" --framework playwright
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What the scan reports
+      description: The record or the diagnostic that is wrong, from the output.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: runner
+    attributes:
+      label: What the runner does
+      description: >-
+        What Playwright or Vitest does with the test, for example its line in `playwright test --list` or its state in
+        Vitest's JSON report.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Of test-inventory, the framework and Node.js.
+      placeholder: test-inventory 0.2.0, @playwright/test 1.64.0, Node.js 24
+    validations:
+      required: true
