@@ -471,7 +471,7 @@ export class VitestAdapter implements Adapter {
     if (this.suiteParameters.get(declaration) === base.name) return { kind: 'test', index: 0 };
     const followed =
       this.imports.get(base.name)?.node === declaration &&
-      this.looksLikeTest(links, args) &&
+      this.worthFollowing(base.name, links, args) &&
       this.follow(base.name, !inBody && mayDeclareTests(base.name, links));
     if (!followed && !this.bindings.declarations.has(declaration)) {
       const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, lookup) : null;
@@ -550,6 +550,15 @@ export class VitestAdapter implements Adapter {
 
   private looksLikeTest(links: Link[], args: readonly Argument[]): boolean {
     return links.length === 0 ? looksLikeDeclaration(args) : TEST_MEMBERS.has(links[0].name);
+  }
+
+  /**
+   * Whether a call through an imported name is worth following to the module: shaped like a test, or any call with a
+   * title and a body through a name that reads like a test function, as `it.effect('title', fn)` on a test object that
+   * a package extends.
+   */
+  private worthFollowing(name: string, links: Link[], args: readonly Argument[]): boolean {
+    return this.looksLikeTest(links, args) || (isTestName(name) && looksLikeDeclaration(args));
   }
 
   /** Vitest as followed modules are read, with the rules of the scanned version. */
