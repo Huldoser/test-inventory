@@ -47,6 +47,7 @@ export default defineConfig({
       {
         text: 'Guide',
         items: [
+          { text: 'Why test-inventory', link: '/guide/why' },
           { text: 'Getting started', link: '/guide/getting-started' },
           { text: 'Examples', link: '/guide/examples' },
           { text: 'Command line', link: '/guide/cli' },

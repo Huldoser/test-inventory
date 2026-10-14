@@ -14,6 +14,9 @@ hero:
       text: Get started
       link: /guide/getting-started
     - theme: alt
+      text: Why test-inventory
+      link: /guide/why
+    - theme: alt
       text: Output reference
       link: /reference/output
 ---
