@@ -25,7 +25,7 @@ that the projects' runners never load.
 | [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                           | Playwright |   538 |  5,984 |
 | [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, end to end                     | Playwright |    32 |    263 |
 | [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                           | Vitest     |   815 |  8,305 |
-| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                         | Vitest     |   827 |  9,458 |
+| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                         | Vitest     |   827 |  9,464 |
 | [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                         | Playwright |   309 |  1,487 |
 | [TanStack/router](https://github.com/TanStack/router) `663282b`, unit                               | Vitest     |   450 |  4,801 |
 | [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                             | Vitest     |   180 |  1,919 |
@@ -33,7 +33,7 @@ that the projects' runners never load.
 | [nuxt/nuxt](https://github.com/nuxt/nuxt) `0296ca4`                                                 | Vitest     |   266 |  2,603 |
 | [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                         | Vitest     |   142 |  2,216 |
 | [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end | Playwright |   714 |  2,188 |
-| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit       | Vitest     |   853 | 10,120 |
+| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit       | Vitest     |   853 | 10,124 |
 
 No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings about values the scan can't work out
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The

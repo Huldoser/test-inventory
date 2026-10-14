@@ -34,6 +34,8 @@ import {
   readReason,
   readStrings,
   readTitle,
+  returnedFunction,
+  returnedTestObject,
   text,
   unresolvedOption,
   unresolvedOptions,
@@ -72,6 +74,16 @@ const OTHER_MEMBERS = new Set(['use', 'slow', 'setTimeout', 'extend']);
 
 /** First members that show a name imported from a local file is used as Playwright's `test`. */
 const TEST_MEMBERS = new Set(['describe', 'only', 'skip', 'fixme', 'fail', 'step', ...HOOKS]);
+
+/** Where a chain's names are looked up; `returnsOf` is null where functions are not followed to what they return. */
+type Lookup = Pick<CallContext, 'scopes' | 'inBody'> & { returnsOf: CallContext['returnsOf'] | null };
+
+/** The members of `test` a value chosen at run time holds either way: those both have, if both are the same kind. */
+function sharedMembers(a: string[] | null, b: string[] | null): string[] | null {
+  if (!a || !b || (a[0] === 'describe') !== (b[0] === 'describe')) return null;
+  const differs = a.findIndex((name, index) => b[index] !== name);
+  return differs === -1 ? a : a.slice(0, differs);
+}
 
 /** Calls that need a newer Playwright than the oldest supported one. */
 const ADDED_IN = new Map<string, [number, number]>([
@@ -226,7 +238,8 @@ export class PlaywrightAdapter implements Adapter {
   private readonly imports: Map<string, ModuleImport>;
   private readonly followed = new Map<string, { exported: boolean; problem: Problem | null }>();
   private readonly reported = new Set<string>();
-  private readonly assumed = new Set<Node>();
+  /** Variables and names of functions read as test objects on trust, each reported once. */
+  private readonly assumed = new Set<Node | string>();
   private readonly aliases = new Map<Node, string[] | null>();
 
   constructor(program: Program, file: FileContext, readModule: ModuleReader | null) {
@@ -246,7 +259,7 @@ export class PlaywrightAdapter implements Adapter {
 
   classify(call: CallExpression, context: CallContext): ApiCall | null {
     const chain = readChain(call.callee);
-    const links = chain ? this.testLinks(chain, call.arguments, context.scopes, context.inBody) : null;
+    const links = chain ? this.testLinks(chain, call.arguments, context) : null;
     if (!links) return null;
     const names = links.map((link) => link.name);
     const key = names.join('.');
@@ -272,44 +285,67 @@ export class PlaywrightAdapter implements Adapter {
    * The links after the `test` object, or null when the chain doesn't start from Playwright's `test`. An import that
    * can't be followed is reported only outside test and hook bodies, where a call can declare tests.
    */
-  private testLinks(chain: Chain, args: readonly Argument[], scopes: readonly Node[], inBody: boolean): Link[] | null {
+  private testLinks(chain: Chain, args: readonly Argument[], lookup: Lookup): Link[] | null {
+    const links = this.linksFromTest(chain, args, lookup);
+    if (!links) return null;
+    // A test object derived inline, as in `base.extend({ ... }).describe(...)`.
+    return links.slice(links.findLastIndex((link) => link.name === 'extend' && link.args) + 1);
+  }
+
+  private linksFromTest(chain: Chain, args: readonly Argument[], lookup: Lookup): Link[] | null {
     const { base, links } = chain;
-    let start: number;
+    const { scopes, inBody } = lookup;
+    const withMembers = (members: string[]) => [
+      ...members.map((name) => ({ name, args: null, template: null })),
+      ...links,
+    ];
     if (base.type === 'Identifier') {
       // A local variable or parameter with the same name, such as `(test) => test.result()`, is not Playwright's.
       const declaration = this.file.values.declarationOf(base.name, scopes);
       const bound = declaration !== null && this.bindings.declarations.has(declaration);
       const local = declaration !== null && this.imports.get(base.name)?.node === declaration;
       const alias =
-        declaration?.type === 'VariableDeclarator' && !bound && !local
-          ? this.describeAlias(declaration, scopes, inBody)
-          : null;
+        declaration?.type === 'VariableDeclarator' && !bound && !local ? this.alias(declaration, lookup) : null;
       // The module from `require()` is both the namespace and `test`, so `pw.test(...)` reads as the namespace.
       if (bound && this.bindings.namespaces.has(base.name) && links[0]?.name === 'test' && !links[0].args) {
-        start = 1;
-      } else if (bound && this.bindings.testNames.has(base.name)) {
-        start = 0;
-      } else if (alias) {
-        return [...alias.map((name) => ({ name, args: null, template: null })), ...links];
-      } else if (
+        return links.slice(1);
+      }
+      if (bound && this.bindings.testNames.has(base.name)) return links;
+      if (alias) return withMembers(alias);
+      if (
         local &&
         this.looksLikeTest(links, args) &&
         this.follow(base.name, !inBody && mayDeclareTests(base.name, links))
       ) {
-        start = 0;
-      } else if (declaration !== null && !bound && this.assumeLocal(declaration, base.name, links, args)) {
-        start = 0;
-      } else {
-        return null;
+        return links;
       }
-    } else if (this.bindings.isModule(base) && links[0]?.name === 'test' && !links[0].args) {
-      start = 1;
-    } else {
-      return null;
+      return declaration !== null && !bound && this.assumeLocal(declaration, base.name, links, args) ? links : null;
     }
-    // A test object derived inline, as in `base.extend({ ... }).describe(...)`.
-    const derived = links.findLastIndex((link) => link.name === 'extend' && link.args);
-    return links.slice(Math.max(start, derived + 1));
+    if (this.bindings.isModule(base) && links[0]?.name === 'test' && !links[0].args) return links.slice(1);
+    const members = base.type === 'CallExpression' ? this.returned(base, links, args, lookup) : null;
+    return members && withMembers(members);
+  }
+
+  /**
+   * The members of `test` a call returns: none for a test object, as `conditionalTest({ min: 22 })` may return, or
+   * those of a describe function. As for a variable chosen by a condition, only the members all its values have apply.
+   * When the function can't be found, a call named like a test object is read as one on trust, with a warning.
+   */
+  private returned(call: CallExpression, links: Link[], args: readonly Argument[], lookup: Lookup): string[] | null {
+    const callee = unwrap(call.callee);
+    if (callee.type !== 'Identifier' || !lookup.returnsOf) return null;
+    const returns = lookup.returnsOf(callee.name, lookup.scopes);
+    if (returns) return returnedFunction(returns, sharedMembers);
+    if (!isTestName(callee.name) || !this.looksLikeTest(links, args)) return null;
+    if (!this.assumed.has(callee.name)) {
+      this.assumed.add(callee.name);
+      this.problems.push(returnedTestObject(this.file, call));
+    }
+    return [];
+  }
+
+  testFunction(expression: Expression, scopes: readonly Node[]): string[] | null {
+    return this.members(expression, { scopes, inBody: false, returnsOf: null });
   }
 
   /** Whether a local variable is read as a test object it could be; see `localTestObject`. */
@@ -327,32 +363,33 @@ export class PlaywrightAdapter implements Adapter {
     return links.length === 0 ? looksLikeDeclaration(args) : TEST_MEMBERS.has(links[0].name);
   }
 
-  /** The members of `test` a variable holds a describe function from, as in `const serialDescribe = test.describe.serial`. */
-  private describeAlias(declarator: VariableDeclarator, scopes: readonly Node[], inBody: boolean): string[] | null {
+  /**
+   * The members of `test` a variable holds: those of a describe function, as in `const serialDescribe =
+   * test.describe.serial`, or none for a test object a function returns.
+   */
+  private alias(declarator: VariableDeclarator, lookup: Lookup): string[] | null {
     let members = this.aliases.get(declarator);
     if (members === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
       this.aliases.set(declarator, null);
-      members = declarator.init ? this.describeMembers(declarator.init, scopes, inBody) : null;
+      members = declarator.init ? this.members(declarator.init, lookup) : null;
       this.aliases.set(declarator, members);
     }
     return members;
   }
 
-  private describeMembers(expression: Expression, scopes: readonly Node[], inBody: boolean): string[] | null {
+  /** The members of `test` a value holds: none for a test object, or those of a describe function. */
+  private members(expression: Expression, lookup: Lookup): string[] | null {
     const node = unwrap(expression);
     if (node.type === 'ConditionalExpression') {
       // `IS_PLATFORM ? test.describe.serial : test.describe`: only the members both branches have apply.
-      const consequent = this.describeMembers(node.consequent, scopes, inBody);
-      const alternate = this.describeMembers(node.alternate, scopes, inBody);
-      if (!consequent || !alternate) return null;
-      const shared = consequent.findIndex((name, index) => alternate[index] !== name);
-      return shared === -1 ? consequent : consequent.slice(0, shared);
+      return sharedMembers(this.members(node.consequent, lookup), this.members(node.alternate, lookup));
     }
+    if (this.bindings.isTestObject(node)) return [];
     const chain = readChain(node);
     if (!chain || chain.links.some((link) => link.args ?? link.template)) return null;
-    const members = this.testLinks(chain, [], scopes, inBody)?.map((link) => link.name);
-    return members && DESCRIBES.has(members.join('.')) ? members : null;
+    const members = this.testLinks(chain, [], lookup)?.map((link) => link.name);
+    return members && (members.length === 0 || DESCRIBES.has(members.join('.'))) ? members : null;
   }
 
   /** Follows the import of `name` once, and reports it once when it can't be followed and `report` is set. */

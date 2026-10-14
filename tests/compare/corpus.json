@@ -73,7 +73,7 @@
     "framework": "vitest",
     "patterns": ["code/**/*.test.{ts,tsx}"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 827, "tests": 9458 }
+    "expected": { "files": 827, "tests": 9464 }
   },
   {
     "name": "TanStack Router end-to-end tests",
@@ -153,6 +153,6 @@
     "framework": "vitest",
     "patterns": ["packages/**/test/**/*.test.{ts,tsx}"],
     "ignore": ["**/fixtures/**", "**/__fixtures__/**"],
-    "expected": { "files": 853, "tests": 10120 }
+    "expected": { "files": 853, "tests": 10124 }
   }
 ]

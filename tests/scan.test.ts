@@ -743,6 +743,60 @@ test('places an order', async () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('follows a function to the test object or describe it returns, through barrels and default exports', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': `import { test as base } from '@playwright/test';
+export const test = base.extend({ account: 'paper' });
+export function onDesk(desk: string) {
+  return desk === 'equities' ? test.describe.serial : test.describe;
+}
+`,
+      'fixtures/broker.ts': `import { test as base } from '@playwright/test';
+import { test } from './index';
+export default (venue: string) => (venue === 'live' ? test : base);
+`,
+      'fixtures/all.ts': "export * from './index';\nexport { default as brokerTest } from './broker';\n",
+      'tests/desk.spec.ts': `import { brokerTest, onDesk } from '../fixtures/all';
+onDesk('equities')('equities desk', () => {
+  brokerTest('live')('sends an order', async ({ account }) => {});
+  const paperTest = brokerTest('paper');
+  paperTest.skip('cancels an order', async ({ account }) => {});
+});
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.suites.map((suite) => [suite.title, suite.isSerial])).toEqual([['equities desk', false]]);
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.lineStart])).toEqual([
+      ['equities desk > sends an order', 'active', 3],
+      ['equities desk > cancels an order', 'skip', 5],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('follows a function to the Vitest test function it returns, with what every value has', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'src/shared/node.ts': `import { it } from 'vitest';
+export const onNode = (major: number) => {
+  if (!process.versions.node) {
+    return it.concurrent.skip;
+  }
+  return Number(process.versions.node.split('.')[0]) < major ? it.concurrent.skip : it.concurrent;
+};
+`,
+      'src/quotes.test.ts': `import { describe } from 'vitest';
+import { onNode } from './shared/node';
+describe('quotes', () => {
+  onNode(22)('reads the order book', () => {});
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['src/*.test.ts'], framework: 'vitest' });
+    expect(onlyTest(inventory)).toMatchObject({ fullName: 'quotes > reads the order book', isParallel: true });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows helpers in Vitest suites too, and not without a reader in scanSource', async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,

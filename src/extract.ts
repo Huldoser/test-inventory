@@ -1,4 +1,4 @@
-import type { CallExpression, Expression, Node, Program } from 'oxc-parser';
+import type { CallExpression, CatchClause, Expression, Node, Program } from 'oxc-parser';
 import { childNodes, isFunctionNode, isImportMetaVitest, propertyName, unwrap, type FunctionNode } from './ast.ts';
 import { exportName } from './frameworks/bindings.ts';
 import { problem } from './frameworks/common.ts';
@@ -10,6 +10,7 @@ import type {
   ModuleReader,
   ModuleSource,
   Problem,
+  Returns,
   Span,
   StateSetting,
   SuiteDeclaration,
@@ -245,6 +246,8 @@ class Walker {
   private callsWalked = 0;
   /** Problems already reported, since a function walked at several calls finds the same ones each time. */
   private readonly reported = new Set<string>();
+  /** What the functions named in calls such as `onNode(22)('title', fn)` return, by the declaration of each name. */
+  private readonly returns = new Map<Node, Returns | null>();
   /** For each file's program, the scopes around each function in it. */
   private readonly scopeChains = new Map<Node, Map<Node, Node[]>>();
 
@@ -340,6 +343,12 @@ class Walker {
         this.visit(node.right, this.guarded(context, guard));
         return;
       }
+      case 'TryStatement':
+        this.visit(node.block, context);
+        // A `catch` block runs only when the `try` block throws, as when a test server can't start.
+        if (node.handler) this.visit(node.handler, this.guarded(context, this.catchCondition(node.handler)));
+        if (node.finalizer) this.visit(node.finalizer, context);
+        return;
       case 'SwitchStatement': {
         const discriminant = this.text(node.discriminant);
         const values = node.cases.flatMap((switchCase) => (switchCase.test ? [this.text(switchCase.test)] : []));
@@ -406,6 +415,11 @@ class Walker {
     };
   }
 
+  /** A `catch` block's condition, written as its clause: `catch` or `catch (error)`. */
+  private catchCondition(handler: CatchClause): string {
+    return this.text({ start: handler.start, end: handler.body.start }).trim();
+  }
+
   private guarded(context: Context, guard: string | null): Context {
     return { ...context, isInCondition: true, guards: guard === null ? context.guards : [...context.guards, guard] };
   }
@@ -421,7 +435,7 @@ class Walker {
     this.scopes.pop();
   }
 
-  private text(node: Node): string {
+  private text(node: Span): string {
     return snippet(this.frame.parsed.source.slice(node.start, node.end));
   }
 
@@ -446,6 +460,7 @@ class Walker {
       testContext: context.testContext,
       inTest: context.test !== null,
       inBody: context.test !== null || context.hookScope !== null,
+      returnsOf: (name, scopes) => this.returnsOf(name, scopes),
     });
     if (!api) return false;
     return this.handle(call, api, context);
@@ -538,7 +553,8 @@ class Walker {
     const fn = this.functionNamed(callee.name, this.scopes);
     if (!fn) {
       const runsHere = !context.test && !context.hookScope && !context.helper;
-      const imported = runsHere && this.callStack.length < MAX_DEPTH ? this.importedFunction(callee.name) : null;
+      const imported =
+        runsHere && this.callStack.length < MAX_DEPTH ? this.importedFunction(callee.name, this.scopes) : null;
       return imported && !this.callStack.includes(imported.fn) ? this.withinLimit(imported, call) : null;
     }
     const sites = this.callSites.get(fn) ?? new Map<Node, Placement>();
@@ -578,10 +594,31 @@ class Walker {
     return null;
   }
 
+  /**
+   * What a function declared in the file being walked, or imported from a local module, returns; null otherwise. Each
+   * declaration is looked up once, however many calls use it.
+   */
+  private returnsOf(name: string, scopes: readonly Node[]): Returns | null {
+    const declaration = this.frame.values.declarationOf(name, scopes);
+    if (declaration === null) return null;
+    if (!this.returns.has(declaration)) {
+      const local = this.functionNamed(name, scopes);
+      const callee = local ? { fn: local, frame: this.frame } : this.importedFunction(name, scopes);
+      this.returns.set(declaration, callee && this.returnsIn(callee));
+    }
+    return this.returns.get(declaration) ?? null;
+  }
+
+  private returnsIn({ fn, frame }: Callee): Returns {
+    // An async function returns a promise, and a generator an iterator, whatever their `return` says.
+    const values = fn.async || fn.generator ? null : returnValues(fn, [...this.scopeChain(fn, frame), fn]);
+    return { adapter: frame.adapter, values };
+  }
+
   /** The function a name imported from a local module stands for, in the file that writes it; null otherwise. */
-  private importedFunction(name: string): Callee | null {
-    const declaration = this.frame.values.declarationOf(name, this.scopes);
-    const source = this.frame.values.importSource(name, this.scopes);
+  private importedFunction(name: string, scopes: readonly Node[]): Callee | null {
+    const declaration = this.frame.values.declarationOf(name, scopes);
+    const source = this.frame.values.importSource(name, scopes);
     if (source === null) return null;
     const imported = declaration?.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
     const frame = this.openFrom(this.frame, source);
@@ -706,8 +743,8 @@ class Walker {
   }
 
   /** The scopes around a function where it is written, outermost first, to resolve names in it at its calls. */
-  private scopeChain(fn: Node): Node[] {
-    const { program } = this.frame.parsed;
+  private scopeChain(fn: Node, frame = this.frame): Node[] {
+    const { program } = frame.parsed;
     let chains = this.scopeChains.get(program);
     if (!chains) {
       const found = new Map<Node, Node[]>();
@@ -982,6 +1019,29 @@ class Walker {
     }
     return lines;
   }
+}
+
+/**
+ * The values a function returns, each with the scopes around it, outermost first; null when it may return no value, as
+ * with `return;` or no `return` at all. A `return` in a function inside it is that function's.
+ */
+function returnValues(fn: FunctionNode, scopes: Node[]): { expression: Expression; scopes: Node[] }[] | null {
+  // Only declarations of overloads have no body.
+  const body = fn.body as Node;
+  if (body.type !== 'BlockStatement') return [{ expression: body as Expression, scopes }];
+  const values: ({ expression: Expression; scopes: Node[] } | null)[] = [];
+  const visit = (node: Node, around: Node[]): void => {
+    if (node.type === 'ReturnStatement') {
+      values.push(node.argument ? { expression: node.argument, scopes: around } : null);
+      return;
+    }
+    if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) return;
+    const inner = isScopeNode(node) ? [...around, node] : around;
+    for (const child of childNodes(node)) visit(child, inner);
+  };
+  visit(body, scopes);
+  const always = values.every((value) => value !== null);
+  return always && values.length > 0 ? values : null;
 }
 
 /** Walks the scanned file; `openModule` reads the modules of imported helpers that the file calls. */

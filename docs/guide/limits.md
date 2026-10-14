@@ -59,18 +59,35 @@ object. The tests that use it are missing. The error needs a name that reads lik
 
 ## Test objects made by helpers
 
-A test object returned by a function the scan cannot follow is read on trust, with one `local-test-object` warning per
-variable:
+A function that returns a test object or a describe function is followed when it is declared in the file or imported
+from a local file, through the imports above:
+
+```ts
+function onNode(major: number) {
+  return NODE_MAJOR < major ? it.skip : it;
+}
+
+onNode(22)('streams quotes over HTTP/3', async () => {});
+```
+
+What it returns may be called in place, as here, or kept in a variable, as in `const quoteTest = onNode(22)`. When the
+function returns a different one on different runs, only the modifiers they all have apply, as for a variable chosen
+by a condition such as `isCI ? it.skip : it`: this test is listed as `active`, not as a conditional skip. Only what the
+function returns itself is followed, not the result of another function it calls.
+
+A test object made by a function the scan cannot follow, as from an installed package, is read on trust, with one
+`local-test-object` warning per variable or function:
 
 ```ts
 const test = createBrokerTest({ venue: 'NASDAQ' });
 
 test('fills a market order', async ({ page }) => {});
+liveBrokerTest('NYSE')('sends a live order', async ({ page }) => {});
 ```
 
-This applies only to a variable named like a test object (`test`, `it`, `describe`, `suite` or a name ending in
-`Test`) that is called with a title and a function, or through a member such as `test.skip`. Other calls, such as a
-helper named `expectFill('AAPL', 100, 'filled', check)`, are not tests.
+This applies only to a variable or function named like a test object (`test`, `it`, `describe`, `suite` or a name
+ending in `Test`) whose test object is called with a title and a function, or through a member such as `test.skip`.
+Other calls, such as a helper named `expectFill('AAPL', 100, 'filled', check)`, are not tests.
 
 ## States set in helper functions
 
@@ -143,6 +160,10 @@ release.
 `test.skip(browserName === 'webkit', 'reason')` gives `state: 'skip'` with `isConditional: true` and the condition's
 source text. Whether the test is skipped on a given run depends on the browser, the environment or the clock. A
 condition written as a constant, such as `test.skip(true)` or `test.skipIf(false)`, is worked out.
+
+A skip inside `if`, `?:`, `&&`, `||`, `??`, `switch` or a `catch` block runs only when that code does, so it is
+conditional too, with the source text of what decides it as its condition. For a `catch` block that is the clause
+itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws.
 
 ## What a scan never sees
 

@@ -1,6 +1,14 @@
-import type { Argument, Expression, Node, StringLiteral, TemplateLiteral, VariableDeclarator } from 'oxc-parser';
+import type {
+  Argument,
+  CallExpression,
+  Expression,
+  Node,
+  StringLiteral,
+  TemplateLiteral,
+  VariableDeclarator,
+} from 'oxc-parser';
 import { isFunctionNode, isStringLiteral, propertyName, unwrap, type FunctionNode } from '../ast.ts';
-import type { Condition, Problem, Span, Title } from '../model.ts';
+import type { Condition, Problem, Returns, Span, Title } from '../model.ts';
 import { snippet, type SourceText } from '../source.ts';
 import type { DiagnosticCode } from '../types.ts';
 import { isKey, type Resolved, type Value, type Values } from '../values.ts';
@@ -123,6 +131,30 @@ export function localTestObject(file: FileContext, name: string, declarator: Cre
     `'${name}' is created by ${created}, which is not followed; calls shaped like tests are read as tests.`,
     created,
   );
+}
+
+/**
+ * A warning for a call shaped like a test on what a function named like a test object returns, as in
+ * `conditionalTest({ min: 22 })('title', fn)`, when the function can't be found. What it returns is read on trust.
+ */
+export function returnedTestObject(file: FileContext, call: CallExpression): Problem {
+  const created = snippet(text(file, call));
+  return problem(
+    'local-test-object',
+    call,
+    `What ${created} returns is not followed; calls on it shaped like tests are read as tests.`,
+    created,
+  );
+}
+
+/**
+ * The test or describe function a function returns, in the adapter's terms: what all its values have in common, as
+ * `shared` combines two; null when it may return something else.
+ */
+export function returnedFunction<T>(returns: Returns, shared: (a: T | null, b: T | null) => T | null): T | null {
+  if (!returns.values) return null;
+  const found = returns.values.map(({ expression, scopes }) => returns.adapter.testFunction(expression, scopes) as T);
+  return found.slice(1).reduce<T | null>(shared, found[0]);
 }
 
 /** A title written as a string, a template, or text joined to one, as in `'cycles through ' + venue`. */
