@@ -10,6 +10,7 @@ const apiSidebar = JSON.parse(
 ) as DefaultTheme.SidebarItem[];
 
 const base = '/test-inventory/';
+const url = `https://huldoser.github.io${base}`;
 
 export default defineConfig({
   title: 'test-inventory',
@@ -18,6 +19,7 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: ['**/README.md'],
+  sitemap: { hostname: url },
   // llms.txt, llms-full.txt and a Markdown copy of each page, for coding assistants.
   vite: { plugins: [typesInMarkdown(), llmstxt()] },
   // Links in `head` are written as they are, without the base.
@@ -25,7 +27,8 @@ export default defineConfig({
     ['link', { rel: 'icon', href: `${base}favicon.ico`, sizes: '32x32' }],
     ['link', { rel: 'icon', href: `${base}favicon.svg`, type: 'image/svg+xml' }],
     ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
-    ['meta', { property: 'og:image', content: `https://huldoser.github.io${base}social-preview.png` }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:image', content: `${url}social-preview.png` }],
     ['meta', { property: 'og:image:width', content: '1280' }],
     ['meta', { property: 'og:image:height', content: '640' }],
     [
@@ -34,6 +37,15 @@ export default defineConfig({
     ],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
+  // The Open Graph tags that differ per page, so that a shared link previews the page it points to.
+  transformHead({ pageData, title, description }) {
+    const page = pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '');
+    return [
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+      ['meta', { property: 'og:url', content: `${url}${page}` }],
+    ];
+  },
   themeConfig: {
     logo: { light: '/mark-small-light.svg', dark: '/mark-small-dark.svg', alt: 'test-inventory' },
     nav: [

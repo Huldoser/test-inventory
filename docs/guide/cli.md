@@ -1,3 +1,7 @@
+---
+description: The test-inventory command, its options and exit codes, and how it finds the framework version.
+---
+
 # Command line
 
 ```sh

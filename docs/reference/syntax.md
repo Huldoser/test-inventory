@@ -1,3 +1,7 @@
+---
+description: The Playwright and Vitest imports, calls and modifiers a scan reads.
+---
+
 # Supported syntax
 
 ## Playwright

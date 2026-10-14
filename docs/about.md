@@ -1,3 +1,7 @@
+---
+description: Who maintains test-inventory, how to support it and where the examples in the docs come from.
+---
+
 # About
 
 test-inventory is written and maintained by [Andrey Rychkov](https://github.com/Huldoser). It is open source under the

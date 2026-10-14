@@ -1,3 +1,7 @@
+---
+description: Every diagnostic a scan reports, its level and when it is given.
+---
+
 # Diagnostics
 
 A diagnostic is part of the output, not a failure: the scan always finishes and exits with 0. Its `level` is `error`
