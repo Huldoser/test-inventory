@@ -8,8 +8,8 @@ test-inventory is written and maintained by [Andrey Rychkov](https://github.com/
 - [Star it on GitHub](https://github.com/Huldoser/test-inventory). Stars help other teams find it.
 - [Sponsor it on GitHub](https://github.com/sponsors/Huldoser). Sponsorship pays for the time that goes into new
   Playwright and Vitest versions, fixes and docs.
-- [Report a problem](https://github.com/Huldoser/test-inventory/issues) with a test file the scan reads wrong. A
-  small file that shows it is the most useful part of a report.
+- [Report a problem](https://github.com/Huldoser/test-inventory/issues/new?template=scan-reads-test-wrong.yml) with a
+  test file the scan reads wrong. A small file that shows it is the most useful part of a report.
 
 ## Contributing
 

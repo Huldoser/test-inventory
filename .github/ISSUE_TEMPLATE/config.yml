@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/Huldoser/test-inventory/security/advisories/new
+    about: Privately, as SECURITY.md describes, not in a public issue.
