@@ -1,3 +1,7 @@
+---
+description: Node.js scripts that answer questions about a scan, such as which tests don't run and why.
+---
+
 # Query recipes
 
 The output is plain JSON, so any language can answer questions about a test suite. Each recipe below is a Node.js

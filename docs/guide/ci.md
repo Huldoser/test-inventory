@@ -1,3 +1,7 @@
+---
+description: Keep the inventory as a CI artifact, block focused tests and find the tests a pull request stopped.
+---
+
 # CI recipes
 
 A scan takes seconds and needs no browsers and no build, so it fits in any job that has Node.js. These recipes keep
