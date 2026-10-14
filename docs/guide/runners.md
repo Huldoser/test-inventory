@@ -30,7 +30,10 @@ starts.
 
 `vitest list` in Vitest 5 parses the files instead of running them, unless `--no-static-parse` is given. Its results
 differ from what the runner does: it treats any `.only` as applying to the whole run, lets the last modifier in a
-chain win, and treats `runIf(true)` and `skipIf(false)` as skipped. test-inventory follows what the runner does.
+chain win, and treats `runIf(true)` and `skipIf(false)` as skipped. It also keeps escapes such as `\"` in names as
+written, drops a test or describe chained after a call, as in `describe.runIf(hasBroker).skip(...)`, and lists a
+call such as `testRouting('NYSE')` as a test because its name starts with `test`. test-inventory follows what the
+runner does.
 
 ## Checked in CI
 
@@ -39,3 +42,8 @@ On every pull request, CI scans the fixture projects in the repository and compa
 reporter, which, unlike `vitest list`, includes skipped and todo tests. Each test is matched by file and line, and
 its full title, its state and its tags are compared. A state set by a condition is left out, since the runner
 decides it on the machine it runs on. Any difference fails the check.
+
+The [real projects](/guide/real-projects) that use Vitest are compared too, with Vitest's static parser, which lists
+their tests without an install. The scan applies the rules of the same Vitest version. Each difference must have a
+known cause, such as one of the parser's differences above; one without fails the check, which doesn't block a
+merge, since it clones the projects over the network.
