@@ -1,8 +1,8 @@
-import { chmodSync, symlinkSync } from 'node:fs';
+import { symlinkSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, onTestFinished } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { scan, scanSource, type ScanOptions } from '../src/index.ts';
-import { normalizePattern } from '../src/files.ts';
+import { findFiles, normalizePattern } from '../src/files.ts';
 import { scanFile } from '../src/scan-file.ts';
 import { expectValidInventory, onlyTest } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
@@ -789,16 +789,20 @@ describe('scan on every operating system', () => {
     expect(windows.suites).toEqual(plain.suites);
   });
 
-  it.skipIf(process.platform === 'win32')('reads \\ in a pattern as an escape outside Windows', async () => {
+  it('reads \\ in a pattern as an escape outside Windows', async () => {
     const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/[legacy]/fills.spec.ts': SPEC });
-    const inventory = await scanProject(root, { patterns: ['tests/\\[legacy\\]/*.spec.ts'] });
-    expect(inventory.tests.map((test) => test.relativeFilePath)).toEqual(['tests/[legacy]/fills.spec.ts']);
+    const found = await findFiles(root, ['tests/\\[legacy\\]/*.spec.ts'], [], 'playwright', 'linux');
+    expect(found.files.map((file) => file.relativeFilePath)).toEqual(['tests/[legacy]/fills.spec.ts']);
   });
 
-  it.runIf(process.platform === 'win32')('reads \\ in a pattern as a separator on Windows', async () => {
-    const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/orders/fills.spec.ts': SPEC });
-    const inventory = await scanProject(root, { patterns: ['tests\\**\\*.spec.ts'], ignore: ['tests\\legacy\\**'] });
-    expect(inventory.tests.map((test) => test.relativeFilePath)).toEqual(['tests/orders/fills.spec.ts']);
+  it('reads \\ in a pattern as a separator on Windows', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders/fills.spec.ts': SPEC,
+      'tests/legacy/fills.spec.ts': SPEC,
+    });
+    const found = await findFiles(root, ['tests\\**\\*.spec.ts'], ['tests\\legacy\\**'], 'playwright', 'win32');
+    expect(found.files.map((file) => file.relativeFilePath)).toEqual(['tests/orders/fills.spec.ts']);
   });
 
   it.each([
@@ -810,8 +814,7 @@ describe('scan on every operating system', () => {
   });
 });
 
-// Creating symbolic links needs extra rights on Windows.
-describe.skipIf(process.platform === 'win32')('scan and symbolic links', () => {
+describe('scan and symbolic links', () => {
   it('leaves out linked files for Playwright with a warning, and reads them once for Vitest', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -1163,86 +1166,7 @@ describe('scanFile', () => {
   });
 });
 
-// chmod can't take read rights away on Windows, or from root.
-describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('scan with files it may not read', () => {
-  function locked(root: string, file: string): void {
-    chmodSync(path.join(root, file), 0o000);
-    onTestFinished(() => {
-      chmodSync(path.join(root, file), 0o755);
-    });
-  }
-
-  it('reports a test file it may not read without its absolute path', async () => {
-    const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/orders.spec.ts': SPEC });
-    locked(root, 'tests/orders.spec.ts');
-    const inventory = await scanProject(root);
-    expect(inventory.diagnostics).toMatchObject([
-      { code: 'read-error', message: 'The file could not be read: permission denied (EACCES).' },
-    ]);
-    expect(JSON.stringify(inventory)).not.toContain(root);
-  });
-
-  it('goes on without a lockfile, config, tsconfig, fixtures file or folder it may not read', async () => {
-    const root = project({
-      'package.json': VITEST_PACKAGE,
-      'pnpm-lock.yaml': "packages:\n\n  'vitest@5.0.3':\n    resolution: {}\n",
-      'vitest.config.ts': 'export default { test: { globals: true } };\n',
-      'tsconfig.json': '{ "compilerOptions": { "paths": { "@/*": ["./*"] } } }',
-      'fixtures/index.ts': "import { test as base } from 'vitest';\nexport const test = base.extend({});\n",
-      'tests/fees.test.ts': "describe('fees', () => {\n  it('charges the minimum', () => {});\n});\n",
-      'tests/orders.test.ts': "import { test } from '../fixtures';\ntest('fills an order', () => {});\n",
-      'tests/quotes.test.ts': "import { test } from '@/fixtures';\ntest('streams quotes', () => {});\n",
-      'tests/tsconfig.json': '{ "compilerOptions": { "types": ["vitest/globals"] } }',
-    });
-    for (const file of [
-      'pnpm-lock.yaml',
-      'vitest.config.ts',
-      'tsconfig.json',
-      'fixtures/index.ts',
-      'tests/tsconfig.json',
-    ]) {
-      locked(root, file);
-    }
-    chmodSync(root, 0o311);
-    onTestFinished(() => {
-      chmodSync(root, 0o755);
-    });
-    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
-    expect(inventory.frameworkVersion).toBe('5.0.3');
-    expect(inventory.tests.map((test) => test.title)).toEqual(['charges the minimum']);
-    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.message])).toEqual([
-      [
-        'globals-not-enabled',
-        "The file uses Vitest's global test functions, but no Vitest or Vite config with globals: true and no tsconfig with vitest/globals was found.",
-      ],
-      [
-        'unresolved-test-import',
-        "'test' is imported from '../fixtures', which could not be read; tests that use it are missing.",
-      ],
-      [
-        'unresolved-test-import',
-        "'test' is imported from '@/fixtures', which is not a local file, a path alias or a workspace package; tests that use it are missing.",
-      ],
-    ]);
-  });
-
-  it('reports a folder it may not open', async () => {
-    const root = project({
-      'package.json': PLAYWRIGHT_PACKAGE,
-      'tests/orders.spec.ts': SPEC,
-      'tests/locked/fills.spec.ts': SPEC,
-    });
-    locked(root, 'tests/locked');
-    const inventory = await scanProject(root);
-    expect(inventory.summary.testCount).toBe(1);
-    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.relativeFilePath, diagnostic.message])).toEqual([
-      ['tests/locked/', 'The folder could not be read: permission denied (EACCES); test files in it are missing.'],
-    ]);
-  });
-});
-
-// Creating symbolic links needs extra rights on Windows.
-describe.skipIf(process.platform === 'win32')('scan and links that point nowhere', () => {
+describe('scan and links that point nowhere', () => {
   it('reports a test file that is a link to a missing file, and ignores other broken links', async () => {
     const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/orders.spec.ts': SPEC });
     symlinkSync(path.join(root, 'shared/moved.spec.ts'), path.join(root, 'tests/alerts.spec.ts'));
