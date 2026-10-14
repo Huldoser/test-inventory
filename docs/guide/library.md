@@ -1,3 +1,7 @@
+---
+description: The scan and scanSource functions, the inventory they return and the JSON Schema of the output.
+---
+
 # Library
 
 The package also exports the functions the command line uses. It is ESM only.

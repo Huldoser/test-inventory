@@ -1,3 +1,7 @@
+---
+description: What a scan can't know without running the code, such as config files and imported values.
+---
+
 # Known limits
 
 test-inventory reads the code as text and builds a syntax tree. It does not run the code, so a few things the
