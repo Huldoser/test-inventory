@@ -171,8 +171,13 @@ function isTitleShaped(node: Argument | undefined): boolean {
  */
 export function looksLikeDeclaration(args: readonly Argument[]): boolean {
   const last = args.at(-1);
-  // The body is the last argument: a function, or a function passed by name.
-  const body = isFunctionNode(last) || last?.type === 'Identifier' || last?.type === 'MemberExpression';
+  // The body is the last argument, a function or a function passed by name, or a function before a timeout, as in
+  // Vitest's `test('title', fn, 30_000)`.
+  const body =
+    isFunctionNode(last) ||
+    last?.type === 'Identifier' ||
+    last?.type === 'MemberExpression' ||
+    (args.length === 3 && isFunctionNode(args[1]));
   return isTitleShaped(args.at(0)) && args.length >= 2 && args.length <= 3 && body;
 }
 

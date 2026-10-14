@@ -314,7 +314,7 @@ export class PlaywrightAdapter implements Adapter {
       if (alias) return withMembers(alias);
       if (
         local &&
-        this.looksLikeTest(links, args) &&
+        this.worthFollowing(base.name, links, args) &&
         this.follow(base.name, !inBody && mayDeclareTests(base.name, links))
       ) {
         return links;
@@ -361,6 +361,15 @@ export class PlaywrightAdapter implements Adapter {
 
   private looksLikeTest(links: Link[], args: readonly Argument[]): boolean {
     return links.length === 0 ? looksLikeDeclaration(args) : TEST_MEMBERS.has(links[0].name);
+  }
+
+  /**
+   * Whether a call through an imported name is worth following to the module: shaped like a test, or any call with a
+   * title and a body through a name that reads like a test function, as `it.effect('title', fn)` on a test object that
+   * a package extends.
+   */
+  private worthFollowing(name: string, links: Link[], args: readonly Argument[]): boolean {
+    return this.looksLikeTest(links, args) || (isTestName(name) && looksLikeDeclaration(args));
   }
 
   /**

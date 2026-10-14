@@ -428,6 +428,35 @@ describe('scan follows a custom test object to its fixtures file', () => {
     ]);
   });
 
+  it('reports a Vitest test function called through a member it does not know, or with a timeout after the body', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      // As a package that extends Vitest's `it` with methods of its own.
+      'tests/support/trading-vitest.ts':
+        "import * as internal from './internal';\nexport * from 'vitest';\nexport const it = internal.it;\n",
+      'tests/orders.test.ts': [
+        "import { describe, it } from './support/trading-vitest';",
+        "import { ledgerTest } from './support/missing';",
+        "describe('order fills', () => {",
+        "  it.effect('fills a market order', () => {});",
+        "  it.effect.skipIf(process.env.CI)('fills a limit order', () => {});",
+        "  ledgerTest('records the fill in the ledger', async ({ ledger }) => {}, 60_000);",
+        '});',
+        '',
+      ].join('\n'),
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.suites.map((suite) => suite.title)).toEqual(['order fills']);
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['unresolved-test-import', 1],
+      ['unresolved-test-import', 2],
+    ]);
+    expect(inventory.diagnostics[0].message).toBe(
+      "'it' is imported from './support/trading-vitest', which does not export a Vitest test object that could be recognized; tests that use it are missing.",
+    );
+  });
+
   it('says nothing about a local module that has nothing to do with Playwright', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

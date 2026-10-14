@@ -99,36 +99,58 @@ export function bindAll(declarators: VariableDeclarator[], bind: (declarator: Va
 
 /** Whether a module exports `name` as a test object. */
 export function exportsTestObject(program: Program, name: string, objects: TestObjects): boolean {
+  const own = ownExport(program, name);
+  switch (own?.kind) {
+    case 'default':
+      return objects.isTestObject(own.value);
+    case 'variable':
+      return objects.isTestName(name);
+    case 'function':
+      return false;
+    case 'specifier':
+      return own.source === null ? objects.isTestName(own.local) : objects.reexports(own.source, own.local);
+  }
+  return program.body.some((statement) => {
+    const source = starReexport(statement);
+    return source !== null && objects.reexports(source, name);
+  });
+}
+
+/** How a module exports `name` itself: declared, or exported by name from a local or another module. */
+type OwnExport =
+  | { kind: 'default'; value: Expression }
+  | { kind: 'variable' | 'function' }
+  | { kind: 'specifier'; local: string; source: string | null };
+
+/**
+ * The module's own export of `name`; null when it has none and only `export *` may pass the name on. An own export
+ * wins over those, as in JavaScript.
+ */
+function ownExport(program: Program, name: string): OwnExport | null {
   for (const statement of program.body) {
-    switch (statement.type) {
-      case 'ExportNamedDeclaration':
-        if (statement.declaration?.type === 'VariableDeclaration') {
-          for (const declarator of statement.declaration.declarations) {
-            if (declarator.id.type === 'Identifier' && declarator.id.name === name) {
-              return objects.isTestName(name);
-            }
-          }
-        }
-        for (const specifier of statement.specifiers) {
-          if (exportName(specifier.exported) !== name) continue;
-          const local = exportName(specifier.local);
-          return statement.source ? objects.reexports(statement.source.value, local) : objects.isTestName(local);
-        }
-        break;
-      case 'ExportDefaultDeclaration':
-        if (name === 'default') return objects.isTestObject(statement.declaration as Expression);
-        break;
-      case 'ExportAllDeclaration':
-        if (!statement.exported && objects.reexports(statement.source.value, name)) return true;
-        break;
-      case 'ExpressionStatement': {
-        const source = commonJsReexport(statement);
-        if (source !== null && objects.reexports(source, name)) return true;
-        break;
-      }
+    if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
+      return { kind: 'default', value: statement.declaration as Expression };
+    }
+    if (statement.type !== 'ExportNamedDeclaration') continue;
+    const { declaration } = statement;
+    if (declaration?.type === 'VariableDeclaration') {
+      const declared = declaration.declarations.some((item) => item.id.type === 'Identifier' && item.id.name === name);
+      if (declared) return { kind: 'variable' };
+    }
+    const named = declaration?.type === 'FunctionDeclaration' || declaration?.type === 'ClassDeclaration';
+    if (named && declaration.id?.name === name) return { kind: 'function' };
+    for (const specifier of statement.specifiers) {
+      if (exportName(specifier.exported) !== name) continue;
+      return { kind: 'specifier', local: exportName(specifier.local), source: statement.source?.value ?? null };
     }
   }
-  return false;
+  return null;
+}
+
+/** The module `export * from 'module'` or `module.exports = require('module')` passes every name on from; or null. */
+function starReexport(statement: Node): string | null {
+  if (statement.type === 'ExportAllDeclaration') return statement.exported ? null : statement.source.value;
+  return commonJsReexport(statement);
 }
 
 /** Where a module gets a name it exports from another module, and how: by re-exporting it or by building on it. */
@@ -144,24 +166,16 @@ interface ImportOrigin {
  */
 function importOrigin(program: Program, name: string, isFramework: (source: string) => boolean): ImportOrigin | null {
   const imported = moduleImports(program, isFramework);
-  for (const statement of program.body) {
-    const required = commonJsReexport(statement);
-    if (required !== null && !isFramework(required)) return { source: required, imported: name, how: 're-exports' };
-    if (statement.type === 'ExportAllDeclaration' && !statement.exported && !isFramework(statement.source.value)) {
-      return { source: statement.source.value, imported: name, how: 're-exports' };
+  const own = ownExport(program, name);
+  if (own === null) {
+    for (const statement of program.body) {
+      const source = starReexport(statement);
+      if (source !== null && !isFramework(source)) return { source, imported: name, how: 're-exports' };
     }
-    if (statement.type !== 'ExportNamedDeclaration') continue;
-    for (const specifier of statement.specifiers) {
-      if (exportName(specifier.exported) !== name) continue;
-      const local = exportName(specifier.local);
-      // `export { test } from './fixtures'`, or `import { test } from './fixtures'` and then `export { test }`.
-      if (statement.source) {
-        if (isFramework(statement.source.value)) continue;
-        return { source: statement.source.value, imported: local, how: 're-exports' };
-      }
-      const from = imported.get(local);
-      if (from) return { source: from.source, imported: from.imported, how: 're-exports' };
-    }
+  } else if (own.kind === 'specifier') {
+    // `export { test } from './fixtures'`, or `import { test } from './fixtures'` and then `export { test }`.
+    const from = own.source === null ? imported.get(own.local) : { source: own.source, imported: own.local };
+    if (from && !isFramework(from.source)) return { source: from.source, imported: from.imported, how: 're-exports' };
   }
   const values = new Map<string, Node>();
   for (const declarator of topLevelDeclarators(program)) {

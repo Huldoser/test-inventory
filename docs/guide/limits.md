@@ -54,8 +54,10 @@ Installed packages are not followed. When a call shaped like a test, outside any
 an import that can't be followed, an `unresolved-test-import` error names the import and says where the chain of
 files ends: a file that is missing or can't be parsed, an installed package, or a file that doesn't export a test
 object. The tests that use it are missing. The error needs a name that reads like a test function, as in
-`brokerTest('routes to NASDAQ', ...)`, or a member such as `.describe` after it. Helpers shaped the same way, such as
-`waitForFill('AAPL', (order) => ...)`, are not reported. `scanSource()` reads no files, so it follows no imports.
+`brokerTest('routes to NASDAQ', ...)`, or a member such as `.describe` after it. With such a name, a call with a title
+and a body counts through any member, as in `it.effect('fills an order', ...)` on a test object that a package
+extends, and with a timeout after the body. Helpers shaped the same way, such as `waitForFill('AAPL', (order) => ...)`,
+are not reported. `scanSource()` reads no files, so it follows no imports.
 
 ## Test objects made by helpers
 
