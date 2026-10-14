@@ -1,3 +1,7 @@
+---
+description: Install test-inventory and list the tests of a Playwright or Vitest suite as JSON, without running them.
+---
+
 # Getting started
 
 test-inventory reads JavaScript and TypeScript test files and lists the tests in them as JSON. It parses the code
