@@ -57,6 +57,8 @@ import {
   problem,
   readChain,
   readCondition,
+  returnedFunction,
+  returnedTestObject,
   readOptions,
   readStrings,
   isTitleLiteral,
@@ -78,6 +80,17 @@ type Kind = 'test' | 'describe';
 interface TestFunction {
   kind: Kind;
   links: Link[];
+}
+
+/** What a test function chosen at run time, as in `isCI ? it.skip : it`, is either way: only the links both have. */
+function shared(a: TestFunction | null, b: TestFunction | null): TestFunction | null {
+  if (!a || a.kind !== b?.kind) return null;
+  const same = (link: Link, index: number) => {
+    const other = b.links.at(index);
+    return other?.name === link.name && !link.args && !link.template && !other.args && !other.template;
+  };
+  const differs = a.links.findIndex((link, index) => !same(link, index));
+  return { kind: a.kind, links: differs === -1 ? a.links : a.links.slice(0, differs) };
 }
 
 // Maps rather than object literals, so names such as `constructor` don't match inherited properties.
@@ -155,6 +168,9 @@ function hoistedValue(call: CallExpression, parents: readonly Node[]): Node {
   const parent = parents.at(-1);
   return parent?.type === 'AwaitExpression' ? parent : call;
 }
+
+/** Where a chain's names are looked up; `returnsOf` is null where functions are not followed to what they return. */
+type Lookup = Pick<CallContext, 'scopes' | 'inBody'> & { returnsOf: CallContext['returnsOf'] | null };
 
 /** The names through which a test or hook body can skip its test: `context.skip()` or a destructured `skip()`. */
 interface SkipNames {
@@ -303,7 +319,8 @@ export class VitestAdapter implements Adapter {
   private readonly imports: Map<string, ModuleImport>;
   private readonly followed = new Map<string, { exported: boolean; problem: Problem | null }>();
   private readonly reported = new Set<string>();
-  private readonly assumed = new Set<Node>();
+  /** Variables and names of functions read as test objects on trust, each reported once. */
+  private readonly assumed = new Set<Node | string>();
   private readonly aliases = new Map<Node, TestFunction | null>();
   /** Describe callbacks and the name of their first parameter, which Vitest calls with its `test`. */
   private readonly suiteParameters = new Map<Node, string>();
@@ -353,6 +370,10 @@ export class VitestAdapter implements Adapter {
     );
   }
 
+  testFunction(expression: Expression, scopes: readonly Node[]): TestFunction | null {
+    return this.aliasOf(expression, { scopes, inBody: false, returnsOf: null });
+  }
+
   /** A call to `bench` imported from Vitest 5, which is undefined there, so the call throws. */
   private benchCall(call: CallExpression, context: CallContext): ApiCall | null {
     const base = readChain(call.callee)?.base;
@@ -373,7 +394,7 @@ export class VitestAdapter implements Adapter {
 
   private chainCall(call: CallExpression, context: CallContext): ApiCall | null {
     const chain = readChain(call.callee);
-    const resolved = chain ? this.resolve(chain, call.arguments, context.scopes, context.inBody) : null;
+    const resolved = chain ? this.resolve(chain, call.arguments, context) : null;
     if (!resolved) return null;
     const { kind, links } = resolved;
     if (kind === 'test' && links.length === 1 && HOOKS.has(links[0].name)) return this.hook(call, links[0].name);
@@ -411,13 +432,8 @@ export class VitestAdapter implements Adapter {
    * The function a chain calls and the links after it, or null when it isn't one of Vitest's. An import that can't be
    * followed is reported only outside test and hook bodies, where a call can declare tests.
    */
-  private resolve(
-    chain: Chain,
-    args: readonly Argument[],
-    scopes: readonly Node[],
-    inBody: boolean,
-  ): TestFunction | null {
-    const start = this.start(chain, args, scopes, inBody);
+  private resolve(chain: Chain, args: readonly Argument[], lookup: Lookup): TestFunction | null {
+    const start = this.start(chain, args, lookup);
     if (!start) return null;
     let kind = start.kind;
     let links = [...(start.modifiers ?? []), ...chain.links.slice(start.index)];
@@ -434,10 +450,14 @@ export class VitestAdapter implements Adapter {
   private start(
     chain: Chain,
     args: readonly Argument[],
-    scopes: readonly Node[],
-    inBody: boolean,
+    lookup: Lookup,
   ): { kind: Kind; index: number; modifiers?: Link[] } | null {
     const { base, links } = chain;
+    const { scopes, inBody } = lookup;
+    if (base.type === 'CallExpression') {
+      const returned = this.returned(base, links, args, lookup);
+      return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
+    }
     if (base.type !== 'Identifier') return null;
     // A name the file doesn't declare is one of Vitest's globals; a local variable or parameter with the same name,
     // such as `(test) => test.result()`, is not Vitest's.
@@ -454,7 +474,7 @@ export class VitestAdapter implements Adapter {
       this.looksLikeTest(links, args) &&
       this.follow(base.name, !inBody && mayDeclareTests(base.name, links));
     if (!followed && !this.bindings.declarations.has(declaration)) {
-      const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, scopes, inBody) : null;
+      const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, lookup) : null;
       if (alias) return { kind: alias.kind, index: 0, modifiers: alias.links };
       return this.assumeLocal(declaration, base.name, links, args)
         ? { kind: KINDS.get(base.name) ?? 'test', index: 0 }
@@ -469,37 +489,52 @@ export class VitestAdapter implements Adapter {
   }
 
   /** The function and modifiers a variable holds, as in `const skipOnCi = test.skipIf(isCI)`. */
-  private alias(declarator: VariableDeclarator, scopes: readonly Node[], inBody: boolean): TestFunction | null {
+  private alias(declarator: VariableDeclarator, lookup: Lookup): TestFunction | null {
     let alias = this.aliases.get(declarator);
     if (alias === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
       this.aliases.set(declarator, null);
-      alias = declarator.init ? this.aliasOf(declarator.init, scopes, inBody) : null;
+      alias = declarator.init ? this.aliasOf(declarator.init, lookup) : null;
       this.aliases.set(declarator, alias);
     }
     return alias;
   }
 
-  private aliasOf(expression: Expression, scopes: readonly Node[], inBody: boolean): TestFunction | null {
+  private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {
     const node = unwrap(expression);
     if (node.type === 'ConditionalExpression') {
       // `isCI ? describe.concurrent : describe`: only the modifiers both branches have apply.
-      const consequent = this.aliasOf(node.consequent, scopes, inBody);
-      const alternate = this.aliasOf(node.alternate, scopes, inBody);
-      if (!consequent || consequent.kind !== alternate?.kind) return null;
-      const same = (link: Link, index: number) => {
-        const other = alternate.links.at(index);
-        return other?.name === link.name && !link.args && !link.template && !other.args && !other.template;
-      };
-      const shared = consequent.links.findIndex((link, index) => !same(link, index));
-      return { kind: consequent.kind, links: shared === -1 ? consequent.links : consequent.links.slice(0, shared) };
+      return shared(this.aliasOf(node.consequent, lookup), this.aliasOf(node.alternate, lookup));
     }
     const chain = readChain(node);
-    const resolved = chain ? this.resolve(chain, [], scopes, inBody) : null;
+    const resolved = chain ? this.resolve(chain, [], lookup) : null;
     const allowed = (link: Link) =>
       resolved !== null &&
       (MODIFIERS[resolved.kind].has(link.name) || TABLES.has(link.name) || CONDITIONS.has(link.name));
     return resolved?.links.every(allowed) ? resolved : null;
+  }
+
+  /**
+   * The function a call returns, as `conditionalTest({ min: 22 })` returns `it` or `it.skip`: what all the values the
+   * function returns have in common, as for a variable chosen by a condition. When the function can't be found, a call
+   * named like a test object is read as one on trust, with a warning; see `returnedTestObject`.
+   */
+  private returned(
+    call: CallExpression,
+    links: Link[],
+    args: readonly Argument[],
+    lookup: Lookup,
+  ): TestFunction | null {
+    const callee = unwrap(call.callee);
+    if (callee.type !== 'Identifier' || !lookup.returnsOf) return null;
+    const returns = lookup.returnsOf(callee.name, lookup.scopes);
+    if (returns) return returnedFunction(returns, shared);
+    if (!isTestName(callee.name) || !this.looksLikeTest(links, args)) return null;
+    if (!this.assumed.has(callee.name)) {
+      this.assumed.add(callee.name);
+      this.problems.push(returnedTestObject(this.file, call));
+    }
+    return { kind: KINDS.get(callee.name) ?? 'test', links: [] };
   }
 
   /** Whether a local variable is read as a test object it could be; see `localTestObject`. */

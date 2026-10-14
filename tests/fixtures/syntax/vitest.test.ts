@@ -54,3 +54,17 @@ describe('market data client', () => {
 describe(() => {
   it('is never collected', () => {});
 });
+
+const onNode = (major: number) => (Number(process.versions.node.split('.')[0]) < major ? it.skip : it);
+
+describe('quote feed', () => {
+  onNode(22)('reads candles as a stream', () => {});
+
+  it('streams quotes over IPv6', async ({ skip }) => {
+    try {
+      await fetch('http://[::1]:4173/quotes');
+    } catch {
+      skip('no IPv6 on this machine');
+    }
+  });
+});

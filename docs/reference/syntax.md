@@ -10,15 +10,16 @@ Playwright 1.42 and newer.
 
 ### Where test comes from
 
-| Form                       | Example                                                                                                                                                            |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Named import, also renamed | `import { test } from '@playwright/test'`, `import { test as base } from '@playwright/test'`                                                                       |
-| Default import             | `import pwTest from '@playwright/test'`                                                                                                                            |
-| Namespace import           | `import * as pw from '@playwright/test'` then `pw.test(...)`                                                                                                       |
-| CommonJS                   | `const { test } = require('@playwright/test')`, `require('@playwright/test').test(...)`                                                                            |
-| Other packages             | `playwright/test`, `@playwright/experimental-ct-react` and the other component testing packages, and `playwright-bdd`, whose generated files import `test` from it |
-| Derived                    | `base.extend({...})`, chained `.extend().extend()`, `mergeTests(a, b)`                                                                                             |
-| Local fixtures file        | `import { test } from '../fixtures'`, or a path alias, `#` import or workspace package, followed through re-exports and `extend` chains across files               |
+| Form                       | Example                                                                                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Named import, also renamed | `import { test } from '@playwright/test'`, `import { test as base } from '@playwright/test'`                                                                                    |
+| Default import             | `import pwTest from '@playwright/test'`                                                                                                                                         |
+| Namespace import           | `import * as pw from '@playwright/test'` then `pw.test(...)`                                                                                                                    |
+| CommonJS                   | `const { test } = require('@playwright/test')`, `require('@playwright/test').test(...)`                                                                                         |
+| Other packages             | `playwright/test`, `@playwright/experimental-ct-react` and the other component testing packages, and `playwright-bdd`, whose generated files import `test` from it              |
+| Derived                    | `base.extend({...})`, chained `.extend().extend()`, `mergeTests(a, b)`                                                                                                          |
+| Local fixtures file        | `import { test } from '../fixtures'`, or a path alias, `#` import or workspace package, followed through re-exports and `extend` chains across files                            |
+| Returned by a function     | `brokerTest('live')('sends an order', ...)`, also kept in a variable, where `brokerTest` is declared in the file or a local file and returns a test object or describe function |
 
 ### Calls
 
@@ -47,15 +48,16 @@ Vitest 3.0 and newer.
 
 ### Where test comes from
 
-| Form                       | Example                                                                                                                                            |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Named import, also renamed | `import { test, it, describe, suite } from 'vitest'`                                                                                               |
-| Namespace import           | `import * as vt from 'vitest'` then `vt.test(...)`                                                                                                 |
-| Globals                    | `describe`, `it`, `test` and `suite` used without an import or declaration. A warning says when no config turns globals on.                        |
-| In-source tests            | `const { it, describe } = import.meta.vitest`                                                                                                      |
-| Describe callback          | `describe('fees', (test) => { test(...) })`: Vitest passes its `test` to the callback                                                              |
-| Derived                    | `test.extend({...})`, `test.extend('name', value)`, chained; `test.override()` and `test.scoped()` are known                                       |
-| Local fixtures file        | `import { test } from './context'`, or a path alias, `#` import or workspace package, followed through re-exports and `extend` chains across files |
+| Form                       | Example                                                                                                                                                                             |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Named import, also renamed | `import { test, it, describe, suite } from 'vitest'`                                                                                                                                |
+| Namespace import           | `import * as vt from 'vitest'` then `vt.test(...)`                                                                                                                                  |
+| Globals                    | `describe`, `it`, `test` and `suite` used without an import or declaration. A warning says when no config turns globals on.                                                         |
+| In-source tests            | `const { it, describe } = import.meta.vitest`                                                                                                                                       |
+| Describe callback          | `describe('fees', (test) => { test(...) })`: Vitest passes its `test` to the callback                                                                                               |
+| Derived                    | `test.extend({...})`, `test.extend('name', value)`, chained; `test.override()` and `test.scoped()` are known                                                                        |
+| Local fixtures file        | `import { test } from './context'`, or a path alias, `#` import or workspace package, followed through re-exports and `extend` chains across files                                  |
+| Returned by a function     | `onNode(22)('reads the order book', ...)`, also kept in a variable, where `onNode` is declared in the file or a local file and returns a test or describe function, as in `it.skip` |
 
 ### Calls
 

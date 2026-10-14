@@ -1,4 +1,4 @@
-import type { CallExpression, Node } from 'oxc-parser';
+import type { CallExpression, Expression, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import type { Annotation, DiagnosticCode, DiagnosticLevel, MetaValue } from './types.ts';
 
@@ -107,6 +107,18 @@ export interface CallContext {
   inTest: boolean;
   /** Inside a test or hook body, where calls don't declare tests. */
   inBody: boolean;
+  /**
+   * What a function declared in the file, or imported from a local module, returns, for a call on its result such as
+   * `conditionalTest({ min: 22 })('title', fn)`; null when the name is not a function the scan can find.
+   */
+  returnsOf(name: string, scopes: readonly Node[]): Returns | null;
+}
+
+/** The values a function returns, read by the adapter of the file that writes the function. */
+export interface Returns {
+  adapter: Adapter;
+  /** Each value with the scopes around it; null when the function may return no value, or returns a promise. */
+  values: { expression: Expression; scopes: readonly Node[] }[] | null;
 }
 
 /** A module read to see whether it exports a custom `test` object. */
@@ -127,4 +139,9 @@ export interface Adapter {
   fileTags: string[];
   usesGlobals: boolean;
   classify(call: CallExpression, context: CallContext): ApiCall | null;
+  /**
+   * The test or describe function a value holds, in the adapter's own terms, as `it.skip` in `return it.skip`; null
+   * when it holds none. A function the value calls is not followed to what it returns.
+   */
+  testFunction(expression: Expression, scopes: readonly Node[]): unknown;
 }

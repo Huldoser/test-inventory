@@ -100,3 +100,17 @@ test.describe('account settings', () => {
 
   test('changes the base currency', async () => {});
 });
+
+const brokerTest = (broker: string) => (broker === 'live' ? test : tradingTest);
+
+test.describe('quote feed', () => {
+  brokerTest('live')('routes a live order', async () => {});
+
+  test('streams quotes over IPv6', async ({ page }) => {
+    try {
+      await page.goto('http://[::1]:4173/quotes');
+    } catch {
+      test.skip(true, 'No IPv6 on this machine');
+    }
+  });
+});

@@ -924,6 +924,28 @@ test('settles the trade', async () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('reads code in a catch block as conditional, with the catch clause as the condition', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test('streams quotes over IPv6', async ({ page }) => {
+  try {
+    await page.goto('http://[::1]:4173/quotes');
+  } catch (error) {
+    test.skip(true, 'no IPv6 on this machine');
+  }
+});
+try {
+  loadMarketCalendar();
+} catch {
+  test('falls back to the default calendar', async () => {});
+}
+`);
+    expect(inventory.tests.map((test) => [test.state, test.condition, test.reason, test.isInCondition])).toEqual([
+      ['skip', 'catch (error)', 'no IPv6 on this machine', false],
+      ['active', null, null, true],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('negates the other cases for a switch default', () => {
     const test = onlyTest(
       scanPlaywright(`${PLAYWRIGHT_IMPORT}
@@ -1012,6 +1034,54 @@ describeOrHelper('not a describe', () => {});
       'table editor > sorts rows by symbol',
     ]);
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads tests on the test object or describe a function in the file returns', () => {
+    const inventory = scanPlaywright(`import { test as base } from '@playwright/test';
+const liveTest = base.extend({ broker: 'live' });
+const brokerTest = (venue: string) => (venue === 'live' ? liveTest : base);
+function onDesk(desk: string) {
+  return desk === 'equities' ? base.describe.serial : base.describe.parallel;
+}
+function routeTest(venue: string) {
+  return { venue };
+}
+const quoteTest = (venue: string) => brokerTest(venue);
+const forDesk = (desk: string) => (venue: string) => base;
+const blockTest = brokerTest('live');
+onDesk('equities')('equities desk', () => {
+  brokerTest('live')('sends an order', async ({ page }) => {});
+  brokerTest('paper').skip('cancels an order', async ({ page }) => {});
+  blockTest.extend({ size: 10_000 })('fills a block trade', async ({ page }) => {});
+  // Only what a function returns itself is followed.
+  routeTest('NYSE')('routes to NYSE', async ({ page }) => {});
+  quoteTest('NYSE')('quotes NYSE', async ({ page }) => {});
+  forDesk('equities')('NYSE')('routes equities to NYSE', async ({ page }) => {});
+});
+`);
+    // As for a variable chosen by a condition, only the members every value has apply.
+    expect(inventory.suites.map((suite) => [suite.title, suite.isSerial, suite.isParallel])).toEqual([
+      ['equities desk', false, false],
+    ]);
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['equities desk > sends an order', 'active'],
+      ['equities desk > cancels an order', 'skip'],
+      ['equities desk > fills a block trade', 'active'],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads calls on what an unknown function named like a test object returns, with one warning', () => {
+    const inventory = scanPlaywright(`import { brokerTest, createVenue } from '@trading/playwright-utils';
+brokerTest({ venue: 'NYSE' })('sends a live order', async ({ page }) => {});
+brokerTest({ venue: 'NYSE' }).describe('live orders', () => {});
+createVenue('NYSE')('opens the venue', async () => {});
+`);
+    expect(titles(inventory)).toEqual(['sends a live order']);
+    expect(inventory.suites.map((suite) => suite.title)).toEqual(['live orders']);
+    expect(inventory.diagnostics).toMatchObject([
+      { code: 'local-test-object', lineStart: 2, source: "brokerTest({ venue: 'NYSE' })" },
+    ]);
   });
 
   it('reads calls on a local test object created by a call it cannot follow, with one warning', () => {

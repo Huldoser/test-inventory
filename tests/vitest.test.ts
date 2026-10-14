@@ -656,6 +656,38 @@ describe('paper broker', () => {
     ]);
   });
 
+  it('reads a skip in a catch block as conditional, and one in a finally block as not', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+test('binds the IPv6 quote feed', async (context) => {
+  try {
+    await listen('::');
+  } catch {
+    context.skip();
+    return;
+  }
+});
+test('reads the broker certificate', ({ skip }) => {
+  try {
+    readCertificate();
+  } catch (error) {
+    if (error.code === 'ENOENT') skip('no certificate');
+  }
+});
+test('closes the quote feed', (context) => {
+  try {
+    connect();
+  } finally {
+    context.skip();
+  }
+});
+`);
+    expect(inventory.tests.map((test) => [test.state, test.isConditional, test.condition])).toEqual([
+      ['skip', true, 'catch'],
+      ['skip', true, "catch (error) && error.code === 'ENOENT'"],
+      ['skip', false, null],
+    ]);
+  });
+
   it('ignores calls that only look like a context skip', () => {
     const test = onlyTest(
       scanVitest(`${VITEST_IMPORT}
@@ -918,6 +950,89 @@ describe('fees', () => {
       ['fees > charges the exchange fee', 'active', null],
     ]);
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads tests on the function a function in the file returns, called in place or kept in a variable', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+const onFeed = (feed: string) => (feed === 'NASDAQ' ? test : test.fails);
+function onNode(major: number) {
+  if (Number(process.versions.node.split('.')[0]) < major) {
+    return it.concurrent.skip;
+  }
+  return it.concurrent;
+}
+function deskSuite() {
+  const suite = describe.shuffle;
+  return suite;
+}
+const tapeTest = onNode(22);
+deskSuite()('quotes', () => {
+  onFeed('NASDAQ')('streams NASDAQ quotes', () => {});
+  onNode(22)('reads the order book', () => {});
+  onNode(22).skip.each([['AAPL'], ['MSFT']])('charts %s', () => {});
+  tapeTest('reads the tape', () => {});
+});
+`);
+    expect(inventory.suites.map((suite) => [suite.title, suite.isShuffled])).toEqual([['quotes', true]]);
+    // As for a variable chosen by a condition, only the modifiers every value has apply.
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isParallel, test.caseCount])).toEqual([
+      ['quotes > streams NASDAQ quotes', 'active', false, null],
+      ['quotes > reads the order book', 'active', true, null],
+      ['quotes > charts %s', 'skip', true, 2],
+      ['quotes > reads the tape', 'active', true, null],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('does not read what a function returns as a test function unless every value it returns is one', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+const feedTest = (feed: string) => (feed === 'NASDAQ' ? test : describe);
+function quoteTest(symbol: string) {
+  if (!symbol) return;
+  return test;
+}
+function bookTest() {
+  const pick = () => test;
+  return pick;
+}
+async function liveTest() {
+  return test;
+}
+function* replayTest() {
+  return test;
+}
+feedTest('NASDAQ')('streams NASDAQ quotes', () => {});
+quoteTest('AAPL')('quotes AAPL', () => {});
+bookTest()('reads the order book', () => {});
+liveTest()('sends a live order', () => {});
+replayTest()('replays the open', () => {});
+test('places an order', () => {});
+`);
+    expect(titles(inventory)).toEqual(['places an order']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads calls on what an unknown function named like a test object returns, with one warning', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { createVenue, liveBrokerTest } from '@trading/test-utils';
+liveBrokerTest({ venue: 'NYSE' })('sends a live order', () => {});
+liveBrokerTest({ venue: 'NASDAQ' }).skip('cancels a live order', () => {});
+liveBrokerTest({ venue: 'NYSE' }).connect();
+createVenue('NYSE')('opens the venue', () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['sends a live order', 'active'],
+      ['cancels a live order', 'skip'],
+    ]);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'local-test-object',
+        lineStart: 3,
+        message:
+          "What liveBrokerTest({ venue: 'NYSE' }) returns is not followed; calls on it shaped like tests are read as tests.",
+        source: "liveBrokerTest({ venue: 'NYSE' })",
+      },
+    ]);
   });
 
   it('reads calls on a local test object created by a call it cannot follow, with one warning', () => {

@@ -265,7 +265,7 @@ export interface TestRecord {
   caseCount: Count | null;
   /** Declared inside a loop, `forEach` or `map`. */
   isInLoop: boolean;
-  /** Declared inside `if`, `?:`, `&&` or `switch`. */
+  /** Declared inside `if`, `?:`, `&&`, `switch` or a `catch` block. */
   isInCondition: boolean;
   /** Declared inside a plain function. */
   isInFunction: boolean;

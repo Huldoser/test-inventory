@@ -730,7 +730,7 @@
         },
         "isInCondition": {
           "type": "boolean",
-          "description": "Declared inside `if`, `?:`, `&&` or `switch`."
+          "description": "Declared inside `if`, `?:`, `&&`, `switch` or a `catch` block."
         },
         "isInFunction": {
           "type": "boolean",
