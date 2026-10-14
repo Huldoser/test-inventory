@@ -1,5 +1,19 @@
 # test-inventory
 
+## 0.2.1
+
+### Patch Changes
+
+- [#28](https://github.com/Huldoser/test-inventory/pull/28) [`04ff6d2`](https://github.com/Huldoser/test-inventory/commit/04ff6d2dd5a7ecc8fabffbf16b259fc9f2a68110) - A skip in a `catch` block, such as `context.skip()` when a test server can't start, is conditional, with the `catch` clause as its condition, as in `catch (error)`. It was recorded as an unconditional skip before. A test declared in a `catch` block gets `isInCondition: true`.
+
+- [#32](https://github.com/Huldoser/test-inventory/pull/32) [`3fcc933`](https://github.com/Huldoser/test-inventory/commit/3fcc93368dc9a4d810ff52b8d7d5fe4f99ca63ee) - Globs match folders and files whose names start with a dot, as in `.storybook/` or `.github/scripts/`, as they do in Playwright and Vitest; test files there were left out before. `.git` folders are always left out, like `node_modules`.
+
+- [#31](https://github.com/Huldoser/test-inventory/pull/31) [`631cc6b`](https://github.com/Huldoser/test-inventory/commit/631cc6b208aca5b28076da6eba33d8e6426ab778) - Workspace packages are found from both `pnpm-workspace.yaml` and the `workspaces` of `package.json`. When a repository had both, as after a move to pnpm that kept the old list, only `package.json` was read, and a package listed only in `pnpm-workspace.yaml` got an `unresolved-test-import` error.
+
+- [#30](https://github.com/Huldoser/test-inventory/pull/30) [`968e2bc`](https://github.com/Huldoser/test-inventory/commit/968e2bcd15c2157faae8fe91604634b1c1f68175) - A call through an imported name that reads like a test function is followed, and reported with `unresolved-test-import` when it can't be, also when it goes through a member the scan doesn't know, as in `it.effect('title', fn)` from `@effect/vitest`, or passes a timeout after the body, as in `test('title', fn, 60_000)`. Such tests were missing before, with no diagnostic. A module's own export of a name now wins over the same name passed on by `export *`, as in JavaScript: `export const it = ...` next to `export * from 'vitest'` is no longer read as Vitest's `it`.
+
+- [#28](https://github.com/Huldoser/test-inventory/pull/28) [`04ff6d2`](https://github.com/Huldoser/test-inventory/commit/04ff6d2dd5a7ecc8fabffbf16b259fc9f2a68110) - Tests on a test object that a function returns are found, as in `conditionalTest({ min: 22 })('title', fn)` or `const quoteTest = onNode(22)`, when the function is declared in the file or imported from a local file. They were missing before, with no diagnostic. When the function returns a different test function on different runs, as `it.skip` or `it`, only the modifiers they all have apply, as for a variable chosen by a condition. When the function can't be followed and its name reads like a test object, as for one from an installed package, the calls on what it returns are read as tests on trust, with a `local-test-object` warning.
+
 ## 0.2.0
 
 ### Minor Changes
