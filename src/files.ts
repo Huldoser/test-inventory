@@ -65,14 +65,15 @@ export async function findFiles(
   patterns: string[],
   ignore: string[],
   framework: Framework,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<{ files: FoundFile[]; diagnostics: Diagnostic[] }> {
   const failures: Failure[] = [];
   // Only files match; a folder named like a test file, such as a screenshot folder `checkout.spec.ts/`, is not expanded.
   const matches = await glob(
-    patterns.map((pattern) => normalizePattern(pattern)),
+    patterns.map((pattern) => normalizePattern(pattern, platform)),
     {
       cwd: root,
-      ignore: ['**/node_modules/**', ...ignore.map((pattern) => normalizePattern(pattern))],
+      ignore: ['**/node_modules/**', ...ignore.map((pattern) => normalizePattern(pattern, platform))],
       onlyFiles: true,
       expandDirectories: false,
       fs: recordingFs(failures),

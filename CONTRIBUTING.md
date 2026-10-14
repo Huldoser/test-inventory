@@ -11,6 +11,9 @@ npm ci
 npm test
 ```
 
+Every test runs on every system; none is skipped. On Windows, the tests create symbolic links, which needs Developer
+Mode turned on or a terminal run as administrator.
+
 | Command                                               | Does                                                                                   |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `npm test`                                            | Builds `dist/`, then runs every test.                                                  |
