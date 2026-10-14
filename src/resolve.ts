@@ -289,9 +289,12 @@ function workspacePackages(directory: string): Map<string, string> {
     const workspaces = readJson(path.join(folder, 'package.json'))?.workspaces;
     const fromManifest = Array.isArray(workspaces) ? workspaces : record(workspaces)?.packages;
     const pnpm = readText(path.join(folder, 'pnpm-workspace.yaml'));
-    const patterns = (Array.isArray(fromManifest) ? fromManifest : pnpm ? pnpmWorkspacePatterns(pnpm) : null)?.filter(
-      (item): item is string => typeof item === 'string',
-    );
+    // pnpm reads only pnpm-workspace.yaml, and npm, Yarn and Bun only package.json, so a repository that moved to
+    // pnpm may still have an old list there. Packages from both are found.
+    const lists = [Array.isArray(fromManifest) ? fromManifest : null, pnpm ? pnpmWorkspacePatterns(pnpm) : null];
+    const patterns = lists.some((list) => list !== null)
+      ? lists.flat().filter((item): item is string => typeof item === 'string')
+      : null;
     if (patterns) {
       // Packages are inside the workspace. A pattern or a link that leads out of its folder could send the search through
       // the whole disk, so neither is followed.

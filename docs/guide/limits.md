@@ -44,7 +44,7 @@ Two kinds of import are followed: a custom `test` object, and a function that de
 - an `imports` entry in the nearest `package.json`, as in `#fixtures`;
 - a workspace package whose `exports`, `types` or `main` point to TypeScript source, or to build output with the
   source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
-  install, from the `workspaces` of `package.json` or from `pnpm-workspace.yaml`. Patterns and links that lead out of
+  install, from the `workspaces` of `package.json` and from `pnpm-workspace.yaml`. Patterns and links that lead out of
   the workspace folder are not followed.
 
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in

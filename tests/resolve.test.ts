@@ -320,6 +320,10 @@ describe('a custom test object from a workspace package', () => {
       'a pnpm-workspace.yaml flow list',
       { 'package.json': PLAYWRIGHT_PACKAGE, 'pnpm-workspace.yaml': "packages: ['packages/*', tools/*]\n" },
     ],
+    [
+      'a pnpm-workspace.yaml next to a package.json list kept from before a move to pnpm',
+      { 'package.json': withWorkspaces(['apps/*']), 'pnpm-workspace.yaml': 'packages:\n  - packages/*\n' },
+    ],
   ])('is followed without an install, from %s', async (_, files) => {
     const inventory = await scanSpec({
       ...WORKSPACE,
