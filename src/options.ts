@@ -5,12 +5,15 @@ export type { CommentsMode };
 
 /** @inline */
 export interface ScanOptions {
-  /** Glob patterns for the test files, relative to `root`. */
+  /**
+   * Glob patterns for the test files, relative to `root`. As in Playwright and Vitest, they match names that start with
+   * a dot too.
+   */
   patterns: string[];
   framework: Framework;
   /** The project root. Paths in the output are relative to it. Defaults to the current directory. */
   root?: string;
-  /** Glob patterns to leave out, in addition to `node_modules`. */
+  /** Glob patterns to leave out, in addition to `node_modules` and `.git`. */
   ignore?: string[];
   /** The framework version whose rules apply, instead of the one read from the project. */
   frameworkVersion?: string;
