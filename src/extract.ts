@@ -1,5 +1,13 @@
 import type { CallExpression, CatchClause, Expression, Node, Program } from 'oxc-parser';
-import { childNodes, isFunctionNode, isImportMetaVitest, propertyName, unwrap, type FunctionNode } from './ast.ts';
+import {
+  childNodes,
+  isFunctionNode,
+  isImportMetaVitest,
+  propertyName,
+  returnValues,
+  unwrap,
+  type FunctionNode,
+} from './ast.ts';
 import { exportName } from './frameworks/bindings.ts';
 import { problem } from './frameworks/common.ts';
 import type {
@@ -460,6 +468,7 @@ class Walker {
       testContext: context.testContext,
       inTest: context.test !== null,
       inBody: context.test !== null || context.hookScope !== null,
+      passedDown: context.scope.suite?.declaration.passesDown ?? null,
       returnsOf: (name, scopes) => this.returnsOf(name, scopes),
     });
     if (!api) return false;
@@ -485,6 +494,7 @@ class Walker {
           reason: api.reason,
           hasDynamicReason: api.hasDynamicReason,
           line: this.lineOf(call),
+          afterLoad: context.test !== null || context.hookScope !== null,
         };
         if (context.helper) this.effectsOf(context.helper).push({ kind: 'state', setting, call });
         else (context.test ?? context.hookScope ?? context.scope).states.push(setting);
@@ -517,7 +527,7 @@ class Walker {
       case 'invalid': {
         const afterLoad = context.test !== null || context.hookScope !== null || context.helper !== null;
         this.report(afterLoad ? { ...api.problem, afterLoad } : api.problem);
-        return true;
+        return api.declaration ? this.handle(call, api.declaration, context) : true;
       }
       case 'other':
         return false;
@@ -595,33 +605,40 @@ class Walker {
   }
 
   /**
-   * What a function declared in the file being walked, or imported from a local module, returns; null otherwise. Each
-   * declaration is looked up once, however many calls use it.
+   * What a function declared in a file, the one being walked unless said otherwise, or imported from a local module,
+   * returns; null otherwise. Each declaration is looked up once, however many calls use it.
    */
-  private returnsOf(name: string, scopes: readonly Node[]): Returns | null {
-    const declaration = this.frame.values.declarationOf(name, scopes);
+  private returnsOf(name: string, scopes: readonly Node[], frame = this.frame): Returns | null {
+    const declaration = frame.values.declarationOf(name, scopes);
     if (declaration === null) return null;
     if (!this.returns.has(declaration)) {
-      const local = this.functionNamed(name, scopes);
-      const callee = local ? { fn: local, frame: this.frame } : this.importedFunction(name, scopes);
+      const local = this.functionIn(frame, name, scopes);
+      const callee = local ? { fn: local, frame } : this.importedFunction(name, scopes, frame);
       this.returns.set(declaration, callee && this.returnsIn(callee));
     }
     return this.returns.get(declaration) ?? null;
   }
 
   private returnsIn({ fn, frame }: Callee): Returns {
-    // An async function returns a promise, and a generator an iterator, whatever their `return` says.
-    const values = fn.async || fn.generator ? null : returnValues(fn, [...this.scopeChain(fn, frame), fn]);
-    return { adapter: frame.adapter, values };
+    const scopes = [...this.scopeChain(fn, frame), fn];
+    const values = returnValues(fn)?.map(({ expression, around }) => ({
+      expression,
+      scopes: [...scopes, ...around.filter(isScopeNode)],
+    }));
+    return {
+      adapter: frame.adapter,
+      values: values ?? null,
+      returnsOf: (name, at) => this.returnsOf(name, at, frame),
+    };
   }
 
   /** The function a name imported from a local module stands for, in the file that writes it; null otherwise. */
-  private importedFunction(name: string, scopes: readonly Node[]): Callee | null {
-    const declaration = this.frame.values.declarationOf(name, scopes);
-    const source = this.frame.values.importSource(name, scopes);
+  private importedFunction(name: string, scopes: readonly Node[], from = this.frame): Callee | null {
+    const declaration = from.values.declarationOf(name, scopes);
+    const source = from.values.importSource(name, scopes);
     if (source === null) return null;
     const imported = declaration?.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
-    const frame = this.openFrom(this.frame, source);
+    const frame = this.openFrom(from, source);
     return frame ? this.exportedFunction(frame, imported, new Set(), 0) : null;
   }
 
@@ -837,7 +854,8 @@ class Walker {
         if (effect.kind === 'call') return expand(effect.fn, [...guards, ...effect.guards], new Set([...path, fn]));
         if (effect.kind === 'configure') return [effect];
         const condition = joinConditions([...guards, ...(effect.setting.condition ? [effect.setting.condition] : [])]);
-        return [{ ...effect, setting: { ...effect.setting, condition } }];
+        // Helpers are expanded here only for calls from tests and hooks.
+        return [{ ...effect, setting: { ...effect.setting, condition, afterLoad: true } }];
       });
     };
     for (const call of this.helperCalls) {
@@ -1019,29 +1037,6 @@ class Walker {
     }
     return lines;
   }
-}
-
-/**
- * The values a function returns, each with the scopes around it, outermost first; null when it may return no value, as
- * with `return;` or no `return` at all. A `return` in a function inside it is that function's.
- */
-function returnValues(fn: FunctionNode, scopes: Node[]): { expression: Expression; scopes: Node[] }[] | null {
-  // Only declarations of overloads have no body.
-  const body = fn.body as Node;
-  if (body.type !== 'BlockStatement') return [{ expression: body as Expression, scopes }];
-  const values: ({ expression: Expression; scopes: Node[] } | null)[] = [];
-  const visit = (node: Node, around: Node[]): void => {
-    if (node.type === 'ReturnStatement') {
-      values.push(node.argument ? { expression: node.argument, scopes: around } : null);
-      return;
-    }
-    if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) return;
-    const inner = isScopeNode(node) ? [...around, node] : around;
-    for (const child of childNodes(node)) visit(child, inner);
-  };
-  visit(body, scopes);
-  const always = values.every((value) => value !== null);
-  return always && values.length > 0 ? values : null;
 }
 
 /** Walks the scanned file; `openModule` reads the modules of imported helpers that the file calls. */

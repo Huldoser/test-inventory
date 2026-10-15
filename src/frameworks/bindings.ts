@@ -1,8 +1,8 @@
 import type { Expression, ModuleExportName, Node, Program, VariableDeclarator } from 'oxc-parser';
-import { childNodes, propertyName, unwrap } from '../ast.ts';
+import { childNodes, isFunctionNode, propertyName, returnValues, unwrap, type FunctionNode } from '../ast.ts';
 import type { ModuleReader, ModuleSource, Problem } from '../model.ts';
 import { parseFile, type ParsedFile } from '../parse.ts';
-import { snippet } from '../source.ts';
+import { snippet, type SourceText } from '../source.ts';
 import { problem, text, type FileContext } from './common.ts';
 
 /** A name imported from a module other than the framework, which may be a custom `test` object in a fixtures file. */
@@ -16,12 +16,98 @@ export function exportName(name: ModuleExportName): string {
   return name.type === 'Identifier' ? name.name : name.value;
 }
 
+/** What a module is followed for: a test object, or a function that returns one, as in `defineBrokerTest()`. */
+export type Exported = 'test object' | 'function';
+
 /** Names a module's test objects are known by, used to check what a fixtures file exports. */
 export interface TestObjects {
   isTestObject(expression: Expression): boolean;
   isTestName(name: string): boolean;
-  /** Whether re-exporting `imported` from `source` exports a test object. */
-  reexports(source: string, imported: string): boolean;
+  /** Whether a function the module declares or imports under `name` returns a test object. */
+  returnsTestObject(name: string): boolean;
+  /** Whether re-exporting `imported` from `source` exports a test object, or a function that returns one. */
+  reexports(source: string, imported: string, exported: Exported): boolean;
+}
+
+/**
+ * The functions a module declares at its top level, by name, to tell whether one returns a test object: every value it
+ * returns is one, as `return base.extend({...})` is. An imported function is followed to its module. The function a
+ * module exports as its default, named or not, is also known as `default`.
+ */
+export class ModuleFunctions {
+  private readonly functions: Map<string, FunctionNode>;
+  /** The functions being read, to end a function that returns what it returns itself. */
+  private readonly reading = new Set<FunctionNode>();
+  /** The values of variables the bindings left unbound, by name, which a call may make test objects. */
+  private readonly values = new Map<string, Expression[]>();
+  /** Whether each of those holds a test object; null while that is being worked out, which ends a loop. */
+  private readonly built = new Map<string, boolean | null>();
+  private readonly imported: Map<string, ModuleImport>;
+  private readonly follow: FollowImport;
+
+  constructor(program: Program, imported: Map<string, ModuleImport>, follow: FollowImport) {
+    this.functions = topLevelFunctions(program);
+    this.imported = imported;
+    this.follow = follow;
+  }
+
+  /** Keeps the variables the bindings didn't bind without following calls, to be worked out when asked. */
+  keep(declarators: Iterable<VariableDeclarator>): void {
+    for (const { id, init } of declarators) {
+      if (id.type === 'Identifier' && init) this.values.set(id.name, [...(this.values.get(id.name) ?? []), init]);
+    }
+  }
+
+  /**
+   * Whether a variable holds a test object built by a call, as `const test = defineBrokerTest()`. It is worked out
+   * only when asked, as following the call reads other modules.
+   */
+  holdsTestObject(name: string, isTestObject: (expression: Expression) => boolean): boolean {
+    const values = this.values.get(name);
+    if (!values) return false;
+    if (!this.built.has(name)) {
+      this.built.set(name, null);
+      this.built.set(name, values.some(isTestObject));
+    }
+    return this.built.get(name) === true;
+  }
+
+  returnsTestObject(name: string, isTestObject: (expression: Expression) => boolean): boolean {
+    const fn = this.functions.get(name);
+    if (!fn) {
+      const from = this.imported.get(name);
+      return from !== undefined && this.follow(from.source, from.imported, 'function');
+    }
+    if (this.reading.has(fn)) return false;
+    this.reading.add(fn);
+    const returns = returnValues(fn)?.every(({ expression }) => isTestObject(expression)) ?? false;
+    this.reading.delete(fn);
+    return returns;
+  }
+}
+
+/** The functions a module declares at its top level, by name; the one it exports as its default is also `default`. */
+function topLevelFunctions(program: Program): Map<string, FunctionNode> {
+  const functions = new Map<string, FunctionNode>();
+  for (const statement of program.body) {
+    if (statement.type === 'ExportDefaultDeclaration') {
+      const value = statement.declaration as Node;
+      if (value.type === 'FunctionDeclaration' || isFunctionNode(value)) functions.set('default', value);
+    }
+    const declaration =
+      statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration'
+        ? statement.declaration
+        : statement;
+    if (declaration?.type === 'FunctionDeclaration' && declaration.id) {
+      functions.set(declaration.id.name, declaration);
+    } else if (declaration?.type === 'VariableDeclaration') {
+      for (const { id, init } of declaration.declarations) {
+        const value = init ? unwrap(init) : null;
+        if (id.type === 'Identifier' && isFunctionNode(value)) functions.set(id.name, value);
+      }
+    }
+  }
+  return functions;
 }
 
 export function topLevelDeclarators(program: Program): VariableDeclarator[] {
@@ -97,22 +183,33 @@ export function bindAll(declarators: VariableDeclarator[], bind: (declarator: Va
   }
 }
 
-/** Whether a module exports `name` as a test object. */
-export function exportsTestObject(program: Program, name: string, objects: TestObjects): boolean {
+/** Whether a module exports `name` as a test object, or as a function that returns one. */
+export function exportsTestObject(
+  program: Program,
+  name: string,
+  objects: TestObjects,
+  exported: Exported = 'test object',
+): boolean {
   const own = ownExport(program, name);
+  const local = (localName: string) =>
+    exported === 'function' ? objects.returnsTestObject(localName) : objects.isTestName(localName);
   switch (own?.kind) {
-    case 'default':
-      return objects.isTestObject(own.value);
+    case 'default': {
+      if (exported === 'test object') return objects.isTestObject(own.value);
+      // `export default defineBrokerTest`, or a function written there, which the module's functions know as `default`.
+      const value = unwrap(own.value);
+      return objects.returnsTestObject(value.type === 'Identifier' ? value.name : 'default');
+    }
     case 'variable':
-      return objects.isTestName(name);
+      return local(name);
     case 'function':
-      return false;
+      return exported === 'function' && objects.returnsTestObject(name);
     case 'specifier':
-      return own.source === null ? objects.isTestName(own.local) : objects.reexports(own.source, own.local);
+      return own.source === null ? local(own.local) : objects.reexports(own.source, own.local, exported);
   }
   return program.body.some((statement) => {
     const source = starReexport(statement);
-    return source !== null && objects.reexports(source, name);
+    return source !== null && objects.reexports(source, name, exported);
   });
 }
 
@@ -153,45 +250,64 @@ function starReexport(statement: Node): string | null {
   return commonJsReexport(statement);
 }
 
-/** Where a module gets a name it exports from another module, and how: by re-exporting it or by building on it. */
+/**
+ * Where a module gets a name it exports from another module, and how: by re-exporting it or by building on it. A test
+ * object built by calling an imported function, as in `defineBrokerTest()`, comes from that function.
+ */
 interface ImportOrigin {
   source: string;
   imported: string;
   how: 're-exports' | 'builds';
+  exported: Exported;
 }
 
 /**
  * The module and name a module's export comes from when it re-exports it, as in `export { test } from './base'`, or
  * builds it from something imported, directly or through its own variables, as in `const test = base.extend({...})`.
  */
-function importOrigin(program: Program, name: string, isFramework: (source: string) => boolean): ImportOrigin | null {
+function importOrigin(
+  program: Program,
+  name: string,
+  isFramework: (source: string) => boolean,
+  exported: Exported,
+): ImportOrigin | null {
   const imported = moduleImports(program, isFramework);
   const own = ownExport(program, name);
   if (own === null) {
     for (const statement of program.body) {
       const source = starReexport(statement);
-      if (source !== null && !isFramework(source)) return { source, imported: name, how: 're-exports' };
+      if (source !== null && !isFramework(source)) return { source, imported: name, how: 're-exports', exported };
     }
   } else if (own.kind === 'specifier') {
     // `export { test } from './fixtures'`, or `import { test } from './fixtures'` and then `export { test }`.
     const from = own.source === null ? imported.get(own.local) : { source: own.source, imported: own.local };
-    if (from && !isFramework(from.source)) return { source: from.source, imported: from.imported, how: 're-exports' };
+    if (from && !isFramework(from.source)) {
+      return { source: from.source, imported: from.imported, how: 're-exports', exported };
+    }
   }
+  if (exported === 'function') return null;
   const values = new Map<string, Node>();
   for (const declarator of topLevelDeclarators(program)) {
     if (declarator.id.type === 'Identifier' && declarator.init) values.set(declarator.id.name, declarator.init);
   }
+  const functions = topLevelFunctions(program);
   const seen = new Set<string>();
-  // The import a local name is, or is built from: the object `extend` is called on, the test objects a call such as
-  // `mergeTests(a, b)` combines, either side of `?:`, or another local name. Values only passed along, such as a
-  // fixtures object in `base.extend(fixtures)`, are not what the test object is built on.
-  const builtFrom = (local: string): ModuleImport | null => {
+  type Origin = Omit<ImportOrigin, 'how'>;
+  const from = (local: string, kind: Exported): Origin | null => {
+    const found = imported.get(local);
+    return found ? { source: found.source, imported: found.imported, exported: kind } : null;
+  };
+  // The import a local name is, or is built from: the object `extend` is called on, an imported function that builds
+  // it, what a function the module writes returns, the test objects a call such as `mergeTests(a, b)` combines,
+  // either side of `?:`, or another local name. Values only passed along, such as a fixtures object in
+  // `base.extend(fixtures)`, are not what the test object is built on.
+  const builtFrom = (local: string): Origin | null => {
     const value = values.get(local);
-    if (imported.has(local) || !value || seen.has(local)) return imported.get(local) ?? null;
+    if (imported.has(local) || !value || seen.has(local)) return from(local, 'test object');
     seen.add(local);
     return builtOn(value);
   };
-  const builtOn = (node: Node): ModuleImport | null => {
+  const builtOn = (node: Node): Origin | null => {
     const expression = unwrap(node as Expression);
     switch (expression.type) {
       case 'Identifier':
@@ -203,6 +319,15 @@ function importOrigin(program: Program, name: string, isFramework: (source: stri
       case 'CallExpression': {
         const callee = unwrap(expression.callee);
         if (callee.type === 'MemberExpression' && propertyName(callee) === 'extend') return builtOn(callee.object);
+        if (callee.type === 'Identifier' && imported.has(callee.name)) return from(callee.name, 'function');
+        const fn = callee.type === 'Identifier' && !seen.has(callee.name) ? functions.get(callee.name) : undefined;
+        if (fn && callee.type === 'Identifier') {
+          seen.add(callee.name);
+          for (const { expression: value } of returnValues(fn) ?? []) {
+            const found = builtOn(value);
+            if (found) return found;
+          }
+        }
         for (const argument of expression.arguments) {
           const found = argument.type === 'SpreadElement' ? null : builtOn(argument);
           if (found) return found;
@@ -221,9 +346,11 @@ function importOrigin(program: Program, name: string, isFramework: (source: stri
   );
   for (const local of [name, ...locals]) {
     const found = values.has(local) ? builtFrom(local) : null;
-    if (found) return { source: found.source, imported: found.imported, how: 'builds' };
+    if (found) return { ...found, how: 'builds' };
   }
-  return null;
+  // `export default defineBrokerTest()`, built where it is exported.
+  const found = own?.kind === 'default' ? builtOn(own.value) : null;
+  return found && { ...found, how: 'builds' };
 }
 
 /** Whether a module imports, re-exports or requires any of the given sources. */
@@ -242,7 +369,7 @@ export function importsFrom(program: Program, matches: (source: string) => boole
 }
 
 /** Whether a name a module imports from another module is a test object there, which follows that module in turn. */
-export type FollowImport = (source: string, imported: string) => boolean;
+export type FollowImport = (source: string, imported: string, exported?: Exported) => boolean;
 
 /** How a framework recognizes the modules and test objects of a followed file. */
 export interface Framework {
@@ -279,18 +406,20 @@ export function followModule(
   name: string,
   readModule: ModuleReader | null,
   framework: Framework,
+  exported: Exported = 'test object',
   path: readonly string[] = [],
   followed = new Map<string, Followed>(),
 ): Followed {
   // Without a reader, as in scanSource, nothing can be read.
   const module = readModule ? readModule(source) : { reason: 'could not be read' };
   if ('reason' in module) return { exported: false, reason: module.reason };
-  if (path.includes(module.relativeFilePath)) return { exported: false, reason: 'imports it back, in a cycle' };
+  // A module may be followed again for another name, as a fixtures file that a function it imports builds on.
+  const key = `${module.relativeFilePath}\0${exported}\0${name}`;
+  if (path.includes(key)) return { exported: false, reason: 'imports it back, in a cycle' };
   if (path.length >= MAX_DEPTH) return { exported: false, reason: `is more than ${MAX_DEPTH} modules deep` };
-  const key = `${module.relativeFilePath}\0${name}`;
   let result = followed.get(key);
   if (!result) {
-    result = followExports(module, name, framework, [...path, module.relativeFilePath], followed);
+    result = followExports(module, name, framework, exported, [...path, key], followed);
     followed.set(key, result);
   }
   return result;
@@ -301,27 +430,55 @@ interface Followed {
   reason: string | null;
 }
 
-/** Whether a module exports `name` as a test object; `within` is the chain of modules followed to it, itself last. */
+/**
+ * Whether a module exports `name` as a test object; `within` is the chain of modules and names followed to it, itself
+ * last.
+ */
 function followExports(
   module: ModuleSource,
   name: string,
   framework: Framework,
+  exported: Exported,
   within: readonly string[],
   followed: Map<string, Followed>,
 ): Followed {
-  const { program, error } = parseModule(module);
+  const { program, error, source } = parseModule(module);
   if (error) return { exported: false, reason: 'could not be parsed' };
-  const followFrom = (from: string, imported: string) =>
-    followModule(from, imported, module.readModule, framework, within, followed);
-  const objects = framework.testObjects(program, (from, imported) => followFrom(from, imported).exported);
-  if (exportsTestObject(program, name, objects)) return { exported: true, reason: null };
-  const unrecognized = `does not export a ${framework.name} test object that could be recognized`;
-  const origin = importOrigin(program, name, framework.isSource);
+  const followFrom = (from: string, imported: string, kind: Exported) =>
+    followModule(from, imported, module.readModule, framework, kind, within, followed);
+  const objects = framework.testObjects(
+    program,
+    (from, imported, kind = 'test object') => followFrom(from, imported, kind).exported,
+  );
+  if (exportsTestObject(program, name, objects, exported)) return { exported: true, reason: null };
+  const unrecognized = (kind: Exported) =>
+    `does not export ${kind === 'function' ? 'a function that returns a test object' : `a ${framework.name} test object`} that could be recognized`;
+  const origin = importOrigin(program, name, framework.isSource, exported);
   if (origin) {
-    const end = followFrom(origin.source, origin.imported).reason ?? unrecognized;
+    const end = followFrom(origin.source, origin.imported, origin.exported).reason ?? unrecognized(origin.exported);
     return { exported: false, reason: `${origin.how} it from '${origin.source}', which ${end}` };
   }
-  return { exported: false, reason: importsFrom(program, framework.isSource) ? unrecognized : null };
+  if (importsFrom(program, framework.isSource)) return { exported: false, reason: unrecognized(exported) };
+  // A module that doesn't import the framework may still build the test object with a function, as in
+  // `export const test = defineBrokerTest()`; one the scan can't follow is worth an error, not silence.
+  const call = exported === 'test object' ? creatingCall(program, name, source) : null;
+  return { exported: false, reason: call ? `builds it with ${call}, which is not followed` : null };
+}
+
+/**
+ * The call that creates what the module exports as `name`, a variable or its default export, as `defineBrokerTest()`;
+ * null for other values.
+ */
+function creatingCall(program: Program, name: string, source: SourceText): string | null {
+  const own = ownExport(program, name);
+  const local = own?.kind === 'variable' ? name : own?.kind === 'specifier' && own.source === null ? own.local : null;
+  const declarator = topLevelDeclarators(program).find(
+    (item) => item.id.type === 'Identifier' && item.id.name === local,
+  );
+  const written = own?.kind === 'default' ? own.value : declarator?.init;
+  const init = written ? unwrap(written) : null;
+  const value = init?.type === 'AwaitExpression' ? unwrap(init.argument) : init;
+  return value?.type === 'CallExpression' ? `${snippet(source.slice(value.callee.start, value.callee.end))}()` : null;
 }
 
 /** Follows the import of `name` in a test file, with the diagnostic to report when it isn't a test object. */

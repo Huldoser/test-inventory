@@ -8,7 +8,7 @@ import type {
   VariableDeclarator,
 } from 'oxc-parser';
 import { isFunctionNode, isStringLiteral, propertyName, unwrap, type FunctionNode } from '../ast.ts';
-import type { Condition, Problem, Returns, Span, Title } from '../model.ts';
+import type { ApiCall, CallContext, Condition, Problem, Returns, Span, Title } from '../model.ts';
 import { snippet, type SourceText } from '../source.ts';
 import type { DiagnosticCode } from '../types.ts';
 import { isKey, type Resolved, type Value, type Values } from '../values.ts';
@@ -152,10 +152,24 @@ export function returnedTestObject(file: FileContext, call: CallExpression): Pro
  * `shared` combines two; null when it may return something else.
  */
 export function returnedFunction<T>(returns: Returns, shared: (a: T | null, b: T | null) => T | null): T | null {
-  if (!returns.values) return null;
-  const found = returns.values.map(({ expression, scopes }) => returns.adapter.testFunction(expression, scopes) as T);
-  return found.slice(1).reduce<T | null>(shared, found[0]);
+  const { values } = returns;
+  // A function that returns what it returns itself, through others or not, ends the lookup.
+  if (!values || reading.has(returns)) return null;
+  if (!read.has(returns)) {
+    reading.add(returns);
+    const found = values.map(
+      ({ expression, scopes }) => returns.adapter.testFunction(expression, scopes, returns.returnsOf) as T,
+    );
+    reading.delete(returns);
+    read.set(returns, found.slice(1).reduce<T | null>(shared, found[0]));
+  }
+  return read.get(returns) as T | null;
 }
+
+/** The functions whose values are being read, each one returning what the next returns. */
+const reading = new Set<Returns>();
+/** What each function returns, read once however many calls and functions use it. */
+const read = new WeakMap<Returns, unknown>();
 
 /** A title written as a string, a template, or text joined to one, as in `'cycles through ' + venue`. */
 function isTitleShaped(node: Argument | undefined): boolean {
@@ -179,6 +193,18 @@ export function looksLikeDeclaration(args: readonly Argument[]): boolean {
     last?.type === 'MemberExpression' ||
     (args.length === 3 && isFunctionNode(args[1]));
   return isTitleShaped(args.at(0)) && args.length >= 2 && args.length <= 3 && body;
+}
+
+/**
+ * A call the runner refuses. Shaped like a declaration outside any test or hook, it is also declared, without what
+ * makes it fail, so that its tests, and those of a describe, are listed as not loaded rather than missing.
+ */
+export function refused(call: CallExpression, refusal: Problem, context: CallContext, declare: () => ApiCall): ApiCall {
+  const declared = context.inBody || !looksLikeDeclaration(call.arguments) ? null : declare();
+  // A declaration refused for a second reason as well, as for its options, is reported for the first.
+  const found = declared?.kind === 'invalid' ? declared.declaration : declared;
+  const declaration = found?.kind === 'test' || found?.kind === 'describe' ? found : undefined;
+  return { kind: 'invalid', problem: refusal, declaration };
 }
 
 /**

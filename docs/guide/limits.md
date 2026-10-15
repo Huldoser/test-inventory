@@ -48,7 +48,10 @@ Two kinds of import are followed: a custom `test` object, and a function that de
   the workspace folder are not followed.
 
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
-`export * from './base'`, or build it with `extend` on a test object it imports from another file.
+`export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
+function, written there or imported, as in `export const test = defineDeskTest('equities')`. A fixtures file that
+builds its test object with a call the scan can't follow gets the error described below, also when it doesn't import
+the framework itself.
 
 Installed packages are not followed. When a call shaped like a test, outside any test or hook body, uses a name from
 an import that can't be followed, an `unresolved-test-import` error names the import and says where the chain of
@@ -74,8 +77,8 @@ onNode(22)('streams quotes over HTTP/3', async () => {});
 
 What it returns may be called in place, as here, or kept in a variable, as in `const quoteTest = onNode(22)`. When the
 function returns a different one on different runs, only the modifiers they all have apply, as for a variable chosen
-by a condition such as `isCI ? it.skip : it`: this test is listed as `active`, not as a conditional skip. Only what the
-function returns itself is followed, not the result of another function it calls.
+by a condition such as `isCI ? it.skip : it`: this test is listed as `active`, not as a conditional skip. A function
+that returns what another such function does is followed too, as in `const fastTest = () => onNode(22)`.
 
 A test object made by a function the scan cannot follow, as from an installed package, is read on trust, with one
 `local-test-object` warning per variable or function:

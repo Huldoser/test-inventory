@@ -10,7 +10,9 @@ import {
   followImport,
   followModule,
   moduleImports,
+  ModuleFunctions,
   requiredModule,
+  type Exported,
   type FollowImport,
   type Framework,
   type ModuleImport,
@@ -34,6 +36,7 @@ import {
   readReason,
   readStrings,
   readTitle,
+  refused,
   returnedFunction,
   returnedTestObject,
   text,
@@ -72,11 +75,14 @@ const STATES = new Map<string, State>([
 /** Members of `test` that are known but don't declare or modify tests. */
 const OTHER_MEMBERS = new Set(['use', 'slow', 'setTimeout', 'extend']);
 
+/** First members of chains that never declare a test, even when Playwright refuses the rest of the chain. */
+const NOT_DECLARING = new Set(['step', 'abort', ...HOOKS, ...OTHER_MEMBERS]);
+
 /** First members that show a name imported from a local file is used as Playwright's `test`. */
 const TEST_MEMBERS = new Set(['describe', 'only', 'skip', 'fixme', 'fail', 'step', ...HOOKS]);
 
-/** Where a chain's names are looked up; `returnsOf` is null where functions are not followed to what they return. */
-type Lookup = Pick<CallContext, 'scopes' | 'inBody'> & { returnsOf: CallContext['returnsOf'] | null };
+/** Where a chain's names are looked up. */
+type Lookup = Pick<CallContext, 'scopes' | 'inBody' | 'returnsOf'>;
 
 /** The members of `test` a value chosen at run time holds either way: those both have, if both are the same kind. */
 function sharedMembers(a: string[] | null, b: string[] | null): string[] | null {
@@ -113,10 +119,13 @@ class PlaywrightBindings implements TestObjects {
   /** Names imported from other modules, which may be test objects there. */
   private readonly imported: Map<string, ModuleImport>;
   private readonly follow: FollowImport;
+  /** The module's functions and the variables they may build test objects in; see `ModuleFunctions`. */
+  private readonly functions: ModuleFunctions;
 
   constructor(program: Program, follow: FollowImport) {
     this.imported = moduleImports(program, (source) => isPlaywrightSource(source) || MISMATCHED_SOURCES.has(source));
     this.follow = follow;
+    this.functions = new ModuleFunctions(program, this.imported, follow);
     for (const statement of program.body) {
       if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
       const source = statement.source.value;
@@ -139,34 +148,46 @@ class PlaywrightBindings implements TestObjects {
         }
       }
     }
-    bindAll(allDeclarators(program), (declarator) => {
+    const declarators = allDeclarators(program);
+    bindAll(declarators, (declarator) => {
       const bound = this.bind(declarator);
       if (bound) this.declarations.add(declarator);
       return bound;
     });
+    this.functions.keep(declarators.filter((declarator) => !this.declarations.has(declarator)));
   }
 
   isTestName(name: string): boolean {
-    return this.testNames.has(name) || this.importsTestObject(name);
+    return this.testNames.has(name) || this.importsTestObject(name) || this.holdsTestObject(name);
   }
 
-  isTestObject(expression: Expression): boolean {
+  /**
+   * `followsCalls` is cleared where a call is not followed to what it returns: while the names are bound, so that only
+   * a value asked about is followed, as following reads other modules, and in the scanned file, whose calls the walk
+   * follows in their scopes.
+   */
+  isTestObject(expression: Expression, followsCalls = true): boolean {
     const node = unwrap(expression);
     switch (node.type) {
       case 'Identifier':
-        return this.testNames.has(node.name) || this.importsTestObject(node.name);
+        return (
+          this.testNames.has(node.name) ||
+          this.importsTestObject(node.name) ||
+          (followsCalls && this.holdsTestObject(node.name))
+        );
       case 'MemberExpression':
         return propertyName(node) === 'test' && this.isModule(node.object);
       case 'ConditionalExpression':
         // `process.env.CI ? ciTest : test` is a test object either way.
-        return this.isTestObject(node.consequent) || this.isTestObject(node.alternate);
+        return this.isTestObject(node.consequent, followsCalls) || this.isTestObject(node.alternate, followsCalls);
       case 'CallExpression': {
         const callee = unwrap(node.callee);
         if (callee.type === 'MemberExpression' && propertyName(callee) === 'extend') {
-          return this.isTestObject(callee.object);
+          return this.isTestObject(callee.object, followsCalls);
         }
+        // `mergeTests(a, b)`, or `defineBrokerTest()`, a function that returns a test object.
         return callee.type === 'Identifier'
-          ? this.mergeTestsNames.has(callee.name)
+          ? this.mergeTestsNames.has(callee.name) || (followsCalls && this.returnsTestObject(callee.name))
           : callee.type === 'MemberExpression' && propertyName(callee) === 'mergeTests' && this.isModule(callee.object);
       }
       default:
@@ -174,8 +195,17 @@ class PlaywrightBindings implements TestObjects {
     }
   }
 
-  reexports(source: string, imported: string): boolean {
-    return isPlaywrightSource(source) ? imported === 'test' || imported === 'default' : this.follow(source, imported);
+  returnsTestObject(name: string): boolean {
+    return this.functions.returnsTestObject(name, (expression) => this.isTestObject(expression));
+  }
+
+  private holdsTestObject(name: string): boolean {
+    return this.functions.holdsTestObject(name, (expression) => this.isTestObject(expression));
+  }
+
+  reexports(source: string, imported: string, exported: Exported): boolean {
+    if (!isPlaywrightSource(source)) return this.follow(source, imported, exported);
+    return exported === 'test object' && (imported === 'test' || imported === 'default');
   }
 
   /** Whether a name is imported from another module that exports it as a test object, as `base` from './base'. */
@@ -205,7 +235,7 @@ class PlaywrightBindings implements TestObjects {
         }
         return true;
       }
-      if (this.isTestObject(init)) {
+      if (this.isTestObject(init, false)) {
         this.testNames.add(id.name);
         return true;
       }
@@ -248,9 +278,11 @@ export class PlaywrightAdapter implements Adapter {
     // A test object the file builds from an imported one, as in `const test = base.extend({...})`, is followed
     // quietly: a call through the import itself is what reports an import that can't be followed.
     const followed = new Map<string, boolean>();
-    this.bindings = new PlaywrightBindings(program, (source, imported) => {
-      const key = `${source}\0${imported}`;
-      if (!followed.has(key)) followed.set(key, followModule(source, imported, readModule, PLAYWRIGHT).exported);
+    this.bindings = new PlaywrightBindings(program, (source, imported, exported = 'test object') => {
+      const key = `${source}\0${exported}\0${imported}`;
+      if (!followed.has(key)) {
+        followed.set(key, followModule(source, imported, readModule, PLAYWRIGHT, exported).exported);
+      }
       return followed.get(key) === true;
     });
     this.problems = [...this.bindings.mismatches];
@@ -265,11 +297,13 @@ export class PlaywrightAdapter implements Adapter {
     const key = names.join('.');
     const addedIn = ADDED_IN.get(key);
     if (addedIn && !atLeast(this.file.version, ...addedIn)) {
-      return this.invalid(call, `needs Playwright ${addedIn.join('.')} or newer`);
+      return this.invalid(call, names, `needs Playwright ${addedIn.join('.')} or newer`, context);
     }
     if (names[0] === 'info') return this.annotationsPush(call, links, context);
     if (names[0] === 'expect' || names[0] === 'step' || key === 'abort') return { kind: 'other' };
-    if (links.some((link) => link.args ?? link.template)) return this.invalid(call, "is not part of Playwright's API");
+    if (links.some((link) => link.args ?? link.template)) {
+      return this.invalid(call, names, "is not part of Playwright's API", context);
+    }
     if (key === '' || key === 'only' || key === 'skip' || key === 'fixme' || key === 'fail' || key === 'fail.only') {
       return this.testCall(call, key, context);
     }
@@ -278,7 +312,7 @@ export class PlaywrightAdapter implements Adapter {
     if (key === 'describe.configure') return this.configure(call, context);
     if (HOOKS.has(key)) return { kind: 'hook', fn: findFunction(call.arguments), testContext: null };
     if (OTHER_MEMBERS.has(key)) return { kind: 'other' };
-    return this.invalid(call, "is not part of Playwright's API");
+    return this.invalid(call, names, "is not part of Playwright's API", context);
   }
 
   /**
@@ -333,7 +367,7 @@ export class PlaywrightAdapter implements Adapter {
    */
   private returned(call: CallExpression, links: Link[], args: readonly Argument[], lookup: Lookup): string[] | null {
     const callee = unwrap(call.callee);
-    if (callee.type !== 'Identifier' || !lookup.returnsOf) return null;
+    if (callee.type !== 'Identifier') return null;
     const returns = lookup.returnsOf(callee.name, lookup.scopes);
     if (returns) return returnedFunction(returns, sharedMembers);
     if (!isTestName(callee.name) || !this.looksLikeTest(links, args)) return null;
@@ -344,8 +378,8 @@ export class PlaywrightAdapter implements Adapter {
     return [];
   }
 
-  testFunction(expression: Expression, scopes: readonly Node[]): string[] | null {
-    return this.members(expression, { scopes, inBody: false, returnsOf: null });
+  testFunction(expression: Expression, scopes: readonly Node[], returnsOf: CallContext['returnsOf']): string[] | null {
+    return this.members(expression, { scopes, inBody: false, returnsOf });
   }
 
   /** Whether a local variable is read as a test object it could be; see `localTestObject`. */
@@ -394,7 +428,7 @@ export class PlaywrightAdapter implements Adapter {
       // `IS_PLATFORM ? test.describe.serial : test.describe`: only the members both branches have apply.
       return sharedMembers(this.members(node.consequent, lookup), this.members(node.alternate, lookup));
     }
-    if (this.bindings.isTestObject(node)) return [];
+    if (this.bindings.isTestObject(node, false)) return [];
     const chain = readChain(node);
     if (!chain || chain.links.some((link) => link.args ?? link.template)) return null;
     const members = this.testLinks(chain, [], lookup)?.map((link) => link.name);
@@ -427,9 +461,14 @@ export class PlaywrightAdapter implements Adapter {
     return resolved.ok && typeof resolved.value === 'string';
   }
 
-  private invalid(call: CallExpression, reason: string): ApiCall {
+  /** A chain Playwright refuses; one that starts like a declaration also declares a plain test or describe. */
+  private invalid(call: CallExpression, names: string[], reason: string, context: CallContext): ApiCall {
     const callee = snippet(text(this.file, call.callee));
-    return { kind: 'invalid', problem: problem('invalid-chain', call, `${callee} ${reason}.`, callee) };
+    const refusal = problem('invalid-chain', call, `${callee} ${reason}.`, callee);
+    return refused(call, refusal, context, () => {
+      if (NOT_DECLARING.has(names[0])) return { kind: 'other' };
+      return names.includes('describe') ? this.describeCall(call, {}, context) : this.testCall(call, '', context);
+    });
   }
 
   private testCall(call: CallExpression, key: string, context: CallContext): ApiCall {
@@ -546,6 +585,7 @@ export class PlaywrightAdapter implements Adapter {
       isOnly: kind.only === true,
       mode: kind.mode ?? null,
       isShuffled: false,
+      passesDown: null,
       details: this.details(
         !anonymous && args.length === 3 ? args[1] : undefined,
         context,

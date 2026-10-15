@@ -240,7 +240,7 @@ test.fail.only('exports trades', async () => {});`,
         frameworkVersion: '1.48.2',
       },
     );
-    expect(inventory.tests).toEqual([]);
+    expect(onlyTest(inventory)).toMatchObject({ title: 'exports trades', state: 'notLoaded', isOnly: false });
     expect(inventory.diagnostics).toMatchObject([
       { code: 'invalid-chain', message: 'test.fail.only needs Playwright 1.49 or newer.', source: 'test.fail.only' },
     ]);
@@ -269,17 +269,29 @@ test.describe('margin', () => {
     expect(inventory.diagnostics).toMatchObject([{ code: 'skip-without-body', level: 'warning', lineStart: 3 }]);
   });
 
-  it('reports chains that are not part of the API', () => {
+  it('reports chains that are not part of the API, and lists the tests they declare as not loaded', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 test.only.skip('places a stop order', async () => {});
-test.describe.skip.only('alerts', () => {});
+test.describe.skip.only('alerts', () => {
+  test('fires on a price cross', async () => {});
+});
 test.skip(true).only('closes a position', async () => {});
 test.retry('retries a fill', async () => {});
+test.beforeEach.only('signs in', async () => {});
 test.step.skip('opens the ticket', async () => {});
 test.abort('market closed');
+test.skip.describe('margin calls', () => {
+  test('sends a margin call', async () => {});
+});
 `);
-    expect(inventory.tests).toEqual([]);
-    expect(codes(inventory)).toEqual(['invalid-chain', 'invalid-chain', 'invalid-chain', 'invalid-chain']);
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['places a stop order', 'notLoaded'],
+      ['alerts > fires on a price cross', 'notLoaded'],
+      ['closes a position', 'notLoaded'],
+      ['retries a fill', 'notLoaded'],
+      ['margin calls > sends a margin call', 'notLoaded'],
+    ]);
+    expect(codes(inventory)).toEqual(Array(6).fill('invalid-chain'));
   });
 
   it('reports step.skip before 1.50 and abort before 1.60', () => {
@@ -746,6 +758,40 @@ test.beforeAll('opens the session', async () => {
     });
   });
 
+  it('lets a call in a test or hook body lose to a fixme describe, which keeps the test from running', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.describe.fixme('short selling', () => {
+  test('borrows shares', async () => {
+    test.skip();
+  });
+});
+test.describe('locates', () => {
+  test.fixme();
+  test.beforeEach(async () => {
+    test.skip();
+  });
+  test('finds a lender', async () => {});
+});
+test.fail('rejects a naked short', async () => {
+  test.skip();
+});
+test.describe('margin', () => {
+  test.fail();
+  test('rejects an oversized order', async () => {
+    test.fail(true, 'the broker caps the order size');
+  });
+});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource, test.stateLine])).toEqual([
+      ['borrows shares', 'fixme', 'suite', 2],
+      ['finds a lender', 'fixme', 'suite', 8],
+      ['rejects a naked short', 'skip', 'test', 15],
+      // Both run the test, so the expected failure nearest the test is the one that applies.
+      ['rejects an oversized order', 'expectedToFail', 'test', 20],
+    ]);
+    expect(inventory.tests.at(-1)?.reason).toBe('the broker caps the order size');
+  });
+
   it('ignores a call whose condition is always false', () => {
     const test = onlyTest(
       scanPlaywright(`${PLAYWRIGHT_IMPORT}
@@ -1047,26 +1093,33 @@ function routeTest(venue: string) {
   return { venue };
 }
 const quoteTest = (venue: string) => brokerTest(venue);
+const deskSuite = (desk: string) => onDesk(desk);
 const forDesk = (desk: string) => (venue: string) => base;
 const blockTest = brokerTest('live');
 onDesk('equities')('equities desk', () => {
   brokerTest('live')('sends an order', async ({ page }) => {});
   brokerTest('paper').skip('cancels an order', async ({ page }) => {});
   blockTest.extend({ size: 10_000 })('fills a block trade', async ({ page }) => {});
-  // Only what a function returns itself is followed.
-  routeTest('NYSE')('routes to NYSE', async ({ page }) => {});
+  // A function that returns what another one does is followed too; an object and a function's function are not tests.
   quoteTest('NYSE')('quotes NYSE', async ({ page }) => {});
+  routeTest('NYSE')('routes to NYSE', async ({ page }) => {});
   forDesk('equities')('NYSE')('routes equities to NYSE', async ({ page }) => {});
+});
+deskSuite('bonds')('bonds desk', () => {
+  base('prices a bond', async ({ page }) => {});
 });
 `);
     // As for a variable chosen by a condition, only the members every value has apply.
     expect(inventory.suites.map((suite) => [suite.title, suite.isSerial, suite.isParallel])).toEqual([
       ['equities desk', false, false],
+      ['bonds desk', false, false],
     ]);
     expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
       ['equities desk > sends an order', 'active'],
       ['equities desk > cancels an order', 'skip'],
       ['equities desk > fills a block trade', 'active'],
+      ['equities desk > quotes NYSE', 'active'],
+      ['bonds desk > prices a bond', 'active'],
     ]);
     expect(inventory.diagnostics).toEqual([]);
   });

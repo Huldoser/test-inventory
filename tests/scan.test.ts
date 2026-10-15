@@ -596,6 +596,163 @@ describe('scan follows a custom test object to its fixtures file', () => {
       "'it' is imported from './context-other', which does not export a Vitest test object that could be recognized; tests that use it are missing.",
     ]);
   });
+
+  it('follows a test object a fixtures file builds with a function, in the file or imported', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/support/broker.ts': `import { test as base } from 'vitest';
+const brokerTest = base.extend({ broker: 'paper' });
+export function defineDeskTest(desk: string) {
+  const test = brokerTest.extend({ desk });
+  return test;
+}
+export default defineDeskTest;
+export { defineDeskTest as defineTradingDeskTest };
+export async function defineLiveDeskTest(desk: string) {
+  return brokerTest.extend({ desk });
+}
+`,
+      'tests/support/live.ts':
+        "import { defineLiveDeskTest } from './broker';\nexport const liveTest = defineLiveDeskTest('live');\n",
+      'tests/support/futures.ts': `import { defineTradingDeskTest } from './broker';
+const deskTest = defineTradingDeskTest('futures');
+export const futuresTest = deskTest.extend({ exchange: 'CME' });
+`,
+      // It doesn't import Vitest itself, as a file that extends what another fixtures file defines.
+      'tests/support/desk.ts': `import { defineDeskTest as defineBrokerDeskTest } from './broker';
+let sessionId: string | undefined;
+export function defineDeskTest(desk: string) {
+  const test = defineBrokerDeskTest(desk).extend({ ledger: 'main' });
+  return test;
+}
+const test = defineDeskTest('equities');
+export { test };
+`,
+      'tests/support/options.ts':
+        "import defineDeskTest from './broker';\nexport const optionsTest = defineDeskTest('options');\n",
+      // What the scan can't see through is reported, though these files don't import Vitest.
+      'tests/support/warmup.ts':
+        'function withWarmup<T>(api: T): T {\n  return new Proxy(api, {});\n}\nconst ledgerTest = await withWarmup(openLedger());\nexport { ledgerTest };\n',
+      'tests/support/swaps.ts': 'export const swapTest = factory.create();\n',
+      'tests/support/loop.ts': `function roundTrip(): unknown {
+  return roundTrip();
+}
+function relay(): unknown {
+  return relayTest;
+}
+export const roundTripTest = roundTrip();
+export const relayTest = relay();
+`,
+      'tests/support/remote.ts':
+        "import { defineRemoteTest } from './missing';\nexport const remoteTest = defineRemoteTest();\n",
+      // A helper named like a test that is only a function says nothing.
+      'tests/support/quotes.ts': 'export function quoteTest(title: string, run: () => void) {\n  run();\n}\n',
+      'tests/orders.test.ts': `import { test } from './support/desk';
+import { optionsTest } from './support/options';
+import { futuresTest } from './support/futures';
+import { ledgerTest } from './support/warmup';
+import { swapTest } from './support/swaps';
+import { relayTest, roundTripTest } from './support/loop';
+import { remoteTest } from './support/remote';
+import { liveTest } from './support/live';
+import { quoteTest } from './support/quotes';
+test('fills a block trade', ({ desk, ledger }) => {});
+optionsTest('fills a covered call', ({ desk }) => {});
+futuresTest('rolls a contract', ({ desk }) => {});
+ledgerTest('records the fill', ({ ledger }) => {});
+swapTest('prices a swap', () => {});
+roundTripTest('sends a round trip', () => {});
+relayTest('relays an order', () => {});
+remoteTest('routes to the remote desk', () => {});
+liveTest('sends a live order', () => {});
+quoteTest('quotes AAPL', () => {});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'fills a block trade',
+      'fills a covered call',
+      'rolls a contract',
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "'ledgerTest' is imported from './support/warmup', which builds it with withWarmup(), which is not followed; tests that use it are missing.",
+      "'swapTest' is imported from './support/swaps', which builds it with factory.create(), which is not followed; tests that use it are missing.",
+      "'relayTest' is imported from './support/loop', which builds it with relay(), which is not followed; tests that use it are missing.",
+      "'roundTripTest' is imported from './support/loop', which builds it with roundTrip(), which is not followed; tests that use it are missing.",
+      "'remoteTest' is imported from './support/remote', which builds it from './missing', which could not be read; tests that use it are missing.",
+      // An async function returns a promise.
+      "'liveTest' is imported from './support/live', which builds it from './broker', which does not export a function that returns a test object that could be recognized; tests that use it are missing.",
+    ]);
+  });
+
+  it('names the module or call a fixtures file builds its test object with, when that is not followed', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/support/margin.ts': `import { brokerTest } from './missing';
+function defineMarginTest() {
+  return brokerTest.extend({ margin: true });
+}
+export const marginTest = defineMarginTest();
+`,
+      'tests/support/session.ts':
+        'async function openSession() {\n  return createSession();\n}\nexport const sessionTest = openSession();\n',
+      'tests/support/rates.ts': "import { defineRatesTest } from './missing';\nexport default defineRatesTest();\n",
+      'tests/support/fx.ts': 'export default connectFxDesk();\n',
+      // The function builds it, not the value passed to it.
+      'tests/support/desks.ts': "export const bondDesk = { desk: 'bonds' };\n",
+      'tests/support/bond-broker.ts':
+        'export function defineBondTest(desk: object) {\n  return createBroker(desk);\n}\n',
+      'tests/support/bonds.ts':
+        "import { bondDesk } from './desks';\nimport { defineBondTest } from './bond-broker';\nexport const bondTest = defineBondTest(bondDesk);\n",
+      'tests/orders.test.ts': `import { marginTest } from './support/margin';
+import { sessionTest } from './support/session';
+import ratesTest from './support/rates';
+import fxTest from './support/fx';
+import { bondTest } from './support/bonds';
+marginTest('opens a margin account', () => {});
+sessionTest('opens a session', () => {});
+ratesTest('quotes a swap', () => {});
+fxTest('quotes a forward', () => {});
+bondTest('prices a bond', () => {});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "'marginTest' is imported from './support/margin', which builds it from './missing', which could not be read; tests that use it are missing.",
+      "'sessionTest' is imported from './support/session', which builds it with openSession(), which is not followed; tests that use it are missing.",
+      "'ratesTest' is imported from './support/rates', which builds it from './missing', which could not be read; tests that use it are missing.",
+      "'fxTest' is imported from './support/fx', which builds it with connectFxDesk(), which is not followed; tests that use it are missing.",
+      "'bondTest' is imported from './support/bonds', which builds it from './bond-broker', which does not export a function that returns a test object that could be recognized; tests that use it are missing.",
+    ]);
+  });
+
+  it('follows a Playwright test object a fixtures file builds with a function', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      // It builds on a test object from the fixtures file that imports it.
+      'tests/accounts.ts': `import { brokerTest } from './fixtures';
+export const defineAccountTest = (account: string) => brokerTest.extend({ account });
+`,
+      'tests/desks.ts': `import { test as base } from '@playwright/test';
+export default (desk: string) => base.extend({ desk });
+`,
+      'tests/fixtures.ts': `import { test as base } from '@playwright/test';
+import { defineAccountTest } from './accounts';
+import defineDeskTest from './desks';
+export const brokerTest = base.extend({ broker: 'paper' });
+export const test = defineAccountTest('paper');
+export const deskTest = defineDeskTest('equities');
+`,
+      'tests/orders.spec.ts': `import { deskTest, test } from './fixtures';
+test('fills a market order', async ({ account }) => {});
+deskTest('fills a block trade', async ({ desk }) => {});
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['fills a market order', 'fills a block trade']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
 });
 
 describe('scan follows helper functions imported from other files', () => {
@@ -850,6 +1007,64 @@ describe('quotes', () => {
       framework: 'vitest',
     });
     expect(source.tests).toEqual([]);
+  });
+
+  it("passes a describe's skip option down to the tests a helper registers in it, imported or not", async () => {
+    const settlementTests = `function settlementTests(currency: string) {
+  test(\`settles in \${currency}\`, () => {});
+  test.todo(\`nets \${currency} payments\`);
+}`;
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'src/shared/clearing.ts': `import { describe, test } from 'vitest';
+
+export function clearingTests(venue: string) {
+  test(\`clears through \${venue}\`, () => {});
+  test.todo(\`reconciles \${venue} fills\`);
+  describe.todo(\`\${venue} breaks\`, () => {
+    test('flags a missing fill', () => {});
+  });
+}
+`,
+      'src/crypto.test.ts': `import { describe, test } from 'vitest';
+import { clearingTests } from './shared/clearing';
+
+${settlementTests}
+describe('crypto desk', { skip: true }, () => {
+  settlementTests('USDC');
+  clearingTests('Coinbase');
+});
+describe('fx desk', () => {
+  settlementTests('EUR');
+});
+`,
+      // Its .only beats the describe's own skip, but the tests the helpers register get the option and are skipped.
+      'src/rates.test.ts': `import { describe, test } from 'vitest';
+import { clearingTests } from './shared/clearing';
+
+${settlementTests}
+describe.only('rates desk', { skip: true }, () => {
+  settlementTests('USD');
+  clearingTests('DTCC');
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['src/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.stateSource, test.stateLine])).toEqual([
+      ['crypto desk > settles in USDC', 'skip', 'suite', 8],
+      ['crypto desk > nets USDC payments', 'skip', 'suite', 8],
+      ['crypto desk > clears through Coinbase', 'skip', 'suite', 8],
+      ['crypto desk > reconciles Coinbase fills', 'skip', 'suite', 8],
+      ['crypto desk > Coinbase breaks > flags a missing fill', 'skip', 'suite', 8],
+      ['fx desk > settles in EUR', 'active', null, null],
+      ['fx desk > nets EUR payments', 'todo', 'test', 6],
+      ['rates desk > settles in USD', 'skip', 'test', 8],
+      ['rates desk > nets USD payments', 'skip', 'test', 8],
+      ['rates desk > clears through DTCC', 'skip', 'test', 8],
+      ['rates desk > reconciles DTCC fills', 'skip', 'test', 8],
+      ['rates desk > DTCC breaks > flags a missing fill', 'skip', 'suite', 8],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
   });
 });
 

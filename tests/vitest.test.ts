@@ -373,7 +373,10 @@ test('fills a limit order', () => {}, 5_000);
 `;
     expect(scanVitest(code, { frameworkVersion: '3.2.4' }).tests.map((test) => test.state)).toEqual(['skip', 'active']);
     const inventory = scanVitest(code, { frameworkVersion: '4.0.0' });
-    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([['fills a limit order', 'notLoaded']]);
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['fills a stop order', 'notLoaded'],
+      ['fills a limit order', 'notLoaded'],
+    ]);
     expect(inventory.diagnostics).toMatchObject([
       { code: 'removed-api', level: 'error', source: '{ retry: 3, skip: true }' },
     ]);
@@ -394,29 +397,41 @@ describe.concurrent('indicators', () => {
 `;
     const before = scanVitest(code, { frameworkVersion: '4.1.2' });
     expect(before.tests.map((test) => test.isParallel)).toEqual([false, false, false]);
-    expect(scanVitest(code).diagnostics).toMatchObject([
+    // From Vitest 5 the file fails, and the tests in it, also those in describes that use sequential, are not loaded.
+    const after = scanVitest(code);
+    expect(after.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['indicators > rsi > stays between 0 and 100', 'notLoaded'],
+      ['indicators > sma averages', 'notLoaded'],
+      ['indicators > macd > crosses the signal line', 'notLoaded'],
+    ]);
+    expect(after.diagnostics).toMatchObject([
       { code: 'removed-api', message: 'sequential was removed in Vitest 5; describe.sequential(...) fails.' },
       { code: 'removed-api', message: 'sequential was removed in Vitest 5; test.sequential(...) fails.' },
       { code: 'removed-api', message: 'sequential was removed in Vitest 5; ordered(...) fails.' },
     ]);
   });
 
-  it('reports chains that are not part of the API', () => {
+  it('reports chains that are not part of the API, and lists their tests as not loaded', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 test.shuffle('random order', () => {});
 test.only(true).skip('called modifier', () => {});
 test.each.only('table never given', () => {});
 test.skipIf.only('condition never given', () => {});
 test.retry('unknown modifier', () => {});
+test.serial('places a bracket order', () => {}, { retry: 2 });
+test.beforeEach.only('signs in', () => {});
 `);
-    expect(inventory.tests).toEqual([]);
-    expect(codes(inventory)).toEqual([
-      'invalid-chain',
-      'invalid-chain',
-      'invalid-chain',
-      'invalid-chain',
-      'invalid-chain',
+    // Which part of a chain is meant is not known, so each is a plain test; a hook declares none.
+    expect(inventory.tests.map((test) => [test.title, test.state, test.isOnly])).toEqual([
+      ['random order', 'notLoaded', false],
+      ['called modifier', 'notLoaded', false],
+      ['table never given', 'notLoaded', false],
+      ['condition never given', 'notLoaded', false],
+      ['unknown modifier', 'notLoaded', false],
+      ['places a bracket order', 'notLoaded', false],
     ]);
+    // Vitest fails at the chain, before it gets to the options.
+    expect(codes(inventory)).toEqual(Array(7).fill('invalid-chain'));
   });
 
   it('treats a table or condition that is never called with a title as no test', () => {
@@ -543,6 +558,102 @@ describe.skip('options', () => {
     ]);
     expect(codes(inventory)).toEqual(['only-in-skipped-describe']);
   });
+
+  it("lets a test's own options win over its chain, and a describe's chain win over its options", () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+test.skip('fills a market order', { skip: false }, () => {});
+test.skipIf(process.env.CI)('fills a limit order', { skip: false }, () => {});
+test.todo('fills a stop order', { todo: false }, () => {});
+test.skip('fills an iceberg order', { skip: false });
+test.fails('fills a pegged order', { fails: false }, () => {});
+test.only('fills a hidden order', { only: false }, () => {});
+test('fills a peg-to-midpoint order', { skip: process.env.CI }, () => {});
+describe.skip('bracket orders', { skip: false }, () => {
+  test('attaches a take-profit', () => {});
+});
+describe.todo('one-cancels-other orders', { todo: false }, () => {
+  test('cancels the other order', () => {});
+});
+`);
+    expect(
+      inventory.tests.map((test) => [test.title, test.state, test.condition, test.isExpectedToFail, test.isOnly]),
+    ).toEqual([
+      ['fills a market order', 'active', null, false, false],
+      ['fills a limit order', 'active', null, false, false],
+      ['fills a stop order', 'active', null, false, false],
+      ['fills an iceberg order', 'todo', null, false, false],
+      ['fills a pegged order', 'active', null, false, false],
+      ['fills a hidden order', 'active', null, false, false],
+      ['fills a peg-to-midpoint order', 'skip', 'process.env.CI', false, false],
+      ['attaches a take-profit', 'skip', null, false, false],
+      ['cancels the other order', 'todo', null, false, false],
+    ]);
+  });
+
+  it("lets a test's chain set its mode over its options", () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+test.concurrent('fills a market order', { concurrent: false }, () => {});
+describe.concurrent('quotes', () => {
+  test.sequential('streams quotes', { sequential: false }, () => {});
+});
+`,
+      { frameworkVersion: '4.1.2' },
+    );
+    expect(inventory.tests.map((test) => [test.title, test.isParallel])).toEqual([
+      ['fills a market order', true],
+      ['streams quotes', false],
+    ]);
+  });
+
+  it("passes a describe's skip option down to everything inside, where skip goes before todo", () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+describe('crypto desk', { skip: true }, () => {
+  test.todo('trades on margin');
+  test('settles in stablecoins');
+  describe.todo('staking', () => {
+    test('stakes ether', () => {});
+  });
+  describe.skip.todo('lending', () => {
+    test('lends bitcoin', () => {});
+  });
+  describe('futures', { skip: false }, () => {
+    test.todo('rolls a perpetual');
+  });
+});
+describe('fx desk', { skip: process.env.CI }, () => {
+  test.todo('quotes a forward');
+});
+// Its .only beats the describe's own skip, but what is inside gets the option and is skipped.
+describe.only('rates desk', { skip: true }, () => {
+  test.todo('quotes a swap');
+  test('settles a bond', () => {});
+  describe('treasuries', () => {
+    test('rolls a bill', () => {});
+  });
+});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource, test.stateLine])).toEqual([
+      ['trades on margin', 'skip', 'suite', 2],
+      ['settles in stablecoins', 'skip', 'suite', 2],
+      ['stakes ether', 'skip', 'suite', 2],
+      ['lends bitcoin', 'skip', 'suite', 8],
+      ['rolls a perpetual', 'todo', 'test', 12],
+      ['quotes a forward', 'todo', 'test', 16],
+      ['quotes a swap', 'skip', 'test', 19],
+      ['settles a bond', 'skip', 'test', 19],
+      ['rolls a bill', 'skip', 'suite', 19],
+    ]);
+    expect(inventory.suites.map((suite) => [suite.title, suite.isSkipped, suite.isTodo])).toEqual([
+      ['crypto desk', true, false],
+      ['staking', true, false],
+      ['lending', true, false],
+      ['futures', false, false],
+      ['fx desk', true, false],
+      ['rates desk', false, false],
+      ['treasuries', true, false],
+    ]);
+  });
 });
 
 describe('Vitest tables', () => {
@@ -653,6 +764,31 @@ describe('paper broker', () => {
     expect(inventory.tests.map((test) => [test.state, test.condition, test.stateSource])).toEqual([
       ['skip', '!process.env.BROKER_URL', 'suite'],
       ['skip', "process.env.PAPER === 'off'", 'suite'],
+    ]);
+  });
+
+  it('lets a skip in a body or a hook lose to a todo describe, which keeps the test from running', () => {
+    const inventory = scanVitest(`
+import { beforeEach, describe, test } from 'vitest';
+describe.todo('short selling', () => {
+  test('borrows shares', (context) => {
+    context.skip();
+  });
+  describe('locates', () => {
+    beforeEach((context) => {
+      context.skip();
+    });
+    test('finds a lender', () => {});
+  });
+});
+test.fails('rejects a naked short', (context) => {
+  context.skip();
+});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource, test.stateLine])).toEqual([
+      ['borrows shares', 'todo', 'suite', 3],
+      ['finds a lender', 'todo', 'suite', 3],
+      ['rejects a naked short', 'skip', 'test', 15],
     ]);
   });
 
@@ -966,11 +1102,15 @@ function deskSuite() {
   return suite;
 }
 const tapeTest = onNode(22);
+const nyseTest = () => onFeed('NYSE');
+const fastTest = () => onNode(22);
 deskSuite()('quotes', () => {
   onFeed('NASDAQ')('streams NASDAQ quotes', () => {});
   onNode(22)('reads the order book', () => {});
   onNode(22).skip.each([['AAPL'], ['MSFT']])('charts %s', () => {});
   tapeTest('reads the tape', () => {});
+  nyseTest()('streams NYSE quotes', () => {});
+  fastTest()('reads the tape fast', () => {});
 });
 `);
     expect(inventory.suites.map((suite) => [suite.title, suite.isShuffled])).toEqual([['quotes', true]]);
@@ -980,6 +1120,8 @@ deskSuite()('quotes', () => {
       ['quotes > reads the order book', 'active', true, null],
       ['quotes > charts %s', 'skip', true, 2],
       ['quotes > reads the tape', 'active', true, null],
+      ['quotes > streams NYSE quotes', 'active', false, null],
+      ['quotes > reads the tape fast', 'active', true, null],
     ]);
     expect(inventory.diagnostics).toEqual([]);
   });
@@ -1001,11 +1143,28 @@ async function liveTest() {
 function* replayTest() {
   return test;
 }
+const ledgerTest = () => openLedger();
+const forFeed = (feed: string) => (symbol: string) => test;
+function relayTest(): unknown {
+  return roundTripTest();
+}
+function roundTripTest(): unknown {
+  return relayTest();
+}
+function firstFill(fills: unknown[]) {
+  const [it] = fills;
+  return it;
+}
+const opening = firstFill([]);
 feedTest('NASDAQ')('streams NASDAQ quotes', () => {});
 quoteTest('AAPL')('quotes AAPL', () => {});
 bookTest()('reads the order book', () => {});
 liveTest()('sends a live order', () => {});
 replayTest()('replays the open', () => {});
+ledgerTest()('reads the ledger', () => {});
+forFeed('NASDAQ')('AAPL')('quotes AAPL', () => {});
+relayTest()('relays an order', () => {});
+opening.toString();
 test('places an order', () => {});
 `);
     expect(titles(inventory)).toEqual(['places an order']);

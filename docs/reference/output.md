@@ -113,10 +113,15 @@ the file around it.
 The state is the one the runner applies. The test's own skip, fixme or todo comes first: `test.fixme()` in a skipped
 describe stays `fixme`. Then the describes around it from the innermost out, then the file. A state that always
 applies wins over one that only applies under a condition, and an unconditional skip, fixme or todo around a test wins
-over the test's own expected failure, as neither runner runs that test. `stateSource` says where the chosen state was
-set.
+over the test's own expected failure, as neither runner runs that test. For the same reason it wins over an
+unconditional skip in a test or hook body: in a fixme or todo describe, the test keeps that state. `stateSource` says
+where the chosen state was set.
 
-In Vitest, `.only` wins over `.skip`, which wins over `.todo`, within one declaration: `test.only.skip` is active.
+In Vitest, `.only` wins over `.skip`, which wins over `.todo`, within one declaration: `test.only.skip` is active. A
+test's options win over its chain, so `test.skip('title', { skip: false }, fn)` runs, while a describe's chain wins
+over its options, and so does a test's for its mode. A describe passes its `skip` option down to the tests and
+describes inside, where it wins over todo: `test.todo()` in `describe('title', { skip: true }, fn)` is skipped. It does
+so also when the describe's own `.only` keeps the describe from being skipped.
 
 A `test.skip()`, `test.fixme()`, `test.fail()` or `test.describe.configure()` call inside a plain function in the file
 applies where the function is called: to a test that calls it in its body, to the tests a hook covers when a hook calls
@@ -129,7 +134,8 @@ When a file has a problem that makes the runner refuse to load it, such as a Pla
 Vitest call to an API that the version removed, every
 test in it is `notLoaded`: `stateSource` is `file`, `stateLine` is the line of the first such problem, and
 `condition` and `reason` are `null`. The [diagnostic](/reference/diagnostics#files-the-runner-refuses-to-load) says
-why. Everything else about the tests stays as written, so fixing the file brings their states back.
+why. Everything else about the tests stays as written, so fixing the file brings their states back. A refused call
+that declares a test or describe is listed without the part that fails, so its tests are `notLoaded` too.
 
 ## Suites
 

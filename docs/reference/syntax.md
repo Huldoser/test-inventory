@@ -18,7 +18,7 @@ Playwright 1.42 and newer.
 | CommonJS                   | `const { test } = require('@playwright/test')`, `require('@playwright/test').test(...)`                                                                                         |
 | Other packages             | `playwright/test`, `@playwright/experimental-ct-react` and the other component testing packages, and `playwright-bdd`, whose generated files import `test` from it              |
 | Derived                    | `base.extend({...})`, chained `.extend().extend()`, `mergeTests(a, b)`                                                                                                          |
-| Local fixtures file        | `import { test } from '../fixtures'`, or a path alias, `#` import or workspace package, followed through re-exports and `extend` chains across files                            |
+| Local fixtures file        | `import { test } from '../fixtures'`, or a path alias, `#` import or workspace package, followed through re-exports, `extend` chains and functions that build it, across files  |
 | Returned by a function     | `brokerTest('live')('sends an order', ...)`, also kept in a variable, where `brokerTest` is declared in the file or a local file and returns a test object or describe function |
 
 ### Calls
@@ -56,7 +56,7 @@ Vitest 3.0 and newer.
 | In-source tests            | `const { it, describe } = import.meta.vitest`                                                                                                                                       |
 | Describe callback          | `describe('fees', (test) => { test(...) })`: Vitest passes its `test` to the callback                                                                                               |
 | Derived                    | `test.extend({...})`, `test.extend('name', value)`, chained; `test.override()` and `test.scoped()` are known                                                                        |
-| Local fixtures file        | `import { test } from './context'`, or a path alias, `#` import or workspace package, followed through re-exports and `extend` chains across files                                  |
+| Local fixtures file        | `import { test } from './context'`, or a path alias, `#` import or workspace package, followed through re-exports, `extend` chains and functions that build it, across files        |
 | Returned by a function     | `onNode(22)('reads the order book', ...)`, also kept in a variable, where `onNode` is declared in the file or a local file and returns a test or describe function, as in `it.skip` |
 
 ### Calls
@@ -71,7 +71,7 @@ Vitest 3.0 and newer.
 | `describe` with `.concurrent`, `.shuffle`, `.skip`, `.only`, `.todo`, `.each`, `.for`, `.skipIf`, `.runIf` | A describe. `describe(title)` without a function is a todo.                |
 | `describe(fn)` without a title                                                                             | A `describe-not-called` error: Vitest never calls the function.            |
 | `context.skip()`, `skip(note)`, `skip(condition, note)` in a test, `beforeEach` or `aroundEach`            | A state for that test, or for the tests in the describe.                   |
-| Options `skip`, `only`, `todo`, `fails`, `concurrent`, `sequential`, `shuffle`, `tags` (4.1), `meta`       | Read when written in the file.                                             |
+| Options `skip`, `only`, `todo`, `fails`, `concurrent`, `sequential`, `shuffle`, `tags` (4.1), `meta`       | Read when written in the file; a test's own states win over its chain.     |
 | `// @module-tag name`                                                                                      | A tag on every test in the file, from Vitest 4.1.                          |
 | `.sequential`                                                                                              | The default mode before Vitest 5; a `removed-api` error from Vitest 5.     |
 | `bench(...)`, with `bench` imported from `vitest`                                                          | A `removed-api` error from Vitest 5. Benchmarks are never tests.           |

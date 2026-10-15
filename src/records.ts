@@ -39,13 +39,15 @@ interface Chosen {
 }
 
 /**
- * The state the runner applies, from the candidates nearest the test first. An unconditional skip, fixme or todo
- * wins over an unconditional expected failure, since the test doesn't run; then the nearest conditional state.
+ * The state the runner applies, from the candidates nearest the test first. An unconditional skip, fixme or todo wins
+ * over an unconditional expected failure, since the test doesn't run, and one set while the file loads wins over one
+ * in a test or hook body, which then never runs; then the nearest conditional state.
  */
 function chooseState(candidates: Chosen[]): Chosen | null {
   const always = candidates.filter((candidate) => candidate.setting.condition === null);
+  const stops = always.filter((candidate) => candidate.setting.state !== 'expectedToFail');
   return (
-    always.find((candidate) => candidate.setting.state !== 'expectedToFail') ?? always.at(0) ?? candidates.at(0) ?? null
+    stops.find((candidate) => !candidate.setting.afterLoad) ?? stops.at(0) ?? always.at(0) ?? candidates.at(0) ?? null
   );
 }
 
