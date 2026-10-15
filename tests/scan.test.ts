@@ -727,6 +727,29 @@ bondTest('prices a bond', () => {});
     ]);
   });
 
+  it('reads each function a fixtures file builds its test object with once, however many calls lead to it', async () => {
+    // Each function returns what the next one does, in two places: read at each call, the last would be read 2^30 times.
+    const sessions = Array.from(
+      { length: 30 },
+      (_, level) =>
+        `function session${level}(desk: string) {\n  if (desk === 'crypto') return session${level + 1}(desk);\n  return session${level + 1}(desk);\n}\n`,
+    ).join('');
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/support/fixtures.ts': `import { test as base } from 'vitest';
+${sessions}function session30(desk: string) {
+  return base.extend({ desk });
+}
+export const test = session0('equities');
+`,
+      'tests/orders.test.ts':
+        "import { test } from './support/fixtures';\ntest('fills a market order', ({ desk }) => {});\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(onlyTest(inventory).title).toBe('fills a market order');
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a Playwright test object a fixtures file builds with a function', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

@@ -38,6 +38,8 @@ export class ModuleFunctions {
   private readonly functions: Map<string, FunctionNode>;
   /** The functions being read, to end a function that returns what it returns itself. */
   private readonly reading = new Set<FunctionNode>();
+  /** Whether each function returns a test object, read once however many calls and functions lead to it. */
+  private readonly read = new Map<FunctionNode, boolean>();
   /** The values of variables the bindings left unbound, by name, which a call may make test objects. */
   private readonly values = new Map<string, Expression[]>();
   /** Whether each of those holds a test object; null while that is being worked out, which ends a loop. */
@@ -79,10 +81,12 @@ export class ModuleFunctions {
       return from !== undefined && this.follow(from.source, from.imported, 'function');
     }
     if (this.reading.has(fn)) return false;
-    this.reading.add(fn);
-    const returns = returnValues(fn)?.every(({ expression }) => isTestObject(expression)) ?? false;
-    this.reading.delete(fn);
-    return returns;
+    if (!this.read.has(fn)) {
+      this.reading.add(fn);
+      this.read.set(fn, returnValues(fn)?.every(({ expression }) => isTestObject(expression)) ?? false);
+      this.reading.delete(fn);
+    }
+    return this.read.get(fn) === true;
   }
 }
 
