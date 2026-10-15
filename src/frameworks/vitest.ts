@@ -39,7 +39,9 @@ import {
   followImport,
   followModule,
   moduleImports,
+  ModuleFunctions,
   requiredModule,
+  type Exported,
   type FollowImport,
   type Framework,
   type ModuleImport,
@@ -67,6 +69,7 @@ import {
   unresolvedOption,
   unresolvedOptions,
   readTitle,
+  refused,
   text,
   type Chain,
   type FileContext,
@@ -117,6 +120,8 @@ const HOOKS = new Map<string, number | null>([
   ['afterAll', null],
   ['aroundAll', null],
 ]);
+/** First members of chains that never declare a test, even when Vitest refuses the rest of the chain. */
+const NOT_DECLARING = new Set([...HOOKS.keys(), ...DERIVATIONS]);
 /** First members that show a name imported from a local file is used as Vitest's `test`. */
 const TEST_MEMBERS = new Set([...MODIFIERS.test, ...MODIFIERS.describe, ...TABLES, ...CONDITIONS, ...KINDS.keys()]);
 /** Calls Vitest moves to the top of the file before running it: `vi.mock`, `vi.unmock` and `vi.hoisted`. */
@@ -169,13 +174,23 @@ function hoistedValue(call: CallExpression, parents: readonly Node[]): Node {
   return parent?.type === 'AwaitExpression' ? parent : call;
 }
 
-/** Where a chain's names are looked up; `returnsOf` is null where functions are not followed to what they return. */
-type Lookup = Pick<CallContext, 'scopes' | 'inBody'> & { returnsOf: CallContext['returnsOf'] | null };
+/** Where a chain's names are looked up. */
+type Lookup = Pick<CallContext, 'scopes' | 'inBody' | 'returnsOf'>;
 
 /** The names through which a test or hook body can skip its test: `context.skip()` or a destructured `skip()`. */
 interface SkipNames {
   objects: Set<string>;
   functions: Set<string>;
+}
+
+/**
+ * The `skip` option a describe passes down, with the line that sets it: its own, or the one passed down to it.
+ * `covered` is set when a describe there is skipped already, which skips what is inside.
+ */
+interface PassedSkip {
+  condition: Condition;
+  line: number;
+  covered: boolean;
 }
 
 /** The names a file binds to Vitest's `test`, `describe`, hooks and namespace. */
@@ -191,10 +206,13 @@ class VitestBindings implements TestObjects {
   /** Names imported from other modules, which may be test objects there. */
   private readonly imported: Map<string, ModuleImport>;
   private readonly follow: FollowImport;
+  /** The module's functions and the variables they may build test objects in; see `ModuleFunctions`. */
+  private readonly functions: ModuleFunctions;
 
   constructor(program: Program, version: [number, number] | null, follow: FollowImport) {
     this.imported = moduleImports(program, (source) => source === 'vitest' || MISMATCHED_SOURCES.has(source));
     this.follow = follow;
+    this.functions = new ModuleFunctions(program, this.imported, follow);
     for (const statement of program.body) {
       if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
       const source = statement.source.value;
@@ -238,33 +256,55 @@ class VitestBindings implements TestObjects {
       if (bound) this.declarations.add(declarator);
       return bound;
     });
+    this.functions.keep(declarators.filter((declarator) => !this.declarations.has(declarator)));
   }
 
   isTestName(name: string): boolean {
-    return this.kinds.has(name) || this.importsTestObject(name);
+    return this.kinds.has(name) || this.importsTestObject(name) || this.holdsTestObject(name);
   }
 
-  isTestObject(expression: Expression): boolean {
+  /**
+   * `followsCalls` is cleared where a call is not followed to what it returns: while the names are bound, so that only
+   * a value asked about is followed, as following reads other modules, and in the scanned file, whose calls the walk
+   * follows in their scopes.
+   */
+  isTestObject(expression: Expression, followsCalls = true): boolean {
     const node = unwrap(expression);
-    if (node.type === 'Identifier') return this.kinds.get(node.name) === 'test' || this.importsTestObject(node.name);
+    if (node.type === 'Identifier') {
+      const { name } = node;
+      return (
+        this.kinds.get(name) === 'test' || this.importsTestObject(name) || (followsCalls && this.holdsTestObject(name))
+      );
+    }
     if (node.type === 'MemberExpression') {
       return KINDS.get(propertyName(node) ?? '') === 'test' && this.isNamespace(node.object);
     }
     // `process.env.CI ? vitestTest : skippedTest` is a test object either way.
     if (node.type === 'ConditionalExpression') {
-      return this.isTestObject(node.consequent) || this.isTestObject(node.alternate);
+      return this.isTestObject(node.consequent, followsCalls) || this.isTestObject(node.alternate, followsCalls);
     }
     if (node.type !== 'CallExpression') return false;
     const callee = unwrap(node.callee);
+    // `defineBrokerTest()`, a function that returns a test object.
+    if (callee.type === 'Identifier') return followsCalls && this.returnsTestObject(callee.name);
     return (
       callee.type === 'MemberExpression' &&
       DERIVATIONS.has(propertyName(callee) ?? '') &&
-      this.isTestObject(callee.object)
+      this.isTestObject(callee.object, followsCalls)
     );
   }
 
-  reexports(source: string, imported: string): boolean {
-    return source === 'vitest' ? KINDS.has(imported) : this.follow(source, imported);
+  returnsTestObject(name: string): boolean {
+    return this.functions.returnsTestObject(name, (expression) => this.isTestObject(expression));
+  }
+
+  private holdsTestObject(name: string): boolean {
+    return this.functions.holdsTestObject(name, (expression) => this.isTestObject(expression));
+  }
+
+  reexports(source: string, imported: string, exported: Exported): boolean {
+    if (source !== 'vitest') return this.follow(source, imported, exported);
+    return exported === 'test object' && KINDS.has(imported);
   }
 
   /** Whether a name is imported from another module that exports it as a test object, as `base` from './base'. */
@@ -292,7 +332,7 @@ class VitestBindings implements TestObjects {
   private bind(declarator: VariableDeclarator): boolean {
     const { id, init } = declarator;
     if (!init) return false;
-    if (id.type === 'Identifier' && this.isTestObject(init)) {
+    if (id.type === 'Identifier' && this.isTestObject(init, false)) {
       this.kinds.set(id.name, 'test');
       return true;
     }
@@ -332,9 +372,11 @@ export class VitestAdapter implements Adapter {
     // A test object the file builds from an imported one, as in `const it = base.extend({...})`, is followed quietly:
     // a call through the import itself is what reports an import that can't be followed.
     const followed = new Map<string, boolean>();
-    this.bindings = new VitestBindings(parsed.program, file.version, (source, imported) => {
-      const key = `${source}\0${imported}`;
-      if (!followed.has(key)) followed.set(key, followModule(source, imported, readModule, this.framework()).exported);
+    this.bindings = new VitestBindings(parsed.program, file.version, (source, imported, exported = 'test object') => {
+      const key = `${source}\0${exported}\0${imported}`;
+      if (!followed.has(key)) {
+        followed.set(key, followModule(source, imported, readModule, this.framework(), exported).exported);
+      }
       return followed.get(key) === true;
     });
     this.problems = [...this.bindings.problems];
@@ -370,8 +412,12 @@ export class VitestAdapter implements Adapter {
     );
   }
 
-  testFunction(expression: Expression, scopes: readonly Node[]): TestFunction | null {
-    return this.aliasOf(expression, { scopes, inBody: false, returnsOf: null });
+  testFunction(
+    expression: Expression,
+    scopes: readonly Node[],
+    returnsOf: CallContext['returnsOf'],
+  ): TestFunction | null {
+    return this.aliasOf(expression, { scopes, inBody: false, returnsOf });
   }
 
   /** A call to `bench` imported from Vitest 5, which is undefined there, so the call throws. */
@@ -403,29 +449,21 @@ export class VitestAdapter implements Adapter {
     if (last && (TABLES.has(last.name) || CONDITIONS.has(last.name)) && !last.args && !last.template) {
       return { kind: 'other' };
     }
-    for (const link of links) {
+    const callee = snippet(text(this.file, call.callee));
+    const removed = (link: Link) => link.name === 'sequential' && atLeast(this.file.version, 5, 0);
+    const valid = (link: Link) => {
       const called = link.args !== null || link.template !== null;
-      const valid = MODIFIERS[kind].has(link.name)
-        ? !called
-        : TABLES.has(link.name)
-          ? called
-          : CONDITIONS.has(link.name) && link.args !== null;
-      if (!valid) {
-        const callee = snippet(text(this.file, call.callee));
-        return {
-          kind: 'invalid',
-          problem: problem('invalid-chain', call, `${callee} is not part of Vitest's API.`, callee),
-        };
-      }
-      if (link.name === 'sequential' && atLeast(this.file.version, 5, 0)) {
-        const callee = snippet(text(this.file, call.callee));
-        return {
-          kind: 'invalid',
-          problem: problem('removed-api', call, `sequential was removed in Vitest 5; ${callee}(...) fails.`, callee),
-        };
-      }
-    }
-    return this.declaration(call, kind, links, context);
+      if (MODIFIERS[kind].has(link.name)) return !called && !removed(link);
+      return TABLES.has(link.name) ? called : CONDITIONS.has(link.name) && link.args !== null;
+    };
+    const invalid = links.find((link) => !valid(link));
+    if (!invalid) return this.declaration(call, kind, links, context);
+    const refusal = removed(invalid)
+      ? problem('removed-api', call, `sequential was removed in Vitest 5; ${callee}(...) fails.`, callee)
+      : problem('invalid-chain', call, `${callee} is not part of Vitest's API.`, callee);
+    if (NOT_DECLARING.has(links[0].name)) return { kind: 'invalid', problem: refusal };
+    // Which of its parts the chain means is not known, so it declares a plain test or describe.
+    return refused(call, refusal, context, () => this.declaration(call, kind, [], context));
   }
 
   /**
@@ -526,7 +564,7 @@ export class VitestAdapter implements Adapter {
     lookup: Lookup,
   ): TestFunction | null {
     const callee = unwrap(call.callee);
-    if (callee.type !== 'Identifier' || !lookup.returnsOf) return null;
+    if (callee.type !== 'Identifier') return null;
     const returns = lookup.returnsOf(callee.name, lookup.scopes);
     if (returns) return returnedFunction(returns, shared);
     if (!isTestName(callee.name) || !this.looksLikeTest(links, args)) return null;
@@ -658,6 +696,7 @@ export class VitestAdapter implements Adapter {
     // (title, fn, timeout), (title, options, fn) or the removed (title, fn, options)
     let options: Argument | undefined;
     let body: Argument | undefined;
+    let refusal: Problem | null = null;
     const [second, third] = [args.at(1), args.at(2)];
     if (args.some((arg) => arg.type === 'SpreadElement')) {
       // With spread arguments, as in test(...args), the function and options are unknown.
@@ -668,34 +707,51 @@ export class VitestAdapter implements Adapter {
       body = second;
       if (third !== undefined && this.isOptions(third, undefined, context)) {
         if (atLeast(this.file.version, 4, 0)) {
-          return {
-            kind: 'invalid',
-            problem: problem(
-              'removed-api',
-              third,
-              `${callee}() takes options as its second argument since Vitest 4; with options third the call fails.`,
-              snippet(text(this.file, third)),
-            ),
-          };
+          refusal = problem(
+            'removed-api',
+            third,
+            `${callee}() takes options as its second argument since Vitest 4; with options third the call fails.`,
+            snippet(text(this.file, third)),
+          );
         }
         options = third;
       }
     }
     const fn = isFunctionNode(body) ? body : null;
     const read = this.readDeclarationOptions(options, context, problems);
-    const flags = new Set([
-      ...links.filter((link) => MODIFIERS[kind].has(link.name)).map((link) => link.name),
-      ...read.flags,
-    ]);
-    const conditions = [
-      ...links.filter((link) => CONDITIONS.has(link.name)).map((link) => this.linkCondition(link, context)),
-      ...read.conditions,
-    ];
+    const chain = new Set(links.filter((link) => MODIFIERS[kind].has(link.name)).map((link) => link.name));
+    const flags = new Set(chain);
+    let conditions = links.filter((link) => CONDITIONS.has(link.name)).map((link) => this.linkCondition(link, context));
+    // A test's own options win over its chain, so `test.skip('title', { skip: false }, fn)` runs. The chain wins for a
+    // test's mode, and for everything on a describe.
+    for (const [flag, value] of read.flags) {
+      if (value) flags.add(flag);
+      else if (kind === 'test' && flag !== 'sequential') flags.delete(flag);
+    }
+    if (read.skip && kind === 'test') {
+      flags.delete('skip');
+      conditions = [read.skip];
+    } else if (read.skip) {
+      conditions.push(read.skip);
+    }
+    // Vitest passes a describe's options down to the tests and describes inside, where their own options and `only`
+    // win. A `skip` passed down skips them, and turns todo into skip, as skip goes before todo.
+    const line = this.file.source.line(call.start);
+    const around = context.passedDown as PassedSkip | null;
+    const passed = read.skip ? null : around;
+    const skips = passed?.condition.applies === 'always' && !flags.has('only');
     const table = links.find((link) => TABLES.has(link.name)) ?? null;
     const isTodo = flags.has('todo') || body === undefined;
-    const states = this.states(flags, conditions, isTodo, this.file.source.line(call.start));
-    // `{ concurrent: false }` is how Vitest 5 turns parallel off, in place of `sequential`.
-    const parallel = read.concurrent ?? flags.has('concurrent');
+    const states = this.states(flags, conditions, isTodo && !skips, line);
+    const skipped = () => states.some((setting) => setting.state === 'skip' && !setting.condition);
+    // The skip is set where the describe that passes it down sets it. A skipped describe around already skips what is
+    // inside, as it does when its own `only` beats its skip; a todo describe gets the skip itself.
+    if (skips && !skipped() && (!passed.covered || (kind === 'describe' && isTodo))) {
+      states.push({ state: 'skip', condition: null, reason: null, hasDynamicReason: false, line: passed.line });
+    }
+    // The chain's mode wins over the options'. `{ concurrent: false }` is how Vitest 5 turns parallel off, in place of
+    // `sequential`.
+    const parallel = chain.has('concurrent') || (!chain.has('sequential') && read.concurrent === true);
     const mode: Mode | null = parallel
       ? 'parallel'
       : flags.has('sequential') || read.concurrent === false
@@ -713,17 +769,18 @@ export class VitestAdapter implements Adapter {
       caseCount: table ? this.caseCount(call, table, context, problems) : null,
       problems,
     };
+    let declared: ApiCall;
     if (kind === 'describe') {
       // A table's cases are passed instead.
       const first = table ? null : fn?.params.at(0);
       if (fn && first?.type === 'Identifier') this.suiteParameters.set(fn, first.name);
-      return { kind: 'describe', ...base, isShuffled: flags.has('shuffle') };
+      const own = read.skip ? { condition: read.skip, line } : around;
+      const passesDown: PassedSkip | null = own && { ...own, covered: (around?.covered ?? false) || skipped() };
+      declared = { kind: 'describe', ...base, isShuffled: flags.has('shuffle'), passesDown };
+    } else {
+      declared = { kind: 'test', ...base, testContext: skipNames(fn, table?.name === 'for' ? 1 : table ? null : 0) };
     }
-    return {
-      kind: 'test',
-      ...base,
-      testContext: skipNames(fn, table?.name === 'for' ? 1 : table ? null : 0),
-    };
+    return refusal ? refused(call, refusal, context, () => declared) : declared;
   }
 
   /** Whether an argument holds options: an object, a name for one, or anything but a function before the body. */
@@ -769,12 +826,12 @@ export class VitestAdapter implements Adapter {
     node: Argument | undefined,
     context: CallContext,
     problems: Problem[],
-  ): { flags: string[]; concurrent: boolean | null; conditions: Condition[]; details: Details } {
+  ): { flags: Map<string, boolean>; concurrent: boolean | null; skip: Condition | null; details: Details } {
     const details: Details = { tags: [], annotations: [], locks: [], meta: null };
     const result = {
-      flags: [] as string[],
+      flags: new Map<string, boolean>(),
       concurrent: null as boolean | null,
-      conditions: [] as Condition[],
+      skip: null as Condition | null,
       details,
     };
     if (!node) return result;
@@ -787,17 +844,15 @@ export class VitestAdapter implements Adapter {
         problems.push(unresolvedOption(this.file, flag, option.node, importedFrom, 'it is not applied'));
       } else if (option?.resolved.ok && flag === 'concurrent') {
         result.concurrent = Boolean(option.resolved.value);
-      } else if (option?.resolved.ok && option.resolved.value) {
-        result.flags.push(flag);
+      } else if (option?.resolved.ok) {
+        result.flags.set(flag, Boolean(option.resolved.value));
       }
     }
     const skip = options.values.get('skip');
     if (skip) {
-      result.conditions.push(
-        skip.resolved.ok
-          ? { applies: skip.resolved.value ? 'always' : 'never', text: null }
-          : { applies: 'sometimes', text: snippet(text(this.file, skip.node)) },
-      );
+      result.skip = skip.resolved.ok
+        ? { applies: skip.resolved.value ? 'always' : 'never', text: null }
+        : { applies: 'sometimes', text: snippet(text(this.file, skip.node)) };
     }
     const tags = options.values.get('tags');
     if (tags && atLeast(this.file.version, 4, 1)) {

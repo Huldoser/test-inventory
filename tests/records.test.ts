@@ -463,11 +463,15 @@ test('confirms an order in steps', async () => {
 
 describe('files Vitest refuses to load', () => {
   it.each([
-    ['a chain Vitest does not have', "test.serial('places a bracket order', () => {});"],
-    ['sequential, removed in Vitest 5', "describe.sequential('stop orders', () => {});"],
-    ['options as the third argument', "test('fills a stop order', () => {}, { retry: 3 });"],
-    ['a benchmark, removed in Vitest 5', "bench('sizes 1,000 positions', () => {});"],
-  ])('marks every test not loaded for %s, at the line of the problem', (_, problem) => {
+    ['a chain Vitest does not have', "test.serial('places a bracket order', () => {});", ['places a bracket order']],
+    [
+      'sequential, removed in Vitest 5',
+      "describe.sequential('stop orders', () => {\n    test('trails the price', () => {});\n  });",
+      ['trails the price'],
+    ],
+    ['options as the third argument', "test('fills a stop order', () => {}, { retry: 3 });", ['fills a stop order']],
+    ['a benchmark, removed in Vitest 5', "bench('sizes 1,000 positions', () => {});", []],
+  ])('marks every test not loaded for %s, at the line of the problem', (_, problem, refused) => {
     const inventory = scanVitest(`import { bench, describe, test } from 'vitest';
 describe('orders', () => {
   test.skip('places a stop order', () => {});
@@ -475,11 +479,11 @@ describe('orders', () => {
   ${problem}
 });
 `);
-    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource, test.stateLine])).toEqual([
-      ['places a stop order', 'notLoaded', 'file', 5],
-      ['cancels an order', 'notLoaded', 'file', 5],
-    ]);
-    expect(inventory.summary).toMatchObject({ activeCount: 0, skipCount: 0, notLoadedCount: 2 });
+    const titles = ['places a stop order', 'cancels an order', ...refused];
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource, test.stateLine])).toEqual(
+      titles.map((title) => [title, 'notLoaded', 'file', 5]),
+    );
+    expect(inventory.summary).toMatchObject({ activeCount: 0, skipCount: 0, notLoadedCount: titles.length });
   });
 
   it('loads a file whose invalid calls are in test, hook or helper bodies, which run after it loads', () => {

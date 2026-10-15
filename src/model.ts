@@ -15,6 +15,11 @@ export interface StateSetting {
   /** The reason could not be worked out to a string, so `reason` holds its source text. */
   hasDynamicReason: boolean;
   line: number;
+  /**
+   * Set by code in a test or hook body, which runs only when the test does: a state set while the file loads, on the
+   * test or a describe around it, keeps the test from getting there.
+   */
+  afterLoad?: boolean;
 }
 
 export interface Span {
@@ -74,6 +79,8 @@ export interface TestDeclaration extends Declaration {
 export interface SuiteDeclaration extends Declaration {
   kind: 'describe';
   isShuffled: boolean;
+  /** What the describe passes down to the calls inside it, such as Vitest's `skip` option; null for nothing. */
+  passesDown: unknown;
 }
 
 export interface Condition {
@@ -97,7 +104,11 @@ export type ApiCall =
   | { kind: 'configure'; mode: Mode | null; locks: string[]; problems: Problem[] }
   | { kind: 'hook'; fn: FunctionNode | null; testContext: unknown }
   | { kind: 'annotations'; items: Annotation[]; problems: Problem[] }
-  | { kind: 'invalid'; problem: Problem }
+  /**
+   * A call the runner refuses. When it is shaped like a declaration, as `describe.sequential('title', fn)` is in Vitest
+   * 5, `declaration` is what it would declare, so that its tests are listed as not loaded rather than missing.
+   */
+  | { kind: 'invalid'; problem: Problem; declaration?: TestDeclaration | SuiteDeclaration }
   | { kind: 'other' };
 
 export interface CallContext {
@@ -107,6 +118,11 @@ export interface CallContext {
   inTest: boolean;
   /** Inside a test or hook body, where calls don't declare tests. */
   inBody: boolean;
+  /**
+   * What the describe the call is registered in passes down, as the framework returned it: the describe around a
+   * helper's call, not where the helper is written. Null outside any describe.
+   */
+  passedDown: unknown;
   /**
    * What a function declared in the file, or imported from a local module, returns, for a call on its result such as
    * `conditionalTest({ min: 22 })('title', fn)`; null when the name is not a function the scan can find.
@@ -119,6 +135,8 @@ export interface Returns {
   adapter: Adapter;
   /** Each value with the scopes around it; null when the function may return no value, or returns a promise. */
   values: { expression: Expression; scopes: readonly Node[] }[] | null;
+  /** What the functions the values call return, looked up in the file that writes the function. */
+  returnsOf: CallContext['returnsOf'];
 }
 
 /** A module read to see whether it exports a custom `test` object. */
@@ -141,7 +159,7 @@ export interface Adapter {
   classify(call: CallExpression, context: CallContext): ApiCall | null;
   /**
    * The test or describe function a value holds, in the adapter's own terms, as `it.skip` in `return it.skip`; null
-   * when it holds none. A function the value calls is not followed to what it returns.
+   * when it holds none. A function the value calls is followed to what it returns through `returnsOf`.
    */
-  testFunction(expression: Expression, scopes: readonly Node[]): unknown;
+  testFunction(expression: Expression, scopes: readonly Node[], returnsOf: CallContext['returnsOf']): unknown;
 }

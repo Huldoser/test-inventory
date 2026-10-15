@@ -46,6 +46,39 @@ export function isFunctionNode(node: Node | null | undefined): node is FunctionN
   return node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression';
 }
 
+/** A value a function returns, with the nodes inside the function around its `return`, outermost first. */
+export interface ReturnValue {
+  expression: Expression;
+  around: Node[];
+}
+
+/**
+ * The values a function returns; null when it may return no value, as with `return;` or no `return` at all, and for
+ * an async function or a generator, which returns a promise or an iterator whatever its `return` says. A `return` in a
+ * function inside it is that function's.
+ */
+export function returnValues(fn: FunctionNode): ReturnValue[] | null {
+  if (fn.async || fn.generator) return null;
+  // Only declarations of overloads have no body.
+  const body = fn.body as Node;
+  if (body.type !== 'BlockStatement') return [{ expression: body as Expression, around: [] }];
+  const values: (ReturnValue | null)[] = [];
+  // Copied only at a `return`, so that a long function costs no more than its size.
+  const around: Node[] = [];
+  const visit = (node: Node): void => {
+    if (node.type === 'ReturnStatement') {
+      values.push(node.argument ? { expression: node.argument, around: [...around] } : null);
+      return;
+    }
+    if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) return;
+    around.push(node);
+    for (const child of childNodes(node)) visit(child);
+    around.pop();
+  };
+  visit(body);
+  return values.length > 0 && !values.includes(null) ? (values as ReturnValue[]) : null;
+}
+
 export function isStringLiteral(node: Node): node is StringLiteral {
   return node.type === 'Literal' && typeof node.value === 'string';
 }

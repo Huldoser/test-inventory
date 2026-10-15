@@ -68,8 +68,11 @@ Some problems make the runner fail while it loads a file:
 
 Every test in such a file gets `state: "notLoaded"`, with `stateSource: "file"` and `stateLine` at the first of these
 problems. These tests are counted in `notLoadedCount`, not in `activeCount`. Everything else about them is kept, so
-the records show what the file declares once the problem is fixed. Tests in other files keep their states, even
-though Playwright runs none of them: the records describe the code, and the diagnostic points at the file to fix.
+the records show what the file declares once the problem is fixed. A refused call written like a declaration, such as
+`test.only.skip('title', fn)` or `describe.sequential('title', fn)` in Vitest 5, is listed too, as a plain test or
+describe without the part that fails, so its tests are `notLoaded` rather than missing. Tests in other files keep
+their states, even though Playwright runs none of them: the records describe the code, and the diagnostic points at
+the file to fix.
 
 Only code that runs while the file loads counts. An `invalid-chain` inside a test, hook or helper body, such as
 `test.step.skip()` before Playwright 1.50 or `test.slow()` in Vitest, runs later and fails only the test that reaches
