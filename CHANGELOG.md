@@ -1,5 +1,23 @@
 # test-inventory
 
+## 0.3.0
+
+### Minor Changes
+
+- [#37](https://github.com/Huldoser/test-inventory/pull/37) [`5aeb139`](https://github.com/Huldoser/test-inventory/commit/5aeb13959daaeb0fdf4488765944fe42ef7754bc) - `--fields` keeps only the named keys of each test, and `id`, as in `--fields fullName,reason`, so a short question gets a short answer. Output written with it leaves keys out, so it no longer matches the JSON Schema. The library exports the same as `pickTestFields()`.
+
+- [#37](https://github.com/Huldoser/test-inventory/pull/37) [`5aeb139`](https://github.com/Huldoser/test-inventory/commit/5aeb13959daaeb0fdf4488765944fe42ef7754bc) - Filters keep only the tests a question is about: `--state`, `--tag`, `--grep` (a regular expression on the full name, ignoring case), `--only` and `--without-reason`, as in `--state skip --state fixme` for the tests that don't run. The output then describes only those tests: the describes around them, their diagnostics and a summary counted over them. The library exports the same as `filterInventory()`.
+
+- [#37](https://github.com/Huldoser/test-inventory/pull/37) [`5aeb139`](https://github.com/Huldoser/test-inventory/commit/5aeb13959daaeb0fdf4488765944fe42ef7754bc) - `--format jsonl` writes the inventory as JSON Lines: an `inventory` line, one line per suite, test and diagnostic, and a `summary` line, each marked with a `type` key. Tools that read one record per line, such as `grep` or DuckDB, no longer need the whole document in memory. The `InventoryLine` type describes the lines.
+
+### Patch Changes
+
+- [#34](https://github.com/Huldoser/test-inventory/pull/34) [`0f96258`](https://github.com/Huldoser/test-inventory/commit/0f96258e65085fa1b7c667b5fa7219a8b19230df) - A fixtures file that builds its test object with a function, written there or imported from another file, as in `export const test = defineDeskTest('equities')`, is followed: MSW's test files import such a `test`. Their tests were missing before, with no diagnostic when the fixtures file didn't import the framework itself. A test object built with a call the scan can't follow now gets an `unresolved-test-import` error that names the call, as in "builds it with withWarmup(), which is not followed". A function that returns what another function returns, as `() => onFeed('NYSE')`, is followed too.
+
+- [#34](https://github.com/Huldoser/test-inventory/pull/34) [`0f96258`](https://github.com/Huldoser/test-inventory/commit/0f96258e65085fa1b7c667b5fa7219a8b19230df) - A call the runner refuses that is written like a declaration, as `describe.sequential('title', fn)` in Vitest 5, `test('title', fn, { retry: 2 })` from Vitest 4 or `test.only.skip('title', fn)`, is listed as a plain test or describe without the part that fails. Its tests were missing before; now they are `notLoaded`, like every other test in the file.
+
+- [#34](https://github.com/Huldoser/test-inventory/pull/34) [`0f96258`](https://github.com/Huldoser/test-inventory/commit/0f96258e65085fa1b7c667b5fa7219a8b19230df) - States follow the runners' precedence more closely, as checked against Vitest 5.0.4 running generated files. A skip in a test or hook body loses to a fixme, skip or todo set while the file loads, as on a describe around the test, since the body never runs. In Vitest, a test's own options win over its chain, so `test.skip('title', { skip: false }, fn)` is active, but the chain still sets its mode: `test.concurrent('title', { concurrent: false }, fn)` runs in parallel. A describe passes its `skip` option down to the tests and describes inside, where it wins over todo, also when the describe's own `.only` keeps the describe itself from being skipped.
+
 ## 0.2.1
 
 ### Patch Changes
