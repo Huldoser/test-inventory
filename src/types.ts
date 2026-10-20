@@ -92,6 +92,18 @@ export interface Inventory {
   diagnostics: Diagnostic[];
 }
 
+/**
+ * One line of the JSON Lines output (`--format jsonl`): the inventory with each record on its own line, marked by
+ * `type`. The `inventory` line comes first, then the suites, tests and diagnostics in the order of the JSON output,
+ * and the `summary` line last.
+ */
+export type InventoryLine =
+  | ({ type: 'inventory' } & Pick<Inventory, 'schemaVersion' | 'tool' | 'framework' | 'frameworkVersion'>)
+  | ({ type: 'suite' } & SuiteRecord)
+  | ({ type: 'test' } & TestRecord)
+  | ({ type: 'diagnostic' } & Diagnostic)
+  | ({ type: 'summary' } & Summary);
+
 /** @inline */
 export interface Tool {
   name: 'test-inventory';
