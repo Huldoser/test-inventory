@@ -4,7 +4,7 @@ import { parseSync } from 'oxc-parser';
 import type { Plugin } from 'vitepress';
 
 // The files that declare what src/index.ts exports. Other files reuse some of the names, such as `Position`.
-const FILES = ['types.ts', 'options.ts', 'records.ts', 'scan.ts', 'scan-source.ts'];
+const FILES = ['types.ts', 'options.ts', 'records.ts', 'scan.ts', 'scan-source.ts', 'filter.ts'];
 const src = path.resolve(import.meta.dirname, '../../src');
 
 /**

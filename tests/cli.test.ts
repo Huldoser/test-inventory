@@ -5,6 +5,7 @@ import { PassThrough, Writable } from 'node:stream';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { HELP, run } from '../src/cli.ts';
+import type { Inventory } from '../src/index.ts';
 import { toolVersion } from '../src/version.ts';
 import { expectValidInventory } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
@@ -118,6 +119,62 @@ describe('run', () => {
     });
   });
 
+  it('keeps the tests that pass every filter and writes the picked keys as JSON Lines', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+test.describe('orders', () => {
+  test('fills a market order', { tag: '@smoke' }, async () => {});
+  test.skip('fills a stop order', async () => {});
+  test.fixme('fills a trailing stop order', async () => {});
+  test('fills a stop limit order', async () => {
+    test.skip(true, 'The exchange simulator has no stop limits');
+  });
+});
+`,
+    });
+    const filters = ['--state', 'skip', '--state', 'fixme', '--grep', 'STOP', '--without-reason'];
+    const result = await cli(
+      ['tests/*.spec.ts', '--framework', 'playwright', ...filters, '--fields', 'fullName, state', '--format', 'jsonl'],
+      root,
+    );
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    const lines = result.stdout
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(lines.map((line) => line.type)).toEqual(['inventory', 'suite', 'test', 'test', 'summary']);
+    const tests = lines.filter((line) => line.type === 'test');
+    expect(tests.map((test) => Object.keys(test))).toEqual([
+      ['type', 'id', 'fullName', 'state'],
+      ['type', 'id', 'fullName', 'state'],
+    ]);
+    expect(tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['orders > fills a stop order', 'skip'],
+      ['orders > fills a trailing stop order', 'fixme'],
+    ]);
+    expect(lines[4]).toMatchObject({ testCount: 2, skipCount: 1, fixmeCount: 1 });
+  });
+
+  it.each([
+    [['--tag', '@smoke'], ['orders > fills a market order']],
+    [['--only'], []],
+  ])('filters with %j and writes JSON that matches the schema', async (flags, fullNames) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+test.describe('orders', () => {
+  test('fills a market order', { tag: '@smoke' }, async () => {});
+  test('fills a limit order', async () => {});
+});
+`,
+    });
+    const result = await cli(['tests/*.spec.ts', '--framework', 'playwright', ...flags], root);
+    const inventory = JSON.parse(result.stdout) as Inventory;
+    expectValidInventory(inventory);
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(fullNames);
+  });
+
   it('prints help and the version', async () => {
     expect(await cli(['--help'], '.')).toEqual({ code: 0, stdout: HELP, stderr: '' });
     expect(await cli(['-v'], '.')).toEqual({ code: 0, stdout: `${toolVersion}\n`, stderr: '' });
@@ -135,6 +192,24 @@ describe('run', () => {
     [
       ['tests', '--framework', 'vitest', '--root', 'missing'],
       /^--root must be a directory, and .*missing is not one\.$/,
+    ],
+    [['tests', '--framework', 'vitest', '--format', 'xml'], '--format must be json or jsonl.'],
+    [
+      ['tests', '--framework', 'vitest', '--format', 'jsonl', '--pretty'],
+      '--pretty indents JSON, so it does not go with --format jsonl.',
+    ],
+    [
+      ['tests', '--framework', 'vitest', '--root', 'missing', '--state', 'skipped'],
+      '--state can only hold "active", "skip", "fixme", "todo", "expectedToFail", "notLoaded"; got "skipped".',
+    ],
+    [['tests', '--framework', 'vitest', '--tag', ''], '--tag can only hold non-empty strings; got "".'],
+    [
+      ['tests', '--framework', 'vitest', '--grep', 'fills (a'],
+      '--grep must be a regular expression: Invalid regular expression: /fills (a/i: Unterminated group.',
+    ],
+    [
+      ['tests', '--framework', 'vitest', '--fields', 'fullName,owner'],
+      '--fields can only hold keys of a test record, such as "fullName"; got "owner".',
     ],
     [['tests', '--framework', 'vitest', '--retries', '2'], "Unknown option '--retries'"],
     [['tests', '--framework'], "Option '--framework <value>' argument missing"],

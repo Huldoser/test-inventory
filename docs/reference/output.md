@@ -24,7 +24,8 @@ published with each release.
 
 ## Rules for every key
 
-- Every key is always present, in every record, for both frameworks. Nothing is `undefined` or left out.
+- Every key is always present, in every record, for both frameworks. Nothing is `undefined` or left out. The one
+  exception is asked for: `--fields` keeps only the named keys of each test.
 - A boolean that cannot be true in a framework is `false`: `isFixme` in Vitest, `isShuffled` in Playwright.
 - A list with nothing in it is `[]`.
 - A value that does not exist or could not be worked out is `null`.
@@ -195,6 +196,15 @@ of tests with at least one annotation of that type. Both are sorted by name.
 <!-- types: Diagnostic, DiagnosticLevel, DiagnosticCode -->
 
 :::
+
+## JSON Lines
+
+With `--format jsonl` the same records are written one per line, each with a `type` key added in front: first an
+`inventory` line with the keys of the top level, then a `suite`, `test` or `diagnostic` line for each record, in the
+order of the JSON output, and a `summary` line last. Without its `type`, a line has exactly the keys of the record
+described above, and filters and `--fields` work the same way.
+
+<!-- types: InventoryLine -->
 
 ## Versioning
 

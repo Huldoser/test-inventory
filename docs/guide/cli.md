@@ -21,10 +21,57 @@ folders on every system.
 | `--ignore <glob>`             | Leave out matching files. Can be given more than once.                                              |
 | `--framework-version <x.y.z>` | Apply the rules of this version instead of the one read from the project.                           |
 | `--comments <mode>`           | Which tests get the comment lines above them: `all`, `non-active` or `none`. Default: `non-active`. |
+| `--state <state>`             | Keep tests in this state, such as `skip` or `fixme`. Can be given more than once.                   |
+| `--tag <tag>`                 | Keep tests with this tag, as the output writes it, such as `@smoke`. Can be given more than once.   |
+| `--grep <regex>`              | Keep tests whose `fullName` matches the regular expression, ignoring case.                          |
+| `--only`                      | Keep tests that use `.only`, or are inside a describe that does.                                    |
+| `--without-reason`            | Keep tests that don't run and give no reason.                                                       |
+| `--fields <keys>`             | Write only these keys of each test, separated by commas. `id` is always kept.                       |
+| `--format <format>`           | `json`, or `jsonl` for one record per line. Default: `json`.                                        |
 | `-o, --output <file>`         | Write the JSON to a file instead of standard output. The file is replaced only once it is complete. |
 | `--pretty`                    | Indent the JSON with two spaces. Without it the JSON is on one line.                                |
 | `-h, --help`                  | Show the help.                                                                                      |
 | `-v, --version`               | Show the version.                                                                                   |
+
+## Filters
+
+The filters answer a question about a few tests without reading the whole inventory. A test is kept when it passes
+every filter given; a filter given more than once keeps a test that has any of its values. To list the tests in the
+web app that are skipped or marked fixme, with their reasons:
+
+<!-- scan: trading-web -->
+
+```sh
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --state skip --state fixme --fields fullName,reason
+```
+
+Each test then has only `id` and the keys asked for:
+
+<!-- output: trading-web -->
+
+```json
+{
+  "id": "da2f5749ba9ab068",
+  "fullName": "orders > limit orders > rejects a limit price far from the last trade",
+  "reason": "confirm dialog stays open on WebKit"
+}
+```
+
+The rest of the output describes the tests that were kept: `suites` has the describes around them, `diagnostics`
+their problems and the ones that are not about a single test, and `summary` counts them. Diagnostics from a file whose
+tests were all left out are dropped too, but an error in a file without tests stays, since tests may be missing from
+the answer. `summary.fileCount` is still the number of files scanned.
+
+Output written with `--fields` leaves keys out of the test records, so it no longer matches the
+[JSON Schema](/reference/output#versioning), which requires every key. Without `--fields`, filtered output matches it.
+
+To keep only some files, give a narrower glob instead: the files left out are not read at all.
+
+## JSON Lines
+
+`--format jsonl` writes the same inventory with one record on each line, which `grep`, `jq -c` and tools that read
+newline-delimited JSON, such as DuckDB, take one line at a time. Each line has a `type` key; the
+[output reference](/reference/output#json-lines) lists the line types.
 
 ## Exit codes
 

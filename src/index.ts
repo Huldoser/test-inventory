@@ -1,5 +1,7 @@
 export { scan } from './scan.ts';
 export { scanSource } from './scan-source.ts';
+export { filterInventory, pickTestFields } from './filter.ts';
+export type { InventoryFilter, PickedInventory } from './filter.ts';
 export type { CommentsMode, ScanOptions, ScanSourceOptions } from './options.ts';
 export type {
   Annotation,
@@ -9,6 +11,7 @@ export type {
   DiagnosticLevel,
   Framework,
   Inventory,
+  InventoryLine,
   MetaValue,
   StateSource,
   SuiteRecord,

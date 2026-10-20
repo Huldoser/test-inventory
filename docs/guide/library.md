@@ -1,5 +1,5 @@
 ---
-description: The scan and scanSource functions, the inventory they return and the JSON Schema of the output.
+description: The scan and scanSource functions, filterInventory and pickTestFields, the inventory they return and the JSON Schema of the output.
 ---
 
 # Library
@@ -7,7 +7,7 @@ description: The scan and scanSource functions, the inventory they return and th
 The package also exports the functions the command line uses. It is ESM only.
 
 ```ts
-import { scan, scanSource, type Inventory } from 'test-inventory';
+import { filterInventory, pickTestFields, scan, scanSource, type Inventory } from 'test-inventory';
 ```
 
 ## scan
@@ -52,16 +52,44 @@ inventory.tests[0].state; // 'todo'
 Because it reads no files, `scanSource` cannot follow a custom `test` object imported from a fixtures file. Tests
 that use one are reported with an `unresolved-test-import` diagnostic; `scan` follows the import.
 
+## filterInventory
+
+Keeps the tests that pass a filter, as the [filter options](/guide/cli#filters) on the command line do. The result is
+an inventory of those tests, which still matches the JSON Schema.
+
+<!-- types: filterInventory, InventoryFilter -->
+
+To list the smoke tests that are marked fixme, with their files:
+
+```ts
+const inventory = await scan({ patterns: ['tests/**/*.spec.ts'], framework: 'playwright' });
+const fixme = filterInventory(inventory, { states: ['fixme'], tags: ['@smoke'] });
+
+for (const test of fixme.tests) console.log(`${test.relativeFilePath}:${test.lineStart} ${test.fullName}`);
+```
+
+## pickTestFields
+
+Keeps only `id` and the given keys on each test, as `--fields` does, to make the output smaller. TypeScript knows
+which keys are left.
+
+<!-- types: pickTestFields, PickedInventory -->
+
+```ts
+const short = pickTestFields(fixme, ['fullName', 'reason']);
+short.tests[0].reason; // string | null
+```
+
 ## Inventory
 
-Both functions return an inventory, the object the command line writes as JSON. The
+Both scan functions return an inventory, the object the command line writes as JSON. The
 [output reference](/reference/output) describes each of its records key by key.
 
 <!-- types: Inventory, Tool -->
 
 ## Errors
 
-Both functions throw a `TypeError` that names the option when an option is invalid. Anything about the scanned code
+Every function throws a `TypeError` that names the option when an option is invalid. Anything about the scanned code
 or files becomes a [diagnostic](/reference/diagnostics) in the result.
 
 ## JSON Schema
