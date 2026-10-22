@@ -188,6 +188,7 @@ function calledWhereWritten(call: Placement, written: Placement): boolean {
 type Effect =
   | { kind: 'state'; setting: StateSetting; call: CallExpression }
   | { kind: 'configure'; mode: Mode | null; locks: string[]; call: CallExpression }
+  | { kind: 'run'; settings: RunSettings; argument: string | null; call: CallExpression }
   | { kind: 'call'; fn: Node; guards: string[] };
 
 /** A call to a helper function from a test or a hook, whose states apply to that test or the tests the hook covers. */
@@ -195,6 +196,8 @@ interface HelperCall {
   call: CallExpression;
   fn: Node;
   target: PendingTest | Scope;
+  /** The hook the call is in; null for a call from a test body. */
+  hookName: keyof HookCounts | null;
   guards: string[];
 }
 
@@ -210,11 +213,26 @@ function configure(scope: Scope, settings: { mode: Mode | null; locks: string[];
   mergeRun(scope.details.run, settings.run);
 }
 
-/** Applies settings written later in the same place: the last value of each wins, and one `test.slow()` is enough. */
+/**
+ * Applies settings written later in the same place: the last value of each wins, and a test is slow when any
+ * `test.slow()` applies.
+ */
 export function mergeRun(target: RunSettings, later: RunSettings): void {
   const { slow, ...rest } = later;
   Object.assign(target, rest);
-  if (slow && target.slow?.condition !== null) target.slow = slow;
+  if (slow) target.slow = target.slow ? anySlow([target.slow, slow]) : slow;
+}
+
+/** Any of several `test.slow()` calls: always when one always applies, otherwise under any of their conditions. */
+export function anySlow(slows: NonNullable<RunSettings['slow']>[]): NonNullable<RunSettings['slow']> {
+  const lists = slows.map((slow) => slow.conditions);
+  if (lists.includes(null)) return { conditions: null };
+  return { conditions: [...new Set((lists as string[][]).flat())] };
+}
+
+/** Conditions joined with `||`, adding parentheses where a part could otherwise be read differently. */
+export function eitherCondition(parts: string[]): string {
+  return parts.map((part) => (parts.length > 1 && /\?|,/.test(part) ? `(${part})` : part)).join(' || ');
 }
 
 export function noHooks(): HookCounts {
@@ -612,6 +630,7 @@ class Walker {
         call,
         fn,
         target: context.test ?? (context.hookScope as Scope),
+        hookName: context.test ? null : context.hookName,
         guards: context.guards,
       });
     } else if (!this.callStack.includes(fn) && this.callStack.length < MAX_DEPTH) {
@@ -817,36 +836,72 @@ class Walker {
 
   /**
    * Applies `test.setTimeout()` or `test.slow()` where it is called: in a test body to the test, in a `beforeEach` to
-   * the tests of its scope, at file or describe level to the scope. A timeout set only under a condition is left out
-   * with a warning, while the condition of a slow test is kept.
+   * the tests of its scope, at file or describe level to the scope. A function with a name applies them where it is
+   * called instead.
    */
   private runSetting(call: CallExpression, api: Extract<ApiCall, { kind: 'run' }>, context: Context): void {
-    const problems = [...api.problems];
-    const settings = { ...api.settings };
-    const guard = joinConditions(context.guards);
-    if (settings.slow) {
-      const own = settings.slow.condition === null ? [] : [settings.slow.condition];
-      settings.slow = { condition: joinConditions([...context.guards, ...own]) };
+    if (context.declaredIn !== null && !context.test) {
+      for (const item of api.problems) this.report(item);
+      if (context.helper)
+        this.effectsOf(context.helper).push({ kind: 'run', settings: api.settings, argument: api.argument, call });
+      return;
     }
-    if (settings.timeout !== undefined && guard !== null) {
-      const message = `Option timeout: ${api.argument as string} is set only when ${guard}; it is not applied.`;
-      problems.push(problem('unresolved-option', call, message, snippet(this.text(call))));
-      delete settings.timeout;
-    }
+    const { settings, problems } = this.guardedRun(call, api.settings, api.argument, context.guards);
+    problems.unshift(...api.problems);
     if (context.test) {
       context.test.problems.push(...problems.map((item) => this.here(item)));
       mergeRun(context.test.run, settings);
       return;
     }
     for (const item of problems) this.report(item);
-    // A function with a name applies its settings where it is called.
-    if (context.declaredIn !== null) return;
     if (context.hookScope) {
       // `beforeAll` and `afterAll` set the hook's own timeout, and an `afterEach` runs after the test body.
       if (context.hookName === 'beforeEach') mergeRun(context.hookScope.hookRun, settings);
       return;
     }
     mergeRun(context.scope.details.run, settings);
+  }
+
+  /**
+   * Run settings under the conditions around a call: a slow test keeps them as its condition, while a timeout set only
+   * sometimes is left out with a warning.
+   */
+  private guardedRun(
+    call: CallExpression,
+    written: RunSettings,
+    argument: string | null,
+    guards: string[],
+  ): { settings: RunSettings; problems: Problem[] } {
+    const settings = { ...written };
+    const problems: Problem[] = [];
+    const guard = joinConditions(guards);
+    if (settings.slow && guards.length > 0) {
+      const own = settings.slow.conditions ?? [null];
+      settings.slow = {
+        conditions: own.map(
+          (condition) => joinConditions([...guards, ...(condition === null ? [] : [condition])]) as string,
+        ),
+      };
+    }
+    if (settings.timeout !== undefined && guard !== null) {
+      const message = `Option timeout: ${argument as string} is set only when ${guard}; it is not applied.`;
+      problems.push(problem('unresolved-option', call, message, snippet(this.text(call))));
+      delete settings.timeout;
+    }
+    return { settings, problems };
+  }
+
+  /** Run settings a helper sets when a test body or a `beforeEach` calls it, under the conditions around the call. */
+  private applyHelperRun(call: HelperCall, effect: Extract<Effect, { kind: 'run' }> & { guards: string[] }): void {
+    const { settings, problems } = this.guardedRun(call.call, effect.settings, effect.argument, effect.guards);
+    if (call.hookName === null) {
+      const test = call.target as PendingTest;
+      test.problems.push(...problems);
+      mergeRun(test.run, settings);
+    } else if (call.hookName === 'beforeEach') {
+      this.problems.push(...problems);
+      mergeRun((call.target as Scope).hookRun, settings);
+    }
   }
 
   /** Reports a problem not tied to a test, once, however many times a function with it is walked. */
@@ -911,7 +966,9 @@ class Walker {
     // For one call from a test or hook: the conditions each helper was expanded under, and how many expansions it took.
     let expanded = new Map<Node, Set<string>>();
     let steps = 0;
-    const expand = (fn: Node, guards: string[], path: Set<Node>): Exclude<Effect, { kind: 'call' }>[] => {
+    type Expanded =
+      Exclude<Effect, { kind: 'call' | 'run' }> | (Extract<Effect, { kind: 'run' }> & { guards: string[] });
+    const expand = (fn: Node, guards: string[], path: Set<Node>): Expanded[] => {
       if (path.has(fn) || exported.has(fn)) return [];
       // A helper reached again under the same conditions sets the same states again.
       const conditions = expanded.get(fn) ?? new Set<string>();
@@ -922,6 +979,7 @@ class Walker {
       return (this.effects.get(fn) ?? []).flatMap((effect) => {
         if (effect.kind === 'call') return expand(effect.fn, [...guards, ...effect.guards], new Set([...path, fn]));
         if (effect.kind === 'configure') return [effect];
+        if (effect.kind === 'run') return [{ ...effect, guards }];
         const condition = joinConditions([...guards, ...(effect.setting.condition ? [effect.setting.condition] : [])]);
         // Helpers are expanded here only for calls from tests and hooks.
         return [{ ...effect, setting: { ...effect.setting, condition, afterLoad: true } }];
@@ -933,6 +991,7 @@ class Walker {
       for (const effect of expand(call.fn, call.guards, new Set())) {
         // `describe.configure()` does nothing in a test or hook body.
         if (effect.kind === 'state') call.target.states.push(effect.setting);
+        if (effect.kind === 'run') this.applyHelperRun(call, effect);
       }
       if (steps > MAX_CALLS) {
         const callee = snippet(this.frame.parsed.source.slice(call.call.callee.start, call.call.callee.end));

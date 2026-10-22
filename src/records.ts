@@ -2,6 +2,8 @@ import type { FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
 import {
+  anySlow,
+  eitherCondition,
   noHooks,
   type DeclaredAt as Written,
   type Extraction,
@@ -97,7 +99,7 @@ type RunKeys = Pick<
 
 /**
  * The run settings that apply, from the places that set them, nearest first: the first that sets a key wins, and any
- * `test.slow()` makes the test slow, with no condition when one of them has none.
+ * `test.slow()` makes the test slow.
  */
 function runKeys(places: RunSettings[]): RunKeys {
   const first = <K extends keyof RunSettings>(key: K) => places.find((place) => place[key] !== undefined)?.[key];
@@ -106,7 +108,7 @@ function runKeys(places: RunSettings[]): RunKeys {
   return {
     timeout: first('timeout') ?? null,
     isSlow: slows.length > 0,
-    slowCondition: slows.some((slow) => slow.condition === null) ? null : (slows.at(0)?.condition ?? null),
+    slowCondition: eitherCondition(anySlow(slows).conditions ?? []) || null,
     retries: retry?.count ?? null,
     retryDelay: retry?.delay ?? null,
     retryCondition: retry?.condition ?? null,

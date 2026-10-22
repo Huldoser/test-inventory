@@ -21,7 +21,8 @@ skip a test or change how it runs.
 The same goes for run settings: the config's `timeout`, `retries` and `repeatEach`, and Vitest's `testTimeout`,
 `retry` and tags with options. A `timeout`, `retries` or `repeats` of `null` means the file sets none, so the config
 decides. Calls that change settings while tests run are not read either: `testInfo.setTimeout()` and
-`testInfo.slow()`, Vitest's `vi.setConfig()`, and `test.setTimeout()` in a helper function a test calls.
+`testInfo.slow()`, Vitest's `vi.setConfig()`, and calls in a function passed to a hook by name, as in
+`test.beforeEach(slowOnCI)`.
 
 ## Imported values are not resolved
 

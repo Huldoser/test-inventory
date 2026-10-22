@@ -1260,6 +1260,18 @@ test('backtests a quarter', () => {}, SLOW_TIMEOUT);
     expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null, null, 10_000, null, null, null]);
   });
 
+  it('reads imported options before a body passed by name, without taking the body for a timeout', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { SLOW } from './settings';
+import { checkMargin } from './checks';
+function checkExposure() {}
+test('checks exposure', SLOW, checkExposure);
+test('checks margin', SLOW, checkMargin);
+`);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+    expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null]);
+  });
+
   it('turns parallel off with concurrent: false, in a test or a describe', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 describe.concurrent('indicators', () => {

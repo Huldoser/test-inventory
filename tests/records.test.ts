@@ -605,6 +605,103 @@ test('draws a sparkline', async () => {});
     expect(testNamed(inventory, 'draws a sparkline').isSlow).toBe(false);
   });
 
+  it('applies settings from a helper called in a test body or a beforeEach, with the conditions around the call', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function slowOnCI() {
+  test.slow();
+  test.setTimeout(7_000);
+}
+test('fills a stop order', async () => {
+  slowOnCI();
+});
+test.describe('quotes', () => {
+  test.beforeEach(async () => {
+    slowOnCI();
+  });
+  test('streams quotes', async () => {});
+});
+test('streams depth', async ({ browserName }) => {
+  if (browserName === 'webkit') slowOnCI();
+});
+test.describe('fills', () => {
+  test.afterEach(async () => {
+    slowOnCI();
+  });
+  test('streams fills', async () => {});
+});
+`);
+    expect(testNamed(inventory, 'fills a stop order')).toMatchObject({ timeout: 7_000, isSlow: true });
+    expect(testNamed(inventory, 'streams quotes')).toMatchObject({ timeout: 7_000, isSlow: true });
+    expect(testNamed(inventory, 'streams fills')).toMatchObject({ timeout: null, isSlow: false });
+    expect(testNamed(inventory, 'streams depth')).toMatchObject({
+      timeout: null,
+      isSlow: true,
+      slowCondition: "browserName === 'webkit'",
+    });
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unresolved-option',
+        message: "Option timeout: 7_000 is set only when browserName === 'webkit'; it is not applied.",
+        testId: testNamed(inventory, 'streams depth').id,
+      },
+    ]);
+  });
+
+  it('warns once about a timeout in a helper it cannot work out, where the helper is written', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { FILL_TIMEOUT } from './timeouts';
+function waitForFills() {
+  test.setTimeout(FILL_TIMEOUT);
+}
+test('streams fills', async () => {
+  waitForFills();
+});
+test('streams partial fills', async () => {
+  waitForFills();
+});
+`);
+    expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null]);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unresolved-option',
+        message: "Option timeout: FILL_TIMEOUT comes from './timeouts' and could not be worked out; it is not applied.",
+        lineStart: 4,
+        testId: null,
+      },
+    ]);
+  });
+
+  it('applies a timeout from a beforeEach that a helper registers where the helper is called', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function allowSlowFills() {
+  test.beforeEach(async () => {
+    test.setTimeout(45_000);
+  });
+}
+test.describe('fills', () => {
+  allowSlowFills();
+  test('streams fills', async () => {});
+});
+`);
+    expect(onlyTest(inventory).timeout).toBe(45_000);
+  });
+
+  it('keeps every condition of the test.slow() calls that apply', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.describe('orders', () => {
+  test.slow(({ browserName }) => browserName === 'webkit');
+  test('cancels every open order', async () => {
+    if (process.env.CI) test.slow();
+    if (process.env.NIGHTLY) test.slow(process.platform === 'win32');
+    test.slow(process.env.SLOW_DISK ?? process.platform === 'darwin');
+  });
+});
+`);
+    expect(onlyTest(inventory).slowCondition).toBe(
+      "process.env.CI || process.env.NIGHTLY && process.platform === 'win32' || (process.env.SLOW_DISK ?? process.platform === 'darwin') || browserName === 'webkit'",
+    );
+  });
+
   it('leaves the timeout alone for test.setTimeout() without a number', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 const limits = [90_000];

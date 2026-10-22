@@ -61,8 +61,8 @@ export interface RunSettings {
   /** A retry setting replaces the whole `retry` of the describes around, delay and condition included. */
   retry?: { count: number; delay: number | null; condition: string | null };
   repeats?: number;
-  /** Playwright `test.slow()`; `condition` is null when it always applies. */
-  slow?: { condition: string | null };
+  /** Playwright `test.slow()`: the conditions of the calls, any of which makes the test slow; null when one always does. */
+  slow?: { conditions: string[] | null };
 }
 
 interface Declaration {

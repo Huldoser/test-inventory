@@ -660,7 +660,8 @@ export class PlaywrightAdapter implements Adapter {
     const first = call.arguments.at(0);
     if (key === 'slow') {
       const condition = readCondition(this.file, context.scopes, first);
-      if (condition.applies !== 'never') settings.slow = { condition: condition.text };
+      if (condition.applies !== 'never')
+        settings.slow = { conditions: condition.text === null ? null : [condition.text] };
     } else if (first && first.type !== 'SpreadElement') {
       const option = { node: first, resolved: this.file.values.resolve(first, context.scopes) };
       const timeout = readCount(this.file, 'timeout', option, problems);

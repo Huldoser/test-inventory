@@ -722,7 +722,13 @@ export class VitestAdapter implements Adapter {
           );
         }
         options = third;
-      } else {
+      } else if (
+        third === undefined ||
+        isFunctionNode(second) ||
+        namedFunction(this.file, context.scopes, second) ||
+        this.file.values.resolve(third as Expression, context.scopes).ok
+      ) {
+        // With imported options and a body passed by name, either could be the body, so the third is no timeout.
         timeout = third;
       }
     }
