@@ -67,7 +67,10 @@ function folderHint(root: string, patterns: string[], framework: Framework): str
     return existsSync(target) && statSync(target).isDirectory();
   });
   if (folder === undefined) return '';
-  const example = `${folder.replace(/[\\/]+$/, '')}/**/*.${framework === 'playwright' ? 'spec' : 'test'}.ts`;
+  // A loop, as a regular expression for trailing slashes takes quadratic time on a long run of slashes.
+  let end = folder.length;
+  while (end > 0 && '/\\'.includes(folder[end - 1])) end -= 1;
+  const example = `${folder.slice(0, end)}/**/*.${framework === 'playwright' ? 'spec' : 'test'}.ts`;
   return ` "${folder}" is a folder; to scan the test files in it, use a pattern such as "${example}".`;
 }
 
