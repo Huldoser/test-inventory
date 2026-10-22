@@ -7,7 +7,7 @@ import type {
   TemplateLiteral,
   VariableDeclarator,
 } from 'oxc-parser';
-import { isFunctionNode, isStringLiteral, propertyName, unwrap, type FunctionNode } from '../ast.ts';
+import { isFunctionNode, isStringLiteral, propertyKey, propertyName, unwrap, type FunctionNode } from '../ast.ts';
 import type { ApiCall, CallContext, Condition, Problem, Returns, Span, Title } from '../model.ts';
 import { snippet, type SourceText } from '../source.ts';
 import type { DiagnosticCode } from '../types.ts';
@@ -382,6 +382,14 @@ export function unresolvedOptions(file: FileContext, options: Options, result: s
       source,
     );
   });
+}
+
+/** The names a function takes from the object pattern of one of its parameters, in source order. */
+export function destructuredNames(fn: FunctionNode | null, index: number | null): string[] {
+  const parameter = index === null ? undefined : fn?.params[index];
+  if (parameter?.type !== 'ObjectPattern') return [];
+  const names = parameter.properties.map((property) => (property.type === 'Property' ? propertyKey(property) : null));
+  return names.filter((name) => name !== null);
 }
 
 /** A whole number, such as a timeout in milliseconds; null, with a warning, when it can't be worked out. */

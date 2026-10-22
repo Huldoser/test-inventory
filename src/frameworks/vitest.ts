@@ -61,6 +61,7 @@ import {
   readCondition,
   returnedFunction,
   returnedTestObject,
+  destructuredNames,
   readCount,
   readOptions,
   readStrings,
@@ -184,9 +185,30 @@ function hoistedValue(call: CallExpression, parents: readonly Node[]): Node {
 type Lookup = Pick<CallContext, 'scopes' | 'inBody' | 'returnsOf'>;
 
 /** The names through which a test or hook body can skip its test: `context.skip()` or a destructured `skip()`. */
-interface SkipNames {
+/** The names a test or hook function gives its context, and the context functions it takes out of it. */
+interface ContextNames {
   objects: Set<string>;
-  functions: Set<string>;
+  skip: Set<string>;
+  annotate: Set<string>;
+}
+
+/** Keys of the test context that Vitest provides itself, with the version that added each; they are not fixtures. */
+const CONTEXT_KEYS = new Map<string, [number, number]>([
+  ['task', [3, 0]],
+  ['expect', [3, 0]],
+  ['skip', [3, 0]],
+  ['onTestFailed', [3, 0]],
+  ['onTestFinished', [3, 0]],
+  ['annotate', [3, 2]],
+  ['signal', [3, 2]],
+  ['bench', [5, 0]],
+]);
+
+function fixturesOf(fn: FunctionNode | null, index: number | null, version: [number, number] | null): string[] {
+  return destructuredNames(fn, index).filter((name) => {
+    const since = CONTEXT_KEYS.get(name);
+    return !since || !atLeast(version, ...since);
+  });
 }
 
 /**
@@ -649,21 +671,20 @@ export class VitestAdapter implements Adapter {
   private hook(call: CallExpression, name: keyof HookCounts): ApiCall {
     const fn = findFunction(call.arguments);
     const index = HOOKS.get(name) as number | null;
-    return { kind: 'hook', name, fn, testContext: index === null ? null : skipNames(fn, index) };
+    return {
+      kind: 'hook',
+      name,
+      fn,
+      testContext: index === null ? null : contextNames(fn, index),
+      fixtures: fixturesOf(fn, index, this.file.version),
+    };
   }
 
   private contextSkip(call: CallExpression, context: CallContext): ApiCall | null {
-    const names = context.testContext as SkipNames | null;
+    const names = context.testContext as ContextNames | null;
     if (!names) return null;
-    const callee = unwrap(call.callee);
-    const isSkip =
-      callee.type === 'Identifier'
-        ? names.functions.has(callee.name)
-        : callee.type === 'MemberExpression' &&
-          propertyName(callee) === 'skip' &&
-          callee.object.type === 'Identifier' &&
-          names.objects.has(callee.object.name);
-    if (!isSkip) return null;
+    if (atLeast(this.file.version, 3, 2) && callsContext(call, names, 'annotate')) return this.annotate(call, context);
+    if (!callsContext(call, names, 'skip')) return null;
     const [first, second] = call.arguments;
     // skip(), skip(note) or skip(condition, note); before Vitest 3.1 the first argument is always the note.
     const noteOnly = !atLeast(this.file.version, 3, 1) || (call.arguments.length === 1 && isTitleLiteral(first));
@@ -676,6 +697,34 @@ export class VitestAdapter implements Adapter {
       hasDynamicReason: reason.isDynamic,
       problems: reason.problem ? [reason.problem] : [],
     };
+  }
+  /**
+   * `annotate(message, type?)` from the test context (3.2), as an annotation of type `notice` when no type is given; the
+   * second argument may also be an attachment.
+   */
+  private annotate(call: CallExpression, context: CallContext): ApiCall {
+    const args = call.arguments.map((arg) =>
+      arg.type === 'SpreadElement' ? null : this.file.values.resolve(arg, context.scopes),
+    );
+    const [message, second] = args;
+    // A second argument that isn't a string is an attachment, given in place of the type.
+    let type: string | null = 'notice';
+    if (args.length > 1 && !second?.ok) type = null;
+    else if (second?.ok && typeof second.value === 'string') type = second.value;
+    if (message?.ok && typeof message.value === 'string' && type !== null) {
+      const annotation = { type, description: message.value, lineStart: this.file.source.line(call.start) };
+      return { kind: 'annotations', items: [annotation], problems: [] };
+    }
+    const source = snippet(text(this.file, call));
+    const unresolved = [message, second].find((item) => item && !item.ok);
+    const from = unresolved && !unresolved.ok ? unresolved.importedFrom : null;
+    const missing = problem(
+      'unresolved-annotation',
+      call,
+      `Annotation ${source}${origin(from)} could not be worked out; it is missing.`,
+      source,
+    );
+    return { kind: 'annotations', items: [], problems: [missing] };
   }
 
   private declaration(call: CallExpression, kind: Kind, links: Link[], context: CallContext): ApiCall {
@@ -799,7 +848,14 @@ export class VitestAdapter implements Adapter {
       const passesDown: PassedSkip | null = own && { ...own, covered: (around?.covered ?? false) || skipped() };
       declared = { kind: 'describe', ...base, isShuffled: flags.has('shuffle'), passesDown };
     } else {
-      declared = { kind: 'test', ...base, testContext: skipNames(fn, table?.name === 'for' ? 1 : table ? null : 0) };
+      const index = table?.name === 'for' ? 1 : table ? null : 0;
+      declared = {
+        kind: 'test',
+        ...base,
+        testContext: contextNames(base.hashed, index),
+        fixtures: fixturesOf(base.hashed, index, this.file.version),
+        usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
+      };
     }
     return refusal ? refused(call, refusal, context, () => declared) : declared;
   }
@@ -1003,17 +1059,33 @@ function isMetaValue(value: Value): value is MetaValue {
   return value !== undefined;
 }
 
-function skipNames(fn: FunctionNode | null, index: number | null): SkipNames | null {
+function contextNames(fn: FunctionNode | null, index: number | null): ContextNames | null {
   const parameter = index === null ? undefined : fn?.params[index];
   if (!parameter) return null;
-  const names: SkipNames = { objects: new Set(), functions: new Set() };
+  const names: ContextNames = { objects: new Set(), skip: new Set(), annotate: new Set() };
   if (parameter.type === 'Identifier') names.objects.add(parameter.name);
   if (parameter.type === 'ObjectPattern') {
     for (const property of parameter.properties) {
-      if (property.type === 'Property' && propertyKey(property) === 'skip' && property.value.type === 'Identifier') {
-        names.functions.add(property.value.name);
+      const key = property.type === 'Property' ? propertyKey(property) : null;
+      if (
+        (key === 'skip' || key === 'annotate') &&
+        property.type === 'Property' &&
+        property.value.type === 'Identifier'
+      ) {
+        names[key].add(property.value.name);
       }
     }
   }
   return names;
+}
+
+/** Whether a call is `name(...)` for a context function taken out of the context, or `context.name(...)`. */
+function callsContext(call: CallExpression, names: ContextNames, member: 'skip' | 'annotate'): boolean {
+  const callee = unwrap(call.callee);
+  return callee.type === 'Identifier'
+    ? names[member].has(callee.name)
+    : callee.type === 'MemberExpression' &&
+        propertyName(callee) === member &&
+        callee.object.type === 'Identifier' &&
+        names.objects.has(callee.object.name);
 }

@@ -38,6 +38,8 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'no-files-matched': 'warning',
   'unsupported-file': 'warning',
   'approximate-framework-version': 'warning',
+  'empty-title': 'warning',
+  'bench-outside-benchmark-file': 'warning',
   'test-in-function': 'warning',
 };
 

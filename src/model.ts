@@ -85,6 +85,10 @@ export interface TestDeclaration extends Declaration {
   title: Title;
   /** Framework-specific names through which the test body can change its own state, such as Vitest's `context.skip`. */
   testContext: unknown;
+  /** Names the test function takes from its context, without the framework's own keys. */
+  fixtures: string[];
+  /** Uses Vitest 5's `bench` fixture. */
+  usesBench: boolean;
 }
 
 export interface SuiteDeclaration extends Declaration {
@@ -120,7 +124,9 @@ export type ApiCall =
       /** Source text of the first argument. */ argument: string | null;
       problems: Problem[];
     }
-  | { kind: 'hook'; name: keyof HookCounts; fn: FunctionNode | null; testContext: unknown }
+  | { kind: 'hook'; name: keyof HookCounts; fn: FunctionNode | null; testContext: unknown; fixtures: string[] }
+  /** Playwright `test.step()` or `test.step.skip()`. */
+  | { kind: 'step'; title: Title; isSkipped: boolean; fn: FunctionNode | null }
   | { kind: 'annotations'; items: Annotation[]; problems: Problem[] }
   /**
    * A call the runner refuses. When it is shaped like a declaration, as `describe.sequential('title', fn)` is in Vitest

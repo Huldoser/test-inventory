@@ -9,7 +9,7 @@ import {
   type FunctionNode,
 } from './ast.ts';
 import { exportName } from './frameworks/bindings.ts';
-import { problem } from './frameworks/common.ts';
+import { problem, readCount } from './frameworks/common.ts';
 import type {
   Adapter,
   ApiCall,
@@ -27,7 +27,7 @@ import type {
 } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
-import type { Annotation, HookCounts } from './types.ts';
+import type { Annotation, HookCounts, Step } from './types.ts';
 import { isScopeNode, type Values } from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
@@ -42,6 +42,8 @@ export interface Scope {
   hooks: HookCounts;
   /** Run settings from `beforeEach` hooks in the scope, which run before each test in it and win over the scope's own. */
   hookRun: RunSettings;
+  /** Fixtures of the hooks in the scope that run around each test. */
+  hookFixtures: string[];
   suite: PendingSuite | null;
 }
 
@@ -83,6 +85,10 @@ export interface PendingTest {
   comments: string[];
   /** Run settings from calls in the body, which win over everything around the test. */
   run: RunSettings;
+  expectCount: number;
+  expectedAssertions: number | null;
+  expectsAssertions: boolean;
+  steps: Step[];
   problems: Problem[];
 }
 
@@ -120,6 +126,8 @@ interface Context {
   /** The scope a hook body applies to, while in a hook. */
   hookScope: Scope | null;
   hookName: keyof HookCounts | null;
+  /** How many `test.step()` callbacks the walk is in. */
+  stepDepth: number;
   /** The framework's names for the current test or hook context, such as Vitest's `context.skip`. */
   testContext: unknown;
   /** Source text of the conditions around a call (`if`, `?:`, logical operators, `switch`) within the current body. */
@@ -235,6 +243,17 @@ export function eitherCondition(parts: string[]): string {
   return parts.map((part) => (parts.length > 1 && /\?|,/.test(part) ? `(${part})` : part)).join(' || ');
 }
 
+/** A warning for a test or describe titled with an empty string, which reports can't tell apart. */
+function emptyTitle(declaration: TestDeclaration | SuiteDeclaration, call: CallExpression): Problem[] {
+  const { title } = declaration;
+  if (title?.text !== '' || title.isDynamic) return [];
+  const what = declaration.kind === 'test' ? 'test' : 'describe';
+  return [problem('empty-title', call, `The ${what} has an empty title, so reports and filters can't tell it apart.`)];
+}
+
+/** Hooks that run around each test, whose fixtures the test uses too. */
+const EACH_HOOKS = new Set<keyof HookCounts>(['beforeEach', 'afterEach', 'aroundEach']);
+
 export function noHooks(): HookCounts {
   return { beforeAll: 0, beforeEach: 0, afterEach: 0, afterAll: 0, aroundEach: 0, aroundAll: 0 };
 }
@@ -316,6 +335,7 @@ class Walker {
       details: { tags: adapter.fileTags, annotations: [], locks: [], meta: null, run: {} },
       hooks: noHooks(),
       hookRun: {},
+      hookFixtures: [],
       suite: null,
     };
   }
@@ -326,6 +346,7 @@ class Walker {
       test: null,
       hookScope: null,
       hookName: null,
+      stepDepth: 0,
       testContext: null,
       guards: [],
       isInLoop: false,
@@ -369,6 +390,7 @@ class Walker {
   private visitNode(node: Node, context: Context): void {
     switch (node.type) {
       case 'CallExpression': {
+        if (context.test && !context.quiet) this.expectCall(node, context.test);
         const helper = this.helperCall(node, context);
         if (this.call(node, context) || this.loopCall(node, context)) return;
         this.visitChildren(node, context);
@@ -558,10 +580,24 @@ class Walker {
       case 'run':
         this.runSetting(call, api, context);
         return true;
+      case 'step':
+        // The adapters only return steps from test bodies.
+        (context.test as PendingTest).steps.push({
+          title: api.title.text,
+          hasDynamicTitle: api.title.isDynamic,
+          lineStart: this.lineOf(call),
+          depth: context.stepDepth,
+          isSkipped: api.isSkipped,
+        });
+        if (api.fn) this.visitCallback(api.fn, { ...context, stepDepth: context.stepDepth + 1 });
+        return true;
       case 'hook':
         if (context.test) return false;
         // A function with a name registers its hooks where it is called, not where it is written.
-        if (!context.hookScope && context.declaredIn === null) context.scope.hooks[api.name] += 1;
+        if (!context.hookScope && context.declaredIn === null) {
+          context.scope.hooks[api.name] += 1;
+          if (EACH_HOOKS.has(api.name)) context.scope.hookFixtures.push(...api.fixtures);
+        }
         if (api.fn) {
           this.visitCallback(api.fn, {
             ...context,
@@ -904,6 +940,24 @@ class Walker {
     }
   }
 
+  /** Counts `expect()`, `expect.soft()` and `expect.poll()`, and reads `expect.assertions(n)` and `expect.hasAssertions()`. */
+  private expectCall(call: CallExpression, test: PendingTest): void {
+    const callee = unwrap(call.callee);
+    const [root, member] =
+      callee.type === 'MemberExpression' ? [unwrap(callee.object), propertyName(callee)] : [callee, 'call'];
+    if (root.type !== 'Identifier' || root.name !== 'expect') return;
+    if (member === 'call' || member === 'soft' || member === 'poll') test.expectCount += 1;
+    if (member === 'hasAssertions') test.expectsAssertions = true;
+    const count = call.arguments.at(0);
+    if (member === 'assertions' && count && count.type !== 'SpreadElement') {
+      const file = { source: this.frame.parsed.source, values: this.frame.values, version: null };
+      const option = { node: count, resolved: this.frame.values.resolve(count, this.scopes) };
+      const problems: Problem[] = [];
+      test.expectedAssertions = readCount(file, 'expect.assertions', option, problems);
+      test.problems.push(...problems.map((item) => this.here(item)));
+    }
+  }
+
   /** Reports a problem not tied to a test, once, however many times a function with it is walked. */
   private report(found: Problem): void {
     const item = this.here(found);
@@ -1070,6 +1124,7 @@ class Walker {
   private declareTest(call: CallExpression, declaration: TestDeclaration, context: Context): void {
     if (context.quiet || this.nested(call, context)) return;
     const statement = this.statement(call);
+    const empty = emptyTitle(declaration, call);
     const test: PendingTest = {
       scope: context.scope,
       declaration,
@@ -1084,17 +1139,24 @@ class Walker {
       isInFunction: context.isInFunction,
       comments: this.commentsAbove(statement.start),
       run: {},
-      problems: declaration.problems.map((item) => this.here(item)),
+      expectCount: 0,
+      expectedAssertions: null,
+      expectsAssertions: false,
+      steps: [],
+      problems: [...declaration.problems, ...empty].map((item) => this.here(item)),
     };
     this.tests.push(test);
     if (context.declaredIn) this.declaredIn.set(test, context.declaredIn);
     this.cut(context.scope, call);
-    if (declaration.fn) {
-      this.visitCallback(declaration.fn, {
+    // A function declared in the file and passed by name runs as the test body too.
+    const body = declaration.fn ?? declaration.hashed;
+    if (body) {
+      this.visitCallback(body, {
         ...context,
         test,
         hookScope: null,
         hookName: null,
+        stepDepth: 0,
         testContext: declaration.testContext,
         guards: [],
         helper: null,
@@ -1104,7 +1166,7 @@ class Walker {
 
   private declareSuite(call: CallExpression, declaration: SuiteDeclaration, context: Context): void {
     if (context.quiet || this.nested(call, context)) return;
-    for (const item of declaration.problems) this.report(item);
+    for (const item of [...declaration.problems, ...emptyTitle(declaration, call)]) this.report(item);
     const scope: Scope = {
       kind: 'describe',
       parent: context.scope,
@@ -1114,6 +1176,7 @@ class Walker {
       details: declaration.details,
       hooks: noHooks(),
       hookRun: {},
+      hookFixtures: [],
       suite: null,
     };
     const suite: PendingSuite = {
@@ -1136,6 +1199,7 @@ class Walker {
         test: null,
         hookScope: null,
         hookName: null,
+        stepDepth: 0,
         testContext: null,
         guards: [],
         helper: null,
