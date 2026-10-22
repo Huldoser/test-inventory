@@ -952,7 +952,9 @@ class Walker {
     if (member === 'assertions' && count && count.type !== 'SpreadElement') {
       const file = { source: this.frame.parsed.source, values: this.frame.values, version: null };
       const option = { node: count, resolved: this.frame.values.resolve(count, this.scopes) };
-      test.expectedAssertions = readCount(file, 'expect.assertions', option, test.problems);
+      const problems: Problem[] = [];
+      test.expectedAssertions = readCount(file, 'expect.assertions', option, problems);
+      test.problems.push(...problems.map((item) => this.here(item)));
     }
   }
 
@@ -1146,8 +1148,10 @@ class Walker {
     this.tests.push(test);
     if (context.declaredIn) this.declaredIn.set(test, context.declaredIn);
     this.cut(context.scope, call);
-    if (declaration.fn) {
-      this.visitCallback(declaration.fn, {
+    // A function declared in the file and passed by name runs as the test body too.
+    const body = declaration.fn ?? declaration.hashed;
+    if (body) {
+      this.visitCallback(body, {
         ...context,
         test,
         hookScope: null,

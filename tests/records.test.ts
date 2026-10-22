@@ -820,6 +820,22 @@ test('rejects a bracket order without a stop', () => {});
     ]);
   });
 
+  it('reads a test function passed by name like one written in place', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const fillsOrder = async ({ orderTicket }) => {
+  await test.step('submit', async () => {});
+  expect(orderTicket.status()).toBe('filled');
+};
+test('fills a market order', fillsOrder);
+`);
+    expect(onlyTest(inventory)).toMatchObject({
+      fixtures: ['orderTicket'],
+      expectCount: 1,
+      hasEmptyBody: false,
+      steps: [{ title: 'submit', depth: 0 }],
+    });
+  });
+
   it('marks tests whose body has no statements', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 test('fills a market order', async () => {});
@@ -896,6 +912,13 @@ test('backtests a breakout', async (context) => {
     const code = `${VITEST_IMPORT}\ntest('backtests a crossover', async ({ annotate }) => {\n  await annotate('Runs on 2024 daily candles');\n});`;
     expect(onlyTest(scanVitest(code, { frameworkVersion: '3.1.0' })).annotations).toEqual([]);
     expect(onlyTest(scanVitest(code, { frameworkVersion: '3.2.0' })).annotations).toHaveLength(1);
+  });
+
+  it("keeps fixtures named like Vitest's own context keys in versions before those keys existed", () => {
+    const code = `${VITEST_IMPORT}\ntest('measures quote latency', ({ bench, annotate, signal }) => {});`;
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '3.1.0' })).fixtures).toEqual(['bench', 'annotate', 'signal']);
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '4.1.0' })).fixtures).toEqual(['bench']);
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '5.0.0' })).fixtures).toEqual([]);
   });
 
   it('marks Vitest 5 benchmarks: tests in benchmark files, and tests that use the bench fixture', () => {

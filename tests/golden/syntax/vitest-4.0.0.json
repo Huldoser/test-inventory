@@ -1940,7 +1940,9 @@
       "retryDelay": null,
       "retryCondition": null,
       "repeats": null,
-      "fixtures": [],
+      "fixtures": [
+        "bench"
+      ],
       "expectCount": 0,
       "expectedAssertions": null,
       "expectsAssertions": false,

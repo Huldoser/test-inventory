@@ -1506,3 +1506,26 @@ describe('scan and links that point nowhere', () => {
     ]);
   });
 });
+
+describe('scan reads the body of a test an imported helper declares', () => {
+  it('points a warning about expect.assertions() at the call that registers the test', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/support/orders.ts': `import { expect, test } from 'vitest';
+
+export function rejectsZeroQuantity(symbol: string, checks: number) {
+  test(\`rejects a zero quantity of \${symbol}\`, () => {
+    expect.assertions(checks);
+  });
+}
+`,
+      'tests/orders.test.ts': `import { rejectsZeroQuantity } from './support/orders';
+rejectsZeroQuantity('AAPL', count);
+`,
+    });
+    const inventory = await scanProject(root, { patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toMatchObject([
+      { code: 'unresolved-option', relativeFilePath: 'tests/orders.test.ts', lineStart: 2, columnStart: 1 },
+    ]);
+  });
+});

@@ -192,20 +192,23 @@ interface ContextNames {
   annotate: Set<string>;
 }
 
-/** Keys of the test context that Vitest provides itself, which are not fixtures. */
-const CONTEXT_KEYS = new Set([
-  'task',
-  'signal',
-  'expect',
-  'skip',
-  'annotate',
-  'onTestFailed',
-  'onTestFinished',
-  'bench',
+/** Keys of the test context that Vitest provides itself, with the version that added each; they are not fixtures. */
+const CONTEXT_KEYS = new Map<string, [number, number]>([
+  ['task', [3, 0]],
+  ['expect', [3, 0]],
+  ['skip', [3, 0]],
+  ['onTestFailed', [3, 0]],
+  ['onTestFinished', [3, 0]],
+  ['annotate', [3, 2]],
+  ['signal', [3, 2]],
+  ['bench', [5, 0]],
 ]);
 
-function fixturesOf(fn: FunctionNode | null, index: number | null): string[] {
-  return destructuredNames(fn, index).filter((name) => !CONTEXT_KEYS.has(name));
+function fixturesOf(fn: FunctionNode | null, index: number | null, version: [number, number] | null): string[] {
+  return destructuredNames(fn, index).filter((name) => {
+    const since = CONTEXT_KEYS.get(name);
+    return !since || !atLeast(version, ...since);
+  });
 }
 
 /**
@@ -673,7 +676,7 @@ export class VitestAdapter implements Adapter {
       name,
       fn,
       testContext: index === null ? null : contextNames(fn, index),
-      fixtures: fixturesOf(fn, index),
+      fixtures: fixturesOf(fn, index, this.file.version),
     };
   }
 
@@ -849,9 +852,9 @@ export class VitestAdapter implements Adapter {
       declared = {
         kind: 'test',
         ...base,
-        testContext: contextNames(fn, index),
-        fixtures: fixturesOf(fn, index),
-        usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(fn, index).includes('bench'),
+        testContext: contextNames(base.hashed, index),
+        fixtures: fixturesOf(base.hashed, index, this.file.version),
+        usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
       };
     }
     return refusal ? refused(call, refusal, context, () => declared) : declared;

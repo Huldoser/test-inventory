@@ -25,7 +25,8 @@ decides. Calls that change settings while tests run are not read either: `testIn
 `test.beforeEach(slowOnCI)`.
 
 `expectCount`, `steps` and `fixtures` read the test function only. Assertions and steps in page objects and helpers,
-and fixtures that other fixtures or automatic fixtures set up, are not in them. Vitest's `benchmark.include` in the
+and fixtures that other fixtures or automatic fixtures set up, are not in them. A test function passed by name is read
+when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read. Vitest's `benchmark.include` in the
 config can name other benchmark files than `*.bench.ts` and `*.benchmark.ts`.
 
 ## Imported values are not resolved

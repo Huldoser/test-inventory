@@ -1864,7 +1864,9 @@
       "retryDelay": null,
       "retryCondition": null,
       "repeats": null,
-      "fixtures": [],
+      "fixtures": [
+        "annotate"
+      ],
       "expectCount": 1,
       "expectedAssertions": 1,
       "expectsAssertions": false,
@@ -1932,7 +1934,9 @@
       "retryDelay": null,
       "retryCondition": null,
       "repeats": null,
-      "fixtures": [],
+      "fixtures": [
+        "bench"
+      ],
       "expectCount": 0,
       "expectedAssertions": null,
       "expectsAssertions": false,

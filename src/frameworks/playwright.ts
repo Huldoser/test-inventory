@@ -531,6 +531,7 @@ export class PlaywrightAdapter implements Adapter {
     if (titleProblem) problems.push(titleProblem);
     const line = this.file.source.line(call.start);
     const fn = isFunctionNode(last) ? last : null;
+    const hashed = fn ?? namedFunction(this.file, context.scopes, last);
     return {
       kind: 'test',
       title,
@@ -539,11 +540,11 @@ export class PlaywrightAdapter implements Adapter {
       mode: null,
       details: this.details(args.length === 3 ? args[1] : undefined, context, problems, title.text),
       fn,
-      hashed: fn ?? namedFunction(this.file, context.scopes, last),
+      hashed,
       isParameterized: false,
       caseCount: null,
       testContext: null,
-      fixtures: destructuredNames(fn, 0),
+      fixtures: destructuredNames(hashed, 0),
       usesBench: false,
       problems,
     };
