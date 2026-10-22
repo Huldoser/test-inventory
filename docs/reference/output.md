@@ -51,6 +51,7 @@ In the TypeScript declarations on this page, ids and hashes are a `Hash`, lines 
 | `framework`        | string         | `playwright` or `vitest`, as given to the scan.                                                                    |
 | `frameworkVersion` | string or null | Read from the project, or given with `--framework-version`. See [framework version](/guide/cli#framework-version). |
 | `summary`          | object         | Counts over the whole scan.                                                                                        |
+| `files`            | array          | One record per scanned file.                                                                                       |
 | `suites`           | array          | One record per describe.                                                                                           |
 | `tests`            | array          | One record per test declaration.                                                                                   |
 | `diagnostics`      | array          | What the scan could not read, or read only in part.                                                                |
@@ -97,6 +98,7 @@ the file around it.
 | `comments`                                                                      | string[]       | The comment lines directly above the test, without lint, compiler, formatter and coverage directives. By default only for tests that are not active.                                                                                                                                                                                   |
 | `locks`                                                                         | string[]       | Playwright `lock` names on the test and its describes (1.63), and from `test.describe.configure()` in the file and those describes (1.64).                                                                                                                                                                                             |
 | `meta`                                                                          | object or null | Vitest `meta`, merged from the describes and the test, literal values only.                                                                                                                                                                                                                                                            |
+| `hooks`                                                                         | object         | Every hook that runs around the test: those at the top of the file and in each describe around it, by kind. See [files](#files).                                                                                                                                                                                                       |
 | `isParameterized`                                                               | boolean        | Declared with `.each` or `.for`, or inside a `describe.each` or `describe.for`, so the runner repeats it.                                                                                                                                                                                                                              |
 | `caseCount`                                                                     | number or null | How many times the runner repeats the test: its own cases times those of each describe table around it. `null` when a table is not written out in the file, or the test is not parameterized.                                                                                                                                          |
 | `isInLoop`                                                                      | boolean        | Declared inside a loop, `forEach` or `map`.                                                                                                                                                                                                                                                                                            |
@@ -155,10 +157,50 @@ record.
 | `isParallel`, `isSerial`, `isShuffled`                                                           | boolean                | The mode set on this describe.                                                                                                                                                 |
 | `isParameterized`                                                                                | boolean                | `describe.each` or `describe.for`.                                                                                                                                             |
 | `tags`, `annotations`, `locks`, `meta`                                                           |                        | Written on this describe.                                                                                                                                                      |
+| `hooks`                                                                                          | object                 | The hooks registered directly in this describe, by kind.                                                                                                                       |
 
 ::: details TypeScript
 
 <!-- types: SuiteRecord -->
+
+:::
+
+## Files
+
+A file record is written for every scanned file, also one that has no tests, could not be read or failed to parse.
+
+| Key                            | Type   | Meaning                                                                              |
+| ------------------------------ | ------ | ------------------------------------------------------------------------------------ |
+| `relativeFilePath`, `fileName` | string | As for tests.                                                                        |
+| `hooks`                        | object | The hooks at the top level of the file, which run around every test in it.           |
+| `suiteCount`, `testCount`      | number | The describes and tests in the file, all of them also when a filter keeps only some. |
+
+`hooks` counts each kind: `beforeAll`, `beforeEach`, `afterEach` and `afterAll`, and Vitest's `aroundEach` and
+`aroundAll` (4.1). A hook in a helper function with a name counts where the helper is called, and not at all when
+it is never called; one in a function without a name, such as a callback, counts where it is written. Vitest's `onTestFailed` and `onTestFinished` run inside a test, so they are not counted.
+A test's `hooks` adds up those of its file and of each describe around it. In the web app, the price alerts open
+their page in a `beforeEach`:
+
+<!-- output: trading-web -->
+
+```json
+{
+  "id": "006bcf2289191aef",
+  "fullName": "price alerts > notifies when the price crosses above the alert",
+  "hooks": {
+    "beforeAll": 0,
+    "beforeEach": 1,
+    "afterEach": 0,
+    "afterAll": 0,
+    "aroundEach": 0,
+    "aroundAll": 0
+  }
+}
+```
+
+::: details TypeScript
+
+<!-- types: FileRecord, HookCounts -->
 
 :::
 
@@ -200,8 +242,8 @@ of tests with at least one annotation of that type. Both are sorted by name.
 ## JSON Lines
 
 With `--format jsonl` the same records are written one per line, each with a `type` key added in front: first an
-`inventory` line with the keys of the top level, then a `suite`, `test` or `diagnostic` line for each record, in the
-order of the JSON output, and a `summary` line last. Without its `type`, a line has exactly the keys of the record
+`inventory` line with the keys of the top level, then a `file`, `suite`, `test` or `diagnostic` line for each record,
+in the order of the JSON output, and a `summary` line last. Without its `type`, a line has exactly the keys of the record
 described above, and filters and `--fields` work the same way.
 
 <!-- types: InventoryLine -->

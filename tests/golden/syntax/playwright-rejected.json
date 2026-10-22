@@ -31,6 +31,22 @@
     },
     "annotationCounts": {}
   },
+  "files": [
+    {
+      "relativeFilePath": "tests/playwright-rejected.spec.ts",
+      "fileName": "playwright-rejected.spec.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 2,
+      "testCount": 5
+    }
+  ],
   "suites": [
     {
       "id": "33143feb6a9d2147",
@@ -67,7 +83,15 @@
       ],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "16a5d7a8c63ba8ab",
@@ -102,7 +126,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     }
   ],
   "tests": [
@@ -148,6 +180,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -196,6 +236,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -240,6 +288,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -284,6 +340,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -330,6 +394,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

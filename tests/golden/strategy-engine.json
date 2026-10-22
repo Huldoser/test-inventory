@@ -31,6 +31,302 @@
     },
     "annotationCounts": {}
   },
+  "files": [
+    {
+      "relativeFilePath": "src/indicators/rsi.ts",
+      "fileName": "rsi.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/indicators/sma.ts",
+      "fileName": "sma.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/market-data/client.ts",
+      "fileName": "client.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/orders/order.ts",
+      "fileName": "order.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/orders/validate-order.ts",
+      "fileName": "validate-order.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/pnl/fees.ts",
+      "fileName": "fees.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/pnl/format.ts",
+      "fileName": "format.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 4
+    },
+    {
+      "relativeFilePath": "src/pnl/pnl.ts",
+      "fileName": "pnl.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/risk/position-size.ts",
+      "fileName": "position-size.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/risk/stop-loss.ts",
+      "fileName": "stop-loss.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "src/strategies/crossover.ts",
+      "fileName": "crossover.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 0,
+      "testCount": 0
+    },
+    {
+      "relativeFilePath": "tests/indicators/rsi.test.ts",
+      "fileName": "rsi.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 4
+    },
+    {
+      "relativeFilePath": "tests/indicators/sma.test.ts",
+      "fileName": "sma.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 3
+    },
+    {
+      "relativeFilePath": "tests/orders/order.test-d.ts",
+      "fileName": "order.test-d.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 3
+    },
+    {
+      "relativeFilePath": "tests/orders/short-selling.test.ts",
+      "fileName": "short-selling.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 3
+    },
+    {
+      "relativeFilePath": "tests/orders/validate-order.test.ts",
+      "fileName": "validate-order.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 4
+    },
+    {
+      "relativeFilePath": "tests/pnl/fees.test.ts",
+      "fileName": "fees.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 4
+    },
+    {
+      "relativeFilePath": "tests/pnl/pnl.test.ts",
+      "fileName": "pnl.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 2,
+      "testCount": 5
+    },
+    {
+      "relativeFilePath": "tests/risk/position-size.test.ts",
+      "fileName": "position-size.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 5
+    },
+    {
+      "relativeFilePath": "tests/risk/stop-loss.test.ts",
+      "fileName": "stop-loss.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 3,
+      "testCount": 5
+    },
+    {
+      "relativeFilePath": "tests/strategies/crossover.test.ts",
+      "fileName": "crossover.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 2,
+      "testCount": 7
+    }
+  ],
   "suites": [
     {
       "id": "dadb431e3b7b1d8f",
@@ -65,7 +361,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "4c863b7e1a059fec",
@@ -100,7 +404,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "4ca30bee3332b6f7",
@@ -135,7 +447,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "53143b15bbf46fc8",
@@ -170,7 +490,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "4dc1734236f79bb3",
@@ -205,7 +533,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "3ab03cf22f84049f",
@@ -240,7 +576,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "5cf607bff5808fdf",
@@ -277,7 +621,15 @@
       ],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "7e56622325817e07",
@@ -312,7 +664,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "87d101ab9c26658b",
@@ -347,7 +707,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "daf1879797f1f2c6",
@@ -382,7 +750,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "1e43b42e93dca58a",
@@ -417,7 +793,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "3ebcfa2b570558ac",
@@ -453,7 +837,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "b4d0369c26bf5fd1",
@@ -489,7 +881,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "66cb382e5d7fe783",
@@ -524,7 +924,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "4a5938901041ce91",
@@ -559,7 +967,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     }
   ],
   "tests": [
@@ -603,6 +1019,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -649,6 +1073,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -695,6 +1127,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -739,6 +1179,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -785,6 +1233,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -831,6 +1287,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -877,6 +1341,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -923,6 +1395,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": true,
       "caseCount": 2,
       "isInLoop": false,
@@ -969,6 +1449,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": true,
       "caseCount": 4,
       "isInLoop": false,
@@ -1015,6 +1503,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1061,6 +1557,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1107,6 +1611,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1153,6 +1665,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1199,6 +1719,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1245,6 +1773,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1291,6 +1827,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1337,6 +1881,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1383,6 +1935,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": true,
       "caseCount": 4,
       "isInLoop": false,
@@ -1429,6 +1989,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1475,6 +2043,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1521,6 +2097,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1569,6 +2153,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1617,6 +2209,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1665,6 +2265,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1715,6 +2323,14 @@
       ],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1761,6 +2377,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1807,6 +2431,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1853,6 +2485,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1899,6 +2539,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1945,6 +2593,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1991,6 +2647,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2037,6 +2701,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2083,6 +2755,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2129,6 +2809,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2175,6 +2863,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2222,6 +2918,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2269,6 +2973,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2316,6 +3028,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2363,6 +3083,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2409,6 +3137,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": true,
       "caseCount": 3,
       "isInLoop": false,
@@ -2455,6 +3191,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2501,6 +3245,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2547,6 +3299,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2593,6 +3353,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2639,6 +3407,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2685,6 +3461,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -2731,6 +3515,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

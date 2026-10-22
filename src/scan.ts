@@ -17,7 +17,7 @@ import {
 } from './options.ts';
 import type { FileRecords } from './records.ts';
 import { moduleResolver } from './resolve.ts';
-import { scanFile } from './scan-file.ts';
+import { noRecords, scanFile } from './scan-file.ts';
 import type { Diagnostic, Framework, Inventory } from './types.ts';
 import { globalsCheck } from './vitest-config.ts';
 
@@ -116,8 +116,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       code = await readFile(absolutePath, 'utf8');
     } catch (error) {
       results.push({
-        suites: [],
-        tests: [],
+        ...noRecords(relativeFilePath),
         diagnostics: [
           fileDiagnostic('read-error', relativeFilePath, `The file could not be read: ${readFailure(error)}.`),
         ],

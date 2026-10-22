@@ -57,6 +57,7 @@ async function lines(inventory: Parameters<typeof writeInventoryLines>[0]): Prom
 describe('writeInventoryLines', () => {
   const ajv = new Ajv({ allErrors: true }).addSchema(strictSchema);
   const DEFINITIONS: Record<string, string> = {
+    file: 'FileRecord',
     suite: 'SuiteRecord',
     test: 'TestRecord',
     diagnostic: 'Diagnostic',
@@ -68,6 +69,7 @@ describe('writeInventoryLines', () => {
     const parsed = (await lines(inventory)).map((line) => JSON.parse(line) as InventoryLine);
     expect(parsed.map((line) => line.type)).toEqual([
       'inventory',
+      ...inventory.files.map(() => 'file'),
       ...inventory.suites.map(() => 'suite'),
       ...inventory.tests.map(() => 'test'),
       ...inventory.diagnostics.map(() => 'diagnostic'),
@@ -80,6 +82,7 @@ describe('writeInventoryLines', () => {
     expect({
       ...records('inventory')[0],
       summary: records('summary')[0],
+      files: records('file'),
       suites: records('suite'),
       tests: records('test'),
       diagnostics: records('diagnostic'),
@@ -96,7 +99,9 @@ describe('writeInventoryLines', () => {
 
   it('writes test lines with only the picked keys', async () => {
     const inventory = readGolden('trading-web');
-    const line = (await lines(pickTestFields(inventory, ['fullName'])))[1 + inventory.suites.length];
+    const line = (await lines(pickTestFields(inventory, ['fullName'])))[
+      1 + inventory.files.length + inventory.suites.length
+    ];
     expect(JSON.parse(line)).toStrictEqual({
       type: 'test',
       id: inventory.tests[0].id,
@@ -113,6 +118,6 @@ describe('writeInventoryLines', () => {
       return Promise.resolve();
     });
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.join('').split('\n')).toHaveLength(large.tests.length + large.suites.length + 3);
+    expect(chunks.join('').split('\n')).toHaveLength(large.files.length + large.suites.length + large.tests.length + 3);
   });
 });

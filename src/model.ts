@@ -1,6 +1,6 @@
 import type { CallExpression, Expression, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
-import type { Annotation, DiagnosticCode, DiagnosticLevel, MetaValue } from './types.ts';
+import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue } from './types.ts';
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
 
@@ -102,7 +102,7 @@ export type ApiCall =
     }
   /** `test.describe.configure()`: a mode, locks (Playwright 1.64), or both. */
   | { kind: 'configure'; mode: Mode | null; locks: string[]; problems: Problem[] }
-  | { kind: 'hook'; fn: FunctionNode | null; testContext: unknown }
+  | { kind: 'hook'; name: keyof HookCounts; fn: FunctionNode | null; testContext: unknown }
   | { kind: 'annotations'; items: Annotation[]; problems: Problem[] }
   /**
    * A call the runner refuses. When it is shaped like a declaration, as `describe.sequential('title', fn)` is in Vitest

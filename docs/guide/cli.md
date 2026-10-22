@@ -57,10 +57,11 @@ Each test then has only `id` and the keys asked for:
 }
 ```
 
-The rest of the output describes the tests that were kept: `suites` has the describes around them, `diagnostics`
-their problems and the ones that are not about a single test, and `summary` counts them. Diagnostics from a file whose
-tests were all left out are dropped too, but an error in a file without tests stays, since tests may be missing from
-the answer. `summary.fileCount` is still the number of files scanned.
+The rest of the output describes the tests that were kept: `files` has their files, `suites` the describes around
+them, `diagnostics` their problems and the ones that are not about a single test, and `summary` counts them. Files
+and diagnostics whose tests were all left out are dropped too, but a file without tests stays with its errors, since
+tests may be missing from the answer. `summary.fileCount` is still the number of files scanned, and each file's
+`suiteCount` and `testCount` still count the whole file.
 
 Output written with `--fields` leaves keys out of the test records, so it no longer matches the
 [JSON Schema](/reference/output#versioning), which requires every key. Without `--fields`, filtered output matches it.

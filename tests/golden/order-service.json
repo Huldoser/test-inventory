@@ -31,6 +31,64 @@
     },
     "annotationCounts": {}
   },
+  "files": [
+    {
+      "relativeFilePath": "tests/broker/fill-events.test.ts",
+      "fileName": "fill-events.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 2,
+      "testCount": 3
+    },
+    {
+      "relativeFilePath": "tests/repository/orders-repository.test.ts",
+      "fileName": "orders-repository.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 2
+    },
+    {
+      "relativeFilePath": "tests/risk/daily-loss-limit.test.ts",
+      "fileName": "daily-loss-limit.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 3
+    },
+    {
+      "relativeFilePath": "tests/routes/orders.test.ts",
+      "fileName": "orders.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 2,
+      "testCount": 6
+    }
+  ],
   "suites": [
     {
       "id": "e5d3fd6171c3d3c6",
@@ -65,7 +123,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "01368de13c737b6f",
@@ -100,7 +166,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "ce489a36e28daa91",
@@ -137,7 +211,15 @@
       ],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 1,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 1,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "a2a7d7f0713569f9",
@@ -172,7 +254,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "21e05ad9554be115",
@@ -207,7 +297,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "8e34b4d56c3217af",
@@ -242,7 +340,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     }
   ],
   "tests": [
@@ -286,6 +392,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": true,
       "caseCount": 5,
       "isInLoop": false,
@@ -332,6 +446,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -380,6 +502,14 @@
       ],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -428,6 +558,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 1,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 1,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -476,6 +614,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 1,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 1,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -522,6 +668,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -568,6 +722,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -614,6 +776,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -660,6 +830,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -706,6 +884,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": true,
       "caseCount": 3,
       "isInLoop": false,
@@ -752,6 +938,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -798,6 +992,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -844,6 +1046,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -890,6 +1100,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

@@ -1,7 +1,14 @@
 import type { FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
-import type { DeclaredAt as Written, Extraction, PendingSuite, PendingTest, Scope } from './extract.ts';
+import {
+  noHooks,
+  type DeclaredAt as Written,
+  type Extraction,
+  type PendingSuite,
+  type PendingTest,
+  type Scope,
+} from './extract.ts';
 import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Problem, Span, StateSetting } from './model.ts';
@@ -9,7 +16,9 @@ import type { ParsedFile } from './parse.ts';
 import type {
   DeclaredAt,
   Diagnostic,
+  FileRecord,
   Framework,
+  HookCounts,
   MetaValue,
   StateSource,
   SuiteRecord,
@@ -21,6 +30,7 @@ import type {
 export type CommentsMode = 'all' | 'non-active' | 'none';
 
 export interface FileRecords {
+  file: FileRecord;
   suites: SuiteRecord[];
   tests: TestRecord[];
   diagnostics: Diagnostic[];
@@ -72,6 +82,29 @@ function bodyNodes(fn: FunctionNode): Node[] {
   return body.type === 'BlockStatement' ? body.body : [body];
 }
 
+function addHooks(scopes: Scope[]): HookCounts {
+  const total = noHooks();
+  for (const scope of scopes) {
+    for (const name of Object.keys(total) as (keyof HookCounts)[]) total[name] += scope.hooks[name];
+  }
+  return total;
+}
+
+/** The record of a scanned file, from its records and the hooks at its top level. */
+export function fileRecord(
+  relativeFilePath: string,
+  hooks: HookCounts,
+  records: Pick<FileRecords, 'suites' | 'tests'>,
+): FileRecord {
+  return {
+    relativeFilePath,
+    fileName: relativeFilePath.slice(relativeFilePath.lastIndexOf('/') + 1),
+    hooks,
+    suiteCount: records.suites.length,
+    testCount: records.tests.length,
+  };
+}
+
 /** The number of times the runner repeats a test: its own cases times those of each describe table around it. */
 function repetitions(counts: (number | null)[]): number | null {
   let product: number | null = 1;
@@ -116,7 +149,12 @@ class RecordBuilder {
     const diagnostics = this.diagnostics.sort(
       (a, b) => Number(a.lineStart) - Number(b.lineStart) || Number(a.columnStart) - Number(b.columnStart),
     );
-    return { suites, tests, diagnostics };
+    return {
+      file: fileRecord(this.options.relativeFilePath, extraction.hooks, { suites, tests }),
+      suites,
+      tests,
+      diagnostics,
+    };
   }
 
   private diagnostic(item: Problem, testId: string | null = null): Diagnostic {
@@ -186,6 +224,7 @@ class RecordBuilder {
       annotations: scope.details.annotations,
       locks: unique(scope.details.locks),
       meta: scope.details.meta,
+      hooks: { ...scope.hooks },
     };
   }
 
@@ -294,6 +333,7 @@ class RecordBuilder {
         ...declaration.details.locks,
       ]),
       meta: Object.keys(meta).length > 0 ? meta : null,
+      hooks: addHooks(scopes),
       isParameterized: tables.length > 0,
       caseCount: tables.length > 0 ? repetitions(tables.map((item) => item.caseCount)) : null,
       isInLoop: pending.isInLoop,

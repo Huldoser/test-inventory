@@ -29,6 +29,50 @@
     "tagCounts": {},
     "annotationCounts": {}
   },
+  "files": [
+    {
+      "relativeFilePath": "packages/broker-gateway/src/rate-limiter.test.ts",
+      "fileName": "rate-limiter.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 2
+    },
+    {
+      "relativeFilePath": "packages/market-data/src/quote-cache.test.ts",
+      "fileName": "quote-cache.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 3
+    },
+    {
+      "relativeFilePath": "packages/risk/src/exposure.test.ts",
+      "fileName": "exposure.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 1,
+      "testCount": 3
+    }
+  ],
   "suites": [
     {
       "id": "7524dbe5724cedfc",
@@ -63,7 +107,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "693edd5e37bc0188",
@@ -98,7 +150,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "e16b86adbe79d8b6",
@@ -133,7 +193,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     }
   ],
   "tests": [
@@ -177,6 +245,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -223,6 +299,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 1,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -269,6 +353,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -315,6 +407,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -361,6 +461,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 1,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -407,6 +515,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -453,6 +569,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -499,6 +623,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

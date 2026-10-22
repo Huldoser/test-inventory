@@ -1,12 +1,12 @@
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
-import { extract, type Frame } from './extract.ts';
+import { extract, noHooks, type Frame } from './extract.ts';
 import { parseModule } from './frameworks/bindings.ts';
 import { problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
-import { buildRecords, type CommentsMode, type FileRecords } from './records.ts';
+import { buildRecords, fileRecord, type CommentsMode, type FileRecords } from './records.ts';
 import { snippet } from './source.ts';
 import type { Framework } from './types.ts';
 import { Values } from './values.ts';
@@ -42,6 +42,11 @@ function frame(
   return { parsed, adapter, values: file.values, readModule, relativeFilePath };
 }
 
+/** The records of a file the scan read no tests from. */
+export function noRecords(relativeFilePath: string): Omit<FileRecords, 'diagnostics'> {
+  return { file: fileRecord(relativeFilePath, noHooks(), { suites: [], tests: [] }), suites: [], tests: [] };
+}
+
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
 export function scanFile(code: string, relativeFilePath: string, settings: FileSettings): FileResult {
   try {
@@ -62,7 +67,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
         ),
       );
       // The parser keeps what it could read after some errors; after others it returns nothing.
-      if (parsed.program.body.length === 0) return { suites: [], tests: [], diagnostics, usesGlobals: false };
+      if (parsed.program.body.length === 0) return { ...noRecords(relativeFilePath), diagnostics, usesGlobals: false };
     }
     const main = frame(parsed, relativeFilePath, settings, settings.readModule);
     const extraction = extract(main, (module: ModuleSource) => {
@@ -84,8 +89,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
     const raw = error instanceof Error ? error.message : String(error);
     const message = settings.root === null ? raw : raw.replaceAll(settings.root, '.');
     return {
-      suites: [],
-      tests: [],
+      ...noRecords(relativeFilePath),
       diagnostics: [
         fileDiagnostic('internal-error', relativeFilePath, `Reading the file failed unexpectedly: ${message}`),
       ],
