@@ -73,7 +73,9 @@ export type DiagnosticCode =
   | 'no-files-matched'
   | 'unsupported-file'
   | 'approximate-framework-version'
-  | 'test-in-function';
+  | 'test-in-function'
+  | 'empty-title'
+  | 'bench-outside-benchmark-file';
 
 export type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
@@ -135,6 +137,7 @@ export interface Summary {
   inConditionCount: Count;
   inFunctionCount: Count;
   typeTestCount: Count;
+  benchmarkCount: Count;
   diagnosticCount: Count;
   /** Tests per tag. */
   tagCounts: Record<string, Count>;
@@ -332,6 +335,23 @@ export interface TestRecord {
   retryCondition: string | null;
   /** Vitest only: how many times the runner runs the test again after the first run. */
   repeats: Count | null;
+  /**
+   * Names the test function takes from its context, then those of the `beforeEach`, `afterEach` and `aroundEach` hooks
+   * around it, once each. Vitest's own context keys, such as `expect` and `task`, are left out.
+   */
+  fixtures: string[];
+  /** Calls of `expect()`, `expect.soft()` and `expect.poll()` written in the body, each counted once. */
+  expectCount: Count;
+  /** Vitest `expect.assertions(n)` in the body. */
+  expectedAssertions: Count | null;
+  /** Vitest `expect.hasAssertions()` in the body. */
+  expectsAssertions: boolean;
+  /** The test function has no statements, comments aside. */
+  hasEmptyBody: boolean;
+  /** Playwright `test.step()` and `test.step.skip()` calls in the body, in source order. */
+  steps: Step[];
+  /** Vitest 5 benchmark: in a benchmark file, or using the `bench` fixture. Plain `vitest` doesn't run it. */
+  isBenchmark: boolean;
   /** Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it. */
   isParameterized: boolean;
   /**
@@ -345,6 +365,18 @@ export interface TestRecord {
   isInCondition: boolean;
   /** Declared inside a plain function. */
   isInFunction: boolean;
+}
+
+/** @inline */
+export interface Step {
+  /** The title, or its source text when it can't be worked out. */
+  title: string;
+  hasDynamicTitle: boolean;
+  lineStart: Position;
+  /** 0 for a step directly in the test, 1 for a step inside it, and so on. */
+  depth: Count;
+  /** Declared with `test.step.skip()`. */
+  isSkipped: boolean;
 }
 
 /** @inline */

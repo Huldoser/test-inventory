@@ -1,7 +1,7 @@
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
 import { parseModule } from './frameworks/bindings.ts';
-import { problem, type FileContext } from './frameworks/common.ts';
+import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
@@ -26,6 +26,7 @@ export interface FileResult extends FileRecords {
 }
 
 const TYPE_TEST = /\.(test|spec)-d\.[cm]?[jt]sx?$/;
+const BENCHMARK = /\.(bench|benchmark)\.[cm]?[jt]sx?$/;
 
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */
 function frame(
@@ -79,6 +80,9 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       framework: settings.framework,
       comments: settings.comments,
       isTypeTest: settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath),
+      // Vitest 5's default `benchmark.include`.
+      isBenchmarkFile:
+        settings.framework === 'vitest' && atLeast(settings.version, 5, 0) && BENCHMARK.test(relativeFilePath),
     });
     return {
       ...records,

@@ -104,6 +104,12 @@ the file around it.
 | `retries`                                                                       | number or null                 | How many times the runner retries the test when it fails. `null` when the file sets none.                                                                                                                                                                                                                                              |
 | `retryDelay`, `retryCondition`                                                  | number or null, string or null | Vitest's `retry` object (4.1): the milliseconds between retries, and the source text of its `condition`.                                                                                                                                                                                                                               |
 | `repeats`                                                                       | number or null                 | Vitest `repeats`: how many times the runner runs the test again after the first run.                                                                                                                                                                                                                                                   |
+| `fixtures`                                                                      | string[]                       | The names the test function takes from its context, then those of the `beforeEach`, `afterEach` and `aroundEach` hooks around it, once each. Vitest's own context keys, such as `expect`, `task` and `annotate`, are left out. See [what the body does](#what-the-body-does).                                                          |
+| `expectCount`                                                                   | number                         | The `expect()`, `expect.soft()` and `expect.poll()` calls written in the body.                                                                                                                                                                                                                                                         |
+| `expectedAssertions`, `expectsAssertions`                                       | number or null, boolean        | Vitest's `expect.assertions(n)` and `expect.hasAssertions()` in the body.                                                                                                                                                                                                                                                              |
+| `hasEmptyBody`                                                                  | boolean                        | The test function has no statements, comments aside.                                                                                                                                                                                                                                                                                   |
+| `steps`                                                                         | object[]                       | `{ title, hasDynamicTitle, lineStart, depth, isSkipped }` for each Playwright `test.step()` and `test.step.skip()` in the body, in source order; `depth` is 0 for a step directly in the test.                                                                                                                                         |
+| `isBenchmark`                                                                   | boolean                        | A Vitest 5 benchmark: in a file such as `*.bench.ts`, or using the `bench` fixture. Plain `vitest` doesn't run it; `vitest bench` does.                                                                                                                                                                                                |
 | `isParameterized`                                                               | boolean                        | Declared with `.each` or `.for`, or inside a `describe.each` or `describe.for`, so the runner repeats it.                                                                                                                                                                                                                              |
 | `caseCount`                                                                     | number or null                 | How many times the runner repeats the test: its own cases times those of each describe table around it. `null` when a table is not written out in the file, or the test is not parameterized.                                                                                                                                          |
 | `isInLoop`                                                                      | boolean                        | Declared inside a loop, `forEach` or `map`.                                                                                                                                                                                                                                                                                            |
@@ -112,7 +118,7 @@ the file around it.
 
 ::: details TypeScript
 
-<!-- types: TestRecord, TestState, StateSource, Annotation, MetaValue -->
+<!-- types: TestRecord, TestState, StateSource, Annotation, Step, MetaValue -->
 
 :::
 
@@ -191,6 +197,44 @@ test.describe('live price stream', () => {
 }
 ```
 
+### What the body does
+
+These keys come from the test function itself, not from the functions it calls: an `expect()` or a `test.step()` in a
+page object or a helper isn't counted. Each call is counted once as written, also inside a loop. Vitest's
+`annotate(message, type?)` from the test context (3.2) adds an annotation, of type `notice` when no type is given.
+
+In the web app, the order lifecycle enters and confirms the order in two steps:
+
+<!-- code: trading-web/tests/orders/order-lifecycle.spec.ts -->
+
+```ts
+test('places a limit order for 100 NVDA', async ({ orderTicket, blotter }) => {
+  await test.step('enter the order', async () => {
+    await orderTicket.open('NVDA');
+    await orderTicket.buy({ quantity: 100, limitPrice: 118 });
+  });
+  await test.step('confirm it', async () => {
+    await orderTicket.confirm();
+  });
+  await expect(blotter.status('NVDA')).toHaveText('Working');
+});
+```
+
+<!-- output: trading-web -->
+
+```json
+{
+  "fullName": "order lifecycle > places a limit order for 100 NVDA",
+  "fixtures": ["orderTicket", "blotter"],
+  "expectCount": 1,
+  "hasEmptyBody": false,
+  "steps": [
+    { "title": "enter the order", "hasDynamicTitle": false, "lineStart": 8, "depth": 0, "isSkipped": false },
+    { "title": "confirm it", "hasDynamicTitle": false, "lineStart": 12, "depth": 0, "isSkipped": false }
+  ]
+}
+```
+
 ## Suites
 
 A suite record describes what is written on the describe itself. Values a test inherits from it are in the test
@@ -262,7 +306,8 @@ Each count uses the same definition as the matching key: `skipCount` counts test
 
 `fileCount`, `suiteCount`, `testCount`, `activeCount`, `skipCount`, `fixmeCount`, `todoCount`,
 `expectedToFailCount`, `notLoadedCount`, `onlyCount`, `conditionalCount`, `parallelCount`, `serialCount`,
-`parameterizedCount`, `inLoopCount`, `inConditionCount`, `inFunctionCount`, `typeTestCount`, `diagnosticCount`.
+`parameterizedCount`, `inLoopCount`, `inConditionCount`, `inFunctionCount`, `typeTestCount`, `benchmarkCount`,
+`diagnosticCount`.
 
 `tagCounts` maps each tag to the number of tests with it. `annotationCounts` maps each annotation type to the number
 of tests with at least one annotation of that type. Both are sorted by name.

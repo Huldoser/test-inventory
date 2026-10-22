@@ -74,3 +74,15 @@ describe('broker session', { timeout: 20_000, retry: { count: 3, delay: 500, con
   test('matches fills to orders under load', { repeats: 50 }, () => {});
   test('replays missed fills after a reconnect', () => {}, 60_000);
 });
+
+describe('order book', () => {
+  test('matches a market order against the best ask', async ({ annotate, expect }) => {
+    expect.assertions(1);
+    await annotate('Book seeded with 3 ask levels', 'data');
+    expect(1).toBe(1);
+  });
+  test('matches orders under load', async ({ bench }) => {
+    await bench('match 10,000 orders', () => {}).run();
+  });
+  test('', () => {});
+});

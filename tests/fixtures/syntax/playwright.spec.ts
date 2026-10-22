@@ -129,3 +129,11 @@ test.describe('order book depth', () => {
     test.setTimeout(120_000);
   });
 });
+
+test('places a bracket order', async ({ orderTicket }) => {
+  await test.step('enter the entry order', async () => {
+    await test.step('pick the symbol', async () => {});
+  });
+  await test.step.skip('attach a note', async () => {});
+  expect.soft(orderTicket).toBeTruthy();
+});

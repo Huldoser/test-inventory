@@ -766,6 +766,179 @@ test('reconnects after a restart', { retry: { delay: 250 } }, () => {});
   });
 });
 
+describe('what the test body does', () => {
+  it("lists the test's fixtures, then those of the beforeEach and afterEach hooks around it, once each", () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.beforeEach(async ({ page, account }) => {});
+test.beforeAll(async ({ browser }) => {});
+test.describe('orders', () => {
+  test.afterEach(async ({ orderTicket, page }) => {});
+  test('fills a market order', async ({ orderTicket, quotes }) => {});
+  test('shows the order book', async () => {});
+});
+`);
+    expect(testNamed(inventory, 'fills a market order').fixtures).toEqual(['orderTicket', 'quotes', 'page', 'account']);
+    expect(testNamed(inventory, 'shows the order book').fixtures).toEqual(['page', 'account', 'orderTicket']);
+  });
+
+  it("leaves Vitest's own context keys out of the fixtures, and finds the context after a .for case", () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+const brokerTest = test.extend({ broker: async ({}, use) => use({}) });
+brokerTest.beforeEach(({ broker, task }) => {});
+brokerTest('reconnects after a drop', ({ broker, expect, skip, annotate, task, signal, onTestFinished, ...rest }) => {});
+brokerTest.for(['AAPL', 'MSFT'])('quotes %s', (symbol, { broker }) => {});
+`);
+    expect(inventory.tests.map((test) => test.fixtures)).toEqual([['broker'], ['broker']]);
+  });
+
+  it('counts the expect calls written in the body, and reads expect.assertions() and expect.hasAssertions()', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { expectTypeOf } from 'vitest';
+function expectFilled(order) {
+  expect(order.status).toBe('filled');
+}
+test('fills a bracket order', async () => {
+  expect.assertions(3);
+  expect(1).toBe(1);
+  expect.soft(2).toBe(2);
+  for (const leg of ['take profit', 'stop loss']) {
+    expect(leg).toBeTruthy();
+  }
+  await expect.poll(() => 'filled').toBe('filled');
+  expectTypeOf(1).toBeNumber();
+  expectFilled({ status: 'filled' });
+});
+test('cancels a bracket order', () => {
+  expect.hasAssertions();
+});
+test('rejects a bracket order without a stop', () => {});
+`);
+    expect(inventory.tests.map((test) => [test.expectCount, test.expectedAssertions, test.expectsAssertions])).toEqual([
+      [4, 3, false],
+      [0, null, true],
+      [0, null, false],
+    ]);
+  });
+
+  it('marks tests whose body has no statements', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test('fills a market order', async () => {});
+test('fills a limit order', async () => {
+  // TODO: TRD-512
+});
+test('fills a stop order', async ({ orderTicket }) => orderTicket.buy());
+`);
+    expect(inventory.tests.map((test) => test.hasEmptyBody)).toEqual([true, true, false]);
+  });
+
+  it('lists the test.step() calls in the body, nested ones with a depth', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const SYMBOL = 'AAPL';
+test('places a bracket order', async ({ orderTicket }) => {
+  await test.step('open the ticket', async () => {});
+  await test.step(\`enter \${SYMBOL}\`, async () => {
+    await test.step('pick the stop', async () => {});
+  });
+  await test.step.skip('attach a note', async () => {});
+  await test.step(orderTicket.title(), async () => {});
+  await test.step('confirm the order', confirmOrder);
+});
+`);
+    expect(onlyTest(inventory).steps).toEqual([
+      { title: 'open the ticket', hasDynamicTitle: false, lineStart: 4, depth: 0, isSkipped: false },
+      { title: 'enter AAPL', hasDynamicTitle: false, lineStart: 5, depth: 0, isSkipped: false },
+      { title: 'pick the stop', hasDynamicTitle: false, lineStart: 6, depth: 1, isSkipped: false },
+      { title: 'attach a note', hasDynamicTitle: false, lineStart: 8, depth: 0, isSkipped: true },
+      { title: 'orderTicket.title()', hasDynamicTitle: true, lineStart: 9, depth: 0, isSkipped: false },
+      { title: 'confirm the order', hasDynamicTitle: false, lineStart: 10, depth: 0, isSkipped: false },
+    ]);
+  });
+
+  it("adds Vitest's annotate() calls to the annotations, as a notice when no type is given", () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { BACKTEST_WINDOW, BROKER_NOTE, NOTES } from './windows';
+test('backtests a crossover', async ({ annotate }) => {
+  await annotate('Runs on 2024 daily candles');
+  await annotate('Uses the paper broker', 'broker');
+  await annotate('Writes the equity curve', { path: 'reports/equity.csv' });
+  await annotate(BACKTEST_WINDOW);
+  await annotate('Uses the live broker', BROKER_NOTE);
+  await annotate(...NOTES);
+});
+test('backtests a breakout', async (context) => {
+  await context.annotate('Runs on 2023 daily candles', 'window');
+});
+`);
+    expect(inventory.tests.map((test) => test.annotations.map(({ type, description }) => [type, description]))).toEqual(
+      [
+        [
+          ['notice', 'Runs on 2024 daily candles'],
+          ['broker', 'Uses the paper broker'],
+          ['notice', 'Writes the equity curve'],
+        ],
+        [['window', 'Runs on 2023 daily candles']],
+      ],
+    );
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.message])).toEqual([
+      [
+        'unresolved-annotation',
+        "Annotation annotate(BACKTEST_WINDOW) comes from './windows' and could not be worked out; it is missing.",
+      ],
+      [
+        'unresolved-annotation',
+        "Annotation annotate('Uses the live broker', BROKER_NOTE) comes from './windows' and could not be worked out; it is missing.",
+      ],
+      ['unresolved-annotation', 'Annotation annotate(...NOTES) could not be worked out; it is missing.'],
+    ]);
+  });
+
+  it('reads annotate() from Vitest 3.2, where the test context gained it', () => {
+    const code = `${VITEST_IMPORT}\ntest('backtests a crossover', async ({ annotate }) => {\n  await annotate('Runs on 2024 daily candles');\n});`;
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '3.1.0' })).annotations).toEqual([]);
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '3.2.0' })).annotations).toHaveLength(1);
+  });
+
+  it('marks Vitest 5 benchmarks: tests in benchmark files, and tests that use the bench fixture', () => {
+    const code = `${VITEST_IMPORT}
+test('matches orders in the book', async ({ bench }) => {
+  await bench('match', () => {}).run();
+});
+test('parses a quote', () => {});
+`;
+    const benchFile = scanVitest(code, { relativeFilePath: 'tests/order-book.bench.ts' });
+    expect(benchFile.tests.map((test) => test.isBenchmark)).toEqual([true, true]);
+    expect(benchFile.summary.benchmarkCount).toBe(2);
+    expect(benchFile.diagnostics).toEqual([]);
+
+    const testFile = scanVitest(code);
+    expect(testFile.tests.map((test) => test.isBenchmark)).toEqual([true, false]);
+    expect(testFile.diagnostics).toMatchObject([
+      {
+        code: 'bench-outside-benchmark-file',
+        level: 'warning',
+        message:
+          'The test uses the bench fixture, which Vitest only provides in benchmark files such as *.bench.ts; elsewhere the test fails.',
+        testId: testFile.tests[0].id,
+      },
+    ]);
+
+    const older = scanVitest(code, { relativeFilePath: 'tests/order-book.bench.ts', frameworkVersion: '4.1.0' });
+    expect(older.tests.map((test) => test.isBenchmark)).toEqual([false, false]);
+  });
+
+  it('warns about an empty title', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+describe('', () => {
+  test('', () => {});
+});
+`);
+    expect(inventory.diagnostics).toMatchObject([
+      { code: 'empty-title', level: 'warning', lineStart: 2, testId: null },
+      { code: 'empty-title', level: 'warning', lineStart: 3, testId: inventory.tests[0].id },
+    ]);
+  });
+});
+
 describe('summary', () => {
   it('counts tests with the same definitions as their booleans, tags and annotations sorted', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
@@ -796,6 +969,7 @@ describe.concurrent('fees', { tags: ['fees'] }, () => {
       inConditionCount: 1,
       inFunctionCount: 0,
       typeTestCount: 0,
+      benchmarkCount: 0,
       diagnosticCount: 1,
       tagCounts: { exchange: 1, fees: 5 },
       annotationCounts: {},

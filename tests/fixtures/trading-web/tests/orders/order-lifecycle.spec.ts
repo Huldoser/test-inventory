@@ -5,9 +5,13 @@ test.describe('order lifecycle', { tag: '@orders' }, () => {
   test.describe.configure({ mode: 'serial' });
 
   test('places a limit order for 100 NVDA', async ({ orderTicket, blotter }) => {
-    await orderTicket.open('NVDA');
-    await orderTicket.buy({ quantity: 100, limitPrice: 118 });
-    await orderTicket.confirm();
+    await test.step('enter the order', async () => {
+      await orderTicket.open('NVDA');
+      await orderTicket.buy({ quantity: 100, limitPrice: 118 });
+    });
+    await test.step('confirm it', async () => {
+      await orderTicket.confirm();
+    });
     await expect(blotter.status('NVDA')).toHaveText('Working');
   });
 

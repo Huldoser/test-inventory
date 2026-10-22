@@ -34,6 +34,7 @@ export function summarize(
     inConditionCount: count('isInCondition'),
     inFunctionCount: count('isInFunction'),
     typeTestCount: count('isTypeTest'),
+    benchmarkCount: count('isBenchmark'),
     diagnosticCount: diagnostics.length,
     tagCounts: countBy(tests, (test) => test.tags),
     annotationCounts: countBy(tests, (test) => test.annotations.map((annotation) => annotation.type)),

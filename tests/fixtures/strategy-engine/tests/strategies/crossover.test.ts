@@ -50,7 +50,8 @@ describe('latestSignal', () => {
     expect(client.dailyCandles).toHaveBeenCalledWith('AAPL', '2024-02-29', '2024-06-28');
   });
 
-  it('returns the signal for the last candle', async () => {
+  it('returns the signal for the last candle', async ({ annotate }) => {
+    await annotate('Uses 55 daily candles: 50 flat, then 5 rising');
     const closes = [...Array.from({ length: 50 }, () => 100), ...Array.from({ length: 5 }, (_, day) => 120 + day)];
     vi.mocked(client.dailyCandles).mockResolvedValue(candles(closes));
     expect(await latestSignal(client, 'MSFT', '2024-06-28')).toBe('hold');

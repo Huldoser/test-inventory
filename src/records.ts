@@ -43,6 +43,8 @@ interface RecordOptions {
   framework: Framework;
   comments: CommentsMode;
   isTypeTest: boolean;
+  /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
+  isBenchmarkFile: boolean;
 }
 
 interface Chosen {
@@ -129,6 +131,12 @@ export function fileRecord(
     suiteCount: records.suites.length,
     testCount: records.tests.length,
   };
+}
+
+/** Whether a function's block holds no statements; comments are not statements. */
+function hasNoStatements(fn: FunctionNode | null): boolean {
+  const body = fn?.body;
+  return body?.type === 'BlockStatement' && body.body.length === 0;
 }
 
 /** The number of times the runner repeats a test: its own cases times those of each describe table around it. */
@@ -293,6 +301,11 @@ class RecordBuilder {
       (item) => item.isParameterized,
     );
     for (const item of pending.problems) this.diagnostics.push(this.diagnostic(item, id));
+    if (declaration.usesBench && !this.options.isBenchmarkFile) {
+      const message =
+        'The test uses the bench fixture, which Vitest only provides in benchmark files such as *.bench.ts; elsewhere the test fails.';
+      this.diagnostics.push(this.diagnostic(problem('bench-outside-benchmark-file', located, message), id));
+    }
     if (pending.isInLoop) {
       this.diagnostics.push(
         this.diagnostic(
@@ -368,6 +381,13 @@ class RecordBuilder {
         declaration.details.run,
         ...scopes.map((scope) => scope.details.run),
       ]),
+      fixtures: unique([...declaration.fixtures, ...[...scopes].reverse().flatMap((scope) => scope.hookFixtures)]),
+      expectCount: pending.expectCount,
+      expectedAssertions: pending.expectedAssertions,
+      expectsAssertions: pending.expectsAssertions,
+      hasEmptyBody: hasNoStatements(declaration.hashed),
+      steps: pending.steps,
+      isBenchmark: this.options.isBenchmarkFile || declaration.usesBench,
       isParameterized: tables.length > 0,
       caseCount: tables.length > 0 ? repetitions(tables.map((item) => item.caseCount)) : null,
       isInLoop: pending.isInLoop,

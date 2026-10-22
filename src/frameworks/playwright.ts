@@ -41,6 +41,7 @@ import {
   origin,
   problem,
   readChain,
+  destructuredNames,
   readCondition,
   readCount,
   readOptions,
@@ -313,6 +314,9 @@ export class PlaywrightAdapter implements Adapter {
       return this.invalid(call, names, `needs Playwright ${addedIn.join('.')} or newer`, context);
     }
     if (names[0] === 'info') return this.annotationsPush(call, links, context);
+    if ((key === 'step' || key === 'step.skip') && context.inTest && call.arguments.length > 0) {
+      return this.step(call, key === 'step.skip', context);
+    }
     if (names[0] === 'expect' || names[0] === 'step' || key === 'abort') return { kind: 'other' };
     if (links.some((link) => link.args ?? link.template)) {
       return this.invalid(call, names, "is not part of Playwright's API", context);
@@ -324,7 +328,8 @@ export class PlaywrightAdapter implements Adapter {
     if (describe) return this.describeCall(call, describe, context);
     if (key === 'describe.configure') return this.configure(call, context);
     if (HOOKS.has(key)) {
-      return { kind: 'hook', name: key as keyof HookCounts, fn: findFunction(call.arguments), testContext: null };
+      const fn = findFunction(call.arguments);
+      return { kind: 'hook', name: key as keyof HookCounts, fn, testContext: null, fixtures: destructuredNames(fn, 0) };
     }
     if (RUN_MEMBERS.has(key)) return this.runSetting(call, key, context);
     if (OTHER_MEMBERS.has(key)) return { kind: 'other' };
@@ -538,8 +543,19 @@ export class PlaywrightAdapter implements Adapter {
       isParameterized: false,
       caseCount: null,
       testContext: null,
+      fixtures: destructuredNames(fn, 0),
+      usesBench: false,
       problems,
     };
+  }
+
+  /** `test.step(title, body)` in a test body; a title that can't be worked out is kept as source text. */
+  private step(call: CallExpression, isSkipped: boolean, context: CallContext): ApiCall {
+    const { title } = readTitle(this.file, context.scopes, call.arguments[0], {
+      stripTags: false,
+      functionNames: false,
+    });
+    return { kind: 'step', title, isSkipped, fn: findFunction(call.arguments, 1) };
   }
 
   private modifier(call: CallExpression, state: State, context: CallContext): ApiCall {
