@@ -245,3 +245,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run corpus
+
+  # The one check the main ruleset requires, so jobs can be added or renamed without changing the ruleset. It fails when
+  # a job failed or was cancelled. The corpus scan never blocks a merge, so it is left out.
+  ci:
+    name: ci
+    if: always()
+    needs: [test, lint, package, oldest-node, docs, secrets, workflows, compare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
