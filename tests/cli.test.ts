@@ -143,7 +143,7 @@ test.describe('orders', () => {
       .trimEnd()
       .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(lines.map((line) => line.type)).toEqual(['inventory', 'suite', 'test', 'test', 'summary']);
+    expect(lines.map((line) => line.type)).toEqual(['inventory', 'file', 'suite', 'test', 'test', 'summary']);
     const tests = lines.filter((line) => line.type === 'test');
     expect(tests.map((test) => Object.keys(test))).toEqual([
       ['type', 'id', 'fullName', 'state'],
@@ -153,7 +153,7 @@ test.describe('orders', () => {
       ['orders > fills a stop order', 'skip'],
       ['orders > fills a trailing stop order', 'fixme'],
     ]);
-    expect(lines[4]).toMatchObject({ testCount: 2, skipCount: 1, fixmeCount: 1 });
+    expect(lines[5]).toMatchObject({ testCount: 2, skipCount: 1, fixmeCount: 1 });
   });
 
   it.each([

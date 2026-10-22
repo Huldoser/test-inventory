@@ -26,7 +26,7 @@ import type {
 } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
-import type { Annotation } from './types.ts';
+import type { Annotation, HookCounts } from './types.ts';
 import { isScopeNode, type Values } from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
@@ -37,6 +37,8 @@ export interface Scope {
   mode: Mode | null;
   isOnly: boolean;
   details: Details;
+  /** Hooks registered directly in the scope. */
+  hooks: HookCounts;
   suite: PendingSuite | null;
 }
 
@@ -102,6 +104,8 @@ export interface Extraction {
   tests: PendingTest[];
   /** Problems not tied to one test. */
   problems: Problem[];
+  /** Hooks at the top level of the file. */
+  hooks: HookCounts;
   usesGlobals: boolean;
 }
 
@@ -197,6 +201,10 @@ function configure(scope: Scope, settings: { mode: Mode | null; locks: string[] 
 }
 
 /** Joins conditions with `&&`, adding parentheses where a part could otherwise be read differently. */
+export function noHooks(): HookCounts {
+  return { beforeAll: 0, beforeEach: 0, afterEach: 0, afterAll: 0, aroundEach: 0, aroundAll: 0 };
+}
+
 function joinConditions(parts: string[]): string | null {
   if (parts.length <= 1) return parts[0] ?? null;
   return parts.map((part) => (/\|\||\?|,/.test(part) ? `(${part})` : part)).join(' && ');
@@ -271,6 +279,7 @@ class Walker {
       mode: null,
       isOnly: false,
       details: { tags: adapter.fileTags, annotations: [], locks: [], meta: null },
+      hooks: noHooks(),
       suite: null,
     };
   }
@@ -302,6 +311,7 @@ class Walker {
       suites: this.suites,
       tests: this.tests,
       problems: [...this.main.adapter.problems, ...this.problems],
+      hooks: this.fileScope.hooks,
       usesGlobals: this.main.adapter.usesGlobals,
     };
   }
@@ -510,6 +520,8 @@ class Walker {
         return true;
       case 'hook':
         if (context.test) return false;
+        // A helper walked where it is written registers its hooks only where it is called.
+        if (!context.hookScope && !context.helper && !context.quiet) context.scope.hooks[api.name] += 1;
         if (api.fn) {
           this.visitCallback(api.fn, {
             ...context,
@@ -982,6 +994,7 @@ class Walker {
       mode: declaration.mode,
       isOnly: declaration.isOnly,
       details: declaration.details,
+      hooks: noHooks(),
       suite: null,
     };
     const suite: PendingSuite = {

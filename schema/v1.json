@@ -28,6 +28,13 @@
         "summary": {
           "$ref": "#/definitions/Summary"
         },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FileRecord"
+          },
+          "description": "One per scanned file, in the order the files were scanned."
+        },
         "suites": {
           "type": "array",
           "items": {
@@ -53,6 +60,7 @@
         "framework",
         "frameworkVersion",
         "summary",
+        "files",
         "suites",
         "tests",
         "diagnostics"
@@ -211,6 +219,78 @@
         "annotationCounts"
       ],
       "description": "Counts over the whole scan. Each test count uses the same definition as the matching test key."
+    },
+    "FileRecord": {
+      "type": "object",
+      "properties": {
+        "relativeFilePath": {
+          "type": "string",
+          "description": "Path from the project root, with `/` separators."
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "hooks": {
+          "$ref": "#/definitions/HookCounts",
+          "description": "Hooks at the top level of the file, which run around every test in it."
+        },
+        "suiteCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "testCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "relativeFilePath",
+        "fileName",
+        "hooks",
+        "suiteCount",
+        "testCount"
+      ],
+      "description": "A scanned file, also one that has no tests or could not be read."
+    },
+    "HookCounts": {
+      "type": "object",
+      "properties": {
+        "beforeAll": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "beforeEach": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "afterEach": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "afterAll": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aroundEach": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Vitest only."
+        },
+        "aroundAll": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Vitest only."
+        }
+      },
+      "required": [
+        "beforeAll",
+        "beforeEach",
+        "afterEach",
+        "afterAll",
+        "aroundEach",
+        "aroundAll"
+      ],
+      "description": "How many hooks of each kind are registered, including by helper functions called there."
     },
     "SuiteRecord": {
       "type": "object",
@@ -384,6 +464,10 @@
             }
           ],
           "description": "Vitest only; literal values only."
+        },
+        "hooks": {
+          "$ref": "#/definitions/HookCounts",
+          "description": "Hooks registered directly in the describe."
         }
       },
       "required": [
@@ -417,7 +501,8 @@
         "tags",
         "annotations",
         "locks",
-        "meta"
+        "meta",
+        "hooks"
       ],
       "description": "A describe block, with what is written on the describe itself. Inherited values are on the tests."
     },
@@ -708,6 +793,10 @@
           ],
           "description": "Merged from the describes and the test. Vitest only; literal values only."
         },
+        "hooks": {
+          "$ref": "#/definitions/HookCounts",
+          "description": "Every hook that runs around the test: those of the file and of each describe around it."
+        },
         "isParameterized": {
           "type": "boolean",
           "description": "Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it."
@@ -775,6 +864,7 @@
         "comments",
         "locks",
         "meta",
+        "hooks",
         "isParameterized",
         "caseCount",
         "isInLoop",

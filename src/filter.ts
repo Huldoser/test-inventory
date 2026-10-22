@@ -69,6 +69,7 @@ const TEST_KEYS = Object.keys({
   comments: true,
   locks: true,
   meta: true,
+  hooks: true,
   isParameterized: true,
   caseCount: true,
   isInLoop: true,
@@ -125,7 +126,8 @@ export function matcher(filter: InventoryFilter): (test: TestRecord) => boolean 
 
 /**
  * Keeps the tests that pass every condition of the filter; a list keeps a test that has any of its values. The
- * result describes only those tests: the describes around them, their diagnostics, and a summary counted over them.
+ * result describes only those tests: their files, the describes around them, their diagnostics, and a summary
+ * counted over them. Files without any tests stay, with their diagnostics, since tests may be missing from them.
  * `summary.fileCount` stays the number of files scanned.
  *
  * Throws a `TypeError` for an invalid filter.
@@ -143,15 +145,16 @@ export function filterInventory(inventory: Inventory, filter: InventoryFilter): 
   const suites = inventory.suites.filter((suite) => suiteIds.has(suite.id));
   const filesWithTests = new Set(inventory.tests.map((test) => test.relativeFilePath));
   const filesWithMatches = new Set(tests.map((test) => test.relativeFilePath));
-  // A problem that is not about one test stays, unless every test of its file was left out: an error in a file
-  // with no tests, or in package.json, may mean tests are missing from the answer.
+  // A file, and a problem that is not about one test, stay unless every test of the file was left out: an error in
+  // a file with no tests, or in package.json, may mean tests are missing from the answer.
+  const keepsFile = (relativeFilePath: string) =>
+    !filesWithTests.has(relativeFilePath) || filesWithMatches.has(relativeFilePath);
   const diagnostics = inventory.diagnostics.filter((diagnostic) =>
-    diagnostic.testId === null
-      ? !filesWithTests.has(diagnostic.relativeFilePath) || filesWithMatches.has(diagnostic.relativeFilePath)
-      : testIds.has(diagnostic.testId),
+    diagnostic.testId === null ? keepsFile(diagnostic.relativeFilePath) : testIds.has(diagnostic.testId),
   );
   const summary = summarize(inventory.summary.fileCount, suites, tests, diagnostics);
-  return { ...inventory, summary, suites, tests, diagnostics };
+  const files = inventory.files.filter((file) => keepsFile(file.relativeFilePath));
+  return { ...inventory, summary, files, suites, tests, diagnostics };
 }
 
 /** Checks the keys to pick and returns them after `id`, each once. */

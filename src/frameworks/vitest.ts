@@ -30,7 +30,7 @@ import type {
 } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
-import type { MetaValue } from '../types.ts';
+import type { HookCounts, MetaValue } from '../types.ts';
 import type { Value } from '../values.ts';
 import {
   allDeclarators,
@@ -112,7 +112,7 @@ const TABLES = new Set(['each', 'for']);
 const CONDITIONS = new Set(['skipIf', 'runIf']);
 const DERIVATIONS = new Set(['extend', 'override', 'scoped']);
 /** Hooks, with the position of the test context among their callback's parameters. */
-const HOOKS = new Map<string, number | null>([
+const HOOKS = new Map<keyof HookCounts, number | null>([
   ['beforeEach', 0],
   ['afterEach', 0],
   ['aroundEach', 1],
@@ -120,6 +120,10 @@ const HOOKS = new Map<string, number | null>([
   ['afterAll', null],
   ['aroundAll', null],
 ]);
+
+function isHook(name: string): name is keyof HookCounts {
+  return HOOKS.has(name as keyof HookCounts);
+}
 /** First members of chains that never declare a test, even when Vitest refuses the rest of the chain. */
 const NOT_DECLARING = new Set([...HOOKS.keys(), ...DERIVATIONS]);
 /** First members that show a name imported from a local file is used as Vitest's `test`. */
@@ -196,7 +200,7 @@ interface PassedSkip {
 /** The names a file binds to Vitest's `test`, `describe`, hooks and namespace. */
 class VitestBindings implements TestObjects {
   readonly kinds = new Map<string, Kind>();
-  readonly hooks = new Map<string, string>();
+  readonly hooks = new Map<string, keyof HookCounts>();
   readonly namespaces = new Set<string>();
   /** Names `bench` is imported as from Vitest 5, which no longer exports it. */
   readonly benches = new Set<string>();
@@ -322,7 +326,7 @@ class VitestBindings implements TestObjects {
     const kind = KINDS.get(imported);
     if (kind) {
       this.kinds.set(local, kind);
-    } else if (HOOKS.has(imported)) {
+    } else if (isHook(imported)) {
       this.hooks.set(local, imported);
     } else if (imported === 'bench' && atLeast(version, 5, 0)) {
       this.benches.add(local);
@@ -343,7 +347,7 @@ class VitestBindings implements TestObjects {
       const key = propertyKey(property);
       const kind = KINDS.get(key ?? '');
       if (kind) this.kinds.set(property.value.name, kind);
-      if (key !== null && HOOKS.has(key)) this.hooks.set(property.value.name, key);
+      if (key !== null && isHook(key)) this.hooks.set(property.value.name, key);
     }
     return true;
   }
@@ -443,7 +447,7 @@ export class VitestAdapter implements Adapter {
     const resolved = chain ? this.resolve(chain, call.arguments, context) : null;
     if (!resolved) return null;
     const { kind, links } = resolved;
-    if (kind === 'test' && links.length === 1 && HOOKS.has(links[0].name)) return this.hook(call, links[0].name);
+    if (kind === 'test' && links.length === 1 && isHook(links[0].name)) return this.hook(call, links[0].name);
     if (links.length === 1 && DERIVATIONS.has(links[0].name)) return { kind: 'other' };
     const last = links.at(-1);
     if (last && (TABLES.has(last.name) || CONDITIONS.has(last.name)) && !last.args && !last.template) {
@@ -635,15 +639,15 @@ export class VitestAdapter implements Adapter {
     const declaration = this.file.values.declarationOf(callee.name, context.scopes);
     const hook =
       declaration === null
-        ? HOOKS.has(callee.name) && callee.name
+        ? isHook(callee.name) && callee.name
         : this.bindings.declarations.has(declaration) && this.bindings.hooks.get(callee.name);
     return hook ? this.hook(call, hook) : null;
   }
 
-  private hook(call: CallExpression, name: string): ApiCall {
+  private hook(call: CallExpression, name: keyof HookCounts): ApiCall {
     const fn = findFunction(call.arguments);
     const index = HOOKS.get(name) as number | null;
-    return { kind: 'hook', fn, testContext: index === null ? null : skipNames(fn, index) };
+    return { kind: 'hook', name, fn, testContext: index === null ? null : skipNames(fn, index) };
   }
 
   private contextSkip(call: CallExpression, context: CallContext): ApiCall | null {

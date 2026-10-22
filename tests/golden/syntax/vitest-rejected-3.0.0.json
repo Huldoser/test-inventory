@@ -29,6 +29,22 @@
     "tagCounts": {},
     "annotationCounts": {}
   },
+  "files": [
+    {
+      "relativeFilePath": "tests/vitest-rejected.test.ts",
+      "fileName": "vitest-rejected.test.ts",
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
+      "suiteCount": 5,
+      "testCount": 5
+    }
+  ],
   "suites": [
     {
       "id": "9b8c9c751a192001",
@@ -63,7 +79,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "4839062f18bbcd42",
@@ -98,7 +122,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "d891c3b51b58f2d6",
@@ -133,7 +165,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "e0c3d174eefebebf",
@@ -168,7 +208,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     },
     {
       "id": "d3035adf5dc6630c",
@@ -203,7 +251,15 @@
       "tags": [],
       "annotations": [],
       "locks": [],
-      "meta": null
+      "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      }
     }
   ],
   "tests": [
@@ -247,6 +303,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -293,6 +357,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -339,6 +411,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -385,6 +465,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -431,6 +519,14 @@
       "comments": [],
       "locks": [],
       "meta": null,
+      "hooks": {
+        "beforeAll": 0,
+        "beforeEach": 0,
+        "afterEach": 0,
+        "afterAll": 0,
+        "aroundEach": 0,
+        "aroundAll": 0
+      },
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

@@ -87,6 +87,8 @@ export interface Inventory {
   /** Read from the project, or given with `--framework-version`; null when unknown. */
   frameworkVersion: string | null;
   summary: Summary;
+  /** One per scanned file, in the order the files were scanned. */
+  files: FileRecord[];
   suites: SuiteRecord[];
   tests: TestRecord[];
   diagnostics: Diagnostic[];
@@ -94,11 +96,12 @@ export interface Inventory {
 
 /**
  * One line of the JSON Lines output (`--format jsonl`): the inventory with each record on its own line, marked by
- * `type`. The `inventory` line comes first, then the suites, tests and diagnostics in the order of the JSON output,
- * and the `summary` line last.
+ * `type`. The `inventory` line comes first, then the files, suites, tests and diagnostics in the order of the JSON
+ * output, and the `summary` line last.
  */
 export type InventoryLine =
   | ({ type: 'inventory' } & Pick<Inventory, 'schemaVersion' | 'tool' | 'framework' | 'frameworkVersion'>)
+  | ({ type: 'file' } & FileRecord)
   | ({ type: 'suite' } & SuiteRecord)
   | ({ type: 'test' } & TestRecord)
   | ({ type: 'diagnostic' } & Diagnostic)
@@ -137,6 +140,33 @@ export interface Summary {
   tagCounts: Record<string, Count>;
   /** Tests per annotation type. */
   annotationCounts: Record<string, Count>;
+}
+
+/** A scanned file, also one that has no tests or could not be read. */
+export interface FileRecord {
+  /** Path from the project root, with `/` separators. */
+  relativeFilePath: string;
+  fileName: string;
+  /** Hooks at the top level of the file, which run around every test in it. */
+  hooks: HookCounts;
+  suiteCount: Count;
+  testCount: Count;
+}
+
+/**
+ * How many hooks of each kind are registered, including by helper functions called there.
+ *
+ * @inline
+ */
+export interface HookCounts {
+  beforeAll: Count;
+  beforeEach: Count;
+  afterEach: Count;
+  afterAll: Count;
+  /** Vitest only. */
+  aroundEach: Count;
+  /** Vitest only. */
+  aroundAll: Count;
 }
 
 /** A describe block, with what is written on the describe itself. Inherited values are on the tests. */
@@ -199,6 +229,8 @@ export interface SuiteRecord {
   locks: string[];
   /** Vitest only; literal values only. */
   meta: Record<string, MetaValue> | null;
+  /** Hooks registered directly in the describe. */
+  hooks: HookCounts;
 }
 
 /** A test, with the effective values the runner applies, including those inherited from its describes. */
@@ -268,6 +300,8 @@ export interface TestRecord {
   locks: string[];
   /** Merged from the describes and the test. Vitest only; literal values only. */
   meta: Record<string, MetaValue> | null;
+  /** Every hook that runs around the test: those of the file and of each describe around it. */
+  hooks: HookCounts;
   /** Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it. */
   isParameterized: boolean;
   /**

@@ -19,6 +19,7 @@ export function createInventory(
     framework,
     frameworkVersion,
     summary: summarize(fileCount, suites, tests, diagnostics),
+    files: files.map((file) => file.file),
     suites,
     tests,
     diagnostics,

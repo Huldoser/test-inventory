@@ -325,6 +325,100 @@ test.describe('orders @orders', { annotation: { type: 'area', description: 'trad
   });
 });
 
+describe('files and hooks', () => {
+  const NO_HOOKS = { beforeAll: 0, beforeEach: 0, afterEach: 0, afterAll: 0, aroundEach: 0, aroundAll: 0 };
+
+  it('counts the hooks of the file, of each describe, and of everything around each test', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.beforeAll(async () => {});
+test.beforeEach(async ({ page }) => {});
+test.describe('orders', () => {
+  test.beforeEach('open the ticket', async ({ page }) => {});
+  test.afterEach(async () => {});
+  test('fills a market order', async () => {});
+  test.describe('stops', () => {
+    test.afterAll(async () => {});
+    test('triggers a stop', async () => {});
+  });
+});
+test('shows the watchlist', async () => {});
+`);
+    expect(inventory.files).toStrictEqual([
+      {
+        relativeFilePath: 'tests/orders.spec.ts',
+        fileName: 'orders.spec.ts',
+        hooks: { ...NO_HOOKS, beforeAll: 1, beforeEach: 1 },
+        suiteCount: 2,
+        testCount: 3,
+      },
+    ]);
+    expect(inventory.suites.map((suite) => suite.hooks)).toEqual([
+      { ...NO_HOOKS, beforeEach: 1, afterEach: 1 },
+      { ...NO_HOOKS, afterAll: 1 },
+    ]);
+    expect(testNamed(inventory, 'fills a market order').hooks).toEqual({
+      ...NO_HOOKS,
+      beforeAll: 1,
+      beforeEach: 2,
+      afterEach: 1,
+    });
+    expect(testNamed(inventory, 'triggers a stop').hooks).toEqual({
+      ...NO_HOOKS,
+      beforeAll: 1,
+      beforeEach: 2,
+      afterEach: 1,
+      afterAll: 1,
+    });
+    expect(testNamed(inventory, 'shows the watchlist').hooks).toEqual({ ...NO_HOOKS, beforeAll: 1, beforeEach: 1 });
+  });
+
+  it("counts Vitest's around hooks and the hooks on an extended test", () => {
+    const inventory = scanVitest(`import { aroundAll, aroundEach, beforeEach, describe, test } from 'vitest';
+const brokerTest = test.extend({ broker: async ({}, use) => use({}) });
+aroundAll(async (run) => run());
+describe('broker', () => {
+  aroundEach(async (run) => run());
+  brokerTest.beforeEach(({ broker }) => {});
+  beforeEach(() => {});
+  brokerTest('reconnects after a drop', ({ broker }) => {});
+});
+`);
+    expect(inventory.files[0].hooks).toEqual({ ...NO_HOOKS, aroundAll: 1 });
+    expect(onlyTest(inventory).hooks).toEqual({ ...NO_HOOKS, beforeEach: 2, aroundEach: 1, aroundAll: 1 });
+  });
+
+  it('counts hooks a helper registers where it is called, and none for a helper never called', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function signIn() {
+  test.beforeEach(async ({ page }) => {});
+}
+function unused() {
+  test.afterEach(async () => {});
+}
+test.describe('portfolio', () => {
+  signIn();
+  test('lists positions', async () => {});
+});
+`);
+    expect(inventory.files[0].hooks).toEqual(NO_HOOKS);
+    expect(inventory.suites[0].hooks).toEqual({ ...NO_HOOKS, beforeEach: 1 });
+    expect(onlyTest(inventory).hooks).toEqual({ ...NO_HOOKS, beforeEach: 1 });
+  });
+
+  it('has a record for a file without tests or that fails to parse', () => {
+    const inventory = scanVitest('describe(');
+    expect(inventory.files).toStrictEqual([
+      {
+        relativeFilePath: 'tests/orders.test.ts',
+        fileName: 'orders.test.ts',
+        hooks: NO_HOOKS,
+        suiteCount: 0,
+        testCount: 0,
+      },
+    ]);
+  });
+});
+
 describe('summary', () => {
   it('counts tests with the same definitions as their booleans, tags and annotations sorted', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}

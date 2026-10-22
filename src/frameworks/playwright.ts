@@ -2,7 +2,7 @@ import type { Argument, CallExpression, Expression, Node, Program, VariableDecla
 import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from '../ast.ts';
 import type { Adapter, ApiCall, CallContext, Details, Mode, ModuleReader, Problem, State } from '../model.ts';
 import { snippet } from '../source.ts';
-import type { Annotation } from '../types.ts';
+import type { Annotation, HookCounts } from '../types.ts';
 import {
   allDeclarators,
   bindAll,
@@ -310,7 +310,9 @@ export class PlaywrightAdapter implements Adapter {
     const describe = DESCRIBES.get(key);
     if (describe) return this.describeCall(call, describe, context);
     if (key === 'describe.configure') return this.configure(call, context);
-    if (HOOKS.has(key)) return { kind: 'hook', fn: findFunction(call.arguments), testContext: null };
+    if (HOOKS.has(key)) {
+      return { kind: 'hook', name: key as keyof HookCounts, fn: findFunction(call.arguments), testContext: null };
+    }
     if (OTHER_MEMBERS.has(key)) return { kind: 'other' };
     return this.invalid(call, names, "is not part of Playwright's API", context);
   }

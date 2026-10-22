@@ -53,6 +53,7 @@ describe('filterInventory', () => {
     const filtered = filterInventory(web, { grep: 'far from the last trade' });
     expectValidInventory(filtered);
     expect(filtered.suites.map((suite) => suite.path)).toEqual([['orders'], ['orders', 'limit orders']]);
+    expect(filtered.files.map((file) => file.relativeFilePath)).toEqual(['tests/orders/limit-orders.spec.ts']);
     expect(filtered.summary).toMatchObject({
       fileCount: web.summary.fileCount,
       suiteCount: 2,
@@ -64,7 +65,7 @@ describe('filterInventory', () => {
     });
   });
 
-  it('keeps the diagnostics of the tests and the ones about no test, except in files left out', async () => {
+  it('keeps the files and diagnostics of the tests, and those of files without tests', async () => {
     const root = project({
       'tests/market-hours.spec.ts': `import { test } from '@playwright/test';
 const venue = process.env.VENUE;
@@ -92,6 +93,10 @@ test('shows a quote for', async () => {
       ['unknown-framework-version', 'package.json'],
       ['dynamic-title', 'tests/market-hours.spec.ts'],
       ['parse-error', 'tests/quotes.spec.ts'],
+    ]);
+    expect(filterInventory(inventory, { only: true }).files.map((file) => file.relativeFilePath)).toEqual([
+      'tests/orders.spec.ts',
+      'tests/quotes.spec.ts',
     ]);
   });
 
