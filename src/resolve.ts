@@ -203,7 +203,7 @@ function aliasFiles(specifier: string, options: PathOptions): string[] | null {
   const match = options.paths ? matchPattern(Object.keys(options.paths), specifier) : null;
   if (!match || !options.paths) return null;
   return targetStrings(options.paths[match.key]).map((target) =>
-    path.resolve(options.pathsBase, target.replaceAll('${configDir}', options.configDir).replace('*', match.star)),
+    path.resolve(options.pathsBase, target.replaceAll('${configDir}', options.configDir).replaceAll('*', match.star)),
   );
 }
 
@@ -215,7 +215,9 @@ function subpathImportFiles(specifier: string, directory: string): string[] {
     if (manifest) {
       const match = imports ? matchPattern(Object.keys(imports), specifier) : null;
       if (!match || !imports) return [];
-      return targetStrings(imports[match.key]).map((target) => path.resolve(folder, target.replace('*', match.star)));
+      return targetStrings(imports[match.key]).map((target) =>
+        path.resolve(folder, target.replaceAll('*', match.star)),
+      );
     }
     if (path.dirname(folder) === folder) return [];
   }
@@ -248,7 +250,7 @@ function packageEntry(folder: string, subpath: string): { file: string } | { rea
   let targets: string[];
   if (isSubpathMap) {
     const match = matchPattern(Object.keys(map), subpath);
-    targets = match ? targetStrings(map[match.key]).map((target) => target.replace('*', match.star)) : [];
+    targets = match ? targetStrings(map[match.key]).map((target) => target.replaceAll('*', match.star)) : [];
   } else {
     targets = subpath === '.' ? targetStrings(exports) : [];
   }

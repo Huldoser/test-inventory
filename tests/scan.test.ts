@@ -146,6 +146,13 @@ describe('scan', () => {
     ]);
   });
 
+  it('says how to scan a folder given with a long run of slashes, without slowing down', async () => {
+    const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/unit/orders.spec.ts': SPEC });
+    const inventory = await scanProject(root, { patterns: [`tests${'/'.repeat(200_000)}unit`] });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['no-files-matched']);
+    expect(inventory.diagnostics[0].message).toMatch(/use a pattern such as "tests\/+unit\/\*\*\/\*\.spec\.ts"\.$/);
+  });
+
   it('does not read files inside a folder named like a test file', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

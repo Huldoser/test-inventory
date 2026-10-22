@@ -230,6 +230,19 @@ describe('a custom test object imported through package.json imports', () => {
     ]);
   });
 
+  it('is followed through a pattern whose target repeats the star, as Node fills in each one', async () => {
+    const inventory = await scanSpec({
+      'package.json': JSON.stringify({
+        devDependencies: { '@playwright/test': '1.63.0' },
+        imports: { '#desks/*': './desks/*/*-fixtures.ts' },
+      }),
+      'desks/equities/equities-fixtures.ts': FIXTURES,
+      'tests/portfolio.spec.ts': spec('#desks/equities'),
+    });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('is reported when no package.json is found above the file', async () => {
     const inventory = await scanSpec({ 'tests/portfolio.spec.ts': spec('#fixtures') }, 'playwright');
     expect(messages(inventory)).toContain(
@@ -275,6 +288,19 @@ describe('a custom test object from a workspace package', () => {
     ['a built main, to the source next to it', { main: './lib/fixtures.cjs' }, '@trading/test-utils'],
   ])('is followed to its source through %s', async (_, manifest, from) => {
     const root = workspace(manifest, { 'tests/portfolio.spec.ts': spec(from) });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('is followed through a subpath pattern whose target repeats the star, as Node fills in each one', async () => {
+    const root = workspace(
+      { exports: { './*': './src/*/*-fixtures.ts' } },
+      {
+        'packages/test-utils/src/equities/equities-fixtures.ts': FIXTURES,
+        'tests/portfolio.spec.ts': spec('@trading/test-utils/equities'),
+      },
+    );
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
     expect(inventory.summary.testCount).toBe(1);
     expect(inventory.diagnostics).toEqual([]);
