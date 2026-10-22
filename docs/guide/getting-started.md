@@ -114,6 +114,7 @@ Include the source files when they contain [in-source tests](https://vitest.dev/
 - [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode and a monorepo.
 - The [command line](/guide/cli) options.
 - [Query recipes](/guide/recipes) and [CI recipes](/guide/ci).
+- The [MCP server and other ways in](/guide/agents) for AI agents.
 - Every key in the [output](/reference/output).
 - The [diagnostics](/reference/diagnostics): what the scan could not read, and why.
 

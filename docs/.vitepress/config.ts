@@ -66,6 +66,7 @@ export default defineConfig({
           { text: 'Library', link: '/guide/library' },
           { text: 'Query recipes', link: '/guide/recipes' },
           { text: 'CI recipes', link: '/guide/ci' },
+          { text: 'AI agents', link: '/guide/agents' },
           { text: 'Known limits', link: '/guide/limits' },
           { text: 'Compared with the runners', link: '/guide/runners' },
           { text: 'Real projects', link: '/guide/real-projects' },
