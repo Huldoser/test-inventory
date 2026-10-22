@@ -42,7 +42,7 @@ describe('schema/v1.json', () => {
   });
 
   it('accepts a key it does not know, so readers of v1 keep working when keys are added', () => {
-    const withNewKey = edited(['tests', 0, 'retries'], 2);
+    const withNewKey = edited(['tests', 0, 'owners'], ['@trading-desk']);
     expect(validate(withNewKey)).toBe(true);
     expect(validateStrict(withNewKey)).toBe(false);
   });

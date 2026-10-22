@@ -91,7 +91,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     },
     {
       "id": "16a5d7a8c63ba8ab",
@@ -134,7 +141,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     }
   ],
   "tests": [
@@ -188,6 +202,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -244,6 +265,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -296,6 +324,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -348,6 +383,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -402,6 +444,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

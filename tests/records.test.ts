@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { format } from 'prettier';
 import { describe, expect, it } from 'vitest';
-import { scan } from '../src/index.ts';
+import { scan, type SuiteRecord, type TestRecord } from '../src/index.ts';
 import { duplicateIdDiagnostics } from '../src/records.ts';
 import { codes, onlyTest, PLAYWRIGHT_IMPORT, scanPlaywright, scanVitest, testNamed, VITEST_IMPORT } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
@@ -433,6 +433,336 @@ test.describe('orders', () => {
         testCount: 0,
       },
     ]);
+  });
+});
+
+describe('run settings', () => {
+  const NOT_SET = {
+    timeout: null,
+    isSlow: false,
+    slowCondition: null,
+    retries: null,
+    retryDelay: null,
+    retryCondition: null,
+    repeats: null,
+  };
+  const settings = (record: SuiteRecord | TestRecord) => ({
+    timeout: record.timeout,
+    isSlow: record.isSlow,
+    slowCondition: record.slowCondition,
+    retries: record.retries,
+    retryDelay: record.retryDelay,
+    retryCondition: record.retryCondition,
+    repeats: record.repeats,
+  });
+
+  it("takes Playwright's timeout and retries from the nearest describe that sets each", () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.setTimeout(45_000);
+test.describe('market data', () => {
+  test.describe.configure({ retries: 2 });
+  test('streams quotes', async () => {});
+  test.describe('depth of book', () => {
+    test.describe.configure({ timeout: 90_000 });
+    test('shows ten levels', async () => {});
+  });
+});
+test('shows the watchlist', async () => {});
+`);
+    expect(inventory.suites.map(settings)).toEqual([
+      { ...NOT_SET, retries: 2 },
+      { ...NOT_SET, timeout: 90_000 },
+    ]);
+    expect(settings(testNamed(inventory, 'streams quotes'))).toEqual({ ...NOT_SET, timeout: 45_000, retries: 2 });
+    expect(settings(testNamed(inventory, 'shows ten levels'))).toEqual({ ...NOT_SET, timeout: 90_000, retries: 2 });
+    expect(settings(testNamed(inventory, 'shows the watchlist'))).toEqual({ ...NOT_SET, timeout: 45_000 });
+  });
+
+  it('lets a Playwright setTimeout() in the test body or a beforeEach win over the describe, but not one in beforeAll', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.describe('backtests', () => {
+  test.describe.configure({ timeout: 60_000 });
+  test.beforeAll(async () => {
+    test.setTimeout(300_000);
+  });
+  test.beforeEach(async () => {
+    test.setTimeout(120_000);
+  });
+  test('replays a trading day', async () => {});
+  test('replays a trading year', async () => {
+    test.setTimeout(600_000);
+  });
+});
+`);
+    expect(settings(inventory.suites[0])).toEqual({ ...NOT_SET, timeout: 60_000 });
+    expect(testNamed(inventory, 'replays a trading day').timeout).toBe(120_000);
+    expect(testNamed(inventory, 'replays a trading year').timeout).toBe(600_000);
+  });
+
+  it("reads Playwright's test.slow() with and without a condition", () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.describe('charts', () => {
+  test.slow(({ browserName }) => browserName === 'webkit', 'Charts render slowly on WebKit');
+  test('draws candles', async () => {});
+  test('draws a year of candles', async () => {
+    test.slow();
+  });
+  test('draws a sparkline', async () => {
+    test.slow(false);
+  });
+});
+test('exports a chart image', async ({ browserName }) => {
+  if (browserName === 'firefox') test.slow();
+});
+`);
+    expect(settings(inventory.suites[0])).toEqual({
+      ...NOT_SET,
+      isSlow: true,
+      slowCondition: "browserName === 'webkit'",
+    });
+    expect(testNamed(inventory, 'draws candles')).toMatchObject({
+      isSlow: true,
+      slowCondition: "browserName === 'webkit'",
+    });
+    expect(testNamed(inventory, 'draws a year of candles')).toMatchObject({ isSlow: true, slowCondition: null });
+    expect(testNamed(inventory, 'exports a chart image')).toMatchObject({
+      isSlow: true,
+      slowCondition: "browserName === 'firefox'",
+    });
+    expect(testNamed(inventory, 'draws a sparkline')).toMatchObject({
+      isSlow: true,
+      slowCondition: "browserName === 'webkit'",
+    });
+  });
+
+  it('warns about a timeout it cannot work out or that is set only sometimes, and keeps the one around it', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { ORDER_TIMEOUT } from './timeouts';
+test.describe('orders', () => {
+  test.describe.configure({ timeout: 60_000 });
+  test('fills a market order', async () => {
+    test.setTimeout(ORDER_TIMEOUT);
+  });
+  test('fills a limit order', async ({ browserName }) => {
+    if (browserName === 'webkit') test.setTimeout(120_000);
+  });
+});
+`);
+    const [market, limit] = inventory.tests;
+    expect([market.timeout, limit.timeout]).toEqual([60_000, 60_000]);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unresolved-option',
+        level: 'warning',
+        message:
+          "Option timeout: ORDER_TIMEOUT comes from './timeouts' and could not be worked out; it is not applied.",
+        testId: market.id,
+      },
+      {
+        code: 'unresolved-option',
+        level: 'warning',
+        message: "Option timeout: 120_000 is set only when browserName === 'webkit'; it is not applied.",
+        testId: limit.id,
+      },
+    ]);
+  });
+
+  it('warns about a describe timeout it cannot work out, with no test to point at', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { BACKTEST_TIMEOUT } from './timeouts';
+test.describe('backtests', () => {
+  test.setTimeout(BACKTEST_TIMEOUT);
+  test('replays a trading day', async () => {});
+});
+`);
+    expect(onlyTest(inventory).timeout).toBeNull();
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unresolved-option',
+        message:
+          "Option timeout: BACKTEST_TIMEOUT comes from './timeouts' and could not be worked out; it is not applied.",
+        lineStart: 4,
+        testId: null,
+      },
+    ]);
+  });
+
+  it('applies test.slow() from a helper where the helper is called', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function slowOnWebKit() {
+  test.slow(({ browserName }) => browserName === 'webkit');
+}
+test.describe('charts', () => {
+  slowOnWebKit();
+  test('draws candles', async () => {});
+});
+test('draws a sparkline', async () => {});
+`);
+    expect(testNamed(inventory, 'draws candles')).toMatchObject({
+      isSlow: true,
+      slowCondition: "browserName === 'webkit'",
+    });
+    expect(testNamed(inventory, 'draws a sparkline').isSlow).toBe(false);
+  });
+
+  it('applies settings from a helper called in a test body or a beforeEach, with the conditions around the call', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function slowOnCI() {
+  test.slow();
+  test.setTimeout(7_000);
+}
+test('fills a stop order', async () => {
+  slowOnCI();
+});
+test.describe('quotes', () => {
+  test.beforeEach(async () => {
+    slowOnCI();
+  });
+  test('streams quotes', async () => {});
+});
+test('streams depth', async ({ browserName }) => {
+  if (browserName === 'webkit') slowOnCI();
+});
+test.describe('fills', () => {
+  test.afterEach(async () => {
+    slowOnCI();
+  });
+  test('streams fills', async () => {});
+});
+`);
+    expect(testNamed(inventory, 'fills a stop order')).toMatchObject({ timeout: 7_000, isSlow: true });
+    expect(testNamed(inventory, 'streams quotes')).toMatchObject({ timeout: 7_000, isSlow: true });
+    expect(testNamed(inventory, 'streams fills')).toMatchObject({ timeout: null, isSlow: false });
+    expect(testNamed(inventory, 'streams depth')).toMatchObject({
+      timeout: null,
+      isSlow: true,
+      slowCondition: "browserName === 'webkit'",
+    });
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unresolved-option',
+        message: "Option timeout: 7_000 is set only when browserName === 'webkit'; it is not applied.",
+        testId: testNamed(inventory, 'streams depth').id,
+      },
+    ]);
+  });
+
+  it('warns once about a timeout in a helper it cannot work out, where the helper is written', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { FILL_TIMEOUT } from './timeouts';
+function waitForFills() {
+  test.setTimeout(FILL_TIMEOUT);
+}
+test('streams fills', async () => {
+  waitForFills();
+});
+test('streams partial fills', async () => {
+  waitForFills();
+});
+`);
+    expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null]);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'unresolved-option',
+        message: "Option timeout: FILL_TIMEOUT comes from './timeouts' and could not be worked out; it is not applied.",
+        lineStart: 4,
+        testId: null,
+      },
+    ]);
+  });
+
+  it('applies a timeout from a beforeEach that a helper registers where the helper is called', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function allowSlowFills() {
+  test.beforeEach(async () => {
+    test.setTimeout(45_000);
+  });
+}
+test.describe('fills', () => {
+  allowSlowFills();
+  test('streams fills', async () => {});
+});
+`);
+    expect(onlyTest(inventory).timeout).toBe(45_000);
+  });
+
+  it('keeps every condition of the test.slow() calls that apply', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test.describe('orders', () => {
+  test.slow(({ browserName }) => browserName === 'webkit');
+  test('cancels every open order', async () => {
+    if (process.env.CI) test.slow();
+    if (process.env.NIGHTLY) test.slow(process.platform === 'win32');
+    test.slow(process.env.SLOW_DISK ?? process.platform === 'darwin');
+  });
+});
+`);
+    expect(onlyTest(inventory).slowCondition).toBe(
+      "process.env.CI || process.env.NIGHTLY && process.platform === 'win32' || (process.env.SLOW_DISK ?? process.platform === 'darwin') || browserName === 'webkit'",
+    );
+  });
+
+  it('leaves the timeout alone for test.setTimeout() without a number', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const limits = [90_000];
+test.describe('backtests', () => {
+  test.setTimeout();
+  test.setTimeout(...limits);
+  test('replays a trading day', async () => {});
+});
+`);
+    expect(onlyTest(inventory).timeout).toBeNull();
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads Vitest timeout, retry and repeats options, with describes passing theirs down', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+describe('broker connection', { retry: { count: 3, delay: 500, condition: /ECONNRESET/ }, timeout: 10_000 }, () => {
+  test('reconnects after a drop', () => {});
+  test('gives up after the session ends', { retry: 1 }, () => {});
+  test('replays missed fills', () => {}, 30_000);
+});
+test('matches orders under load', { repeats: 20 }, () => {});
+`);
+    expect(settings(inventory.suites[0])).toEqual({
+      ...NOT_SET,
+      timeout: 10_000,
+      retries: 3,
+      retryDelay: 500,
+      retryCondition: '/ECONNRESET/',
+    });
+    expect(settings(testNamed(inventory, 'reconnects after a drop'))).toEqual(settings(inventory.suites[0]));
+    expect(settings(testNamed(inventory, 'gives up after the session ends'))).toEqual({
+      ...NOT_SET,
+      timeout: 10_000,
+      retries: 1,
+    });
+    expect(testNamed(inventory, 'replays missed fills')).toMatchObject({ timeout: 30_000, retries: 3 });
+    expect(settings(testNamed(inventory, 'matches orders under load'))).toEqual({ ...NOT_SET, repeats: 20 });
+  });
+
+  it('warns about a Vitest retry it cannot work out, and reads a retry object without a count as no retries', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { RECONNECTS } from './broker';
+test('reconnects after a drop', { retry: RECONNECTS }, () => {});
+test('reconnects after a timeout', { retry: { count: RECONNECTS, delay: 250 } }, () => {});
+test('reconnects after a restart', { retry: { delay: 250 } }, () => {});
+`);
+    expect(inventory.tests.map((test) => [test.retries, test.retryDelay, test.retryCondition])).toEqual([
+      [null, null, null],
+      [null, null, null],
+      [0, 250, null],
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "Option retry: RECONNECTS comes from './broker' and could not be worked out; it is not applied.",
+      "Option retry.count: RECONNECTS comes from './broker' and could not be worked out; it is not applied.",
+    ]);
+  });
+
+  it('ignores the Vitest retry object before 4.1, where the runner does not retry with it', () => {
+    const code = `${VITEST_IMPORT}\ntest('reconnects after a drop', { retry: { count: 3 } }, () => {});`;
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '4.0.0' })).retries).toBeNull();
+    expect(onlyTest(scanVitest(code, { frameworkVersion: '4.1.0' })).retries).toBe(3);
   });
 });
 

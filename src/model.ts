@@ -52,6 +52,17 @@ export interface Details {
   annotations: Annotation[];
   locks: string[];
   meta: Record<string, MetaValue> | null;
+  run: RunSettings;
+}
+
+/** Run settings written in one place; a key that is missing is not set there. */
+export interface RunSettings {
+  timeout?: number;
+  /** A retry setting replaces the whole `retry` of the describes around, delay and condition included. */
+  retry?: { count: number; delay: number | null; condition: string | null };
+  repeats?: number;
+  /** Playwright `test.slow()`: the conditions of the calls, any of which makes the test slow; null when one always does. */
+  slow?: { conditions: string[] | null };
 }
 
 interface Declaration {
@@ -100,8 +111,15 @@ export type ApiCall =
       hasDynamicReason: boolean;
       problems: Problem[];
     }
-  /** `test.describe.configure()`: a mode, locks (Playwright 1.64), or both. */
-  | { kind: 'configure'; mode: Mode | null; locks: string[]; problems: Problem[] }
+  /** `test.describe.configure()`: a mode, locks (Playwright 1.64), a timeout and retries. */
+  | { kind: 'configure'; mode: Mode | null; locks: string[]; run: RunSettings; problems: Problem[] }
+  /** Playwright `test.setTimeout()` or `test.slow()`, which apply where they are called. */
+  | {
+      kind: 'run';
+      settings: RunSettings;
+      /** Source text of the first argument. */ argument: string | null;
+      problems: Problem[];
+    }
   | { kind: 'hook'; name: keyof HookCounts; fn: FunctionNode | null; testContext: unknown }
   | { kind: 'annotations'; items: Annotation[]; problems: Problem[] }
   /**

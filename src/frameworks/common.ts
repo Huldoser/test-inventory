@@ -384,6 +384,21 @@ export function unresolvedOptions(file: FileContext, options: Options, result: s
   });
 }
 
+/** A whole number, such as a timeout in milliseconds; null, with a warning, when it can't be worked out. */
+export function readCount(file: FileContext, name: string, option: OptionValue, problems: Problem[]): number | null {
+  const { node, resolved } = option;
+  if (!resolved.ok) {
+    problems.push(unresolvedOption(file, name, node, resolved.importedFrom, 'it is not applied'));
+    return null;
+  }
+  if (Number.isInteger(resolved.value) && (resolved.value as number) >= 0) return resolved.value as number;
+  const source = snippet(text(file, node));
+  problems.push(
+    problem('unresolved-option', node, `Option ${name}: ${source} is not a whole number; it is not applied.`, source),
+  );
+  return null;
+}
+
 /** A warning for one option whose value could not be worked out. */
 export function unresolvedOption(
   file: FileContext,

@@ -68,3 +68,9 @@ describe('quote feed', () => {
     }
   });
 });
+
+describe('broker session', { timeout: 20_000, retry: { count: 3, delay: 500, condition: /ECONNRESET/ } }, () => {
+  test('reconnects after a dropped socket', () => {});
+  test('matches fills to orders under load', { repeats: 50 }, () => {});
+  test('replays missed fills after a reconnect', () => {}, 60_000);
+});

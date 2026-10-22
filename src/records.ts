@@ -2,6 +2,8 @@ import type { FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
 import {
+  anySlow,
+  eitherCondition,
   noHooks,
   type DeclaredAt as Written,
   type Extraction,
@@ -11,7 +13,7 @@ import {
 } from './extract.ts';
 import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
-import type { Problem, Span, StateSetting } from './model.ts';
+import type { Problem, RunSettings, Span, StateSetting } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import type {
   DeclaredAt,
@@ -88,6 +90,30 @@ function addHooks(scopes: Scope[]): HookCounts {
     for (const name of Object.keys(total) as (keyof HookCounts)[]) total[name] += scope.hooks[name];
   }
   return total;
+}
+
+type RunKeys = Pick<
+  TestRecord,
+  'timeout' | 'isSlow' | 'slowCondition' | 'retries' | 'retryDelay' | 'retryCondition' | 'repeats'
+>;
+
+/**
+ * The run settings that apply, from the places that set them, nearest first: the first that sets a key wins, and any
+ * `test.slow()` makes the test slow.
+ */
+function runKeys(places: RunSettings[]): RunKeys {
+  const first = <K extends keyof RunSettings>(key: K) => places.find((place) => place[key] !== undefined)?.[key];
+  const retry = first('retry');
+  const slows = places.flatMap((place) => place.slow ?? []);
+  return {
+    timeout: first('timeout') ?? null,
+    isSlow: slows.length > 0,
+    slowCondition: eitherCondition(anySlow(slows).conditions ?? []) || null,
+    retries: retry?.count ?? null,
+    retryDelay: retry?.delay ?? null,
+    retryCondition: retry?.condition ?? null,
+    repeats: first('repeats') ?? null,
+  };
 }
 
 /** The record of a scanned file, from its records and the hooks at its top level. */
@@ -225,6 +251,7 @@ class RecordBuilder {
       locks: unique(scope.details.locks),
       meta: scope.details.meta,
       hooks: { ...scope.hooks },
+      ...runKeys([scope.details.run]),
     };
   }
 
@@ -334,6 +361,13 @@ class RecordBuilder {
       ]),
       meta: Object.keys(meta).length > 0 ? meta : null,
       hooks: addHooks(scopes),
+      // Calls in the body and in `beforeEach` hooks run last, so they win over what the describes set.
+      ...runKeys([
+        pending.run,
+        ...scopes.map((scope) => scope.hookRun),
+        declaration.details.run,
+        ...scopes.map((scope) => scope.details.run),
+      ]),
       isParameterized: tables.length > 0,
       caseCount: tables.length > 0 ? repetitions(tables.map((item) => item.caseCount)) : null,
       isInLoop: pending.isInLoop,

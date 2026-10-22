@@ -1,6 +1,8 @@
 import { test, expect } from '../fixtures/index';
 
 test.describe('live price stream', () => {
+  // The demo feed drops connections now and then.
+  test.describe.configure({ retries: 2 });
   test.fixme(({ browserName }) => browserName === 'webkit', 'The WebSocket reconnects in a loop on WebKit (TRD-390)');
 
   test('updates prices without a reload', async ({ watchlistPage }) => {

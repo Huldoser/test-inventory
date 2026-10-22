@@ -468,6 +468,71 @@
         "hooks": {
           "$ref": "#/definitions/HookCounts",
           "description": "Hooks registered directly in the describe."
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "In milliseconds; null when nothing here sets it."
+        },
+        "isSlow": {
+          "type": "boolean",
+          "description": "Playwright `test.slow()` written in the describe, which triples the timeout of its tests."
+        },
+        "slowCondition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Source text of the `test.slow()` condition; null when unconditional or not slow."
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retryDelay": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Vitest only: milliseconds between retries, from the `retry` object (4.1)."
+        },
+        "retryCondition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Vitest only: source text of the `retry` object's `condition`, a RegExp or a function."
+        },
+        "repeats": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Vitest only: how many times the runner runs each test again after the first run."
         }
       },
       "required": [
@@ -502,7 +567,14 @@
         "annotations",
         "locks",
         "meta",
-        "hooks"
+        "hooks",
+        "timeout",
+        "isSlow",
+        "slowCondition",
+        "retries",
+        "retryDelay",
+        "retryCondition",
+        "repeats"
       ],
       "description": "A describe block, with what is written on the describe itself. Inherited values are on the tests."
     },
@@ -797,6 +869,72 @@
           "$ref": "#/definitions/HookCounts",
           "description": "Every hook that runs around the test: those of the file and of each describe around it."
         },
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "In milliseconds: the last `test.setTimeout()` in the body or a `beforeEach`, otherwise the nearest describe or file that sets one. Null when the file sets none, so the config's timeout applies."
+        },
+        "isSlow": {
+          "type": "boolean",
+          "description": "Playwright `test.slow()` applies: the runner triples the timeout."
+        },
+        "slowCondition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Source text of the condition of the `test.slow()` that applies; null when unconditional or not slow."
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How many times the runner retries the test when it fails; null when the file sets none."
+        },
+        "retryDelay": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Vitest only: milliseconds between retries, from the `retry` object (4.1)."
+        },
+        "retryCondition": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Vitest only: source text of the `retry` object's `condition`, a RegExp or a function."
+        },
+        "repeats": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Vitest only: how many times the runner runs the test again after the first run."
+        },
         "isParameterized": {
           "type": "boolean",
           "description": "Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it."
@@ -865,6 +1003,13 @@
         "locks",
         "meta",
         "hooks",
+        "timeout",
+        "isSlow",
+        "slowCondition",
+        "retries",
+        "retryDelay",
+        "retryCondition",
+        "repeats",
         "isParameterized",
         "caseCount",
         "isInLoop",

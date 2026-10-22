@@ -131,7 +131,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     },
     {
       "id": "01368de13c737b6f",
@@ -174,7 +181,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     },
     {
       "id": "ce489a36e28daa91",
@@ -219,7 +233,14 @@
         "afterAll": 1,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     },
     {
       "id": "a2a7d7f0713569f9",
@@ -262,7 +283,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     },
     {
       "id": "21e05ad9554be115",
@@ -305,7 +333,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     },
     {
       "id": "8e34b4d56c3217af",
@@ -348,7 +383,14 @@
         "afterAll": 0,
         "aroundEach": 0,
         "aroundAll": 0
-      }
+      },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null
     }
   ],
   "tests": [
@@ -400,6 +442,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": true,
       "caseCount": 5,
       "isInLoop": false,
@@ -454,6 +503,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -510,6 +566,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -566,6 +629,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -622,6 +692,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": 2,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -676,6 +753,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -730,6 +814,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -784,6 +875,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -838,6 +936,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -892,6 +997,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": true,
       "caseCount": 3,
       "isInLoop": false,
@@ -946,6 +1058,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1000,6 +1119,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1054,6 +1180,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,
@@ -1108,6 +1241,13 @@
         "aroundEach": 0,
         "aroundAll": 0
       },
+      "timeout": null,
+      "isSlow": false,
+      "slowCondition": null,
+      "retries": null,
+      "retryDelay": null,
+      "retryCondition": null,
+      "repeats": null,
       "isParameterized": false,
       "caseCount": null,
       "isInLoop": false,

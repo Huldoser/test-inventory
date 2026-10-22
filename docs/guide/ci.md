@@ -74,8 +74,8 @@ For the [trading-web](/guide/examples#playwright-end-to-end-tests) example, it w
 - `expectedToFail` backtests > exports trades to CSV (tests/backtest.spec.ts:20)
 - `fixme` login > asks for a one-time code on a new device (tests/login.spec.ts:25)
 - `fixme` orders > limit orders > rejects a limit price far from the last trade (tests/orders/limit-orders.spec.ts:24)
-- `fixme` live price stream > updates prices without a reload (tests/price-stream.spec.ts:6)
-- `fixme` live price stream > shows a stale badge when the stream disconnects (tests/price-stream.spec.ts:12)
+- `fixme` live price stream > updates prices without a reload (tests/price-stream.spec.ts:8)
+- `fixme` live price stream > shows a stale badge when the stream disconnects (tests/price-stream.spec.ts:14)
 ```
 
 ## Tests that stopped running in a pull request

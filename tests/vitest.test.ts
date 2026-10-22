@@ -1253,7 +1253,23 @@ test('backtests a quarter', () => {}, SLOW_TIMEOUT);
       "Option concurrent: isNightly comes from './settings' and could not be worked out; it is not applied.",
       "Option meta.owner: OWNERS.risk comes from './settings' and could not be worked out; the value is missing.",
       "Options object OWNERS comes from './settings' and could not be worked out; its meta values are missing.",
+      'Option timeout: BENCHMARKS is not a whole number; it is not applied.',
+      'Option timeout: NONE is not a whole number; it is not applied.',
+      'Option timeout: SLOW_TIMEOUT could not be worked out; it is not applied.',
     ]);
+    expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null, null, 10_000, null, null, null]);
+  });
+
+  it('reads imported options before a body passed by name, without taking the body for a timeout', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { SLOW } from './settings';
+import { checkMargin } from './checks';
+function checkExposure() {}
+test('checks exposure', SLOW, checkExposure);
+test('checks margin', SLOW, checkMargin);
+`);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
+    expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null]);
   });
 
   it('turns parallel off with concurrent: false, in a test or a describe', () => {
