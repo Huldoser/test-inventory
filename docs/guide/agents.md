@@ -18,7 +18,7 @@ code from the project, writes nothing and opens no network connections.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.1 "tests/**/*.spec.ts" --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.2 "tests/**/*.spec.ts" --framework playwright
 ```
 
 `--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. The globs and
@@ -36,7 +36,7 @@ The tests have the keys of the [output](/reference/output). Each call scans the 
 agent's edits.
 
 The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.1` gets fixes only.
+`test-inventory-mcp@0.2` gets fixes only.
 
 ## Command line
 
