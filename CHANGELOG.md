@@ -1,5 +1,15 @@
 # test-inventory
 
+## 0.4.0
+
+### Minor Changes
+
+- [#42](https://github.com/Huldoser/test-inventory/pull/42) [`6849f55`](https://github.com/Huldoser/test-inventory/commit/6849f555d8b214ebbc8fdb9aa9cbac8cfe0913db) - Tests say what their body does: `fixtures` (the names the test and the `beforeEach`, `afterEach` and `aroundEach` hooks around it take from the context, without Vitest's own keys), `expectCount` (`expect()`, `expect.soft()` and `expect.poll()` calls in the body), Vitest's `expect.assertions(n)` and `expect.hasAssertions()` as `expectedAssertions` and `expectsAssertions`, `hasEmptyBody`, and Playwright's `test.step()` titles in `steps`. Vitest's `annotate()` from the test context adds annotations. Vitest 5 benchmarks, in `*.bench.ts` files or using the `bench` fixture, have `isBenchmark` and a `benchmarkCount` in the summary. New warnings: `empty-title` for a test or describe titled `''`, and `bench-outside-benchmark-file`.
+
+- [#40](https://github.com/Huldoser/test-inventory/pull/40) [`f462ee0`](https://github.com/Huldoser/test-inventory/commit/f462ee015fea8ee802f567a26dbaa4db94ada1d5) - The output has a record for each scanned file in `files`, and counts hooks: `hooks` on a file holds the hooks at its top level, on a describe the hooks registered in it, and on a test every hook that runs around it, by kind (`beforeAll`, `beforeEach`, `afterEach`, `afterAll`, and Vitest's `aroundEach` and `aroundAll`). Hooks a helper function registers count where it is called. JSON Lines output has a `file` line for each file, and a filtered inventory keeps the files of the matched tests and the files without tests.
+
+- [#41](https://github.com/Huldoser/test-inventory/pull/41) [`1ab9cb4`](https://github.com/Huldoser/test-inventory/commit/1ab9cb4002dd971ddb62570dc55ac564504e3a83) - Tests and describes have their run settings: `timeout`, `isSlow` and `slowCondition`, `retries`, `retryDelay`, `retryCondition` and `repeats`. Playwright's come from `test.describe.configure({ timeout, retries })`, `test.setTimeout()` and `test.slow()` in a describe, a `beforeEach` or the test body; Vitest's from the `timeout`, `retry` and `repeats` options, the timeout after the body, and the options a describe passes down. A test gets the value from the nearest place that sets it, and `null` when the file sets none, so the config decides. A timeout that can't be worked out, or that is set only under a condition, gets an `unresolved-option` warning.
+
 ## 0.3.0
 
 ### Minor Changes
