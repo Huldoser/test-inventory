@@ -86,6 +86,12 @@ const todo = inventory.tests.filter((test) => test.isTodo).map((test) => test.fu
 `scanSource()` scans the code of one file without touching the disk. The JSON Schema of the output is exported as
 `test-inventory/schema/v1.json`, so a reader can pin the version of the format it understands.
 
+## AI agents
+
+[test-inventory-mcp](https://github.com/Huldoser/test-inventory-mcp) is an MCP server built on test-inventory: agents
+in Claude Code, Cursor, VS Code and other MCP clients ask it which tests a project has without running them. The
+[AI agents](https://huldoser.github.io/test-inventory/guide/agents) page has the setup and the other ways in.
+
 ## Limits
 
 - Config files are not read, so `grep`, projects and Vitest tag options in them do not change the output.
