@@ -405,6 +405,23 @@ test.describe('portfolio', () => {
     expect(onlyTest(inventory).hooks).toEqual({ ...NO_HOOKS, beforeEach: 1 });
   });
 
+  it('counts hooks in functions without a name where they are written, as their tests are', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { withMarketOpen } from 'market-kit';
+test.describe('orders', () => {
+  (() => {
+    test.beforeEach(async ({ page }) => {});
+  })();
+  withMarketOpen(() => {
+    test.afterEach(async () => {});
+    test('fills a market order', async () => {});
+  });
+});
+`);
+    expect(inventory.suites[0].hooks).toEqual({ ...NO_HOOKS, beforeEach: 1, afterEach: 1 });
+    expect(onlyTest(inventory).hooks).toEqual({ ...NO_HOOKS, beforeEach: 1, afterEach: 1 });
+  });
+
   it('has a record for a file without tests or that fails to parse', () => {
     const inventory = scanVitest('describe(');
     expect(inventory.files).toStrictEqual([

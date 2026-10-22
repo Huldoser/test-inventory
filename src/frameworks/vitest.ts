@@ -124,6 +124,7 @@ const HOOKS = new Map<keyof HookCounts, number | null>([
 function isHook(name: string): name is keyof HookCounts {
   return HOOKS.has(name as keyof HookCounts);
 }
+
 /** First members of chains that never declare a test, even when Vitest refuses the rest of the chain. */
 const NOT_DECLARING = new Set([...HOOKS.keys(), ...DERIVATIONS]);
 /** First members that show a name imported from a local file is used as Vitest's `test`. */

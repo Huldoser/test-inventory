@@ -200,11 +200,11 @@ function configure(scope: Scope, settings: { mode: Mode | null; locks: string[] 
   scope.details.locks.push(...settings.locks);
 }
 
-/** Joins conditions with `&&`, adding parentheses where a part could otherwise be read differently. */
 export function noHooks(): HookCounts {
   return { beforeAll: 0, beforeEach: 0, afterEach: 0, afterAll: 0, aroundEach: 0, aroundAll: 0 };
 }
 
+/** Joins conditions with `&&`, adding parentheses where a part could otherwise be read differently. */
 function joinConditions(parts: string[]): string | null {
   if (parts.length <= 1) return parts[0] ?? null;
   return parts.map((part) => (/\|\||\?|,/.test(part) ? `(${part})` : part)).join(' && ');
@@ -520,8 +520,8 @@ class Walker {
         return true;
       case 'hook':
         if (context.test) return false;
-        // A helper walked where it is written registers its hooks only where it is called.
-        if (!context.hookScope && !context.helper && !context.quiet) context.scope.hooks[api.name] += 1;
+        // A function with a name registers its hooks where it is called, not where it is written.
+        if (!context.hookScope && context.declaredIn === null) context.scope.hooks[api.name] += 1;
         if (api.fn) {
           this.visitCallback(api.fn, {
             ...context,

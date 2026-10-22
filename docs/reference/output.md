@@ -169,15 +169,15 @@ record.
 
 A file record is written for every scanned file, also one that has no tests, could not be read or failed to parse.
 
-| Key                            | Type   | Meaning                                                                    |
-| ------------------------------ | ------ | -------------------------------------------------------------------------- |
-| `relativeFilePath`, `fileName` | string | As for tests.                                                              |
-| `hooks`                        | object | The hooks at the top level of the file, which run around every test in it. |
-| `suiteCount`, `testCount`      | number | The describes and tests in the file.                                       |
+| Key                            | Type   | Meaning                                                                              |
+| ------------------------------ | ------ | ------------------------------------------------------------------------------------ |
+| `relativeFilePath`, `fileName` | string | As for tests.                                                                        |
+| `hooks`                        | object | The hooks at the top level of the file, which run around every test in it.           |
+| `suiteCount`, `testCount`      | number | The describes and tests in the file, all of them also when a filter keeps only some. |
 
 `hooks` counts each kind: `beforeAll`, `beforeEach`, `afterEach` and `afterAll`, and Vitest's `aroundEach` and
-`aroundAll` (4.1). A hook registered by a helper function counts where the helper is called; one in a helper that is
-never called doesn't count. Vitest's `onTestFailed` and `onTestFinished` run inside a test, so they are not counted.
+`aroundAll` (4.1). A hook in a helper function with a name counts where the helper is called, and not at all when
+it is never called; one in a function without a name, such as a callback, counts where it is written. Vitest's `onTestFailed` and `onTestFinished` run inside a test, so they are not counted.
 A test's `hooks` adds up those of its file and of each describe around it. In the web app, the price alerts open
 their page in a `beforeEach`:
 
