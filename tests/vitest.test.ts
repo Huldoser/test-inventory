@@ -1253,7 +1253,11 @@ test('backtests a quarter', () => {}, SLOW_TIMEOUT);
       "Option concurrent: isNightly comes from './settings' and could not be worked out; it is not applied.",
       "Option meta.owner: OWNERS.risk comes from './settings' and could not be worked out; the value is missing.",
       "Options object OWNERS comes from './settings' and could not be worked out; its meta values are missing.",
+      'Option timeout: BENCHMARKS is not a whole number; it is not applied.',
+      'Option timeout: NONE is not a whole number; it is not applied.',
+      'Option timeout: SLOW_TIMEOUT could not be worked out; it is not applied.',
     ]);
+    expect(inventory.tests.map((test) => test.timeout)).toEqual([null, null, null, 10_000, null, null, null]);
   });
 
   it('turns parallel off with concurrent: false, in a test or a describe', () => {

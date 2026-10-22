@@ -61,6 +61,7 @@ import {
   readCondition,
   returnedFunction,
   returnedTestObject,
+  readCount,
   readOptions,
   readStrings,
   isTitleLiteral,
@@ -701,6 +702,7 @@ export class VitestAdapter implements Adapter {
     // (title, fn, timeout), (title, options, fn) or the removed (title, fn, options)
     let options: Argument | undefined;
     let body: Argument | undefined;
+    let timeout: Argument | undefined;
     let refusal: Problem | null = null;
     const [second, third] = [args.at(1), args.at(2)];
     if (args.some((arg) => arg.type === 'SpreadElement')) {
@@ -720,10 +722,18 @@ export class VitestAdapter implements Adapter {
           );
         }
         options = third;
+      } else {
+        timeout = third;
       }
     }
     const fn = isFunctionNode(body) ? body : null;
     const read = this.readDeclarationOptions(options, context, problems);
+    if (timeout) {
+      const node = timeout as Expression;
+      const option = { node, resolved: this.file.values.resolve(node, context.scopes) };
+      const value = readCount(this.file, 'timeout', option, problems);
+      if (value !== null) read.details.run.timeout = value;
+    }
     const chain = new Set(links.filter((link) => MODIFIERS[kind].has(link.name)).map((link) => link.name));
     const flags = new Set(chain);
     let conditions = links.filter((link) => CONDITIONS.has(link.name)).map((link) => this.linkCondition(link, context));
@@ -832,7 +842,7 @@ export class VitestAdapter implements Adapter {
     context: CallContext,
     problems: Problem[],
   ): { flags: Map<string, boolean>; concurrent: boolean | null; skip: Condition | null; details: Details } {
-    const details: Details = { tags: [], annotations: [], locks: [], meta: null };
+    const details: Details = { tags: [], annotations: [], locks: [], meta: null, run: {} };
     const result = {
       flags: new Map<string, boolean>(),
       concurrent: null as boolean | null,
@@ -878,7 +888,41 @@ export class VitestAdapter implements Adapter {
     }
     const meta = options.values.get('meta');
     if (meta) details.meta = this.meta(meta, context, problems);
+    for (const key of ['timeout', 'repeats'] as const) {
+      const option = options.values.get(key);
+      const value = option ? readCount(this.file, key, option, problems) : null;
+      if (value !== null) details.run[key] = value;
+    }
+    const retry = options.values.get('retry');
+    if (retry) this.retry(retry, details, context, problems);
     return result;
+  }
+
+  /** `retry` as a number, or since Vitest 4.1 as `{ count, delay, condition }`; the runner ignores an object before. */
+  private retry(option: OptionValue, details: Details, context: CallContext, problems: Problem[]): void {
+    const node = unwrap(option.node);
+    if (node.type !== 'ObjectExpression') {
+      const count = readCount(this.file, 'retry', option, problems);
+      if (count !== null) details.run.retry = { count, delay: null, condition: null };
+      return;
+    }
+    if (!atLeast(this.file.version, 4, 1)) return;
+    const values = readOptions(this.file, context.scopes, node);
+    problems.push(...unresolvedOptions(this.file, values, 'the retry is not applied'));
+    const read = (key: string) => {
+      const value = values.values.get(key);
+      return value ? readCount(this.file, `retry.${key}`, value, problems) : undefined;
+    };
+    const count = read('count');
+    const delay = read('delay');
+    if (count === null) return;
+    const condition = values.values.get('condition');
+    details.run.retry = {
+      // Vitest retries 0 times when the object has no count.
+      count: count ?? 0,
+      delay: delay ?? null,
+      condition: condition ? snippet(text(this.file, condition.node)) : null,
+    };
   }
 
   private meta(option: OptionValue, context: CallContext, problems: Problem[]): Record<string, MetaValue> | null {

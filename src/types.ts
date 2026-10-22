@@ -231,6 +231,19 @@ export interface SuiteRecord {
   meta: Record<string, MetaValue> | null;
   /** Hooks registered directly in the describe. */
   hooks: HookCounts;
+  /** In milliseconds; null when nothing here sets it. */
+  timeout: Count | null;
+  /** Playwright `test.slow()` written in the describe, which triples the timeout of its tests. */
+  isSlow: boolean;
+  /** Source text of the `test.slow()` condition; null when unconditional or not slow. */
+  slowCondition: string | null;
+  retries: Count | null;
+  /** Vitest only: milliseconds between retries, from the `retry` object (4.1). */
+  retryDelay: Count | null;
+  /** Vitest only: source text of the `retry` object's `condition`, a RegExp or a function. */
+  retryCondition: string | null;
+  /** Vitest only: how many times the runner runs each test again after the first run. */
+  repeats: Count | null;
 }
 
 /** A test, with the effective values the runner applies, including those inherited from its describes. */
@@ -302,6 +315,23 @@ export interface TestRecord {
   meta: Record<string, MetaValue> | null;
   /** Every hook that runs around the test: those of the file and of each describe around it. */
   hooks: HookCounts;
+  /**
+   * In milliseconds: the last `test.setTimeout()` in the body or a `beforeEach`, otherwise the nearest describe or file
+   * that sets one. Null when the file sets none, so the config's timeout applies.
+   */
+  timeout: Count | null;
+  /** Playwright `test.slow()` applies: the runner triples the timeout. */
+  isSlow: boolean;
+  /** Source text of the condition of the `test.slow()` that applies; null when unconditional or not slow. */
+  slowCondition: string | null;
+  /** How many times the runner retries the test when it fails; null when the file sets none. */
+  retries: Count | null;
+  /** Vitest only: milliseconds between retries, from the `retry` object (4.1). */
+  retryDelay: Count | null;
+  /** Vitest only: source text of the `retry` object's `condition`, a RegExp or a function. */
+  retryCondition: string | null;
+  /** Vitest only: how many times the runner runs the test again after the first run. */
+  repeats: Count | null;
   /** Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it. */
   isParameterized: boolean;
   /**

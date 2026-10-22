@@ -19,6 +19,7 @@ import type {
   ModuleSource,
   Problem,
   Returns,
+  RunSettings,
   Span,
   StateSetting,
   SuiteDeclaration,
@@ -39,6 +40,8 @@ export interface Scope {
   details: Details;
   /** Hooks registered directly in the scope. */
   hooks: HookCounts;
+  /** Run settings from `beforeEach` hooks in the scope, which run before each test in it and win over the scope's own. */
+  hookRun: RunSettings;
   suite: PendingSuite | null;
 }
 
@@ -78,6 +81,8 @@ export interface PendingTest {
   isInCondition: boolean;
   isInFunction: boolean;
   comments: string[];
+  /** Run settings from calls in the body, which win over everything around the test. */
+  run: RunSettings;
   problems: Problem[];
 }
 
@@ -114,6 +119,7 @@ interface Context {
   test: PendingTest | null;
   /** The scope a hook body applies to, while in a hook. */
   hookScope: Scope | null;
+  hookName: keyof HookCounts | null;
   /** The framework's names for the current test or hook context, such as Vitest's `context.skip`. */
   testContext: unknown;
   /** Source text of the conditions around a call (`if`, `?:`, logical operators, `switch`) within the current body. */
@@ -194,10 +200,21 @@ interface HelperCall {
 
 const LOOP_METHODS = new Set(['forEach', 'map']);
 
-/** What `test.describe.configure()` sets on the describe or file it is called in: the last mode wins, locks add up. */
-function configure(scope: Scope, settings: { mode: Mode | null; locks: string[] }): void {
+/**
+ * What `test.describe.configure()` sets on the describe or file it is called in: the last mode, timeout and retries
+ * win, locks add up.
+ */
+function configure(scope: Scope, settings: { mode: Mode | null; locks: string[]; run: RunSettings }): void {
   if (settings.mode) scope.mode = settings.mode;
   scope.details.locks.push(...settings.locks);
+  mergeRun(scope.details.run, settings.run);
+}
+
+/** Applies settings written later in the same place: the last value of each wins, and one `test.slow()` is enough. */
+export function mergeRun(target: RunSettings, later: RunSettings): void {
+  const { slow, ...rest } = later;
+  Object.assign(target, rest);
+  if (slow && target.slow?.condition !== null) target.slow = slow;
 }
 
 export function noHooks(): HookCounts {
@@ -278,8 +295,9 @@ class Walker {
       states: [],
       mode: null,
       isOnly: false,
-      details: { tags: adapter.fileTags, annotations: [], locks: [], meta: null },
+      details: { tags: adapter.fileTags, annotations: [], locks: [], meta: null, run: {} },
       hooks: noHooks(),
+      hookRun: {},
       suite: null,
     };
   }
@@ -289,6 +307,7 @@ class Walker {
       scope: this.fileScope,
       test: null,
       hookScope: null,
+      hookName: null,
       testContext: null,
       guards: [],
       isInLoop: false,
@@ -518,6 +537,9 @@ class Walker {
           configure(context.scope, api);
         }
         return true;
+      case 'run':
+        this.runSetting(call, api, context);
+        return true;
       case 'hook':
         if (context.test) return false;
         // A function with a name registers its hooks where it is called, not where it is written.
@@ -526,6 +548,7 @@ class Walker {
           this.visitCallback(api.fn, {
             ...context,
             hookScope: context.scope,
+            hookName: api.name,
             testContext: api.testContext,
             guards: [],
             helper: null,
@@ -792,6 +815,40 @@ class Walker {
     return chains.get(fn) as Node[];
   }
 
+  /**
+   * Applies `test.setTimeout()` or `test.slow()` where it is called: in a test body to the test, in a `beforeEach` to
+   * the tests of its scope, at file or describe level to the scope. A timeout set only under a condition is left out
+   * with a warning, while the condition of a slow test is kept.
+   */
+  private runSetting(call: CallExpression, api: Extract<ApiCall, { kind: 'run' }>, context: Context): void {
+    const problems = [...api.problems];
+    const settings = { ...api.settings };
+    const guard = joinConditions(context.guards);
+    if (settings.slow) {
+      const own = settings.slow.condition === null ? [] : [settings.slow.condition];
+      settings.slow = { condition: joinConditions([...context.guards, ...own]) };
+    }
+    if (settings.timeout !== undefined && guard !== null) {
+      const message = `Option timeout: ${api.argument as string} is set only when ${guard}; it is not applied.`;
+      problems.push(problem('unresolved-option', call, message, snippet(this.text(call))));
+      delete settings.timeout;
+    }
+    if (context.test) {
+      context.test.problems.push(...problems.map((item) => this.here(item)));
+      mergeRun(context.test.run, settings);
+      return;
+    }
+    for (const item of problems) this.report(item);
+    // A function with a name applies its settings where it is called.
+    if (context.declaredIn !== null) return;
+    if (context.hookScope) {
+      // `beforeAll` and `afterAll` set the hook's own timeout, and an `afterEach` runs after the test body.
+      if (context.hookName === 'beforeEach') mergeRun(context.hookScope.hookRun, settings);
+      return;
+    }
+    mergeRun(context.scope.details.run, settings);
+  }
+
   /** Reports a problem not tied to a test, once, however many times a function with it is walked. */
   private report(found: Problem): void {
     const item = this.here(found);
@@ -967,6 +1024,7 @@ class Walker {
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
       comments: this.commentsAbove(statement.start),
+      run: {},
       problems: declaration.problems.map((item) => this.here(item)),
     };
     this.tests.push(test);
@@ -977,6 +1035,7 @@ class Walker {
         ...context,
         test,
         hookScope: null,
+        hookName: null,
         testContext: declaration.testContext,
         guards: [],
         helper: null,
@@ -995,6 +1054,7 @@ class Walker {
       isOnly: declaration.isOnly,
       details: declaration.details,
       hooks: noHooks(),
+      hookRun: {},
       suite: null,
     };
     const suite: PendingSuite = {
@@ -1016,6 +1076,7 @@ class Walker {
         scope,
         test: null,
         hookScope: null,
+        hookName: null,
         testContext: null,
         guards: [],
         helper: null,

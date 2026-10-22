@@ -1,6 +1,16 @@
 import type { Argument, CallExpression, Expression, Node, Program, VariableDeclarator } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from '../ast.ts';
-import type { Adapter, ApiCall, CallContext, Details, Mode, ModuleReader, Problem, State } from '../model.ts';
+import type {
+  Adapter,
+  ApiCall,
+  CallContext,
+  Details,
+  Mode,
+  ModuleReader,
+  Problem,
+  RunSettings,
+  State,
+} from '../model.ts';
 import { snippet } from '../source.ts';
 import type { Annotation, HookCounts } from '../types.ts';
 import {
@@ -32,6 +42,7 @@ import {
   problem,
   readChain,
   readCondition,
+  readCount,
   readOptions,
   readReason,
   readStrings,
@@ -74,6 +85,8 @@ const STATES = new Map<string, State>([
 
 /** Members of `test` that are known but don't declare or modify tests. */
 const OTHER_MEMBERS = new Set(['use', 'slow', 'setTimeout', 'extend']);
+/** Members that set how the tests run where they are called. */
+const RUN_MEMBERS = new Set(['slow', 'setTimeout']);
 
 /** First members of chains that never declare a test, even when Playwright refuses the rest of the chain. */
 const NOT_DECLARING = new Set(['step', 'abort', ...HOOKS, ...OTHER_MEMBERS]);
@@ -313,6 +326,7 @@ export class PlaywrightAdapter implements Adapter {
     if (HOOKS.has(key)) {
       return { kind: 'hook', name: key as keyof HookCounts, fn: findFunction(call.arguments), testContext: null };
     }
+    if (RUN_MEMBERS.has(key)) return this.runSetting(call, key, context);
     if (OTHER_MEMBERS.has(key)) return { kind: 'other' };
     return this.invalid(call, names, "is not part of Playwright's API", context);
   }
@@ -626,10 +640,33 @@ export class PlaywrightAdapter implements Adapter {
         problems.push(unresolvedOption(this.file, 'lock', unresolved, importedFrom, 'the lock is missing'));
       }
     }
-    if (!mode && locks.length === 0) {
+    const run: RunSettings = {};
+    const timeout = options?.values.get('timeout');
+    const timeoutValue = timeout ? readCount(this.file, 'timeout', timeout, problems) : null;
+    if (timeoutValue !== null) run.timeout = timeoutValue;
+    const retries = options?.values.get('retries');
+    const count = retries ? readCount(this.file, 'retries', retries, problems) : null;
+    if (count !== null) run.retry = { count, delay: null, condition: null };
+    if (!mode && locks.length === 0 && Object.keys(run).length === 0) {
       return problems.length > 0 ? { kind: 'invalid', problem: problems[0] } : { kind: 'other' };
     }
-    return { kind: 'configure', mode, locks, problems };
+    return { kind: 'configure', mode, locks, run, problems };
+  }
+
+  /** `test.setTimeout(ms)` or `test.slow(condition?, description?)`, which apply where they are called. */
+  private runSetting(call: CallExpression, key: string, context: CallContext): ApiCall {
+    const problems: Problem[] = [];
+    const settings: RunSettings = {};
+    const first = call.arguments.at(0);
+    if (key === 'slow') {
+      const condition = readCondition(this.file, context.scopes, first);
+      if (condition.applies !== 'never') settings.slow = { condition: condition.text };
+    } else if (first && first.type !== 'SpreadElement') {
+      const option = { node: first, resolved: this.file.values.resolve(first, context.scopes) };
+      const timeout = readCount(this.file, 'timeout', option, problems);
+      if (timeout !== null) settings.timeout = timeout;
+    }
+    return { kind: 'run', settings, argument: first ? snippet(text(this.file, first)) : null, problems };
   }
 
   /** `test.info().annotations.push(...)` inside a test body. */
@@ -650,7 +687,7 @@ export class PlaywrightAdapter implements Adapter {
 
   /** Reads the `{ tag, annotation, lock }` details of a test or describe. */
   private details(node: Argument | undefined, context: CallContext, problems: Problem[], title: string): Details {
-    const details: Details = { tags: titleTags(title), annotations: [], locks: [], meta: null };
+    const details: Details = { tags: titleTags(title), annotations: [], locks: [], meta: null, run: {} };
     if (!node) return details;
     const options = readOptions(this.file, context.scopes, node);
     problems.push(...unresolvedOptions(this.file, options, 'its tags, annotations and locks are missing'));

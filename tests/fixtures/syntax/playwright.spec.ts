@@ -114,3 +114,18 @@ test.describe('quote feed', () => {
     }
   });
 });
+
+test.describe('order book depth', () => {
+  test.describe.configure({ retries: 1, timeout: 60_000 });
+  test.slow(({ browserName }) => browserName === 'webkit', 'The depth chart renders slowly on WebKit');
+
+  test.beforeEach(async () => {
+    test.setTimeout(90_000);
+  });
+
+  test('shows ten price levels', async () => {});
+
+  test('streams level updates', async () => {
+    test.setTimeout(120_000);
+  });
+});

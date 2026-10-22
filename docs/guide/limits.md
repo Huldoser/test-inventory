@@ -18,6 +18,11 @@ says so.
 When a Vitest file uses tags, a `config-may-change-state` warning points out that a tag defined in the config can
 skip a test or change how it runs.
 
+The same goes for run settings: the config's `timeout`, `retries` and `repeatEach`, and Vitest's `testTimeout`,
+`retry` and tags with options. A `timeout`, `retries` or `repeats` of `null` means the file sets none, so the config
+decides. Calls that change settings while tests run are not read either: `testInfo.setTimeout()` and
+`testInfo.slow()`, Vitest's `vi.setConfig()`, and `test.setTimeout()` in a helper function a test calls.
+
 ## Imported values are not resolved
 
 Values written in the same file are worked out: string and number literals, constants, enums, arrays and objects

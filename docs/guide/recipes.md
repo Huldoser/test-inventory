@@ -33,8 +33,8 @@ skip tests/alerts.spec.ts:21 price alerts > deletes an alert (Alerts only trigge
 expectedToFail tests/backtest.spec.ts:20 backtests > exports trades to CSV
 fixme tests/login.spec.ts:25 login > asks for a one-time code on a new device
 fixme tests/orders/limit-orders.spec.ts:24 orders > limit orders > rejects a limit price far from the last trade (confirm dialog stays open on WebKit)
-fixme tests/price-stream.spec.ts:6 live price stream > updates prices without a reload (The WebSocket reconnects in a loop on WebKit (TRD-390))
-fixme tests/price-stream.spec.ts:12 live price stream > shows a stale badge when the stream disconnects (The WebSocket reconnects in a loop on WebKit (TRD-390))
+fixme tests/price-stream.spec.ts:8 live price stream > updates prices without a reload (The WebSocket reconnects in a loop on WebKit (TRD-390))
+fixme tests/price-stream.spec.ts:14 live price stream > shows a stale badge when the stream disconnects (The WebSocket reconnects in a loop on WebKit (TRD-390))
 ```
 
 ## Tickets mentioned by tests that don't run
@@ -57,8 +57,8 @@ for (const test of tests.filter((test) => test.state !== 'active')) {
 ```text
 TRD-301 tests/login.spec.ts:25 login > asks for a one-time code on a new device
 TRD-412 tests/orders/limit-orders.spec.ts:24 orders > limit orders > rejects a limit price far from the last trade
-TRD-390 tests/price-stream.spec.ts:6 live price stream > updates prices without a reload
-TRD-390 tests/price-stream.spec.ts:12 live price stream > shows a stale badge when the stream disconnects
+TRD-390 tests/price-stream.spec.ts:8 live price stream > updates prices without a reload
+TRD-390 tests/price-stream.spec.ts:14 live price stream > shows a stale badge when the stream disconnects
 ```
 
 ## Smoke tests per file
