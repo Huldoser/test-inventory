@@ -1,5 +1,20 @@
 # test-inventory
 
+## 0.4.1
+
+### Patch Changes
+
+- [#48](https://github.com/Huldoser/test-inventory/pull/48) [`6549682`](https://github.com/Huldoser/test-inventory/commit/65496820548c0980cef2f290f6d54bd89160236b) - A hook given a function the file declares, as in `test.beforeEach(skipOnCI)` or `beforeEach(requireBroker)`, is read
+  like one written in place: the skips, timeouts and other settings it sets apply to the tests it runs before, and its
+  fixtures are in their `fixtures`. Before, they were missed. A test or hook function passed by name no longer gets a
+  `state-in-helper` warning saying no test, hook or describe in the file calls it.
+
+- [#47](https://github.com/Huldoser/test-inventory/pull/47) [`a603623`](https://github.com/Huldoser/test-inventory/commit/a603623b2431e51c3e48ae0413964d5a7125de59) - A `#` import or workspace package export whose target repeats the `*` of its pattern, as in
+  `"#desks/*": "./desks/*/*-fixtures.ts"`, is followed to the file Node.js loads, with every `*` filled in. Only the
+  first was filled in before, so the import wasn't followed and its tests were missing, with an `unresolved-test-import`
+  error. A folder given as the pattern with a long run of slashes, as in `tests////unit`, no longer slows the scan down
+  while the hint for it is written.
+
 ## 0.4.0
 
 ### Minor Changes
