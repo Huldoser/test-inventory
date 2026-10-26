@@ -49,7 +49,7 @@ import {
 } from './bindings.ts';
 import {
   atLeast,
-  findFunction,
+  hookFunction,
   isTestName,
   localTestObject,
   looksLikeDeclaration,
@@ -471,7 +471,7 @@ export class VitestAdapter implements Adapter {
     const resolved = chain ? this.resolve(chain, call.arguments, context) : null;
     if (!resolved) return null;
     const { kind, links } = resolved;
-    if (kind === 'test' && links.length === 1 && isHook(links[0].name)) return this.hook(call, links[0].name);
+    if (kind === 'test' && links.length === 1 && isHook(links[0].name)) return this.hook(call, links[0].name, context);
     if (links.length === 1 && DERIVATIONS.has(links[0].name)) return { kind: 'other' };
     const last = links.at(-1);
     if (last && (TABLES.has(last.name) || CONDITIONS.has(last.name)) && !last.args && !last.template) {
@@ -665,11 +665,11 @@ export class VitestAdapter implements Adapter {
       declaration === null
         ? isHook(callee.name) && callee.name
         : this.bindings.declarations.has(declaration) && this.bindings.hooks.get(callee.name);
-    return hook ? this.hook(call, hook) : null;
+    return hook ? this.hook(call, hook, context) : null;
   }
 
-  private hook(call: CallExpression, name: keyof HookCounts): ApiCall {
-    const fn = findFunction(call.arguments);
+  private hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
+    const fn = hookFunction(this.file, context.scopes, call.arguments);
     const index = HOOKS.get(name) as number | null;
     return {
       kind: 'hook',

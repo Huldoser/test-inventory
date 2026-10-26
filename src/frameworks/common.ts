@@ -236,6 +236,15 @@ export function findFunction(args: readonly Argument[], from = 0): FunctionNode 
   return null;
 }
 
+/** A hook's function: written in the call, or declared in the file and passed by name, as in `beforeEach(signIn)`. */
+export function hookFunction(
+  file: FileContext,
+  scopes: readonly Node[],
+  args: readonly Argument[],
+): FunctionNode | null {
+  return findFunction(args) ?? args.map((arg) => namedFunction(file, scopes, arg)).find((fn) => fn !== null) ?? null;
+}
+
 /** Reads a title. A title that cannot be worked out keeps its source text and gets a `dynamic-title` warning. */
 export function readTitle(
   file: FileContext,

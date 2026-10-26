@@ -836,6 +836,20 @@ test('fills a market order', fillsOrder);
     });
   });
 
+  it('reads a hook function passed by name like one written in place', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+async function openTicket({ orderTicket }) {
+  test.setTimeout(45_000);
+  await orderTicket.open();
+}
+test.describe('orders', () => {
+  test.beforeEach('open the ticket', openTicket);
+  test('fills a market order', async () => {});
+});
+`);
+    expect(onlyTest(inventory)).toMatchObject({ fixtures: ['orderTicket'], timeout: 45_000 });
+  });
+
   it('marks tests whose body has no statements', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 test('fills a market order', async () => {});
