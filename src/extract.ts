@@ -308,7 +308,10 @@ class Walker {
   private readonly declaredIn = new Map<PendingTest, Node>();
   private readonly deferred: Deferred[] = [];
   private readonly isDeferred = new Set<Node>();
-  /** Functions walked at one of their calls, so that their tests are recorded where they are registered. */
+  /**
+   * Functions walked at one of their calls, or as a test or hook body passed by name, so that their tests are recorded
+   * where they are registered and what they set isn't reported as unapplied.
+   */
   private readonly walkedAtCall = new Set<Node>();
   /** The functions being walked at their calls, innermost last, to stop recursion. */
   private readonly callStack: Node[] = [];
@@ -599,6 +602,7 @@ class Walker {
           if (EACH_HOOKS.has(api.name)) context.scope.hookFixtures.push(...api.fixtures);
         }
         if (api.fn) {
+          if (!call.arguments.includes(api.fn)) this.walkedAtCall.add(api.fn);
           this.visitCallback(api.fn, {
             ...context,
             hookScope: context.scope,
@@ -1151,6 +1155,7 @@ class Walker {
     // A function declared in the file and passed by name runs as the test body too.
     const body = declaration.fn ?? declaration.hashed;
     if (body) {
+      if (!declaration.fn) this.walkedAtCall.add(body);
       this.visitCallback(body, {
         ...context,
         test,

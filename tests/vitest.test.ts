@@ -767,6 +767,25 @@ describe('paper broker', () => {
     ]);
   });
 
+  it('applies a skip in a function passed by name to beforeEach to the tests in the describe', () => {
+    const inventory = scanVitest(`
+import { beforeEach, describe, test } from 'vitest';
+function requireBroker(context) {
+  context.skip(!process.env.BROKER_URL, 'needs a broker');
+}
+describe('broker integration', () => {
+  beforeEach(requireBroker);
+  test('sends an order', () => {});
+});
+`);
+    expect(onlyTest(inventory)).toMatchObject({
+      state: 'skip',
+      condition: '!process.env.BROKER_URL',
+      reason: 'needs a broker',
+      stateSource: 'suite',
+    });
+  });
+
   it('lets a skip in a body or a hook lose to a todo describe, which keeps the test from running', () => {
     const inventory = scanVitest(`
 import { beforeEach, describe, test } from 'vitest';

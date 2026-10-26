@@ -31,6 +31,7 @@ import {
 import {
   atLeast,
   findFunction,
+  hookFunction,
   isTestName,
   isTitleLiteral,
   localTestObject,
@@ -328,7 +329,7 @@ export class PlaywrightAdapter implements Adapter {
     if (describe) return this.describeCall(call, describe, context);
     if (key === 'describe.configure') return this.configure(call, context);
     if (HOOKS.has(key)) {
-      const fn = findFunction(call.arguments);
+      const fn = hookFunction(this.file, context.scopes, call.arguments);
       return { kind: 'hook', name: key as keyof HookCounts, fn, testContext: null, fixtures: destructuredNames(fn, 0) };
     }
     if (RUN_MEMBERS.has(key)) return this.runSetting(call, key, context);

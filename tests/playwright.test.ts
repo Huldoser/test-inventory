@@ -758,6 +758,27 @@ test.beforeAll('opens the session', async () => {
     });
   });
 
+  it('applies calls in a function passed by name to a hook or a test, like ones written in place', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function skipWhenClosed() {
+  test.skip(process.env.MARKET === 'closed', 'Alerts only trigger while the market is open');
+}
+const failsOnPaper = async () => {
+  test.fail(process.env.BROKER === 'paper');
+};
+test.describe('price alerts', () => {
+  test.beforeEach(skipWhenClosed);
+  test('triggers an alert', async () => {});
+});
+test('rejects a short sale', failsOnPaper);
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.condition, test.stateSource])).toEqual([
+      ['triggers an alert', 'skip', "process.env.MARKET === 'closed'", 'suite'],
+      ['rejects a short sale', 'expectedToFail', "process.env.BROKER === 'paper'", 'test'],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('lets a call in a test or hook body lose to a fixme describe, which keeps the test from running', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 test.describe.fixme('short selling', () => {
