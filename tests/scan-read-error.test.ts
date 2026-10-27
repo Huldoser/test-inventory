@@ -87,7 +87,7 @@ describe('scan', () => {
     expect(JSON.stringify(inventory)).not.toContain(root);
   });
 
-  it('goes on without a lockfile, config, tsconfig, fixtures file or folder it may not read', async () => {
+  it('goes on without a lockfile, config, tsconfig, fixtures file or folder it may not read, taking globals to be on', async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,
       'pnpm-lock.yaml': "packages:\n\n  'vitest@5.0.3':\n    resolution: {}\n",
@@ -105,8 +105,8 @@ describe('scan', () => {
     expect(inventory.tests.map((test) => test.title)).toEqual(['charges the minimum']);
     expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.message])).toEqual([
       [
-        'globals-not-enabled',
-        "The file uses Vitest's global test functions, but no Vitest or Vite config with globals: true and no tsconfig with vitest/globals was found.",
+        'config-value-unknown',
+        'The config could not be read: permission denied (EACCES), so the scan reads none of its settings.',
       ],
       [
         'unresolved-test-import',

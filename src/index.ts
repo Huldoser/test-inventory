@@ -5,6 +5,7 @@ export type { InventoryFilter, PickedInventory } from './filter.ts';
 export type { CommentsMode, ScanOptions, ScanSourceOptions } from './options.ts';
 export type {
   Annotation,
+  ConfigRecord,
   DeclaredAt,
   Diagnostic,
   DiagnosticCode,

@@ -33,5 +33,5 @@ export function scanSource(options: ScanSourceOptions): Inventory {
     readModule: null,
     root: null,
   });
-  return createInventory(framework, frameworkVersion, 1, [result], []);
+  return createInventory(framework, frameworkVersion, 1, [result], [], []);
 }

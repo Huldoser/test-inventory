@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { Configs } from './config.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
 import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
@@ -111,9 +112,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   }
 
   const readerFor = moduleResolver(root);
+  const configs = new Configs(root, framework, readerFor);
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
   for (const { absolutePath, relativeFilePath } of found.files) {
+    configs.configFor(absolutePath);
     let code: string;
     try {
       code = await readFile(absolutePath, 'utf8');
@@ -136,16 +139,15 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     results.push(result);
   }
-  const enabled = globalsCheck(root);
-  const globalsFile = globalsFiles.find((file) => !enabled(file.absolutePath))?.relativeFilePath;
-  if (globalsFile !== undefined) {
-    projectDiagnostics.push(
-      fileDiagnostic(
-        'globals-not-enabled',
-        globalsFile,
-        "The file uses Vitest's global test functions, but no Vitest or Vite config with globals: true and no tsconfig with vitest/globals was found.",
-      ),
-    );
+  const missingGlobals = globalsCheck(root, configs);
+  let globals: Diagnostic | null = null;
+  for (const { absolutePath, relativeFilePath } of globalsFiles) {
+    const message = missingGlobals(absolutePath);
+    if (message === null) continue;
+    globals = fileDiagnostic('globals-not-enabled', relativeFilePath, message);
+    break;
   }
-  return createInventory(framework, frameworkVersion, found.files.length, results, projectDiagnostics);
+  projectDiagnostics.push(...configs.diagnostics, ...(globals ? [globals] : []));
+  const fileCount = found.files.length;
+  return createInventory(framework, frameworkVersion, fileCount, results, projectDiagnostics, configs.records());
 }

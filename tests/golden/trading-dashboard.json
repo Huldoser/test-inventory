@@ -30,6 +30,12 @@
     "tagCounts": {},
     "annotationCounts": {}
   },
+  "configs": [
+    {
+      "relativeFilePath": "vitest.config.ts",
+      "extends": []
+    }
+  ],
   "files": [
     {
       "relativeFilePath": "src/components/OrderTicket.test.tsx",

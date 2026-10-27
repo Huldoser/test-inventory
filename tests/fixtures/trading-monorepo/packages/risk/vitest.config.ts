@@ -1,7 +1,11 @@
-import { defineProject } from 'vitest/config';
+import { defineProject, mergeConfig } from 'vitest/config';
+import shared from '../../vitest.shared';
 
-export default defineProject({
-  test: {
-    name: 'risk',
-  },
-});
+export default mergeConfig(
+  shared,
+  defineProject({
+    test: {
+      name: 'risk',
+    },
+  }),
+);

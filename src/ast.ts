@@ -54,11 +54,11 @@ export interface ReturnValue {
 
 /**
  * The values a function returns; null when it may return no value, as with `return;` or no `return` at all, and for
- * an async function or a generator, which returns a promise or an iterator whatever its `return` says. A `return` in a
- * function inside it is that function's.
+ * an async function or a generator, which returns a promise or an iterator whatever its `return` says. With `awaited`,
+ * an async function's values are those its promise resolves to. A `return` in a function inside it is that function's.
  */
-export function returnValues(fn: FunctionNode): ReturnValue[] | null {
-  if (fn.async || fn.generator) return null;
+export function returnValues(fn: FunctionNode, awaited = false): ReturnValue[] | null {
+  if ((fn.async && !awaited) || fn.generator) return null;
   // Only declarations of overloads have no body.
   const body = fn.body as Node;
   if (body.type !== 'BlockStatement') return [{ expression: body as Expression, around: [] }];

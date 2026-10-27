@@ -34,6 +34,12 @@
       "notice": 1
     }
   },
+  "configs": [
+    {
+      "relativeFilePath": "vitest.config.ts",
+      "extends": []
+    }
+  ],
   "files": [
     {
       "relativeFilePath": "src/indicators/rsi.ts",

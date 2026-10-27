@@ -8,12 +8,17 @@ test-inventory reads the code as text and builds a syntax tree. It does not run 
 runner knows at run time are out of its reach. Most limits below show up in the output, as a diagnostic or a key
 such as `isInLoop`; each section says when one does not.
 
-## Config files are not read
+## Config files are read only in part
 
 `playwright.config.*` and `vitest.config.*` can change which tests run and how: `grep`, `testIgnore`, `forbidOnly`,
-`fullyParallel`, projects, and Vitest tags with options. The scan reads only the test files. A test that a config
+`fullyParallel`, projects, and Vitest tags with options. The scan finds the config each file uses and lists it in
+[`configs`](/reference/output#configs), but so far it reads only Vitest's `test.globals` from it. A test that a config
 `grep` leaves out is still listed, and `isParallel` only reflects what is written in the file. Nothing in the output
 says so.
+
+A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
+installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config
+the runner is pointed to with `--config` is not known from the files.
 
 When a Vitest file uses tags, a `config-may-change-state` warning points out that a tag defined in the config can
 skip a test or change how it runs.

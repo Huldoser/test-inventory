@@ -57,6 +57,7 @@ async function lines(inventory: Parameters<typeof writeInventoryLines>[0]): Prom
 describe('writeInventoryLines', () => {
   const ajv = new Ajv({ allErrors: true }).addSchema(strictSchema);
   const DEFINITIONS: Record<string, string> = {
+    config: 'ConfigRecord',
     file: 'FileRecord',
     suite: 'SuiteRecord',
     test: 'TestRecord',
@@ -69,6 +70,7 @@ describe('writeInventoryLines', () => {
     const parsed = (await lines(inventory)).map((line) => JSON.parse(line) as InventoryLine);
     expect(parsed.map((line) => line.type)).toEqual([
       'inventory',
+      ...inventory.configs.map(() => 'config'),
       ...inventory.files.map(() => 'file'),
       ...inventory.suites.map(() => 'suite'),
       ...inventory.tests.map(() => 'test'),
@@ -82,6 +84,7 @@ describe('writeInventoryLines', () => {
     expect({
       ...records('inventory')[0],
       summary: records('summary')[0],
+      configs: records('config'),
       files: records('file'),
       suites: records('suite'),
       tests: records('test'),
@@ -100,7 +103,7 @@ describe('writeInventoryLines', () => {
   it('writes test lines with only the picked keys', async () => {
     const inventory = readGolden('trading-web');
     const line = (await lines(pickTestFields(inventory, ['fullName'])))[
-      1 + inventory.files.length + inventory.suites.length
+      1 + inventory.configs.length + inventory.files.length + inventory.suites.length
     ];
     expect(JSON.parse(line)).toStrictEqual({
       type: 'test',

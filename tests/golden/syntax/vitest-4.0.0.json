@@ -32,6 +32,7 @@
       "data": 1
     }
   },
+  "configs": [],
   "files": [
     {
       "relativeFilePath": "tests/vitest.test.ts",

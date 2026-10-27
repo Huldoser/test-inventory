@@ -30,6 +30,7 @@
     "tagCounts": {},
     "annotationCounts": {}
   },
+  "configs": [],
   "files": [
     {
       "relativeFilePath": "tests/vitest-rejected.test.ts",

@@ -75,7 +75,8 @@ export type DiagnosticCode =
   | 'approximate-framework-version'
   | 'test-in-function'
   | 'empty-title'
-  | 'bench-outside-benchmark-file';
+  | 'bench-outside-benchmark-file'
+  | 'config-value-unknown';
 
 export type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
@@ -89,6 +90,8 @@ export interface Inventory {
   /** Read from the project, or given with `--framework-version`; null when unknown. */
   frameworkVersion: string | null;
   summary: Summary;
+  /** The configs the scanned files use, sorted by path. */
+  configs: ConfigRecord[];
   /** One per scanned file, in the order the files were scanned. */
   files: FileRecord[];
   suites: SuiteRecord[];
@@ -98,11 +101,12 @@ export interface Inventory {
 
 /**
  * One line of the JSON Lines output (`--format jsonl`): the inventory with each record on its own line, marked by
- * `type`. The `inventory` line comes first, then the files, suites, tests and diagnostics in the order of the JSON
- * output, and the `summary` line last.
+ * `type`. The `inventory` line comes first, then the configs, files, suites, tests and diagnostics in the order of the
+ * JSON output, and the `summary` line last.
  */
 export type InventoryLine =
   | ({ type: 'inventory' } & Pick<Inventory, 'schemaVersion' | 'tool' | 'framework' | 'frameworkVersion'>)
+  | ({ type: 'config' } & ConfigRecord)
   | ({ type: 'file' } & FileRecord)
   | ({ type: 'suite' } & SuiteRecord)
   | ({ type: 'test' } & TestRecord)
@@ -143,6 +147,17 @@ export interface Summary {
   tagCounts: Record<string, Count>;
   /** Tests per annotation type. */
   annotationCounts: Record<string, Count>;
+}
+
+/**
+ * A Playwright or Vitest config that scanned files use: the nearest one in a file's folder or a folder above it, up to
+ * the root, as the runner started in that folder would. Read as code, never run.
+ */
+export interface ConfigRecord {
+  /** Path from the project root, with `/` separators. */
+  relativeFilePath: string;
+  /** Files the config takes settings from through imports, such as a shared base config, in the order read. */
+  extends: string[];
 }
 
 /** A scanned file, also one that has no tests or could not be read. */
