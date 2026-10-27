@@ -14,6 +14,12 @@ const sources = (test: TestRecord) => ({
   repeats: [test.repeats, test.repeatsSource],
 });
 
+const configTexts = (test: TestRecord) => ({
+  timeout: test.timeoutConfigText,
+  retries: test.retriesConfigText,
+  repeats: test.repeatsConfigText,
+});
+
 describe('where run settings come from', () => {
   it('says which place in the file sets each run setting', () => {
     const playwright = scanPlaywright(`${PLAYWRIGHT_IMPORT}
@@ -130,7 +136,12 @@ describe('run settings from the config', () => {
       'vitest',
       ['tests/*.test.ts'],
     );
-    expect(fromEnv.tests[0]).toMatchObject({ retries: null, retryDelay: null, retriesSource: 'config' });
+    expect(fromEnv.tests[0]).toMatchObject({
+      retries: null,
+      retryDelay: null,
+      retriesSource: 'config',
+      retriesConfigText: 'Number(process.env.RETRIES)',
+    });
   });
 
   it('has no retries, from the config, for a retry object before Vitest 4.1, which reads only a count', async () => {
@@ -161,14 +172,14 @@ describe('run settings from the config', () => {
     expect(sources(before.tests[0]).repeats).toEqual([null, null]);
   });
 
-  it('has no value, from the config, when its projects disagree or it depends on a condition', async () => {
+  it('has no value, from the config, when its projects disagree or it depends on a condition, which it quotes', async () => {
     const inventory = await scanned(
       {
         'playwright.config.ts': [
           'export default {',
           '  retries: process.env.CI ? 2 : 0,',
           "  repeatEach: Number(process.env.REPEAT_EACH ?? '1'),",
-          "  projects: [{ name: 'desktop', timeout: 30_000 }, { name: 'mobile', timeout: 60_000 }],",
+          "  projects: [{ name: 'desktop', timeout: 30_000 }, { name: 'mobile', timeout: process.env.CI ? 90_000 : 60_000 }],",
           '};',
           '',
         ].join('\n'),
@@ -181,6 +192,11 @@ describe('run settings from the config', () => {
       timeout: [null, 'config'],
       retries: [null, 'config'],
       repeats: [null, 'config'],
+    });
+    expect(configTexts(inventory.tests[0])).toEqual({
+      timeout: null,
+      retries: 'process.env.CI ? 2 : 0',
+      repeats: "Number(process.env.REPEAT_EACH ?? '1')",
     });
     expect(inventory.diagnostics).toEqual([]);
   });
@@ -237,6 +253,7 @@ describe('run settings from the config', () => {
       retries: [null, 'config'],
       repeats: [null, 'config'],
     });
+    expect(configTexts(inventory.tests[0])).toEqual({ timeout: null, retries: null, repeats: null });
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
       'config-value-unknown',
       'forbidden-only',

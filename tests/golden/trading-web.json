@@ -898,6 +898,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "alertsPage"
       ],
@@ -975,6 +978,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "alertsPage"
       ],
@@ -1052,6 +1058,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "alertsPage"
       ],
@@ -1131,6 +1140,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "backtestPage"
       ],
@@ -1210,6 +1222,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "backtestPage"
       ],
@@ -1295,6 +1310,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "backtestPage"
       ],
@@ -1374,6 +1392,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "loginPage",
         "page"
@@ -1454,6 +1475,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "loginPage"
       ],
@@ -1539,6 +1563,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "loginPage"
       ],
@@ -1620,6 +1647,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "loginPage",
         "context"
@@ -1701,6 +1731,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "portfolioPage"
@@ -1782,6 +1815,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "portfolioPage"
@@ -1864,6 +1900,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "blotter"
@@ -1945,6 +1984,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "blotter"
@@ -2034,6 +2076,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "browserName",
         "orderTicket"
@@ -2115,6 +2160,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "blotter"
@@ -2196,6 +2244,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "blotter"
@@ -2277,6 +2328,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket"
       ],
@@ -2356,6 +2410,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "orderTicket",
         "blotter"
@@ -2451,6 +2508,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "blotter"
       ],
@@ -2530,6 +2590,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "blotter"
       ],
@@ -2609,6 +2672,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "portfolioPage"
       ],
@@ -2686,6 +2752,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "portfolioPage"
       ],
@@ -2765,6 +2834,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "portfolioPage",
         "blotter"
@@ -2843,6 +2915,9 @@
       "timeoutSource": null,
       "retriesSource": "suite",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": null,
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage"
       ],
@@ -2920,6 +2995,9 @@
       "timeoutSource": null,
       "retriesSource": "suite",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": null,
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage",
         "context"
@@ -2998,6 +3076,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage"
       ],
@@ -3077,6 +3158,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage"
       ],
@@ -3154,6 +3238,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage"
       ],
@@ -3231,6 +3318,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage"
       ],
@@ -3308,6 +3398,9 @@
       "timeoutSource": null,
       "retriesSource": "config",
       "repeatsSource": null,
+      "timeoutConfigText": null,
+      "retriesConfigText": "process.env.CI ? 2 : 0",
+      "repeatsConfigText": null,
       "fixtures": [
         "watchlistPage",
         "page"

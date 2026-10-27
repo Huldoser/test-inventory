@@ -1050,6 +1050,27 @@
           ],
           "description": "Where `repeats` comes from, read as `timeoutSource` is."
         },
+        "timeoutConfigText": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The config's source text for `timeout` when the config sets it under a condition, as in `process.env.CI ? 60_000 : 30_000`, shortened when long; null otherwise."
+        },
+        "retriesConfigText": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The config's source text for `retries`, read as `timeoutConfigText` is."
+        },
+        "repeatsConfigText": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The config's source text for `repeats`, Playwright's `repeatEach`, read as `timeoutConfigText` is."
+        },
         "fixtures": {
           "type": "array",
           "items": {
@@ -1185,6 +1206,9 @@
         "timeoutSource",
         "retriesSource",
         "repeatsSource",
+        "timeoutConfigText",
+        "retriesConfigText",
+        "repeatsConfigText",
         "fixtures",
         "expectCount",
         "expectedAssertions",

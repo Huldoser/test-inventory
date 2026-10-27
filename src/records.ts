@@ -46,6 +46,10 @@ export interface ConfigDefaults {
   timeout?: number | null;
   retry?: RunSettings['retry'] | null;
   repeats?: number | null;
+  /** The source text of a run setting the config sets under a condition; null for any other. */
+  timeoutText: string | null;
+  retryText: string | null;
+  repeatsText: string | null;
   /** Whether tests run in parallel unless the file says otherwise: Playwright's `fullyParallel`, Vitest's `sequence.concurrent`. */
   parallel: boolean;
 }
@@ -144,7 +148,10 @@ function runKeys(places: RunSettings[]): RunKeys {
   };
 }
 
-type RunSources = Pick<TestRecord, 'timeoutSource' | 'retriesSource' | 'repeatsSource'>;
+type RunSources = Pick<
+  TestRecord,
+  'timeoutSource' | 'retriesSource' | 'repeatsSource' | 'timeoutConfigText' | 'retriesConfigText' | 'repeatsConfigText'
+>;
 
 /** A test's run settings from the file, and where each comes from: the nearest place that sets it. */
 function testRun(places: { run: RunSettings; source: SettingSource }[]): RunKeys & RunSources {
@@ -154,6 +161,9 @@ function testRun(places: { run: RunSettings; source: SettingSource }[]): RunKeys
     timeoutSource: from('timeout'),
     retriesSource: from('retry'),
     repeatsSource: from('repeats'),
+    timeoutConfigText: null,
+    retriesConfigText: null,
+    repeatsConfigText: null,
   };
 }
 
@@ -163,16 +173,19 @@ function withConfig<T extends RunKeys & RunSources>(fromFile: T, config: ConfigD
   if (run.timeoutSource === null && config?.timeout !== undefined) {
     run.timeout = config.timeout;
     run.timeoutSource = 'config';
+    run.timeoutConfigText = config.timeoutText;
   }
   if (run.retriesSource === null && config?.retry !== undefined) {
     run.retries = config.retry?.count ?? null;
     run.retryDelay = config.retry?.delay ?? null;
     run.retryCondition = config.retry?.condition ?? null;
     run.retriesSource = 'config';
+    run.retriesConfigText = config.retryText;
   }
   if (run.repeatsSource === null && config?.repeats !== undefined) {
     run.repeats = config.repeats;
     run.repeatsSource = 'config';
+    run.repeatsConfigText = config.repeatsText;
   }
   return run;
 }
