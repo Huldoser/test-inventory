@@ -158,8 +158,8 @@ export function requiredModule(expression: Expression): string | null {
   return argument?.type === 'Literal' && typeof argument.value === 'string' ? argument.value : null;
 }
 
-/** The module of `module.exports = require('module')`, which exports what that module does; null otherwise. */
-function commonJsReexport(statement: Node): string | null {
+/** What `module.exports = value` assigns, the default export of a CommonJS module; null for any other statement. */
+export function moduleExportsValue(statement: Node): Expression | null {
   if (statement.type !== 'ExpressionStatement') return null;
   const expression = unwrap(statement.expression);
   if (expression.type !== 'AssignmentExpression') return null;
@@ -169,7 +169,13 @@ function commonJsReexport(statement: Node): string | null {
     target.object.type === 'Identifier' &&
     target.object.name === 'module' &&
     propertyName(target) === 'exports';
-  return isModuleExports ? requiredModule(expression.right) : null;
+  return isModuleExports ? expression.right : null;
+}
+
+/** The module of `module.exports = require('module')`, which exports what that module does; null otherwise. */
+function commonJsReexport(statement: Node): string | null {
+  const value = moduleExportsValue(statement);
+  return value ? requiredModule(value) : null;
 }
 
 /** Applies `bind` to each declarator until no more names are bound, so declaration order doesn't matter. */
@@ -218,7 +224,7 @@ export function exportsTestObject(
 }
 
 /** How a module exports `name` itself: declared, or exported by name from a local or another module. */
-type OwnExport =
+export type OwnExport =
   | { kind: 'default'; value: Expression }
   | { kind: 'variable' | 'function' }
   | { kind: 'specifier'; local: string; source: string | null };
@@ -227,7 +233,7 @@ type OwnExport =
  * The module's own export of `name`; null when it has none and only `export *` may pass the name on. An own export
  * wins over those, as in JavaScript.
  */
-function ownExport(program: Program, name: string): OwnExport | null {
+export function ownExport(program: Program, name: string): OwnExport | null {
   for (const statement of program.body) {
     if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
       return { kind: 'default', value: statement.declaration as Expression };
@@ -249,7 +255,7 @@ function ownExport(program: Program, name: string): OwnExport | null {
 }
 
 /** The module `export * from 'module'` or `module.exports = require('module')` passes every name on from; or null. */
-function starReexport(statement: Node): string | null {
+export function starReexport(statement: Node): string | null {
   if (statement.type === 'ExportAllDeclaration') return statement.exported ? null : statement.source.value;
   return commonJsReexport(statement);
 }

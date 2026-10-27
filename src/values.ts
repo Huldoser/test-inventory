@@ -215,6 +215,12 @@ export class Values {
     return this.lookup(name, scopes)?.binding.declaration ?? null;
   }
 
+  /** The value a `const` name is declared with, and the scopes around that declaration; null for any other name. */
+  constantOf(name: string, scopes: readonly Node[]): { init: Expression; scopes: readonly Node[] } | null {
+    const binding = this.lookup(name, scopes)?.binding;
+    return binding?.kind === 'const' ? { init: binding.init, scopes: binding.scopes } : null;
+  }
+
   /** The module a name is imported from where it is used; null when it isn't an import. */
   importSource(name: string, scopes: readonly Node[]): string | null {
     const binding = this.lookup(name, scopes)?.binding;
