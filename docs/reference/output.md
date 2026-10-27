@@ -317,8 +317,9 @@ that `testMatch` matches and `testIgnore` doesn't, matched against the full path
 files under `test.dir`, `test.root` or `root` that `include` matches and `exclude` doesn't, with each version's
 defaults, `includeSource` files that hold in-source tests, `typecheck.include` when `typecheck.enabled` is on, and
 `benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root
-config as each version decides; a config file or folder it names is a project of its own, and a folder without a
-config gets Vitest's defaults.
+config as each version decides, or the config its `extends` names; a config file or folder it names is a project of
+its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config that lists projects runs only
+those.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, spreads, also those a condition picks, constants, a function that returns the

@@ -55,10 +55,13 @@ interface Origin {
   name: string;
 }
 
-/** Node.js path functions a config builds its folders with, given the folder of the file that calls them. */
-const PATH_FUNCTIONS: Record<string, (folder: string, ...parts: string[]) => string> = {
+/**
+ * Node.js path functions a config builds its folders with, given the folder the runner starts in: the root, which
+ * `path.resolve()` resolves a relative path from.
+ */
+const PATH_FUNCTIONS: Record<string, (root: string, ...parts: string[]) => string> = {
   'path.join': (_, ...parts) => path.join(...parts),
-  'path.resolve': (folder, ...parts) => path.resolve(folder, ...parts),
+  'path.resolve': (root, ...parts) => path.resolve(root, ...parts),
   'path.dirname': (_, part) => path.dirname(part),
   'url.fileURLToPath': (_, url) => fileURLToPath(url),
 };
@@ -433,7 +436,7 @@ class ConfigCode {
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
       const parts = this.strings(call.arguments, frame, scopes);
-      const file = parts && attempt(() => pathFunction(path.dirname(frame.file), ...parts));
+      const file = parts && attempt(() => pathFunction(this.root, ...parts));
       return file === null ? unknown(site) : { kind: 'value', value: file };
     }
     const isPackage = origin !== null && (origin.source === '' || !/^[./#]/.test(origin.source));

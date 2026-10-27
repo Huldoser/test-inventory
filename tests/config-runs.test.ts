@@ -473,3 +473,236 @@ describe('which Vitest files a config runs', () => {
     ]);
   });
 });
+
+describe('which files a config runs, in the cases a review found', () => {
+  it('reads a .gitignore line that is only ! and empty Vitest patterns without failing the scan', async () => {
+    const playwright = await placed(
+      { 'playwright.config.ts': 'export default {};\n', '.gitignore': 'dist\n!\n', 'tests/orders.spec.ts': SPEC },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(playwright.diagnostics).toEqual([]);
+    const vitest = await placed(
+      {
+        'vitest.config.ts': "export default { test: { include: ['', '**/*.test.ts'], exclude: [''] } };\n",
+        'tests/fees.test.ts': UNIT,
+      },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(vitest.diagnostics).toEqual([]);
+  });
+
+  it('takes a testMatch regular expression Node.js rejects as unknown', async () => {
+    const { configs, diagnostics } = await placed(
+      { 'playwright.config.ts': 'export default { testMatch: /orders{2,1}/ };\n', 'tests/orders.spec.ts': SPEC },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(configs).toEqual({ 'tests/orders.spec.ts': 'playwright.config.ts' });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('excludes a folder Vitest exclude names, and reads absolute include patterns', async () => {
+    const { diagnostics } = await placed(
+      {
+        'vitest.config.ts': [
+          "import path from 'node:path';",
+          "import { configDefaults } from 'vitest/config';",
+          'export default {',
+          "  test: { include: [path.resolve(__dirname, 'src/**/*.test.ts'), 'e2e/**/*.test.ts'], exclude: [...configDefaults.exclude, 'e2e'] },",
+          '};',
+          '',
+        ].join('\n'),
+        'src/fees.test.ts': UNIT,
+        'e2e/orders.test.ts': UNIT,
+      },
+      'vitest',
+      ['**/*.test.ts'],
+    );
+    expect(diagnostics).toEqual(['file-not-run e2e/orders.test.ts']);
+  });
+
+  it('leaves out the project folders a negated test.projects entry names', async () => {
+    const { configs } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { include: [], projects: ['packages/*', '!packages/legacy'] } };\n",
+        'packages/orders/src/fill.test.ts': UNIT,
+        'packages/legacy/src/old.test.ts': UNIT,
+      },
+      'vitest',
+      ['packages/*/src/*.test.ts'],
+    );
+    expect(configs).toEqual({
+      'packages/legacy/src/old.test.ts': 'vitest.config.ts',
+      'packages/orders/src/fill.test.ts': 'vitest.config.ts',
+    });
+    const { diagnostics } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { projects: ['<rootDir>/packages/*', '!packages/legacy'] } };\n",
+        'packages/orders/src/fill.test.ts': UNIT,
+        'packages/legacy/src/old.test.ts': UNIT,
+      },
+      'vitest',
+      ['packages/*/src/*.test.ts'],
+    );
+    expect(diagnostics).toEqual(['file-not-run packages/legacy/src/old.test.ts']);
+  });
+
+  it("runs a Vitest 5 config file project's own projects, not its include", async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { projects: ['apps/*'] } };\n",
+        'apps/web/vitest.config.ts':
+          "export default { test: { projects: [{ test: { name: 'unit', include: ['src/**/*.unit.ts'] } }] } };\n",
+        'apps/web/src/fill.unit.ts': UNIT,
+        'apps/web/src/fill.test.ts': UNIT,
+      },
+      'vitest',
+      ['apps/web/src/*.ts'],
+    );
+    expect(configs['apps/web/src/fill.unit.ts']).toBe('apps/web/vitest.config.ts');
+    expect(diagnostics).toEqual(['file-not-run apps/web/src/fill.test.ts']);
+  });
+
+  it('stops at a config whose projects name the config itself', async () => {
+    const { configs } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { projects: ['./vitest.config.ts'] } };\n",
+        'tests/fees.test.ts': UNIT,
+      },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(configs).toEqual({ 'tests/fees.test.ts': 'vitest.config.ts' });
+  });
+
+  it("reads an inline project's extends file", async () => {
+    const { diagnostics } = await placed(
+      {
+        'vitest.shared.ts': "export default { test: { include: ['src/**/*.unit.ts'], globals: true } };\n",
+        'vitest.config.ts':
+          "export default { test: { projects: [{ extends: './vitest.shared.ts', test: { name: 'unit' } }] } };\n",
+        'src/fill.unit.ts': GLOBAL_UNIT,
+      },
+      'vitest',
+      ['src/*.ts'],
+    );
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('runs a file a .gitignore rule brings back inside a folder another rule leaves out, as Playwright does', async () => {
+    const { diagnostics } = await placed(
+      {
+        'playwright.config.ts': 'export default {};\n',
+        '.gitignore': 'build/\n!build/keep.spec.ts\n',
+        'build/keep.spec.ts': SPEC,
+        'build/drop.spec.ts': SPEC,
+      },
+      'playwright',
+      ['build/*.spec.ts'],
+    );
+    expect(diagnostics).toEqual(['file-not-run build/drop.spec.ts']);
+  });
+
+  it('follows .gitignore rules into nested folders, for each project folder', async () => {
+    const { diagnostics } = await placed(
+      {
+        'playwright.config.ts': [
+          'export default {',
+          "  projects: [{ name: 'all' }, { name: 'reports', testDir: './build', testMatch: '**/*.check.ts', respectGitIgnore: true }],",
+          '};',
+          '',
+        ].join('\n'),
+        '.gitignore': 'build/\n!build/**/keep.spec.ts\n!other/keep.spec.ts\ndist/\n',
+        'build/.gitignore': 'reports/stale/\n',
+        'build/reports/keep.spec.ts': SPEC,
+        'build/reports/drop.spec.ts': SPEC,
+        'build/reports/stale/fills.check.ts': SPEC,
+        'build/reports/fills.check.ts': SPEC,
+        'dist/nested/orders.spec.ts': SPEC,
+      },
+      'playwright',
+      ['build/**/*.ts', 'dist/**/*.ts'],
+    );
+    expect(diagnostics).toEqual([
+      'file-not-run build/reports/drop.spec.ts',
+      'file-not-run build/reports/stale/fills.check.ts',
+      'file-not-run dist/nested/orders.spec.ts',
+    ]);
+  });
+
+  it('takes a Vitest 3 config with a workspace file, or test.workspace, to run the file it cannot tell about', async () => {
+    const files = { 'tests/fees.test.ts': UNIT, 'e2e/orders.e2e.ts': UNIT };
+    const workspaceFile = await placed(
+      { ...files, 'vitest.config.ts': 'export default {};\n', 'vitest.workspace.ts': "export default ['e2e'];\n" },
+      'vitest',
+      ['tests/*.ts', 'e2e/*.ts'],
+      '3.2.4',
+    );
+    expect(workspaceFile.diagnostics).toEqual([]);
+    const option = await placed(
+      {
+        ...files,
+        'vitest.config.ts': "export default { test: { workspace: [{ test: { include: ['e2e/**/*.e2e.ts'] } }] } };\n",
+      },
+      'vitest',
+      ['tests/*.ts', 'e2e/*.ts'],
+      '3.0.0',
+    );
+    expect(option.diagnostics).toEqual([]);
+  });
+
+  it("takes test.root over Vite root also when it is the config's folder", async () => {
+    const { diagnostics } = await placed(
+      { 'vitest.config.ts': "export default { root: 'src', test: { root: '.' } };\n", 'other/fees.test.ts': UNIT },
+      'vitest',
+      ['other/*.test.ts'],
+    );
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('runs only type tests with typecheck.only, and reads benchmark.includeSource', async () => {
+    const { diagnostics, inventory } = await placed(
+      {
+        'vitest.config.ts':
+          "export default { test: { typecheck: { enabled: true, only: true }, benchmark: { includeSource: ['perf/**/*.ts'] } } };\n",
+        'tests/orders.test-d.ts': "import { test } from 'vitest';\ntest('types an order', () => {});\n",
+        'tests/orders.test.ts': UNIT,
+        'perf/sma.ts':
+          "if (import.meta.vitest) {\n  const { test } = import.meta.vitest;\n  test('averages a year of candles', () => {});\n}\n",
+      },
+      'vitest',
+      ['tests/*.ts', 'perf/*.ts'],
+    );
+    expect(diagnostics).toEqual(['file-not-run tests/orders.test.ts']);
+    expect(inventory.tests.find((test) => test.relativeFilePath === 'perf/sma.ts')?.isBenchmark).toBe(true);
+  });
+
+  it('takes a config whose typecheck.enabled it cannot work out to run the file', async () => {
+    const { inventory } = await placed(
+      {
+        'vitest.config.ts': 'export default { test: { typecheck: { enabled: !!process.env.TYPECHECK } } };\n',
+        'tests/orders.test-d.ts': "import { test } from 'vitest';\ntest('types an order', () => {});\n",
+      },
+      'vitest',
+      ['tests/*.ts'],
+    );
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message.split(' could')[0])).toEqual([
+      "The config's test.typecheck.enabled",
+    ]);
+  });
+
+  it('resolves a path.resolve() with no folder from the root, where the runner starts', async () => {
+    const { diagnostics } = await placed(
+      {
+        'apps/web/playwright.config.ts':
+          "import path from 'node:path';\nexport default { testDir: path.resolve('apps/web/e2e') };\n",
+        'apps/web/e2e/orders.spec.ts': SPEC,
+      },
+      'playwright',
+      ['apps/web/e2e/*.spec.ts'],
+    );
+    expect(diagnostics).toEqual([]);
+  });
+});

@@ -16,10 +16,9 @@ it runs and lists it in [`configs`](/reference/output#configs), but beyond that 
 A test that a config `grep` leaves out is still listed, and `isParallel` only reflects what is written in the file.
 Nothing in the output says so.
 
-Which files a config runs is read with three gaps. A `.gitignore` rule that brings back a file inside a folder another
-rule leaves out, such as `!dist/keep.spec.ts` after `dist/`, doesn't bring it back, as the scan doesn't look inside a
-folder it leaves out. A Vitest project written with `extends: './vitest.base.ts'` doesn't get that file's settings. And
-Vitest 3's `vitest.workspace.*` file, and its `test.workspace` option, are not read.
+Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
+that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
+Vitest 3 project list in `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
 
 A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
 installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config

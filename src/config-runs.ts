@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
@@ -22,6 +22,10 @@ import {
 const PLAYWRIGHT_TEST_MATCH = '**/*.@(spec|test).?(c|m)[jt]s?(x)';
 /** A file Vitest takes as a project config, by name. */
 const VITEST_CONFIG = /^(vitest|vite)(\..*)?\.config\./;
+/** Vitest 3's workspace files, which list its projects in place of `test.projects`. */
+const VITEST_WORKSPACES = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'json'].map(
+  (extension) => `vitest.workspace.${extension}`,
+);
 
 /** A setting read for a project, and the key to name it by when the scan can't work it out. */
 interface Taken {
@@ -63,11 +67,22 @@ function patterns(setting: Setting, regexps: boolean): (string | RegExp)[] | Unk
   const items = setting.kind === 'list' ? setting.items : [setting];
   const found: (string | RegExp)[] = [];
   for (const item of items) {
-    if (regexps && item.kind === 'regex') found.push(new RegExp(item.source, item.flags));
-    else if (item.kind === 'value' && typeof item.value === 'string') found.push(item.value);
+    const expression = regexps && item.kind === 'regex' ? regExp(item.source, item.flags) : null;
+    if (expression) found.push(expression);
+    // An empty glob matches nothing, and picomatch refuses one.
+    else if (item.kind === 'value' && typeof item.value === 'string') found.push(...(item.value ? [item.value] : []));
     else return unknownAt(item);
   }
   return found;
+}
+
+/** A regular expression; null for one that parses but Node.js refuses, such as `/a{2,1}/`. */
+function regExp(source: string, flags: string): RegExp | null {
+  try {
+    return new RegExp(source, flags);
+  } catch {
+    return null;
+  }
 }
 
 function posix(file: string): string {
@@ -108,7 +123,35 @@ function playwrightMatcher(list: (string | RegExp)[]): (file: string) => boolean
 interface IgnoreRule {
   folder: string;
   negate: boolean;
+  pattern: string;
   match: (text: string) => boolean;
+}
+
+/**
+ * Whether a path is left out by Playwright's reading of `.gitignore` files: `recurse` is a folder a rule leaves out but
+ * a later rule may bring something back from, so Playwright looks inside it.
+ */
+type IgnoreStatus = 'included' | 'ignored' | 'recurse';
+
+/** A folder under a project's test folder: its status, and the rules for what is inside it. */
+interface FolderState {
+  status: IgnoreStatus;
+  rules: IgnoreRule[];
+}
+
+/**
+ * Whether a rule bringing files back may match something inside a folder, as minimatch's partial match tells
+ * Playwright: a rule without a `/` matches at any depth, and one with `**` past the folder's depth too.
+ */
+function mayMatchInside(rule: IgnoreRule, folder: string): boolean {
+  const parts = rule.pattern.replace(/^\//, '').replace(/\/$/, '').split('/');
+  if (parts.length === 1) return true;
+  const folders = folder.split('/');
+  for (const [index, name] of folders.entries()) {
+    if (parts[index] === '**') return true;
+    if (index >= parts.length - 1 || !picomatch.isMatch(name, parts[index], { dot: true })) return false;
+  }
+  return true;
 }
 
 /** Finds the configs a file is under and decides which one runs it, as the runner started at the root would. */
@@ -118,6 +161,9 @@ export class ConfigRuns {
   private readonly version: [number, number] | null;
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
+  private readonly folderStates = new Map<string, FolderState>();
+  /** The Vitest configs whose projects are being found, to stop at one whose projects name itself. */
+  private readonly expanding = new Set<ConfigFile>();
 
   constructor(configs: Configs, framework: Framework, version: [number, number] | null) {
     this.configs = configs;
@@ -211,35 +257,38 @@ export class ConfigRuns {
       unknown: null,
       runs: (file) => {
         if (!isInside(root, file)) return false;
-        if (gitIgnore && this.isGitIgnored(root, file)) return false;
-        return !isIgnored(file) && isMatch(file) ? 'test' : false;
+        if (isIgnored(file) || !isMatch(file)) return false;
+        return gitIgnore && this.isGitIgnored(root, file) ? false : 'test';
       },
     };
   }
 
   /**
    * Whether `.gitignore` files in a project's test folder, and the folders below it on the way to the file, leave the
-   * file out, as Playwright reads them: a folder they leave out is not entered.
+   * file out, as Playwright reads them.
    */
   private isGitIgnored(root: string, file: string): boolean {
-    const parts = path.relative(root, file).split(path.sep);
-    let rules: IgnoreRule[] = [];
-    let ignored = false;
-    let folder = root;
-    for (const [index, part] of parts.entries()) {
-      rules = [...rules, ...this.rulesIn(folder)];
-      const entry = path.join(folder, part);
-      const isFolder = index < parts.length - 1;
-      for (const rule of rules) {
-        if (ignored !== rule.negate) continue;
-        const relative = posix(path.relative(rule.folder, entry));
-        const texts = [`/${relative}`, relative, ...(isFolder ? [`/${relative}/`, `${relative}/`] : [])];
-        if (texts.some((text) => rule.match(text))) ignored = !rule.negate;
+    const folder = this.folderState(root, path.dirname(file));
+    return folder.status === 'ignored' || ignoreStatus(file, folder.rules, false, folder.status) !== 'included';
+  }
+
+  /** A folder's status and the rules inside it, worked out once per project folder however many files it holds. */
+  private folderState(root: string, folder: string): FolderState {
+    const key = `${root}\0${folder}`;
+    let state = this.folderStates.get(key);
+    if (!state) {
+      if (folder === root) {
+        state = { status: 'included', rules: this.rulesIn(folder) };
+      } else {
+        const parent = this.folderState(root, path.dirname(folder));
+        // Playwright doesn't look inside a folder it leaves out.
+        const status =
+          parent.status === 'ignored' ? 'ignored' : ignoreStatus(folder, parent.rules, true, parent.status);
+        state = { status, rules: [...parent.rules, ...this.rulesIn(folder)] };
       }
-      if (ignored) return true;
-      folder = entry;
+      this.folderStates.set(key, state);
     }
-    return false;
+    return state;
   }
 
   private rulesIn(folder: string): IgnoreRule[] {
@@ -254,11 +303,14 @@ export class ConfigRuns {
       rules = text
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter((line) => line !== '' && !line.startsWith('#'))
+        // A lone `!` brings back nothing.
+        .filter((line) => line !== '' && line !== '!' && !line.startsWith('#'))
         .map((line) => {
           const negate = line.startsWith('!');
-          const match = picomatch(negate ? line.slice(1) : line, { basename: true, dot: true });
-          return { folder, negate, match };
+          const pattern = negate ? line.slice(1) : line;
+          // As minimatch's matchBase does, only a pattern without a slash matches the name alone, at any depth.
+          const basename = !pattern.replace(/\/$/, '').includes('/');
+          return { folder, negate, pattern, match: picomatch(pattern, { basename, dot: true }) };
         });
       this.ignoreRules.set(folder, rules);
     }
@@ -268,29 +320,30 @@ export class ConfigRuns {
   private vitestProjects(config: ConfigFile): Project[] {
     const folder = path.dirname(config.file);
     const list = settingAt(config.settings, ['test', 'projects']);
+    const isVitest3 = this.version !== null && this.version[0] < 4;
+    const workspace = isVitest3 ? settingAt(config.settings, ['test', 'workspace']) : null;
+    if (workspace) return [this.unknownProject(config, unknownAt(workspace), 'test.workspace')];
+    if (isVitest3 && VITEST_WORKSPACES.some((name) => existsSync(path.join(folder, name)))) {
+      // Vitest 3 takes its projects from a workspace file, which the scan doesn't read.
+      return [this.unknownProject(config, { kind: 'unknown', where: null }, 'test.projects')];
+    }
     if (list === null) return [this.vitestProject(config, config.settings, folder)];
     if (list.kind !== 'list') return [this.unknownProject(config, unknownAt(list), 'test.projects')];
-    return list.items.flatMap((item) => this.vitestEntry(config, item, folder));
-  }
-
-  /** The projects one entry of `test.projects` stands for: a project written in the config, or config files and folders. */
-  private vitestEntry(config: ConfigFile, entry: Setting, folder: string): Project[] {
-    if (entry.kind === 'object') {
-      const extended = settingAt(entry, ['extends']);
-      const inherits =
-        extended?.kind === 'value' && typeof extended.value === 'boolean'
-          ? extended.value
-          : extended === null && (this.version === null || this.version[0] >= 5);
-      const base = inherits ? withoutProjects(config.settings) : emptySettings();
-      return [this.vitestProject(config, mergeDeep(base, entry), folder)];
-    }
-    if (entry.kind !== 'value' || typeof entry.value !== 'string') {
-      // A function or a promise, read by running the config, or a setting of the wrong type.
-      return [this.unknownProject(config, unknownAt(entry), 'test.projects')];
-    }
-    const pattern = entry.value.replace('<rootDir>', folder);
-    const matches = picomatch.scan(pattern).isGlob
-      ? globSync(pattern, {
+    this.expanding.add(config);
+    const globs: string[] = [];
+    const projects = list.items.flatMap((item) => {
+      if (item.kind === 'value' && typeof item.value === 'string') {
+        // `<rootDir>` is the config's folder, written with / as globs are.
+        const pattern = item.value.replace('<rootDir>', posix(folder));
+        // Vitest globs every pattern and negation together, and reads a plain path as it is.
+        if (pattern.startsWith('!') || picomatch.scan(pattern).isGlob) globs.push(pattern);
+        else return this.vitestPath(config, path.resolve(folder, pattern));
+        return [];
+      }
+      return this.vitestEntry(config, item, folder);
+    });
+    const matches = globs.length
+      ? globSync(globs, {
           cwd: folder,
           absolute: true,
           dot: true,
@@ -298,63 +351,103 @@ export class ConfigRuns {
           expandDirectories: false,
           ignore: ['**/node_modules/**'],
         })
-      : [path.resolve(folder, pattern)];
-    return matches.flatMap((match) => {
-      const configFile = VITEST_CONFIG.test(path.basename(match)) ? match : null;
-      const nested = configFile ? this.configs.at(configFile) : this.configs.inFolder(match);
-      // A folder without a config of its own is a project with Vitest's defaults, rooted there.
-      return nested
-        ? [this.vitestProject(nested, nested.settings, path.dirname(nested.file))]
-        : [this.vitestProject(config, emptySettings(), match)];
-    });
+      : [];
+    projects.push(...matches.flatMap((match) => this.vitestPath(config, path.resolve(match))));
+    this.expanding.delete(config);
+    return projects;
+  }
+
+  /** A project written in `test.projects`, which inherits the root config as each version of Vitest decides. */
+  private vitestEntry(config: ConfigFile, entry: Setting, folder: string): Project[] {
+    if (entry.kind !== 'object') {
+      // A function or a promise, read by running the config, or a setting of the wrong type.
+      return [this.unknownProject(config, unknownAt(entry), 'test.projects')];
+    }
+    const extended = settingAt(entry, ['extends']);
+    let base = emptySettings();
+    if (extended?.kind === 'value' && typeof extended.value === 'string') {
+      base = this.configs.at(path.resolve(folder, extended.value)).settings;
+    } else if (extended?.kind === 'value' ? extended.value === true : this.version === null || this.version[0] >= 5) {
+      base = withoutProjects(config.settings);
+    }
+    return [this.vitestProject(config, mergeDeep(base, entry), folder)];
+  }
+
+  /**
+   * The projects of a config file or folder `test.projects` names: the config's own, also the projects it lists in
+   * Vitest 5, or a project with Vitest's defaults for a folder without a config.
+   */
+  private vitestPath(config: ConfigFile, target: string): Project[] {
+    const nested = VITEST_CONFIG.test(path.basename(target)) ? this.configs.at(target) : this.configs.inFolder(target);
+    if (!nested) return [this.vitestProject(config, emptySettings(), target)];
+    const isContainer = (this.version === null || this.version[0] >= 5) && !this.expanding.has(nested);
+    return isContainer && settingAt(nested.settings, ['test', 'projects'])
+      ? this.vitestProjects(nested)
+      : [this.vitestProject(nested, nested.settings, path.dirname(nested.file))];
   }
 
   /** A Vitest project: its files are found from `test.dir`, else `test.root` or `root`, else its folder. */
   private vitestProject(config: ConfigFile, settings: Setting, folder: string): Project {
-    const exclude = vitestExclude(this.version);
-    const lists: [string, string[]][] = [
-      ['test.include', VITEST_INCLUDE],
-      ['test.exclude', exclude],
-      ['test.includeSource', []],
-      ['test.typecheck.include', VITEST_TYPECHECK_INCLUDE],
-      ['test.typecheck.exclude', exclude],
-      ['test.benchmark.include', VITEST_BENCHMARK_INCLUDE],
-      ['test.benchmark.exclude', exclude],
-    ];
-    const matchers: ((file: string) => boolean)[] = [];
-    for (const [key, fallback] of lists) {
-      const setting = settingAt(settings, key.split('.'));
-      const found = setting === null || isUnset(setting) ? fallback : patterns(setting, false);
-      if (!Array.isArray(found)) return this.unknownProject(config, found, key);
-      matchers.push(picomatch(found as string[], { dot: true }));
-    }
-    const [isTest, isExcluded, isSource, isTypeTest, isTypeExcluded, isBench, isBenchExcluded] = matchers;
-    let dir = folder;
-    for (const [key, base] of [
-      ['test.root', folder],
-      ['root', folder],
-      ['test.dir', null],
-    ] as const) {
+    let root = folder;
+    let dir: string | null = null;
+    let hasTestRoot = false;
+    for (const key of ['test.root', 'root', 'test.dir']) {
       const setting = settingAt(settings, key.split('.'));
       if (setting === null || isUnset(setting)) continue;
       if (setting.kind !== 'value' || typeof setting.value !== 'string') {
         return this.unknownProject(config, unknownAt(setting), key);
       }
       // `test.root` wins over Vite's `root`, and `test.dir` is in the root.
-      if (key !== 'root' || dir === folder) dir = path.resolve(base ?? dir, setting.value);
+      if (key === 'test.dir') dir = path.resolve(root, setting.value);
+      else if (key === 'test.root' || !hasTestRoot) root = path.resolve(folder, setting.value);
+      if (key === 'test.root') hasTestRoot = true;
     }
-    const typecheck = settingAt(settings, ['test', 'typecheck', 'enabled']);
-    const checksTypes = typecheck?.kind === 'value' && typecheck.value === true;
+    const base = dir ?? root;
+    const exclude = vitestExclude(this.version);
+    const lists: [string, string[], boolean][] = [
+      ['test.include', VITEST_INCLUDE, false],
+      ['test.exclude', exclude, true],
+      ['test.includeSource', [], false],
+      ['test.typecheck.include', VITEST_TYPECHECK_INCLUDE, false],
+      ['test.typecheck.exclude', exclude, true],
+      ['test.benchmark.include', VITEST_BENCHMARK_INCLUDE, false],
+      ['test.benchmark.exclude', exclude, true],
+      ['test.benchmark.includeSource', [], false],
+    ];
+    const matchers: ((file: string) => boolean)[] = [];
+    for (const [key, fallback, isExclude] of lists) {
+      const setting = settingAt(settings, key.split('.'));
+      const found = setting === null || isUnset(setting) ? fallback : patterns(setting, false);
+      if (!Array.isArray(found)) return this.unknownProject(config, found, key);
+      // tinyglobby, which Vitest finds files with, takes an absolute pattern as one in the folder it searches.
+      const relative = (found as string[]).map((glob) =>
+        path.isAbsolute(glob) ? posix(path.relative(base, glob)) : glob,
+      );
+      const isMatch = picomatch(relative, { dot: true });
+      // An excluded folder leaves out everything in it, as the glob doesn't enter it.
+      matchers.push(isExclude ? (file) => folders(file).some((part) => isMatch(part) || isMatch(`${part}/`)) : isMatch);
+    }
+    const [isTest, isExcluded, isSource, isTypeTest, isTypeExcluded, isBench, isBenchExcluded, isBenchSource] =
+      matchers;
+    const flags: boolean[] = [];
+    for (const key of ['test.typecheck.enabled', 'test.typecheck.only']) {
+      const setting = settingAt(settings, key.split('.'));
+      if (setting?.kind === 'unknown') return this.unknownProject(config, setting, key);
+      flags.push(setting?.kind === 'value' && setting.value === true);
+    }
+    const [checksTypes, onlyTypes] = flags;
     return {
       config,
       settings,
       unknown: null,
       runs: (file) => {
-        const relative = posix(path.relative(dir, file));
-        if (isTest(relative) && !isExcluded(relative)) return 'test';
-        if (isSource(relative) && !isExcluded(relative) && hasInSourceTests(file)) return 'test';
+        const relative = posix(path.relative(base, file));
+        const runsTests = !(checksTypes && onlyTypes);
+        if (runsTests && isTest(relative) && !isExcluded(relative)) return 'test';
+        if (runsTests && isSource(relative) && !isExcluded(relative) && hasInSourceTests(file)) return 'test';
         if (checksTypes && isTypeTest(relative) && !isTypeExcluded(relative)) return 'test';
-        return isBench(relative) && !isBenchExcluded(relative) ? 'benchmark' : false;
+        if (isBenchExcluded(relative)) return false;
+        return isBench(relative) || (isBenchSource(relative) && hasInSourceTests(file)) ? 'benchmark' : false;
       },
     };
   }
@@ -386,4 +479,23 @@ function withoutProjects(settings: Setting): Setting {
   const keys = new Map(test.keys);
   keys.delete('projects');
   return { ...root, keys: new Map([...root.keys, ['test', { ...test, keys }]]) };
+}
+
+/** Playwright's status of a path under `.gitignore` rules, from the status of the folder it is in. */
+function ignoreStatus(entry: string, rules: IgnoreRule[], isFolder: boolean, from: IgnoreStatus): IgnoreStatus {
+  let status = from;
+  for (const rule of rules) {
+    if ((status === 'included') === rule.negate) continue;
+    const relative = posix(path.relative(rule.folder, entry));
+    const texts = [`/${relative}`, relative, ...(isFolder ? [`/${relative}/`, `${relative}/`] : [])];
+    if (texts.some((text) => rule.match(text))) status = rule.negate ? 'included' : 'ignored';
+    else if (isFolder && rule.negate && mayMatchInside(rule, relative)) status = 'recurse';
+  }
+  return status;
+}
+
+/** A relative path and the folders it is in, as `a/b/c.ts`, `a/b` and `a`. */
+function folders(relative: string): string[] {
+  const parts = relative.split('/');
+  return parts.map((_, index) => parts.slice(0, parts.length - index).join('/'));
 }
