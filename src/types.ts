@@ -76,7 +76,8 @@ export type DiagnosticCode =
   | 'test-in-function'
   | 'empty-title'
   | 'bench-outside-benchmark-file'
-  | 'config-value-unknown';
+  | 'config-value-unknown'
+  | 'file-not-run';
 
 export type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
@@ -165,6 +166,11 @@ export interface FileRecord {
   /** Path from the project root, with `/` separators. */
   relativeFilePath: string;
   fileName: string;
+  /**
+   * The config the file uses, from the project root: the outermost config at or above it that runs it, as the runner
+   * started at the root would, else the nearest. Null when there is none.
+   */
+  config: string | null;
   /** Hooks at the top level of the file, which run around every test in it. */
   hooks: HookCounts;
   suiteCount: Count;

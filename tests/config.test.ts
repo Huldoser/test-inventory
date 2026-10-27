@@ -98,7 +98,7 @@ describe('configs', () => {
   it('warns about a config it cannot parse or find the default export of, and still lists it', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
-      'playwright.config.ts': "export default defineConfig({ testDir: './tests' );\n",
+      'tests/playwright.config.ts': "export default defineConfig({ testDir: '.' );\n",
       'tests/orders.spec.ts': SPEC,
       'e2e/playwright.config.ts': "export const config = { testDir: '.' };\n",
       'e2e/checkout.spec.ts': SPEC,
@@ -110,7 +110,7 @@ describe('configs', () => {
     expect(inventory.configs.map((config) => config.relativeFilePath)).toEqual([
       'admin/playwright.config.ts',
       'e2e/playwright.config.ts',
-      'playwright.config.ts',
+      'tests/playwright.config.ts',
     ]);
     expect(inventory.diagnostics).toEqual([
       {
@@ -139,9 +139,9 @@ describe('configs', () => {
         level: 'warning',
         message:
           'The config could not be parsed: Expected `,` or `}` but found `)`, so the scan reads none of its settings.',
-        relativeFilePath: 'playwright.config.ts',
+        relativeFilePath: 'tests/playwright.config.ts',
         lineStart: 1,
-        columnStart: 50,
+        columnStart: 44,
         testId: null,
         source: ')',
       },
@@ -230,6 +230,7 @@ function plain(setting: Setting | null): unknown {
   if (setting === null) return '<missing>';
   if (setting.kind === 'unknown') return '<unknown>';
   if (setting.kind === 'value') return setting.value;
+  if (setting.kind === 'regex') return new RegExp(setting.source, setting.flags);
   if (setting.kind === 'list') return setting.items.map(plain);
   return Object.fromEntries([...setting.keys].map(([key, value]) => [key, plain(value)]));
 }
@@ -237,7 +238,7 @@ function plain(setting: Setting | null): unknown {
 /** The settings of a Vitest config written at the root, as the scan reads them for a test file next to it. */
 function settingsOf(code: string): Setting {
   const root = project({ 'vitest.config.ts': code });
-  const config = new Configs(root, 'vitest', moduleResolver(root)).configFor(path.join(root, 'fees.test.ts'));
+  const config = new Configs(root, 'vitest', moduleResolver(root), null).inFolder(root);
   return (config as NonNullable<typeof config>).settings;
 }
 
@@ -257,6 +258,32 @@ describe('the config reader', () => {
       environment: 'node',
       globals: true,
     });
+  });
+
+  it("knows only the file settings of Vitest's configDefaults", () => {
+    const settings = settingsOf(
+      "import { configDefaults } from 'vitest/config';\nexport default { test: { testTimeout: configDefaults.testTimeout, sequence: configDefaults.typecheck.checker, exclude: configDefaults.exclude } };\n",
+    );
+    expect(plain(settingAt(settings, ['test']))).toEqual({
+      testTimeout: '<unknown>',
+      sequence: '<unknown>',
+      exclude: ['**/node_modules/**', '**/.git/**'],
+    });
+  });
+
+  it('takes defaultExclude from vitest/config, and nothing else it exports', () => {
+    const settings = settingsOf(
+      "import { coverageConfigDefaults, defaultExclude } from 'vitest/config';\nexport default { test: { exclude: defaultExclude, coverage: coverageConfigDefaults } };\n",
+    );
+    expect(plain(settingAt(settings, ['test']))).toEqual({
+      exclude: ['**/node_modules/**', '**/.git/**'],
+      coverage: '<unknown>',
+    });
+  });
+
+  it('finds no key under a value', () => {
+    const settings = settingsOf("export default { test: { environment: 'node' } };\n");
+    expect(plain(settingAt(settings, ['test', 'environment', 'name']))).toBe('<missing>');
   });
 
   it('spreads nothing for null, undefined or false, as JavaScript does', () => {

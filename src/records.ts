@@ -127,6 +127,7 @@ export function fileRecord(
   return {
     relativeFilePath,
     fileName: relativeFilePath.slice(relativeFilePath.lastIndexOf('/') + 1),
+    config: null,
     hooks,
     suiteCount: records.suites.length,
     testCount: records.tests.length,

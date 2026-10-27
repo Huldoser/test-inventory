@@ -40,6 +40,7 @@
     {
       "relativeFilePath": "tests/unit/Watchlist.spec.ts",
       "fileName": "Watchlist.spec.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -54,6 +55,7 @@
     {
       "relativeFilePath": "tests/unit/WatchlistRow.spec.ts",
       "fileName": "WatchlistRow.spec.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

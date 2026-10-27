@@ -264,6 +264,13 @@
         "fileName": {
           "type": "string"
         },
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The config the file uses, from the project root: the outermost config at or above it that runs it, as the runner started at the root would, else the nearest. Null when there is none."
+        },
         "hooks": {
           "$ref": "#/definitions/HookCounts",
           "description": "Hooks at the top level of the file, which run around every test in it."
@@ -280,6 +287,7 @@
       "required": [
         "relativeFilePath",
         "fileName",
+        "config",
         "hooks",
         "suiteCount",
         "testCount"
@@ -1282,7 +1290,8 @@
             "test-in-function",
             "empty-title",
             "bench-outside-benchmark-file",
-            "config-value-unknown"
+            "config-value-unknown",
+            "file-not-run"
           ]
         },
         {

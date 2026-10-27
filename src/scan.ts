@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { ConfigRuns, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
@@ -112,17 +113,25 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   }
 
   const readerFor = moduleResolver(root);
-  const configs = new Configs(root, framework, readerFor);
+  const configs = new Configs(root, framework, readerFor, rules);
+  const runs = new ConfigRuns(configs, framework, rules);
+  const placements = new Map<string, Placement>();
+  const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
   for (const { absolutePath, relativeFilePath } of found.files) {
-    configs.configFor(absolutePath);
+    const placement = runs.placementOf(absolutePath);
+    placements.set(absolutePath, placement);
+    if (placement.config) configs.use(placement.config);
+    const config = placement.config?.record.relativeFilePath ?? null;
     let code: string;
     try {
       code = await readFile(absolutePath, 'utf8');
     } catch (error) {
+      const records = noRecords(relativeFilePath);
       results.push({
-        ...noRecords(relativeFilePath),
+        ...records,
+        file: { ...records.file, config },
         diagnostics: [
           fileDiagnostic('read-error', relativeFilePath, `The file could not be read: ${readFailure(error)}.`),
         ],
@@ -135,11 +144,17 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       comments,
       readModule: readerFor(absolutePath),
       root,
+      isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
-    results.push(result);
+    // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.
+    if (placement.runs === false && result.tests.length > 0) {
+      const message = `The file has tests, but no config in its folder or above runs it, so the runner doesn't collect them; the nearest config is ${config}.`;
+      notRun.push(fileDiagnostic('file-not-run', relativeFilePath, message));
+    }
+    results.push({ ...result, file: { ...result.file, config } });
   }
-  const missingGlobals = globalsCheck(root, configs);
+  const missingGlobals = globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;
   for (const { absolutePath, relativeFilePath } of globalsFiles) {
     const message = missingGlobals(absolutePath);
@@ -147,7 +162,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     globals = fileDiagnostic('globals-not-enabled', relativeFilePath, message);
     break;
   }
-  projectDiagnostics.push(...configs.diagnostics, ...(globals ? [globals] : []));
+  projectDiagnostics.push(...configs.diagnostics, ...notRun, ...(globals ? [globals] : []));
   const fileCount = found.files.length;
   return createInventory(framework, frameworkVersion, fileCount, results, projectDiagnostics, configs.records());
 }

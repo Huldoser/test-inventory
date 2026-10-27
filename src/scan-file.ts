@@ -19,6 +19,8 @@ export interface FileSettings {
   readModule: ModuleReader | null;
   /** The project root, left out of error messages so that the output has no absolute paths. */
   root: string | null;
+  /** Whether the config runs the file as a benchmark; null takes it from the file's name, as Vitest 5's default does. */
+  isBenchmarkFile?: boolean | null;
 }
 
 export interface FileResult extends FileRecords {
@@ -80,9 +82,11 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       framework: settings.framework,
       comments: settings.comments,
       isTypeTest: settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath),
-      // Vitest 5's default `benchmark.include`.
+      // Vitest 5's default `benchmark.include`, when no config says.
       isBenchmarkFile:
-        settings.framework === 'vitest' && atLeast(settings.version, 5, 0) && BENCHMARK.test(relativeFilePath),
+        settings.framework === 'vitest' &&
+        atLeast(settings.version, 5, 0) &&
+        (settings.isBenchmarkFile ?? BENCHMARK.test(relativeFilePath)),
     });
     return {
       ...records,

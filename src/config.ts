@@ -1,6 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { ArrayExpression, CallExpression, Expression, Node, ObjectExpression } from 'oxc-parser';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import type {
+  Argument,
+  ArrayExpression,
+  CallExpression,
+  Expression,
+  NewExpression,
+  Node,
+  ObjectExpression,
+} from 'oxc-parser';
 import { isFunctionNode, propertyKey, propertyName, returnValues, unwrap, type FunctionNode } from './ast.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { readFailure } from './files.ts';
@@ -18,6 +27,7 @@ import { parseFile, type ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
 import type { ConfigRecord, Diagnostic, Framework } from './types.ts';
 import { isKey, isScopeNode, Values, type Value } from './values.ts';
+import { VITEST_INCLUDE, VITEST_TYPECHECK_INCLUDE, vitestExclude } from './vitest-defaults.ts';
 
 /** Config file names in the order each runner looks for them in a folder. */
 const CONFIG_FILES: Record<Framework, string[]> = {
@@ -30,13 +40,31 @@ const CONFIG_FILES: Record<Framework, string[]> = {
 /** The functions configs are written with, which return the config they are given or merge the ones they are given. */
 const CONFIG_FUNCTIONS = new Set(['defineConfig', 'defineProject', 'mergeConfig']);
 
-/** A file a config is read from: the config itself, or a module it imports settings from. */
+/** A file a config is read from: the config itself, or a module it imports settings from, at `file`. */
 interface ConfigFrame {
   parsed: ParsedFile;
   values: Values;
   relativeFilePath: string;
+  file: string;
   readModule: ModuleReader;
 }
+
+/** Where a function a config calls comes from: the module, or `''` for a global, and the name it exports it under. */
+interface Origin {
+  source: string;
+  name: string;
+}
+
+/**
+ * Node.js path functions a config builds its folders with, given the folder the runner starts in: the root, which
+ * `path.resolve()` resolves a relative path from.
+ */
+const PATH_FUNCTIONS: Record<string, (root: string, ...parts: string[]) => string> = {
+  'path.join': (_, ...parts) => path.join(...parts),
+  'path.resolve': (root, ...parts) => path.resolve(root, ...parts),
+  'path.dirname': (_, part) => path.dirname(part),
+  'url.fileURLToPath': (_, url) => fileURLToPath(url),
+};
 
 /** Where an expression is written. */
 interface Site {
@@ -56,14 +84,24 @@ export interface Unknown {
  */
 export type Setting =
   | { kind: 'value'; value: string | number | boolean | null | undefined }
+  | { kind: 'regex'; source: string; flags: string }
   | ObjectSetting
   | { kind: 'list'; items: Setting[] }
   | Unknown;
 
-interface ObjectSetting {
+export interface ObjectSetting {
   kind: 'object';
   keys: Map<string, Setting>;
   rest: Unknown | null;
+}
+
+/** What `read` returns, or null when it throws, as `fileURLToPath()` does for a URL that isn't a file's. */
+function attempt(read: () => string): string | null {
+  try {
+    return read();
+  } catch {
+    return null;
+  }
 }
 
 function unknown(where: Site): Unknown {
@@ -128,7 +166,7 @@ function either(a: Setting | null, b: Setting | null, at: Site): Setting {
  * Vite's `mergeConfig(base, over)`: objects merge key by key, lists are joined with a single setting taken as a list
  * of one, and `null` or `undefined` keeps the other side.
  */
-function mergeDeep(base: Setting, over: Setting): Setting {
+export function mergeDeep(base: Setting, over: Setting): Setting {
   if (isNullish(over)) return base;
   if (isNullish(base) || over.kind === 'unknown') return over;
   if (base.kind === 'list' || over.kind === 'list') {
@@ -137,7 +175,7 @@ function mergeDeep(base: Setting, over: Setting): Setting {
     const items = (setting: Setting) => (setting.kind === 'list' ? setting.items : [setting]);
     return { kind: 'list', items: [...items(base), ...items(over)] };
   }
-  if (over.kind !== 'object' || base.kind === 'value') return over;
+  if (over.kind !== 'object' || (base.kind !== 'object' && base.kind !== 'unknown')) return over;
   const keys = new Map(base.kind === 'object' && !over.rest ? base.keys : []);
   for (const [key, value] of over.keys) {
     const existing = child(base, key);
@@ -152,15 +190,19 @@ class ConfigCode {
   readonly followed: string[] = [];
   private readonly main: ConfigFrame;
   private readonly framework: Framework;
+  private readonly root: string;
+  private readonly version: [number, number] | null;
   private readonly frames = new Map<ModuleSource, ConfigFrame>();
   /** Constants and exports worked out, each once however often the config refers to it. */
   private readonly done = new Map<unknown, Setting | null>();
   /** Constants and exports being worked out, to stop at one that refers back to itself. */
   private readonly pending = new Set<unknown>();
 
-  constructor(main: ConfigFrame, framework: Framework) {
+  constructor(main: ConfigFrame, framework: Framework, root: string, version: [number, number] | null) {
     this.main = main;
     this.framework = framework;
+    this.root = root;
+    this.version = version;
   }
 
   /** What a module exports under a name; null when it doesn't export it. `site` is where the name is imported. */
@@ -200,12 +242,23 @@ class ConfigCode {
         return this.list(expression, frame, scopes);
       case 'CallExpression':
         return this.call(expression, frame, scopes);
+      case 'NewExpression':
+        return this.newUrl(expression, frame, scopes);
+      case 'Literal':
+        if ('regex' in expression)
+          return { kind: 'regex', source: expression.regex.pattern, flags: expression.regex.flags };
+        break;
       case 'Identifier': {
         const named = this.named(expression.name, frame, scopes, site);
         if (named) return named;
+        // Vite and Playwright give a config `__dirname` and `__filename`, also in an ES module.
+        const isGlobal = frame.values.declarationOf(expression.name, scopes) === null;
+        if (isGlobal && expression.name === '__dirname') return { kind: 'value', value: path.dirname(frame.file) };
+        if (isGlobal && expression.name === '__filename') return { kind: 'value', value: frame.file };
         break;
       }
       case 'MemberExpression': {
+        if (expression.object.type === 'MetaProperty') return this.importMeta(propertyName(expression), frame, site);
         // A member of an object written in the config, as in `shared.test`, keeps what the scan can't work out in it.
         const name = propertyName(expression);
         if (name === null) break;
@@ -230,7 +283,26 @@ class ConfigCode {
     if (declaration?.type !== 'ImportSpecifier' && declaration?.type !== 'ImportDefaultSpecifier') return null;
     const imported = declaration.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
     const source = frame.values.importSource(name, scopes) as string;
+    if (source === 'vitest/config' || source === 'vitest/node') {
+      const defaults = this.vitestDefaults(imported, site);
+      if (defaults) return defaults;
+    }
     return this.fromModule(frame, source, imported, site) ?? unknown(site);
+  }
+
+  /**
+   * The defaults Vitest exports from `vitest/config`, for the version of the project: `defaultInclude`,
+   * `defaultExclude`, and of `configDefaults` the file settings, the others being unknown at `site`.
+   */
+  private vitestDefaults(name: string, site: Site): Setting | null {
+    const exclude = vitestExclude(this.version);
+    if (name === 'defaultInclude') return fromValue(VITEST_INCLUDE);
+    if (name === 'defaultExclude') return fromValue(exclude);
+    if (name !== 'configDefaults') return null;
+    const typecheck = fromValue({ include: VITEST_TYPECHECK_INCLUDE, exclude }) as ObjectSetting;
+    const defaults = fromValue({ include: VITEST_INCLUDE, exclude, includeSource: [] }) as ObjectSetting;
+    defaults.keys.set('typecheck', { ...typecheck, rest: unknown(site) });
+    return { ...defaults, rest: unknown(site) };
   }
 
   /** What a module an import names exports under a name; null when the module doesn't export it. */
@@ -262,6 +334,7 @@ class ConfigCode {
         parsed,
         values: new Values(),
         relativeFilePath: module.relativeFilePath,
+        file: path.resolve(this.root, module.relativeFilePath),
         readModule: module.readModule,
       };
       this.frames.set(module, opened);
@@ -330,10 +403,44 @@ class ConfigCode {
     return { kind: 'list', items };
   }
 
-  /** A call of `defineConfig()`, `defineProject()` or `mergeConfig()`; any other call can't be worked out. */
+  /** `import.meta.dirname`, `filename` and `url` of the file. */
+  private importMeta(name: string | null, frame: ConfigFrame, site: Site): Setting {
+    if (name === 'dirname') return { kind: 'value', value: path.dirname(frame.file) };
+    if (name === 'filename') return { kind: 'value', value: frame.file };
+    return name === 'url' ? { kind: 'value', value: pathToFileURL(frame.file).href } : unknown(site);
+  }
+
+  /** `new URL(path, base)`, as in `new URL('./e2e', import.meta.url)`, as the URL's text. */
+  private newUrl(node: NewExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
+    const isUrl = node.callee.type === 'Identifier' && node.callee.name === 'URL';
+    const parts = isUrl ? this.strings(node.arguments, frame, scopes) : null;
+    const url = parts && URL.parse(parts[0], parts[1]);
+    return url ? { kind: 'value', value: url.href } : unknown({ frame, node });
+  }
+
+  /** The values of arguments that are all strings; null when one isn't, or is a spread. */
+  private strings(args: readonly Argument[], frame: ConfigFrame, scopes: readonly Node[]): string[] | null {
+    const values = args.map((arg) => (arg.type === 'SpreadElement' ? null : this.evaluate(arg, frame, scopes)));
+    return values.every((value) => value?.kind === 'value' && typeof value.value === 'string')
+      ? values.map((value) => (value as { value: string }).value)
+      : null;
+  }
+
+  /**
+   * A call of `defineConfig()`, `defineProject()` or `mergeConfig()`, or of a Node.js path function such as
+   * `path.join(__dirname, 'e2e')`; any other call can't be worked out.
+   */
   private call(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
     const site = { frame, node: call };
-    const name = this.configFunction(call, frame, scopes);
+    const origin = this.origin(unwrap(call.callee), frame, scopes);
+    const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
+    if (pathFunction) {
+      const parts = this.strings(call.arguments, frame, scopes);
+      const file = parts && attempt(() => pathFunction(this.root, ...parts));
+      return file === null ? unknown(site) : { kind: 'value', value: file };
+    }
+    const isPackage = origin !== null && (origin.source === '' || !/^[./#]/.test(origin.source));
+    const name = isPackage && CONFIG_FUNCTIONS.has(origin.name) ? origin.name : null;
     const { arguments: given } = call;
     const needed = name === 'mergeConfig' ? 2 : 1;
     if (name === null || given.length < needed || given.some((arg) => arg.type === 'SpreadElement')) {
@@ -357,29 +464,36 @@ class ConfigCode {
   }
 
   /**
-   * The name of a config function called, as its package exports it, through `import { name } from 'package'` or
-   * `const { name } = require('package')`; null for one the config declares or takes from a local file.
+   * Where a function a config calls comes from: `name` of `import { name } from 'module'` or
+   * `const { name } = require('module')`, `module.name` of a default or namespace import or a `require()`, or a global;
+   * null for one the config declares itself.
    */
-  private configFunction(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): string | null {
-    const callee = unwrap(call.callee);
-    if (callee.type !== 'Identifier') return null;
-    const declaration = frame.values.declarationOf(callee.name, scopes);
-    let name: string | null = declaration === null ? callee.name : null;
-    let source: string | null = null;
-    if (declaration?.type === 'ImportSpecifier') {
-      name = exportName(declaration.imported);
-      source = frame.values.importSource(callee.name, scopes);
+  private origin(callee: Expression, frame: ConfigFrame, scopes: readonly Node[]): Origin | null {
+    const member = callee.type === 'MemberExpression' ? propertyName(callee) : null;
+    const base =
+      member === null ? callee : unwrap((callee as Extract<Expression, { type: 'MemberExpression' }>).object);
+    if (base.type !== 'Identifier') return null;
+    const declaration = frame.values.declarationOf(base.name, scopes);
+    if (declaration === null) return member === null ? { source: '', name: base.name } : null;
+    const source =
+      declaration.type === 'VariableDeclarator'
+        ? declaration.init && requiredModule(declaration.init)
+        : frame.values.importSource(base.name, scopes);
+    if (!source) return null;
+    if (member !== null) {
+      const whole = declaration.type === 'ImportDefaultSpecifier' || declaration.type === 'ImportNamespaceSpecifier';
+      return whole || (declaration.type === 'VariableDeclarator' && declaration.id.type === 'Identifier')
+        ? { source, name: member }
+        : null;
     }
-    if (declaration?.type === 'VariableDeclarator' && declaration.id.type === 'ObjectPattern' && declaration.init) {
-      for (const item of declaration.id.properties) {
-        if (item.type === 'Property' && item.value.type === 'Identifier' && item.value.name === callee.name) {
-          name = propertyKey(item);
-        }
-      }
-      source = requiredModule(declaration.init);
+    if (declaration.type === 'ImportSpecifier') return { source, name: exportName(declaration.imported) };
+    if (declaration.type !== 'VariableDeclarator' || declaration.id.type !== 'ObjectPattern') return null;
+    for (const item of declaration.id.properties) {
+      const isBinding = item.type === 'Property' && item.value.type === 'Identifier' && item.value.name === base.name;
+      const key = isBinding ? propertyKey(item) : null;
+      if (key !== null) return { source, name: key };
     }
-    const fromPackage = declaration === null || (source !== null && !/^[./#]/.test(source));
-    return fromPackage && name !== null && CONFIG_FUNCTIONS.has(name) ? name : null;
+    return null;
   }
 
   /** What a config function returns, when it has a single `return` the scan can follow. */
@@ -393,6 +507,8 @@ class ConfigCode {
 
 /** The config a scanned file uses, read once however many files use it. */
 export interface ConfigFile {
+  /** The config's absolute path. */
+  file: string;
   record: ConfigRecord;
   settings: Setting;
 }
@@ -403,27 +519,53 @@ export class Configs {
   private readonly root: string;
   private readonly framework: Framework;
   private readonly readerFor: (fromFile: string) => ModuleReader;
-  private readonly nearest = new Map<string, ConfigFile | null>();
+  private readonly inFolders = new Map<string, ConfigFile | null>();
+  private readonly files = new Map<string, ConfigFile>();
   private readonly used = new Set<ConfigFile>();
   private readonly reported = new Set<string>();
+  private readonly version: [number, number] | null;
 
-  constructor(root: string, framework: Framework, readerFor: (fromFile: string) => ModuleReader) {
+  constructor(
+    root: string,
+    framework: Framework,
+    readerFor: (fromFile: string) => ModuleReader,
+    version: [number, number] | null,
+  ) {
     this.root = root;
     this.framework = framework;
     this.readerFor = readerFor;
+    this.version = version;
   }
 
   /**
-   * The config a file uses: the nearest in its folder or a folder above, up to the root, as the runner started in that
-   * folder would use; null when there is none.
+   * The configs in a file's folder and the folders above it, up to the root, outermost first: in each folder, the one
+   * the runner started there would use.
    */
-  configFor(file: string): ConfigFile | null {
-    const config = this.inFolder(path.dirname(file));
-    if (config) this.used.add(config);
+  around(file: string): ConfigFile[] {
+    const configs: ConfigFile[] = [];
+    for (let folder = path.dirname(file); ; folder = path.dirname(folder)) {
+      const config = this.inFolder(folder);
+      if (config) configs.unshift(config);
+      if (folder === this.root || path.dirname(folder) === folder) return configs;
+    }
+  }
+
+  /** The config at a path, read once however many files or projects refer to it. */
+  at(file: string): ConfigFile {
+    let config = this.files.get(file);
+    if (!config) {
+      config = this.read(file);
+      this.files.set(file, config);
+    }
     return config;
   }
 
-  /** The configs the files asked about use, sorted by path. */
+  /** Lists a config in the output, as one that scanned files use. */
+  use(config: ConfigFile): void {
+    this.used.add(config);
+  }
+
+  /** The configs that scanned files use, sorted by path. */
   records(): ConfigRecord[] {
     // The default sort compares UTF-16 code units, so the order is the same on every machine and locale.
     const byPath = new Map([...this.used].map((config) => [config.record.relativeFilePath, config.record]));
@@ -443,15 +585,14 @@ export class Configs {
     this.diagnostics.push(toDiagnostic(found, frame.relativeFilePath, frame.parsed.source));
   }
 
-  private inFolder(folder: string): ConfigFile | null {
-    let config = this.nearest.get(folder);
+  /** The config the runner started in a folder would use; null when the folder has none. */
+  inFolder(folder: string): ConfigFile | null {
+    let config = this.inFolders.get(folder);
     if (config === undefined) {
       // The runners take a config that exists, without checking that it is a file they can read.
       const name = CONFIG_FILES[this.framework].find((item) => existsSync(path.join(folder, item)));
-      const parent = path.dirname(folder);
-      if (name) config = this.read(path.join(folder, name));
-      else config = folder === this.root || parent === folder ? null : this.inFolder(parent);
-      this.nearest.set(folder, config);
+      config = name ? this.at(path.join(folder, name)) : null;
+      this.inFolders.set(folder, config);
     }
     return config;
   }
@@ -460,7 +601,7 @@ export class Configs {
     const relativeFilePath = path.relative(this.root, file).replaceAll('\\', '/');
     const unreadable = (diagnostic: Diagnostic): ConfigFile => {
       this.diagnostics.push(diagnostic);
-      return { record: { relativeFilePath, extends: [] }, settings: { kind: 'unknown', where: null } };
+      return { file, record: { relativeFilePath, extends: [] }, settings: { kind: 'unknown', where: null } };
     };
     const none = 'so the scan reads none of its settings.';
     let code: string;
@@ -481,8 +622,8 @@ export class Configs {
       );
       return unreadable(toDiagnostic(found, relativeFilePath, parsed.source));
     }
-    const frame = { parsed, values: new Values(), relativeFilePath, readModule: this.readerFor(file) };
-    const config = new ConfigCode(frame, this.framework);
+    const frame = { parsed, values: new Values(), relativeFilePath, file, readModule: this.readerFor(file) };
+    const config = new ConfigCode(frame, this.framework, this.root, this.version);
     let settings: Setting | null;
     try {
       settings = config.exported(frame, 'default', { frame, node: parsed.program });
@@ -496,6 +637,6 @@ export class Configs {
       const message = `The config has no default export the scan can find, ${none}`;
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
     }
-    return { record: { relativeFilePath, extends: config.followed }, settings };
+    return { file, record: { relativeFilePath, extends: config.followed }, settings };
   }
 }
