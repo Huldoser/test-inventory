@@ -33,7 +33,7 @@ import { problem } from './frameworks/common.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
-import type { ConfigRecord, Diagnostic, Framework } from './types.ts';
+import type { ConfigRecord, Diagnostic, Framework, ProjectRecord } from './types.ts';
 import { isKey, isScopeNode, Values, type Value } from './values.ts';
 import { VITEST_INCLUDE, VITEST_TYPECHECK_INCLUDE, vitestExclude } from './vitest-defaults.ts';
 
@@ -599,7 +599,7 @@ class ConfigCode {
 export interface ConfigFile {
   /** The config's absolute path. */
   file: string;
-  record: ConfigRecord;
+  record: Omit<ConfigRecord, 'projects'>;
   settings: Setting;
 }
 
@@ -650,16 +650,24 @@ export class Configs {
     return config;
   }
 
+  /** A path from the root, with `/` separators; `.` for the root itself. */
+  relative(file: string): string {
+    return path.relative(this.root, file).replaceAll('\\', '/') || '.';
+  }
+
   /** Lists a config in the output, as one that scanned files use. */
   use(config: ConfigFile): void {
     this.used.add(config);
   }
 
-  /** The configs that scanned files use, sorted by path. */
-  records(): ConfigRecord[] {
+  /** The configs that scanned files use, sorted by path, with the projects `projectsOf` gives each. */
+  records(projectsOf: (config: ConfigFile) => ProjectRecord[] | null): ConfigRecord[] {
     // The default sort compares UTF-16 code units, so the order is the same on every machine and locale.
-    const byPath = new Map([...this.used].map((config) => [config.record.relativeFilePath, config.record]));
-    return [...byPath.keys()].sort().map((key) => byPath.get(key) as ConfigRecord);
+    const byPath = new Map([...this.used].map((config) => [config.record.relativeFilePath, config]));
+    return [...byPath.keys()].sort().map((key) => {
+      const config = byPath.get(key) as ConfigFile;
+      return { ...config.record, projects: projectsOf(config) };
+    });
   }
 
   /** Reports a setting the scan reads but can't work out, once; `key` names it, and `effect` says what the scan does. */

@@ -23,8 +23,20 @@ describe('configs', () => {
     });
     const inventory = await scan({ root, patterns: ['packages/*/src/*.test.ts'], framework: 'vitest' });
     expect(inventory.configs).toEqual([
-      { relativeFilePath: 'packages/orders/vitest.config.ts', extends: [] },
-      { relativeFilePath: 'vitest.config.ts', extends: [] },
+      {
+        relativeFilePath: 'packages/orders/vitest.config.ts',
+        extends: [],
+        projects: [{ name: 'orders', testDir: 'packages/orders', dependencies: [] }],
+      },
+      {
+        relativeFilePath: 'vitest.config.ts',
+        extends: [],
+        projects: [
+          { name: 'orders', testDir: 'packages/orders', dependencies: [] },
+          { name: '', testDir: 'packages/quotes', dependencies: [] },
+          { name: 'risk', testDir: 'packages/risk', dependencies: [] },
+        ],
+      },
     ]);
   });
 
@@ -36,7 +48,9 @@ describe('configs', () => {
     const manifest = framework === 'vitest' ? VITEST_PACKAGE : PLAYWRIGHT_PACKAGE;
     const root = project({ 'package.json': manifest, ...configs, [test]: framework === 'vitest' ? UNIT : SPEC });
     const inventory = await scan({ root, patterns: [test], framework });
-    expect(inventory.configs).toEqual([{ relativeFilePath: picked, extends: [] }]);
+    expect(inventory.configs).toEqual([
+      { relativeFilePath: picked, extends: [], projects: [{ name: '', testDir: '.', dependencies: [] }] },
+    ]);
   });
 
   it("lists no config for files without one, and leaves out the other framework's config", async () => {
@@ -71,6 +85,7 @@ describe('configs', () => {
       {
         relativeFilePath: 'packages/orders/vitest.config.ts',
         extends: ['packages/vitest-config/index.ts', 'packages/vitest-config/broker.ts'],
+        projects: [{ name: 'orders', testDir: 'packages/orders', dependencies: [] }],
       },
     ]);
     expect(inventory.diagnostics).toEqual([]);
@@ -91,7 +106,13 @@ describe('configs', () => {
       'tests/orders.spec.ts': SPEC,
     });
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
-    expect(inventory.configs).toEqual([{ relativeFilePath: 'playwright.config.ts', extends: ['playwright.base.ts'] }]);
+    expect(inventory.configs).toEqual([
+      {
+        relativeFilePath: 'playwright.config.ts',
+        extends: ['playwright.base.ts'],
+        projects: [{ name: 'chromium', testDir: 'tests', dependencies: [] }],
+      },
+    ]);
     expect(inventory.diagnostics).toEqual([]);
   });
 

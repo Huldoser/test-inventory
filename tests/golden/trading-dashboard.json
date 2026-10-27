@@ -33,7 +33,14 @@
   "configs": [
     {
       "relativeFilePath": "vitest.config.ts",
-      "extends": []
+      "extends": [],
+      "projects": [
+        {
+          "name": "",
+          "testDir": ".",
+          "dependencies": []
+        }
+      ]
     }
   ],
   "files": [
@@ -302,7 +309,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "f060f5a51b9b430e",
@@ -370,7 +380,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "0deff7a937fb0e0e",
@@ -438,7 +451,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "a285e11e4981c451",
@@ -506,7 +522,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "dad14012be79ea24",
@@ -576,7 +595,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "0592464614c27c53",
@@ -644,7 +666,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "8948fa5df91e1a2a",
@@ -712,7 +737,10 @@
       "caseCount": 3,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "e980ef8d6e6bce41",
@@ -780,7 +808,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "210c284bbb4a6042",
@@ -848,7 +879,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     }
   ],
   "diagnostics": []

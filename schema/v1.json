@@ -246,13 +246,53 @@
             "type": "string"
           },
           "description": "Files the config takes settings from through imports, such as a shared base config, in the order read."
+        },
+        "projects": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ProjectRecord"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The projects the config runs tests in: Playwright's `projects`, or one for a config without them; Vitest's, with each browser instance as one. Null when the scan can't work them out."
         }
       },
       "required": [
         "relativeFilePath",
-        "extends"
+        "extends",
+        "projects"
       ],
       "description": "A Playwright or Vitest config that scanned files use: the nearest one in a file's folder or a folder above it, up to the root, as the runner started in that folder would. Read as code, never run."
+    },
+    "ProjectRecord": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "As the runner names it: `''` for a project without a name."
+        },
+        "testDir": {
+          "type": "string",
+          "description": "The folder the project's test files are found in, from the project root: Playwright's `testDir`, Vitest's `dir`."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Playwright's projects that run before this one; `[]` for Vitest."
+        }
+      },
+      "required": [
+        "name",
+        "testDir",
+        "dependencies"
+      ]
     },
     "FileRecord": {
       "type": "object",
@@ -1047,6 +1087,20 @@
         "isInFunction": {
           "type": "boolean",
           "description": "Declared inside a plain function."
+        },
+        "projects": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Names of the projects that run the test, of the config its file uses, after each project's files and Playwright's `grep` and `grepInvert`. `[]` when no project runs it; null when there is no config, or the scan can't tell."
         }
       },
       "required": [
@@ -1106,7 +1160,8 @@
         "caseCount",
         "isInLoop",
         "isInCondition",
-        "isInFunction"
+        "isInFunction",
+        "projects"
       ],
       "description": "A test, with the effective values the runner applies, including those inherited from its describes."
     },

@@ -394,6 +394,7 @@ class RecordBuilder {
       isInLoop: pending.isInLoop,
       isInCondition: pending.isInCondition,
       isInFunction: pending.isInFunction,
+      projects: null,
     };
   }
 

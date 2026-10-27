@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ConfigRuns, type Placement } from './config-runs.ts';
+import { ConfigRuns, testProjects, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
@@ -170,7 +170,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       const message = `The file has tests, but no config in its folder or above runs it, so the runner doesn't collect them; the nearest config is ${config}.`;
       notRun.push(fileDiagnostic('file-not-run', relativeFilePath, message));
     }
-    results.push({ ...result, file: { ...result.file, config } });
+    const tests = result.tests.map((test) => ({
+      ...test,
+      projects: testProjects(placement, test, result.suites, absolutePath),
+    }));
+    results.push({ ...result, file: { ...result.file, config }, tests });
   }
   const missingGlobals = globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;
@@ -186,5 +190,6 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', noFiles(root, patterns, framework, placements)));
   }
   const fileCount = files.length;
-  return createInventory(framework, frameworkVersion, fileCount, results, projectDiagnostics, configs.records());
+  const records = configs.records((config) => runs.projectsIn(config));
+  return createInventory(framework, frameworkVersion, fileCount, results, projectDiagnostics, records);
 }

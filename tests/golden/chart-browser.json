@@ -33,7 +33,19 @@
   "configs": [
     {
       "relativeFilePath": "vitest.config.ts",
-      "extends": []
+      "extends": [],
+      "projects": [
+        {
+          "name": "chromium",
+          "testDir": ".",
+          "dependencies": []
+        },
+        {
+          "name": "webkit",
+          "testDir": ".",
+          "dependencies": []
+        }
+      ]
     }
   ],
   "files": [
@@ -172,7 +184,11 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "chromium",
+        "webkit"
+      ]
     },
     {
       "id": "a25f4dcefcf0b5b5",
@@ -240,7 +256,11 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "chromium",
+        "webkit"
+      ]
     },
     {
       "id": "dc5ec34ec1808b8d",
@@ -308,7 +328,11 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "chromium",
+        "webkit"
+      ]
     },
     {
       "id": "f27d38976c1b7c14",
@@ -378,7 +402,11 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "chromium",
+        "webkit"
+      ]
     },
     {
       "id": "621d4bea95a8e4a3",
@@ -446,7 +474,11 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "chromium",
+        "webkit"
+      ]
     }
   ],
   "diagnostics": []

@@ -223,7 +223,8 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": null
     },
     {
       "id": "1f6378cb1d97229e",
@@ -293,7 +294,8 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": null
     },
     {
       "id": "d27ad9263dd39dba",
@@ -359,7 +361,8 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": null
     },
     {
       "id": "1846121a7901086f",
@@ -425,7 +428,8 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": null
     },
     {
       "id": "5fda981ed0c0e2a7",
@@ -493,7 +497,8 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": null
     }
   ],
   "diagnostics": [

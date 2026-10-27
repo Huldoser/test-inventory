@@ -33,7 +33,14 @@
   "configs": [
     {
       "relativeFilePath": "vitest.config.ts",
-      "extends": []
+      "extends": [],
+      "projects": [
+        {
+          "name": "",
+          "testDir": ".",
+          "dependencies": []
+        }
+      ]
     }
   ],
   "files": [
@@ -288,7 +295,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "b832207595d60b5a",
@@ -356,7 +366,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "6845b18187057e8e",
@@ -424,7 +437,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "486cbcddd832451d",
@@ -493,7 +509,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "3f34fd72c582871d",
@@ -562,7 +581,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "eff7c3afdf4a6ff1",
@@ -630,7 +652,10 @@
       "caseCount": 3,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "c7556fc853f29e94",
@@ -698,7 +723,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     }
   ],
   "diagnostics": []

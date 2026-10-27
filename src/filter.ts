@@ -89,6 +89,7 @@ const TEST_KEYS = Object.keys({
   isInLoop: true,
   isInCondition: true,
   isInFunction: true,
+  projects: true,
 } satisfies Record<keyof TestRecord, true>);
 
 function list(value: unknown, option: string, allowed: readonly string[] | null): string[] {

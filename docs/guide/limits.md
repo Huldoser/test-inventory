@@ -19,6 +19,9 @@ Nothing in the output says so.
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
 that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
 Vitest 3 project list in `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
+For a Playwright project's `grep`, a test's text is its project, file, describe and test titles and its tags, as
+Playwright builds it, but with every tag given as an option at the end, where Playwright puts a describe's after its
+title; only a pattern that depends on that order can tell them apart.
 
 A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
 installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config

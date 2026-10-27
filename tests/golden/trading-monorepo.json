@@ -33,16 +33,37 @@
   "configs": [
     {
       "relativeFilePath": "packages/broker-gateway/vitest.config.ts",
-      "extends": []
+      "extends": [],
+      "projects": [
+        {
+          "name": "broker-gateway",
+          "testDir": "packages/broker-gateway",
+          "dependencies": []
+        }
+      ]
     },
     {
       "relativeFilePath": "packages/market-data/vitest.config.ts",
-      "extends": []
+      "extends": [],
+      "projects": [
+        {
+          "name": "market-data",
+          "testDir": "packages/market-data",
+          "dependencies": []
+        }
+      ]
     },
     {
       "relativeFilePath": "packages/risk/vitest.config.ts",
       "extends": [
         "vitest.shared.ts"
+      ],
+      "projects": [
+        {
+          "name": "risk",
+          "testDir": "packages/risk",
+          "dependencies": []
+        }
       ]
     }
   ],
@@ -312,7 +333,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "broker-gateway"
+      ]
     },
     {
       "id": "ea6139d1991d0f87",
@@ -380,7 +404,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "broker-gateway"
+      ]
     },
     {
       "id": "2ec3d46885c8b3a4",
@@ -448,7 +475,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "market-data"
+      ]
     },
     {
       "id": "147dc22efd2f062b",
@@ -516,7 +546,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "market-data"
+      ]
     },
     {
       "id": "267dff365856f75a",
@@ -584,7 +617,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "market-data"
+      ]
     },
     {
       "id": "5ef54d96cc0d0245",
@@ -652,7 +688,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "risk"
+      ]
     },
     {
       "id": "d4469ed724b030be",
@@ -720,7 +759,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "risk"
+      ]
     },
     {
       "id": "287e1941fecee816",
@@ -788,7 +830,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        "risk"
+      ]
     }
   ],
   "diagnostics": []

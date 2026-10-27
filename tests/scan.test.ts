@@ -1521,6 +1521,7 @@ describe('scan checks that Vitest globals are turned on', () => {
       {
         relativeFilePath: 'vitest.config.ts',
         extends: ['config/default.ts', 'config/index.ts', 'config/playwright.ts', 'config/vitest.ts'],
+        projects: [{ name: '', testDir: '.', dependencies: [] }],
       },
     ]);
     expect(inventory.diagnostics).toEqual([]);
@@ -1698,7 +1699,9 @@ describe('scan checks that Vitest globals are turned on', () => {
       'tests/a.test.ts': GLOBAL_TEST,
     });
     const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
-    expect(inventory.configs).toEqual([{ relativeFilePath: 'vitest.config.ts', extends: ['vitest.shared.ts'] }]);
+    expect(inventory.configs).toEqual([
+      { relativeFilePath: 'vitest.config.ts', extends: ['vitest.shared.ts'], projects: null },
+    ]);
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['config-value-unknown']);
   });
 });
