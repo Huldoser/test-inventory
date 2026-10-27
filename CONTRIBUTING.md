@@ -146,7 +146,7 @@ The range of a dependency decides what `npm update` may install, and `tests/depe
 - An exact version for a package whose version shows in files that CI compares: `oxc-parser` decides the scan output,
   the goldens record the version of `vitest`, `ts-json-schema-generator` writes `schema/v1.json`, and `prettier`
   formats every file. The `@vitest/` packages have the version of `vitest`. A prerelease, such as VitePress
-  2.0.0-alpha.20, is exact too, since `^` would also accept the next alphas.
+  2.0.0-alpha.21, is exact too, since `^` would also accept the next alphas.
 - `~` for a package whose minor releases can change results: `typescript` doesn't follow semantic versioning, and the
   minor releases of `eslint` and `typescript-eslint` can report more errors. `@types/node` has the version of the
   oldest supported Node.js in `engines`, so that newer APIs are not used by accident.
