@@ -307,7 +307,7 @@ their page in a `beforeEach`:
 folder above it, up to the root, as the runner started in that folder would: `playwright.config.*` for Playwright,
 and `vitest.config.*` for Vitest, or `vite.config.*` when a folder has no `vitest.config.*`. A config is read as code
 and never run, with the settings it imports from other files: `defineConfig()`, `defineProject()`, `mergeConfig()`,
-spreads, constants, and a function that returns the config.
+spreads, also those a condition picks, constants, and a function that returns the config.
 
 | Key                | Type   | Meaning                                                                                                |
 | ------------------ | ------ | ------------------------------------------------------------------------------------------------------ |

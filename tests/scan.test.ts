@@ -1409,14 +1409,60 @@ describe('scan checks that Vitest globals are turned on', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
-  it('reads test.globals from module.exports in a CommonJS config', async () => {
+  it.each([
+    ['module.exports = { test: { globals: true } };\n'],
+    [
+      "const { defineConfig, mergeConfig } = require('vitest/config');\nmodule.exports = defineConfig({ test: { globals: true } });\n",
+    ],
+  ])('reads test.globals from module.exports in a CommonJS config: %s', async (content) => {
     const root = project({
       'package.json': VITEST_PACKAGE,
-      'vitest.config.cjs': 'module.exports = { test: { globals: true } };\n',
+      'vitest.config.cjs': content,
       'tests/a.test.ts': GLOBAL_TEST,
     });
     const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    [
+      'a defineConfig taken from a local file with require',
+      "const { defineConfig } = require('./config-helpers');\nmodule.exports = defineConfig({ test: { globals: true } });\n",
+      'defineConfig({ test: { globals: true } })',
+    ],
+    [
+      'a defineConfig from a package renamed with require',
+      "const { defineConfig: define } = require('vitest/config');\nconst { mergeConfig } = require('vitest/config');\nmodule.exports = define({ test: { globals: true } });\n",
+      null,
+    ],
+  ])('reads %s', async (_, content, unknownSource) => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.cjs': content,
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.source)).toEqual(
+      unknownSource === null ? [] : [unknownSource],
+    );
+  });
+
+  it.each([
+    ['let config = { test: { globals: true } };\nexport { config as default };\n', 'export { config as default };'],
+    [
+      "export { default } from '@trading/broker-kit/vitest';\nexport const DESKS = ['equities', 'fx'];\n",
+      "export { default } from '@trading/broker-kit/vitest';",
+    ],
+  ])('warns at the export it cannot follow in %j', async (content, source) => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': content,
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(
+      inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart, diagnostic.source]),
+    ).toEqual([['config-value-unknown', content.split('\n').findIndex((line) => line === source) + 1, source]]);
   });
 
   it.each([
@@ -1581,6 +1627,18 @@ describe('scan checks that Vitest globals are turned on', () => {
       'export default defineConfig({ test: { globals: process.env.VITEST_GLOBALS } });\n',
       'test.globals',
       'process.env.VITEST_GLOBALS',
+    ],
+    [
+      'a condition in a spread that may turn it off',
+      'export default { test: { globals: true, ...(process.env.CI ? { globals: false } : {}) } };\n',
+      'test.globals',
+      'process.env.CI ? { globals: false } : {}',
+    ],
+    [
+      'a condition in a spread that may take settings from an installed package',
+      "import { ciDefaults } from '@trading/broker-kit';\nexport default { test: { globals: true, ...(process.env.CI ? ciDefaults : {}) } };\n",
+      'test.globals',
+      'process.env.CI ? ciDefaults : {}',
     ],
     [
       'a key computed at run time',

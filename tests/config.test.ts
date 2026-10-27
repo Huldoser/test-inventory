@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { symlinkSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { Configs, settingAt, type Setting } from '../src/config.ts';
 import { scan, scanSource } from '../src/index.ts';
+import { moduleResolver } from '../src/resolve.ts';
+import { Values } from '../src/values.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
 
 const SPEC = "import { test } from '@playwright/test';\ntest('places a market order', async () => {});\n";
@@ -141,5 +146,158 @@ describe('configs', () => {
         source: ')',
       },
     ]);
+  });
+
+  it('leaves out a config name that is a link to itself, as the runners do', async () => {
+    const root = project({ 'package.json': VITEST_PACKAGE, 'tests/fees.test.ts': UNIT });
+    symlinkSync('vitest.config.ts', path.join(root, 'vitest.config.ts'));
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.configs).toEqual([]);
+  });
+
+  it('reports a config that fails to read unexpectedly, and goes on with the scan', async () => {
+    const spy = vi.spyOn(Values.prototype, 'constantOf').mockImplementation(() => {
+      throw new RangeError('Maximum call stack size exceeded');
+    });
+    onTestFinished(() => {
+      spy.mockRestore();
+    });
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': 'const config = { test: { globals: true } };\nexport default config;\n',
+      'tests/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests).toHaveLength(1);
+    expect(
+      inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.relativeFilePath, diagnostic.message]),
+    ).toEqual([
+      [
+        'internal-error',
+        'vitest.config.ts',
+        'Reading the config failed unexpectedly: Maximum call stack size exceeded, so the scan reads none of its settings.',
+      ],
+    ]);
+  });
+
+  it('reads a config that nests far deeper than real ones', async () => {
+    const depth = 3000;
+    const nested = `${'{ retry: '.repeat(depth)}1${' }'.repeat(depth)}`;
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': `export default { test: { globals: true, extra: ${nested} } };\n`,
+      'tests/fees.test.ts': "describe('fees', () => {\n  it('charges the minimum', () => {});\n});\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('globals-not-enabled');
+  });
+
+  it('reads a constant used many times once, however deep the uses go', async () => {
+    const levels = Array.from(
+      { length: 40 },
+      (_, index) => `const level${index + 1} = { a: level${index}, b: level${index} };`,
+    );
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': [
+        'const level0 = { retry: 1 };',
+        ...levels,
+        'export default { test: { globals: true, extra: level40 } };',
+        '',
+      ].join('\n'),
+      'tests/fees.test.ts': "describe('fees', () => {\n  it('charges the minimum', () => {});\n});\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it("finds no default export in a config that only has export *, which doesn't pass the default on", async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.shared.ts': 'export default { test: { globals: true } };\n',
+      'vitest.config.ts': "export * from './vitest.shared';\n",
+      'tests/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'The config has no default export the scan can find, so the scan reads none of its settings.',
+    ]);
+  });
+});
+
+/** A setting as a plain value, with `<unknown>` for one the scan can't work out. */
+function plain(setting: Setting | null): unknown {
+  if (setting === null) return '<missing>';
+  if (setting.kind === 'unknown') return '<unknown>';
+  if (setting.kind === 'value') return setting.value;
+  if (setting.kind === 'list') return setting.items.map(plain);
+  return Object.fromEntries([...setting.keys].map(([key, value]) => [key, plain(value)]));
+}
+
+/** The settings of a Vitest config written at the root, as the scan reads them for a test file next to it. */
+function settingsOf(code: string): Setting {
+  const root = project({ 'vitest.config.ts': code });
+  const config = new Configs(root, 'vitest', moduleResolver(root)).configFor(path.join(root, 'fees.test.ts'));
+  return (config as NonNullable<typeof config>).settings;
+}
+
+describe('the config reader', () => {
+  it('merges like Vite: lists joined, a single setting taken as a list of one, and null or undefined keeping the base', () => {
+    const settings = settingsOf(
+      [
+        'export default mergeConfig(',
+        "  { test: { setupFiles: './tests/setup/clock.ts', environment: null, globals: true } },",
+        "  { test: { setupFiles: ['./tests/setup/broker.ts'], environment: 'node', globals: undefined } },",
+        ');',
+        '',
+      ].join('\n'),
+    );
+    expect(plain(settingAt(settings, ['test']))).toEqual({
+      setupFiles: ['./tests/setup/clock.ts', './tests/setup/broker.ts'],
+      environment: 'node',
+      globals: true,
+    });
+  });
+
+  it('spreads nothing for null, undefined or false, as JavaScript does', () => {
+    const settings = settingsOf(
+      "const extra = undefined;\nexport default { test: { globals: true, ...extra, ...null, ...false, environment: 'node' } };\n",
+    );
+    expect(plain(settingAt(settings, ['test']))).toEqual({ globals: true, environment: 'node' });
+  });
+
+  it('keeps what both sides of a condition agree on in a spread, and only that', () => {
+    const settings = settingsOf(
+      [
+        'export default {',
+        '  test: {',
+        '    globals: true,',
+        "    environment: 'node',",
+        "    ...(process.env.CI ? { retry: 2, environment: 'node' } : { retry: 0 }),",
+        "    ...(process.env.CI && { reporters: ['junit'] }),",
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+    );
+    expect(plain(settingAt(settings, ['test']))).toEqual({
+      globals: true,
+      environment: 'node',
+      retry: '<unknown>',
+      reporters: '<unknown>',
+    });
+  });
+
+  it('compares the objects both sides of a condition set, key by key', () => {
+    const settings = settingsOf(
+      [
+        'export default {',
+        "  test: { environment: 'jsdom' },",
+        "  ...(process.env.CI ? { test: { globals: true, retry: 2 }, cacheDir: '.ci' } : { test: { globals: true } }),",
+        '};',
+        '',
+      ].join('\n'),
+    );
+    expect(plain(settings)).toEqual({ test: { globals: true, retry: '<unknown>' }, cacheDir: '<unknown>' });
   });
 });

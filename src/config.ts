@@ -1,10 +1,17 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { ArrayExpression, CallExpression, Expression, Node, ObjectExpression } from 'oxc-parser';
-import { isFunctionNode, propertyName, returnValues, unwrap, type FunctionNode } from './ast.ts';
+import { isFunctionNode, propertyKey, propertyName, returnValues, unwrap, type FunctionNode } from './ast.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { readFailure } from './files.ts';
-import { exportName, moduleExportsValue, ownExport, parseModule, starReexport } from './frameworks/bindings.ts';
+import {
+  exportName,
+  moduleExportsValue,
+  ownExport,
+  parseModule,
+  requiredModule,
+  starReexport,
+} from './frameworks/bindings.ts';
 import { problem } from './frameworks/common.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
@@ -88,23 +95,49 @@ export function settingAt(setting: Setting, keys: readonly string[]): Setting | 
   return keys.reduce<Setting | null>((current, key) => (current === null ? null : child(current, key)), setting);
 }
 
+function isNullish(setting: Setting): boolean {
+  return setting.kind === 'value' && (setting.value === null || setting.value === undefined);
+}
+
 /**
  * `{ ...base, ...over }`: each key `over` sets replaces the one in `base`, and a spread of `over` that the scan can't
- * work out, or that isn't an object, may replace any. `at` is where the spread is written. Always a new object.
+ * work out may replace any. `at` is where the spread is written. A copy when `over` sets anything.
  */
 function spread(base: ObjectSetting, over: Setting, at: Site): ObjectSetting {
+  // Spreading null, undefined, a boolean or a number adds nothing.
+  if (over.kind === 'value' && typeof over.value !== 'string') return base;
   if (over.kind !== 'object') return { kind: 'object', keys: new Map(), rest: unknown(at) };
   if (over.rest) return { kind: 'object', keys: new Map(over.keys), rest: over.rest };
   return { kind: 'object', keys: new Map([...base.keys, ...over.keys]), rest: base.rest };
 }
 
-/** Vite's `mergeConfig(base, over)`: objects merge key by key, and lists are joined. */
+/**
+ * One of two settings, as the two sides of a condition: what both agree on is known, and the rest is unknown at `at`,
+ * where the condition is written. Null is a setting neither side sets.
+ */
+function either(a: Setting | null, b: Setting | null, at: Site): Setting {
+  if (a !== null && (a === b || (a.kind === 'value' && b?.kind === 'value' && a.value === b.value))) return a;
+  if (a?.kind !== 'object' || b?.kind !== 'object') return unknown(at);
+  const keys = new Map<string, Setting>();
+  for (const key of new Set([...a.keys.keys(), ...b.keys.keys()]))
+    keys.set(key, either(child(a, key), child(b, key), at));
+  return { kind: 'object', keys, rest: a.rest === b.rest ? a.rest : unknown(at) };
+}
+
+/**
+ * Vite's `mergeConfig(base, over)`: objects merge key by key, lists are joined with a single setting taken as a list
+ * of one, and `null` or `undefined` keeps the other side.
+ */
 function mergeDeep(base: Setting, over: Setting): Setting {
-  if (over.kind === 'unknown') return over;
-  if (base.kind === 'list' && over.kind === 'list') return { kind: 'list', items: [...base.items, ...over.items] };
-  // A list joined to one the scan can't work out can't be worked out either.
-  if (over.kind === 'list' && base.kind === 'unknown') return base;
-  if (over.kind !== 'object' || base.kind === 'value' || base.kind === 'list') return over;
+  if (isNullish(over)) return base;
+  if (isNullish(base) || over.kind === 'unknown') return over;
+  if (base.kind === 'list' || over.kind === 'list') {
+    // A list joined to one the scan can't work out can't be worked out either.
+    if (base.kind === 'unknown') return base;
+    const items = (setting: Setting) => (setting.kind === 'list' ? setting.items : [setting]);
+    return { kind: 'list', items: [...items(base), ...items(over)] };
+  }
+  if (over.kind !== 'object' || base.kind === 'value') return over;
   const keys = new Map(base.kind === 'object' && !over.rest ? base.keys : []);
   for (const [key, value] of over.keys) {
     const existing = child(base, key);
@@ -120,6 +153,8 @@ class ConfigCode {
   private readonly main: ConfigFrame;
   private readonly framework: Framework;
   private readonly frames = new Map<ModuleSource, ConfigFrame>();
+  /** Constants and exports worked out, each once however often the config refers to it. */
+  private readonly done = new Map<unknown, Setting | null>();
   /** Constants and exports being worked out, to stop at one that refers back to itself. */
   private readonly pending = new Set<unknown>();
 
@@ -128,18 +163,24 @@ class ConfigCode {
     this.framework = framework;
   }
 
-  /**
-   * What a module exports under a name; null when it doesn't export the name, or exports a variable or function the
-   * scan can't find a setting in. `site` is where the name is imported.
-   */
+  /** What a module exports under a name; null when it doesn't export it. `site` is where the name is imported. */
   exported(frame: ConfigFrame, name: string, site: Site): Setting | null {
     const { program } = frame.parsed;
     const own = ownExport(program, name);
     if (own?.kind === 'default') return this.evaluate(own.value, frame, [program]);
-    if (own?.kind === 'specifier' && own.source !== null) return this.fromModule(frame, own.source, own.local, site);
-    if (own) return this.named(own.kind === 'specifier' ? own.local : name, frame, [program], site);
-    const commonJs = name === 'default' ? program.body.map(moduleExportsValue).find((value) => value !== null) : null;
-    if (commonJs) return this.evaluate(commonJs, frame, [program]);
+    if (own) {
+      const at = { frame, node: own.statement };
+      const found =
+        own.kind === 'specifier' && own.source !== null
+          ? this.fromModule(frame, own.source, own.local, at)
+          : this.named(own.kind === 'specifier' ? own.local : name, frame, [program], at);
+      return found ?? unknown(at);
+    }
+    if (name === 'default') {
+      // `export *` passes on every name but the default.
+      const commonJs = program.body.map(moduleExportsValue).find((value) => value !== null);
+      return commonJs ? this.evaluate(commonJs, frame, [program]) : null;
+    }
     for (const statement of program.body) {
       const source = starReexport(statement);
       const found = source === null ? null : this.fromModule(frame, source, name, site);
@@ -200,10 +241,12 @@ class ConfigCode {
   }
 
   private once<T extends Setting | null>(key: unknown, site: Site, read: () => T): T | Unknown {
+    if (this.done.has(key)) return this.done.get(key) as T;
     if (this.pending.has(key)) return unknown(site);
     this.pending.add(key);
     const result = read();
     this.pending.delete(key);
+    this.done.set(key, result);
     return result;
   }
 
@@ -231,7 +274,7 @@ class ConfigCode {
     let object = emptyObject();
     for (const property of node.properties) {
       if (property.type === 'SpreadElement') {
-        object = spread(object, this.evaluate(property.argument, frame, scopes), { frame, node: property.argument });
+        object = this.spreadInto(object, property.argument, frame, scopes);
         continue;
       }
       const key =
@@ -247,6 +290,29 @@ class ConfigCode {
       object.keys.set(String(key.value), this.evaluate(property.value, frame, scopes));
     }
     return object;
+  }
+
+  /**
+   * `{ ...object, ...argument }`, also for an argument that picks between two objects, as in
+   * `...(process.env.CI ? { retry: 2 } : {})` or `...(process.env.CI && { retry: 2 })`.
+   */
+  private spreadInto(
+    object: ObjectSetting,
+    argument: Expression,
+    frame: ConfigFrame,
+    scopes: readonly Node[],
+  ): ObjectSetting {
+    const node = unwrap(argument);
+    const at = { frame, node };
+    const spreadOf = (expression: Expression) => spread(object, this.evaluate(expression, frame, scopes), at);
+    if (node.type === 'ConditionalExpression') {
+      return either(spreadOf(node.consequent), spreadOf(node.alternate), at) as ObjectSetting;
+    }
+    // When the left side is false, so is the whole, and spreading it adds nothing.
+    if (node.type === 'LogicalExpression' && node.operator === '&&') {
+      return either(object, spreadOf(node.right), at) as ObjectSetting;
+    }
+    return spreadOf(node);
   }
 
   private list(node: ArrayExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
@@ -290,15 +356,30 @@ class ConfigCode {
     );
   }
 
-  /** The name of a config function called, as its package exports it; null for a function the config declares itself. */
+  /**
+   * The name of a config function called, as its package exports it, through `import { name } from 'package'` or
+   * `const { name } = require('package')`; null for one the config declares or takes from a local file.
+   */
   private configFunction(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): string | null {
     const callee = unwrap(call.callee);
     if (callee.type !== 'Identifier') return null;
     const declaration = frame.values.declarationOf(callee.name, scopes);
-    const source = frame.values.importSource(callee.name, scopes);
-    const fromPackage = declaration?.type === 'ImportSpecifier' && source !== null && !/^[./#]/.test(source);
-    const name = declaration === null ? callee.name : fromPackage ? exportName(declaration.imported) : null;
-    return name !== null && CONFIG_FUNCTIONS.has(name) ? name : null;
+    let name: string | null = declaration === null ? callee.name : null;
+    let source: string | null = null;
+    if (declaration?.type === 'ImportSpecifier') {
+      name = exportName(declaration.imported);
+      source = frame.values.importSource(callee.name, scopes);
+    }
+    if (declaration?.type === 'VariableDeclarator' && declaration.id.type === 'ObjectPattern' && declaration.init) {
+      for (const item of declaration.id.properties) {
+        if (item.type === 'Property' && item.value.type === 'Identifier' && item.value.name === callee.name) {
+          name = propertyKey(item);
+        }
+      }
+      source = requiredModule(declaration.init);
+    }
+    const fromPackage = declaration === null || (source !== null && !/^[./#]/.test(source));
+    return fromPackage && name !== null && CONFIG_FUNCTIONS.has(name) ? name : null;
   }
 
   /** What a config function returns, when it has a single `return` the scan can follow. */
@@ -314,10 +395,6 @@ class ConfigCode {
 export interface ConfigFile {
   record: ConfigRecord;
   settings: Setting;
-}
-
-function isFile(file: string): boolean {
-  return statSync(file, { throwIfNoEntry: false })?.isFile() === true;
 }
 
 /** Finds and reads the configs of one scan, and collects what it can't work out in them as diagnostics. */
@@ -369,7 +446,8 @@ export class Configs {
   private inFolder(folder: string): ConfigFile | null {
     let config = this.nearest.get(folder);
     if (config === undefined) {
-      const name = CONFIG_FILES[this.framework].find((item) => isFile(path.join(folder, item)));
+      // The runners take a config that exists, without checking that it is a file they can read.
+      const name = CONFIG_FILES[this.framework].find((item) => existsSync(path.join(folder, item)));
       const parent = path.dirname(folder);
       if (name) config = this.read(path.join(folder, name));
       else config = folder === this.root || parent === folder ? null : this.inFolder(parent);
@@ -405,7 +483,15 @@ export class Configs {
     }
     const frame = { parsed, values: new Values(), relativeFilePath, readModule: this.readerFor(file) };
     const config = new ConfigCode(frame, this.framework);
-    const settings = config.exported(frame, 'default', { frame, node: parsed.program });
+    let settings: Setting | null;
+    try {
+      settings = config.exported(frame, 'default', { frame, node: parsed.program });
+    } catch (error) {
+      // The scan runs none of the project's code, so what fails here is its own and throws an Error.
+      const raw = (error as Error).message;
+      const message = `Reading the config failed unexpectedly: ${raw.replaceAll(this.root, '.')}, ${none}`;
+      return unreadable(fileDiagnostic('internal-error', relativeFilePath, message));
+    }
     if (settings === null) {
       const message = `The config has no default export the scan can find, ${none}`;
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));

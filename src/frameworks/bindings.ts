@@ -223,11 +223,12 @@ export function exportsTestObject(
   });
 }
 
-/** How a module exports `name` itself: declared, or exported by name from a local or another module. */
-export type OwnExport =
+/** How a module exports `name` itself, in `statement`: declared, or exported by name from a local or another module. */
+export type OwnExport = { statement: Node } & (
   | { kind: 'default'; value: Expression }
   | { kind: 'variable' | 'function' }
-  | { kind: 'specifier'; local: string; source: string | null };
+  | { kind: 'specifier'; local: string; source: string | null }
+);
 
 /**
  * The module's own export of `name`; null when it has none and only `export *` may pass the name on. An own export
@@ -236,19 +237,24 @@ export type OwnExport =
 export function ownExport(program: Program, name: string): OwnExport | null {
   for (const statement of program.body) {
     if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
-      return { kind: 'default', value: statement.declaration as Expression };
+      return { statement, kind: 'default', value: statement.declaration as Expression };
     }
     if (statement.type !== 'ExportNamedDeclaration') continue;
     const { declaration } = statement;
     if (declaration?.type === 'VariableDeclaration') {
       const declared = declaration.declarations.some((item) => item.id.type === 'Identifier' && item.id.name === name);
-      if (declared) return { kind: 'variable' };
+      if (declared) return { statement, kind: 'variable' };
     }
     const named = declaration?.type === 'FunctionDeclaration' || declaration?.type === 'ClassDeclaration';
-    if (named && declaration.id?.name === name) return { kind: 'function' };
+    if (named && declaration.id?.name === name) return { statement, kind: 'function' };
     for (const specifier of statement.specifiers) {
       if (exportName(specifier.exported) !== name) continue;
-      return { kind: 'specifier', local: exportName(specifier.local), source: statement.source?.value ?? null };
+      return {
+        statement,
+        kind: 'specifier',
+        local: exportName(specifier.local),
+        source: statement.source?.value ?? null,
+      };
     }
   }
   return null;
