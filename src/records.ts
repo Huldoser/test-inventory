@@ -13,7 +13,7 @@ import {
 } from './extract.ts';
 import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
-import type { Mode, Problem, RunSettings, Span, State, StateSetting } from './model.ts';
+import type { Mode, Problem, RunSettings, Span, State, StateSetting, TestDeclaration } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
 import type {
@@ -79,6 +79,8 @@ export interface VitestTags {
   isStrict: boolean;
   /** From Vitest 5 a tag's options win over the describe's around the test; before, the describe's win. */
   beatsDescribes: boolean;
+  /** Vitest 4.1 passes the config's `sequence.concurrent`, when it sets one, to every test, over a tag's `concurrent`. */
+  concurrentBeatsTags: boolean;
 }
 
 /** What the config the file uses gives it. */
@@ -121,35 +123,71 @@ function chooseState(candidates: Chosen[]): Chosen | null {
 
 /**
  * The first use of each tag the Vitest config doesn't define, by `strictTags` an error that fails the file while it
- * loads: in a `@module-tag` comment, or in a describe's or test's `tags`.
+ * loads, in the order Vitest meets them: the `@module-tag` comments, the describes' `tags` as the describes are called,
+ * then the tests'. A use in a function or under a condition only fails the file if that code runs.
  */
-function undefinedTags(extraction: Extraction, tags: VitestTags): Problem[] {
+function undefinedTags(extraction: Extraction, tags: VitestTags): { problem: Problem; isSure: boolean }[] {
   const defined = new Set(tags.definitions.map(({ name }) => name));
+  const declared = (items: (PendingSuite | PendingTest)[]) =>
+    items
+      .flatMap(({ declaration, site, call, isInCondition, isInFunction }) =>
+        declaration.details.tags.map((name) => ({ name, span: site ?? call, isSure: !isInCondition && !isInFunction })),
+      )
+      .sort((a, b) => a.span.start - b.span.start);
   const uses = [
-    ...extraction.fileTags,
-    ...[...extraction.suites, ...extraction.tests].flatMap(({ declaration, site, call }) =>
-      declaration.details.tags.map((name) => ({ name, span: site ?? call })),
-    ),
-  ].sort((a, b) => a.span.start - b.span.start);
-  const reported = new Set<string>();
-  return uses.flatMap(({ name, span }) => {
-    if (defined.has(name) || reported.has(name)) return [];
-    reported.add(name);
-    const message = `The Vitest config doesn't define the tag "${name}", so with strictTags Vitest fails the file while it loads, and none of its tests run.`;
-    return [problem('undefined-tag', span, message)];
+    ...extraction.fileTags.map((tag) => ({ ...tag, isSure: true })),
+    ...declared(extraction.suites),
+    ...declared(extraction.tests),
+  ].filter(({ name }) => !defined.has(name));
+  // Each tag is reported once: at its first use that surely runs, else at its first use.
+  const first = new Map<string, (typeof uses)[number]>();
+  for (const use of uses) {
+    const known = first.get(use.name);
+    if (!known || (!known.isSure && use.isSure)) first.set(use.name, use);
+  }
+  const reported = [...first.values()].sort((a, b) => uses.indexOf(a) - uses.indexOf(b));
+  return reported.map(({ name, span, isSure }) => {
+    const consequence = isSure
+      ? 'Vitest fails the file while it loads, and none of its tests run'
+      : 'Vitest fails the file if this code runs while it loads';
+    const message = `The Vitest config doesn't define the tag "${name}", so with strictTags ${consequence}.`;
+    return { problem: problem('undefined-tag', span, message), isSure };
   });
 }
 
+const FLAG_ORDER: State[] = ['skip', 'todo', 'expectedToFail'];
+const ALWAYS = { condition: null, reason: null, hasDynamicReason: false };
+
+/**
+ * The states of a test's declaration with those of its Vitest tags. Vitest merges the options and then takes `only`
+ * over `skip` over `todo`, so a `.only` on either side drops the skip and todo of both.
+ */
+function declaredStates(
+  declared: StateSetting[],
+  options: TagOptions | null,
+  { isOnly, skipPassedDown }: TestDeclaration,
+): Chosen[] {
+  const own = declared.map((setting) => ({ setting, source: 'test' as const }));
+  if (options === null) return own;
+  // A describe's `skip` option is merged in too, where the scan otherwise leaves it to the describe's own state; the
+  // test's own skip, when it has one, sorts first.
+  const passed: Chosen[] =
+    skipPassedDown === undefined
+      ? []
+      : [{ setting: { ...ALWAYS, state: 'skip', line: skipPassedDown }, source: 'suite' }];
+  const all = [...own, ...passed, ...tagStates(options).map((setting) => ({ setting, source: 'config' as const }))];
+  const kept = isOnly || options.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
+  return kept.sort((a, b) => FLAG_ORDER.indexOf(a.setting.state) - FLAG_ORDER.indexOf(b.setting.state));
+}
+
 /** The states the options of a test's Vitest tags set. */
-function tagStates(options: TagOptions | null): StateSetting[] {
+function tagStates(options: TagOptions): StateSetting[] {
   const states: [boolean | undefined, State][] = [
-    [options?.skip, 'skip'],
-    [options?.todo, 'todo'],
-    [options?.fails, 'expectedToFail'],
+    [options.skip, 'skip'],
+    [options.todo, 'todo'],
+    [options.fails, 'expectedToFail'],
   ];
-  return states
-    .filter(([isSet]) => isSet === true)
-    .map(([, state]) => ({ state, condition: null, reason: null, hasDynamicReason: false, line: null }));
+  return states.filter(([isSet]) => isSet === true).map(([, state]) => ({ ...ALWAYS, state, line: null }));
 }
 
 /** The scope and the scopes around it, innermost first. */
@@ -300,22 +338,31 @@ class RecordBuilder {
   build(extraction: Extraction): FileRecords {
     const duplicates = this.duplicates(extraction.tests);
     const tags = this.options.framework === 'vitest' ? (this.options.config?.tags ?? null) : null;
-    // With the config's tags known, what they do is in the records.
+    const testProblems = extraction.tests.flatMap((test) => test.problems);
+    // With the config's tags known, what they do is in the records, unless a tag can't be worked out.
+    const isTagMissing = [...extraction.problems, ...testProblems].some((item) => item.code === 'unresolved-tag');
+    const undefinedUses = tags?.isStrict ? undefinedTags(extraction, tags) : [];
     const problems = [
-      ...extraction.problems.filter((item) => tags === null || item.code !== 'config-may-change-state'),
-      ...(tags?.isStrict ? undefinedTags(extraction, tags) : []),
+      ...extraction.problems.filter((item) => tags === null || isTagMissing || item.code !== 'config-may-change-state'),
+      ...undefinedUses.map((use) => use.problem),
     ];
-    const rejecting = [
-      ...problems,
-      ...extraction.tests.flatMap((test) => test.problems),
-      ...duplicates.map((item) => item.problem),
-    ].filter((item) => REJECTS_FILE[this.options.framework].has(item.code) && item.afterLoad !== true);
-    // Each of these problems points at the code that causes it.
-    const lines = rejecting.map((item) => this.parsed.source.line((item.node as Span).start));
+    const rejecting = [...problems, ...testProblems, ...duplicates.map((item) => item.problem)].filter(
+      (item) =>
+        REJECTS_FILE[this.options.framework].has(item.code) && item.code !== 'undefined-tag' && item.afterLoad !== true,
+    );
+    // Each of these problems points at the code that causes it. Vitest meets the tags in the order they are listed.
+    const firstTag = undefinedUses.find((use) => use.isSure)?.problem;
+    const lines = [...rejecting, ...(firstTag ? [firstTag] : [])].map((item) =>
+      this.parsed.source.line((item.node as Span).start),
+    );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
     const suites = extraction.suites.map((suite) => this.suite(suite));
     const tests = extraction.tests.map((test) => this.test(test, suites));
-    for (const item of problems) this.diagnostics.push(this.diagnostic(item));
+    for (const item of problems) {
+      const found = this.diagnostic(item);
+      const isSure = undefinedUses.find((use) => use.problem === item)?.isSure ?? true;
+      this.diagnostics.push(isSure ? found : { ...found, level: 'warning' });
+    }
     for (const { index, problem: item } of duplicates) {
       this.diagnostics.push(this.diagnostic(item, tests[index].id));
     }
@@ -458,25 +505,23 @@ class RecordBuilder {
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
-    const chosen = chooseState(
-      tagged<Chosen>(
-        pending.states.map((setting) => ({ setting, source: 'test' as const })),
-        tagStates(fromTags).map((setting) => ({ setting, source: 'config' as const })),
-        scopes.flatMap((scope) =>
-          scope.states.map((setting) => ({
-            setting,
-            source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
-          })),
-        ),
+    const chosen = chooseState([
+      ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
+      ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
+      ...scopes.flatMap((scope) =>
+        scope.states.map((setting) => ({
+          setting,
+          source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
+        })),
       ),
-    );
+    ]);
     // When the runner refuses the file, no test in it runs, whatever else is written.
     const rejected = this.rejectedAt !== null;
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
     const setting = rejected ? null : (chosen?.setting ?? null);
     const suitePath = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []);
-    const tagMode: Mode | null =
-      fromTags?.concurrent === undefined ? null : fromTags.concurrent ? 'parallel' : 'default';
+    const tagConcurrent = this.options.config?.tags?.concurrentBeatsTags ? undefined : fromTags?.concurrent;
+    const tagMode: Mode | null = tagConcurrent === undefined ? null : tagConcurrent ? 'parallel' : 'default';
     const [mode = null] = tagged(
       [declaration.mode],
       [tagMode],
@@ -514,7 +559,12 @@ class RecordBuilder {
         ),
       );
     }
-    if (declaration.isOnly && chosen && chosen.source !== 'test' && chosen.setting.state === 'skip') {
+    if (
+      (declaration.isOnly || fromTags?.only === true) &&
+      chosen &&
+      chosen.source !== 'test' &&
+      chosen.setting.state === 'skip'
+    ) {
       this.diagnostics.push(
         this.diagnostic(
           problem(

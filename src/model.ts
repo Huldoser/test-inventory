@@ -71,6 +71,8 @@ interface Declaration {
   states: StateSetting[];
   isOnly: boolean;
   mode: Mode | null;
+  /** Vitest: the line of the describe whose `skip` option reaches this declaration, merged into its options. */
+  skipPassedDown?: number;
   details: Details;
   fn: FunctionNode | null;
   /** The function whose code is hashed: `fn`, or a function declared in the file and passed by name. */

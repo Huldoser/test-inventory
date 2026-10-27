@@ -835,6 +835,7 @@ export class VitestAdapter implements Adapter {
       states,
       isOnly: flags.has('only'),
       mode,
+      ...(skips ? { skipPassedDown: (passed as PassedSkip).line } : {}),
       details: read.details,
       fn,
       hashed: fn ?? namedFunction(this.file, context.scopes, body),

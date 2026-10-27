@@ -216,3 +216,179 @@ describe('Vitest tags the config defines', () => {
     expect(codes(inventory)).toEqual([]);
   });
 });
+
+describe('Vitest tags, merged with the options as Vitest merges them', () => {
+  const TAGS = [
+    'export default {',
+    '  test: {',
+    '    tags: [',
+    "      { name: 'focus', only: true },",
+    "      { name: 'flaky', skip: true },",
+    "      { name: 'wip', todo: true },",
+    '    ],',
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+  const states = (inventory: Inventory) =>
+    inventory.tests.map((test) => [test.title, test.state, test.isOnly, test.stateSource]);
+
+  it('picks only over skip over todo from all of them, as one declaration does', async () => {
+    const inventory = await scanned(TAGS, {
+      'tests/orders.test.ts': [
+        "import { test } from 'vitest';",
+        "test.skip('places a market order', { tags: ['focus'] }, () => {});",
+        "test.only('places a limit order', { tags: ['flaky'] }, () => {});",
+        "test('cancels an order', { tags: ['focus', 'flaky'] }, () => {});",
+        "test('amends an order', { tags: ['flaky'], todo: true }, () => {});",
+        '',
+      ].join('\n'),
+    });
+    expect(states(inventory)).toEqual([
+      ['places a market order', 'active', true, null],
+      ['places a limit order', 'active', true, null],
+      ['cancels an order', 'active', true, null],
+      ['amends an order', 'skip', false, 'config'],
+    ]);
+    expect(codes(inventory)).toEqual([]);
+  });
+
+  it("leaves a describe's chain mode to the tests a tag gives no state, in Vitest 4.1 and 5", async () => {
+    const files = {
+      'tests/orders.test.ts': [
+        "import { describe, test } from 'vitest';",
+        "describe.skip('amendments', () => {",
+        "  test('amends the quantity', { tags: ['wip'] }, () => {});",
+        '});',
+        "describe.todo('cancellations', () => {",
+        "  test('cancels a partial fill', { tags: ['flaky'] }, () => {});",
+        '});',
+        "describe('fills', { skip: true }, () => {",
+        "  test('fills at the limit price', { tags: ['wip'] }, () => {});",
+        '});',
+        '',
+      ].join('\n'),
+    };
+    const expected = [
+      ['amends the quantity', 'todo', false, 'config'],
+      ['cancels a partial fill', 'skip', false, 'config'],
+      ['fills at the limit price', 'skip', false, 'suite'],
+    ];
+    expect(states(await scanned(TAGS, files))).toEqual(expected);
+    expect(states(await scanned(TAGS, files, '4.1.12'))).toEqual(expected);
+  });
+
+  it("gives Vitest 4.1's sequence.concurrent in the config the lead over a tag's concurrent", async () => {
+    const config = (concurrent: boolean, tag: boolean) =>
+      `export default { test: { sequence: { concurrent: ${concurrent} }, tags: [{ name: 'feed', concurrent: ${tag} }] } };\n`;
+    const files = {
+      'tests/feed.test.ts': "import { test } from 'vitest';\ntest('streams quotes', { tags: ['feed'] }, () => {});\n",
+    };
+    const parallel = async (concurrent: boolean, tag: boolean, version?: string) =>
+      (await scanned(config(concurrent, tag), files, version)).tests[0].isParallel;
+    expect(await parallel(true, false, '4.1.12')).toBe(true);
+    expect(await parallel(false, true, '4.1.12')).toBe(false);
+    expect(await parallel(true, false)).toBe(false);
+    expect(await parallel(false, true)).toBe(true);
+  });
+
+  it("takes a Vitest 5 project's own tags in place of the root config's", async () => {
+    const config = (projectTags: string) =>
+      [
+        'export default {',
+        '  test: {',
+        "    tags: [{ name: 'flaky', skip: true }],",
+        `    projects: [{ extends: true, test: { name: 'unit', tags: ${projectTags} } }],`,
+        '  },',
+        '};',
+        '',
+      ].join('\n');
+    const files = { 'tests/broker.test.ts': BROKER };
+    const replaced = await scanned(config("[{ name: 'flaky' }, { name: 'slow-db' }]"), files);
+    expect(replaced.tests[0]).toMatchObject({ state: 'active', stateSource: null });
+    const missing = await scanned(config("[{ name: 'slow-db' }]"), files);
+    expect(codes(missing)).toEqual(['undefined-tag']);
+  });
+
+  it('warns, without failing the file, about an undefined tag in code that may not run while it loads', async () => {
+    const inventory = await scanned("export default { test: { tags: [{ name: 'flaky' }] } };\n", {
+      'tests/broker.test.ts': [
+        "import { describe, test } from 'vitest';",
+        'if (process.env.DATABASE_URL) {',
+        "  test('stores the session', { tags: ['db'] }, () => {});",
+        '}',
+        'export function sessionTests() {',
+        "  describe('session', { tags: ['session'] }, () => {});",
+        '}',
+        "test('sends a heartbeat', { tags: ['flaky'] }, () => {});",
+        '',
+      ].join('\n'),
+    });
+    expect(inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'undefined-tag')).toMatchObject([
+      { level: 'warning', lineStart: 3 },
+      { level: 'warning', lineStart: 6 },
+    ]);
+    expect(testNamed(inventory, 'sends a heartbeat').state).toBe('active');
+  });
+
+  it('reports a tag used under a condition and then for sure as an error where it surely runs', async () => {
+    const inventory = await scanned("export default { test: { tags: [{ name: 'flaky' }] } };\n", {
+      'tests/broker.test.ts': [
+        "import { test } from 'vitest';",
+        'if (process.env.DATABASE_URL) {',
+        "  test('stores the session', { tags: ['db', 'session'] }, () => {});",
+        '}',
+        "test('restores the session', { tags: ['db'] }, () => {});",
+        '',
+      ].join('\n'),
+    });
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.level, diagnostic.lineStart])).toEqual([
+      ['warning', 3],
+      ['error', 5],
+    ]);
+    expect(inventory.diagnostics[1].message).toContain('"db"');
+    expect(testNamed(inventory, 'restores the session')).toMatchObject({ state: 'notLoaded', stateLine: 5 });
+  });
+
+  it("fails the file at the first tag Vitest meets: the file's, then the describes', then the tests'", async () => {
+    const inventory = await scanned("export default { test: { tags: [{ name: 'flaky' }] } };\n", {
+      'tests/broker.test.ts': [
+        "import { describe, test } from 'vitest';",
+        "describe('session', () => {",
+        "  test('reconnects after a dropped session', { tags: ['db'] }, () => {});",
+        '});',
+        "describe('heartbeat', { tags: ['feed'] }, () => {",
+        "  test('sends a heartbeat', () => {});",
+        '});',
+        '',
+      ].join('\n'),
+    });
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['undefined-tag', 3],
+      ['undefined-tag', 5],
+    ]);
+    expect(inventory.tests[0]).toMatchObject({ state: 'notLoaded', stateLine: 5 });
+  });
+
+  it('fails a file that uses a tag when no config defines any, as Vitest does without a config', async () => {
+    const inventory = await scan({
+      root: project({ 'package.json': VITEST_PACKAGE, 'tests/broker.test.ts': BROKER }),
+      patterns: ['tests/*.test.ts'],
+      framework: 'vitest',
+    });
+    expect(codes(inventory)).toEqual(['undefined-tag', 'undefined-tag']);
+    expect(inventory.tests[0].state).toBe('notLoaded');
+  });
+
+  it("keeps the warning when a test's tag can't be worked out, as it may be one the config defines", async () => {
+    const inventory = await scanned("export default { test: { tags: [{ name: 'flaky', skip: true }] } };\n", {
+      'tests/broker.test.ts': [
+        "import { test } from 'vitest';",
+        "import { BROKER_TAG } from './tags';",
+        "test('reconnects after a dropped session', { tags: [BROKER_TAG] }, () => {});",
+        '',
+      ].join('\n'),
+    });
+    expect(codes(inventory)).toEqual(['config-may-change-state', 'unresolved-tag']);
+  });
+});

@@ -65,6 +65,9 @@ export interface PendingSuite {
   order: number;
   /** Statements of the tests and describes directly inside, left out of the describe's body hash. */
   cuts: Span[];
+  /** Declared under a condition, or in a function: it may not run while the file loads. */
+  isInCondition: boolean;
+  isInFunction: boolean;
 }
 
 export interface PendingTest {
@@ -1198,6 +1201,8 @@ class Walker {
       declaredAt: this.declaredAt(call),
       order: context.registeredAt ?? call.start,
       cuts: [],
+      isInCondition: context.isInCondition,
+      isInFunction: context.isInFunction,
     };
     scope.suite = suite;
     this.suites.push(suite);
