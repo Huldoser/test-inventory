@@ -10,7 +10,15 @@ import type {
   Node,
   ObjectExpression,
 } from 'oxc-parser';
-import { isFunctionNode, propertyKey, propertyName, returnValues, unwrap, type FunctionNode } from './ast.ts';
+import {
+  childNodes,
+  isFunctionNode,
+  propertyKey,
+  propertyName,
+  returnValues,
+  unwrap,
+  type FunctionNode,
+} from './ast.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { readFailure } from './files.ts';
 import {
@@ -36,6 +44,63 @@ const CONFIG_FILES: Record<Framework, string[]> = {
     ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'].map((extension) => name + extension),
   ),
 };
+
+/** Methods that change the object or list they are called on. */
+const CHANGING_METHODS = new Set([
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+  'splice',
+  'sort',
+  'reverse',
+  'fill',
+  'copyWithin',
+]);
+
+/** A change a module makes to a constant after declaring it: to one of its keys, or to all of it when `key` is null. */
+interface Change {
+  key: string | null;
+  node: Node;
+}
+
+/**
+ * The changes a module makes to its constants after declaring them, by declaration: assignments to their members,
+ * `delete`, `++`, methods such as `push()` and `Object.assign()`, as a config that fills `projects` in a loop does.
+ */
+function changesIn(parsed: ParsedFile, values: Values): Map<Node, Change[]> {
+  const changes = new Map<Node, Change[]>();
+  const scopes: Node[] = [];
+  const record = (target: Expression, node: Node) => {
+    let expression = unwrap(target);
+    let key: string | null = null;
+    while (expression.type === 'MemberExpression') {
+      key = propertyName(expression);
+      expression = unwrap(expression.object);
+    }
+    const declaration = expression.type === 'Identifier' ? values.declarationOf(expression.name, scopes) : null;
+    if (declaration) changes.set(declaration, [...(changes.get(declaration) ?? []), { key, node }]);
+  };
+  const visit = (node: Node) => {
+    const isScope = isScopeNode(node);
+    if (isScope) scopes.push(node);
+    if (node.type === 'AssignmentExpression' && node.left.type === 'MemberExpression') record(node.left, node);
+    if (node.type === 'UpdateExpression' || (node.type === 'UnaryExpression' && node.operator === 'delete')) {
+      record(node.argument, node);
+    }
+    if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression') {
+      const method = propertyName(node.callee);
+      const isAssign =
+        method === 'assign' && node.callee.object.type === 'Identifier' && node.callee.object.name === 'Object';
+      if (isAssign && node.arguments[0] && node.arguments[0].type !== 'SpreadElement') record(node.arguments[0], node);
+      else if (CHANGING_METHODS.has(method ?? '')) record(node.callee.object, node);
+    }
+    for (const child of childNodes(node)) visit(child);
+    if (isScope) scopes.pop();
+  };
+  visit(parsed.program);
+  return changes;
+}
 
 /** The functions configs are written with, which return the config they are given or merge the ones they are given. */
 const CONFIG_FUNCTIONS = new Set(['defineConfig', 'defineProject', 'mergeConfig']);
@@ -193,6 +258,7 @@ class ConfigCode {
   private readonly root: string;
   private readonly version: [number, number] | null;
   private readonly frames = new Map<ModuleSource, ConfigFrame>();
+  private readonly changes = new Map<ConfigFrame, Map<Node, Change[]>>();
   /** Constants and exports worked out, each once however often the config refers to it. */
   private readonly done = new Map<unknown, Setting | null>();
   /** Constants and exports being worked out, to stop at one that refers back to itself. */
@@ -278,8 +344,11 @@ class ConfigCode {
    */
   private named(name: string, frame: ConfigFrame, scopes: readonly Node[], site: Site): Setting | null {
     const constant = frame.values.constantOf(name, scopes);
-    if (constant) return this.once(constant.init, site, () => this.evaluate(constant.init, frame, constant.scopes));
     const declaration = frame.values.declarationOf(name, scopes);
+    if (constant) {
+      const setting = this.once(constant.init, site, () => this.evaluate(constant.init, frame, constant.scopes));
+      return this.changed(setting, frame, declaration as Node);
+    }
     if (declaration?.type !== 'ImportSpecifier' && declaration?.type !== 'ImportDefaultSpecifier') return null;
     const imported = declaration.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
     const source = frame.values.importSource(name, scopes) as string;
@@ -303,6 +372,27 @@ class ConfigCode {
     const defaults = fromValue({ include: VITEST_INCLUDE, exclude, includeSource: [] }) as ObjectSetting;
     defaults.keys.set('typecheck', { ...typecheck, rest: unknown(site) });
     return { ...defaults, rest: unknown(site) };
+  }
+
+  /**
+   * A constant's setting as the module leaves it: a key it changes later is unknown there, and all of it when the
+   * module changes the whole object or a list.
+   */
+  private changed(setting: Setting, frame: ConfigFrame, declaration: Node): Setting {
+    let found = this.changes.get(frame);
+    if (!found) {
+      found = changesIn(frame.parsed, frame.values);
+      this.changes.set(frame, found);
+    }
+    const changes = found.get(declaration) ?? [];
+    if (changes.length === 0) return setting;
+    // A change to a list or a value changes all of it.
+    if (setting.kind !== 'object') return unknown({ frame, node: changes[0].node });
+    const whole = changes.find((change) => change.key === null);
+    if (whole) return unknown({ frame, node: whole.node });
+    const keys = new Map(setting.keys);
+    for (const { key, node } of changes) keys.set(key as string, unknown({ frame, node }));
+    return { ...setting, keys };
   }
 
   /** What a module an import names exports under a name; null when the module doesn't export it. */

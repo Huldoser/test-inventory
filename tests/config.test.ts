@@ -281,6 +281,38 @@ describe('the config reader', () => {
     });
   });
 
+  it('takes the keys a config changes after writing it as unknown, and the whole of one Object.assign() changes', () => {
+    const settings = settingsOf(
+      [
+        "const config = { test: { globals: false, environment: 'node' }, mode: 'test', root: '.' };",
+        'config.test.globals = true;',
+        "config['mode'] += '-ci';",
+        'delete config.root;',
+        'function local() {',
+        "  const config = { cacheDir: '.cache' };",
+        "  config.cacheDir = '.local';",
+        '}',
+        'const shared = { retry: 2 };',
+        'Object.assign(shared, { retry: 3 });',
+        "const reporters = ['default'];",
+        "reporters.push('junit');",
+        "process.env.TZ = 'UTC';",
+        'loadEnv().CI = true;',
+        "const method = 'toString';",
+        'config[method]();',
+        'export default { ...config, shared, reporters };',
+        '',
+      ].join('\n'),
+    );
+    expect(plain(settings)).toEqual({
+      test: '<unknown>',
+      mode: '<unknown>',
+      root: '<unknown>',
+      shared: '<unknown>',
+      reporters: '<unknown>',
+    });
+  });
+
   it('finds no key under a value', () => {
     const settings = settingsOf("export default { test: { environment: 'node' } };\n");
     expect(plain(settingAt(settings, ['test', 'environment', 'name']))).toBe('<missing>');

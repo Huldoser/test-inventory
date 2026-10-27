@@ -218,6 +218,34 @@ describe('which Playwright files a config runs', () => {
       inventory.diagnostics.map((diagnostic) => [diagnostic.message.split(' could')[0], diagnostic.source]),
     ).toEqual([[`The config's ${key}`, source]]);
   });
+  it('takes a setting the config changes after writing it as unknown', async () => {
+    const { configs, inventory } = await placed(
+      {
+        'tests/library/playwright.config.ts': [
+          "import path from 'node:path';",
+          "const config = { testDir: path.join(__dirname, '..'), retries: 2, projects: [] };",
+          "for (const browserName of ['chromium', 'webkit']) {",
+          "  config.projects.push({ name: `${browserName}-library`, testDir: path.join(config.testDir, 'library') });",
+          '}',
+          'export default config;',
+          '',
+        ].join('\n'),
+        'tests/library/orders.spec.ts': SPEC,
+      },
+      'playwright',
+      ['tests/**/*.spec.ts'],
+    );
+    expect(configs).toEqual({ 'tests/library/orders.spec.ts': 'tests/library/playwright.config.ts' });
+    expect(
+      inventory.diagnostics.map((diagnostic) => [diagnostic.message.split(' could')[0], diagnostic.source]),
+    ).toEqual([
+      [
+        "The config's projects",
+        "config.projects.push({ name: `${browserName}-library`, testDir: path.join(config.testDir, 'library') })",
+      ],
+    ]);
+  });
+
   it('takes a config whose file setting has the wrong type to run the file, with nothing to point at', async () => {
     const { configs, diagnostics } = await placed(
       { 'playwright.config.ts': 'export default { testDir: 42 };\n', 'tests/orders.spec.ts': SPEC },
