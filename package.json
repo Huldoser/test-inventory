@@ -80,6 +80,7 @@
   },
   "dependencies": {
     "oxc-parser": "0.154.0",
+    "picomatch": "^4.0.7",
     "tinyglobby": "^0.2.17"
   },
   "devDependencies": {
@@ -87,6 +88,7 @@
     "@changesets/changelog-github": "^1.0.1",
     "@changesets/cli": "^3.0.3",
     "@types/node": "~22.12.0",
+    "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "5.0.4",
     "ajv": "^8.20.0",
     "eslint": "~10.12.0",
