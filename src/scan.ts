@@ -76,14 +76,36 @@ function folderHint(root: string, patterns: string[], framework: Framework): str
   return ` "${folder}" is a folder; to scan the test files in it, use a pattern such as "${example}".`;
 }
 
+/** The JavaScript and TypeScript files the runners read, which the configs choose the test files from. */
+const SCRIPT_FILES = '**/*.{js,jsx,ts,tsx,mjs,mjsx,mts,mtsx,cjs,cjsx,cts,ctsx}';
+
+/** Why a scan found no test files: what the patterns matched, or whether there is a config to find them from. */
+function noFiles(
+  root: string,
+  patterns: string[] | null,
+  framework: Framework,
+  placements: Map<string, Placement>,
+): string {
+  if (patterns) {
+    const list = patterns.map((pattern) => `"${pattern}"`).join(', ');
+    return `No test files match ${list} in the root.${folderHint(root, patterns, framework)}`;
+  }
+  if ([...placements.values()].some((placement) => placement.config)) {
+    return 'No test files were found from the configs in the root.';
+  }
+  const name = framework === 'playwright' ? 'Playwright' : 'Vitest';
+  return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
+}
+
 /**
- * Scans the test files that match `patterns` under `root`, one file at a time.
+ * Scans the test files that match `patterns` under `root`, or without patterns those the configs run, one file at a
+ * time.
  *
  * Throws a `TypeError` for invalid options. Problems with files and code are reported as diagnostics.
  */
 export async function scan(options: ScanOptions): Promise<Inventory> {
   const checked = checkObject(options, 'options');
-  const patterns = checkStrings(checked.patterns, 'options.patterns', true);
+  const patterns = checked.patterns === undefined ? null : checkStrings(checked.patterns, 'options.patterns', true);
   const framework = checkFramework(checked.framework, 'options.framework');
   const ignore = checkStrings(checked.ignore, 'options.ignore', false);
   const comments = checkComments(checked.comments, 'options.comments');
@@ -104,24 +126,20 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     : majorMinor(frameworkVersion);
   const source = override === null ? (detected?.source ?? 'package.json') : '.';
   const projectDiagnostics = versionDiagnostics(framework, frameworkVersion, source, range);
-  const found = await findFiles(root, patterns, ignore, framework);
+  // Without patterns, the configs choose among all JavaScript and TypeScript files.
+  const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
   projectDiagnostics.push(...found.diagnostics);
-  if (found.files.length === 0) {
-    const list = patterns.map((pattern) => `"${pattern}"`).join(', ');
-    const message = `No test files match ${list} in the root.${folderHint(root, patterns, framework)}`;
-    projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', message));
-  }
 
   const readerFor = moduleResolver(root);
   const configs = new Configs(root, framework, readerFor, rules);
-  const runs = new ConfigRuns(configs, framework, rules);
-  const placements = new Map<string, Placement>();
+  const runs = new ConfigRuns(configs, framework, rules, patterns === null);
+  const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
+  const files = patterns ? found.files : found.files.filter((file) => placements.get(file.absolutePath)?.runs);
   const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
-  for (const { absolutePath, relativeFilePath } of found.files) {
-    const placement = runs.placementOf(absolutePath);
-    placements.set(absolutePath, placement);
+  for (const { absolutePath, relativeFilePath } of files) {
+    const placement = placements.get(absolutePath) as Placement;
     if (placement.config) configs.use(placement.config);
     const config = placement.config?.record.relativeFilePath ?? null;
     let code: string;
@@ -163,6 +181,10 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     break;
   }
   projectDiagnostics.push(...configs.diagnostics, ...notRun, ...(globals ? [globals] : []));
-  const fileCount = found.files.length;
+  // After the config warnings, which may say why no file was found.
+  if (files.length === 0) {
+    projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', noFiles(root, patterns, framework, placements)));
+  }
+  const fileCount = files.length;
   return createInventory(framework, frameworkVersion, fileCount, results, projectDiagnostics, configs.records());
 }

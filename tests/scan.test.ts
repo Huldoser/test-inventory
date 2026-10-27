@@ -1707,7 +1707,6 @@ describe('scan options', () => {
   it.each([
     [null, 'options must be an object.'],
     [[], 'options must be an object.'],
-    [{ framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
     [{ patterns: [], framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
     [{ patterns: [''], framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
     [{ patterns: ['tests'], framework: 'jest' }, 'options.framework must be "playwright" or "vitest".'],

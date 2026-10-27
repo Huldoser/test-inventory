@@ -25,6 +25,8 @@ Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vi
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 ```
 
+Without the glob, the test files are those the Playwright or Vitest configs in the project run.
+
 For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:
 
 <!-- code: trading-web/tests/alerts.spec.ts -->

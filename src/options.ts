@@ -7,9 +7,9 @@ export type { CommentsMode };
 export interface ScanOptions {
   /**
    * Glob patterns for the test files, relative to `root`. As in Playwright and Vitest, they match names that start with
-   * a dot too.
+   * a dot too. Without them, the test files are those the configs in the root and the folders below it run.
    */
-  patterns: string[];
+  patterns?: string[];
   framework: Framework;
   /** The project root. Paths in the output are relative to it. Defaults to the current directory. */
   root?: string;

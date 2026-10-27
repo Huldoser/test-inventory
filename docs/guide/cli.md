@@ -5,10 +5,12 @@ description: The test-inventory command, its options and exit codes, and how it 
 # Command line
 
 ```sh
-test-inventory <glob...> --framework <playwright|vitest> [options]
+test-inventory [glob...] --framework <playwright|vitest> [options]
 ```
 
-The globs select the test files, relative to `--root`. Quote them so the shell passes them on unchanged.
+The globs select the test files, relative to `--root`. Quote them so the shell passes them on unchanged. Without
+globs, the test files are those the Playwright or Vitest configs in the root and the folders below it run, each with
+the config it uses; see [configs](/reference/output#configs).
 `node_modules` and `.git` folders are always left out. As in Playwright and Vitest, globs match folders and files
 whose names start with a dot, as in `.storybook/`. On Windows a `\` in a glob separates folders, so `tests\**\*.spec.ts`
 works; on Linux and macOS it escapes the next character, as in `tests/\[legacy\]/*.spec.ts`. A `/` separates

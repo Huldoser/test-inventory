@@ -54,6 +54,7 @@ export interface Placement {
 }
 
 const ASSUMED = 'the scan takes its files to be run';
+const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
 
 function emptySettings(): Setting {
   return { kind: 'object', keys: new Map(), rest: null };
@@ -159,16 +160,19 @@ export class ConfigRuns {
   private readonly configs: Configs;
   private readonly framework: Framework;
   private readonly version: [number, number] | null;
+  /** Whether the configs find the test files, as in a scan without patterns, rather than the patterns. */
+  private readonly findsFiles: boolean;
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
   /** The Vitest configs whose projects are being found, to stop at one whose projects name itself. */
   private readonly expanding = new Set<ConfigFile>();
 
-  constructor(configs: Configs, framework: Framework, version: [number, number] | null) {
+  constructor(configs: Configs, framework: Framework, version: [number, number] | null, findsFiles: boolean) {
     this.configs = configs;
     this.framework = framework;
     this.version = version;
+    this.findsFiles = findsFiles;
   }
 
   /**
@@ -185,7 +189,7 @@ export class ConfigRuns {
     }
     const unknown = projects.find((project) => project.unknown);
     if (unknown?.unknown) {
-      this.configs.reportUnknown(unknown.unknown.setting, unknown.unknown.key, ASSUMED);
+      this.configs.reportUnknown(unknown.unknown.setting, unknown.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
       return { config: unknown.config, settings: unknown.settings, runs: null };
     }
     const nearest = around.at(-1) ?? null;
