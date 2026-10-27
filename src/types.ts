@@ -392,6 +392,15 @@ export interface TestRecord {
   /** Where `repeats` comes from, read as `timeoutSource` is. */
   repeatsSource: SettingSource | null;
   /**
+   * The config's source text for `timeout` when the config sets it under a condition, as in
+   * `process.env.CI ? 60_000 : 30_000`, shortened when long; null otherwise.
+   */
+  timeoutConfigText: string | null;
+  /** The config's source text for `retries`, read as `timeoutConfigText` is. */
+  retriesConfigText: string | null;
+  /** The config's source text for `repeats`, Playwright's `repeatEach`, read as `timeoutConfigText` is. */
+  repeatsConfigText: string | null;
+  /**
    * Names the test function takes from its context, then those of the `beforeEach`, `afterEach` and `aroundEach` hooks
    * around it, once each. Vitest's own context keys, such as `expect` and `task`, are left out.
    */

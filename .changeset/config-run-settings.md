@@ -7,7 +7,8 @@ Vitest's `testTimeout`, `retry` and `repeats`, where the file sets none. New `ti
 keys say where each value comes from: `test`, `suite`, `file` or `config`, or `null` when nothing sets it. A test
 takes the settings of the projects that run it, after their `grep`. When those projects disagree, the config sets the
 value under a condition, as in `process.env.CI ? 2 : 0`, or the scan can't work out the projects, the value is `null`
-with its source `config`. Playwright's `fullyParallel` and Vitest's `sequence.concurrent` make tests
+with its source `config`. For a value under a condition, `timeoutConfigText`, `retriesConfigText` and
+`repeatsConfigText` hold the config's text for it, so `retries: process.env.CI ? 2 : 0` reads as written. Playwright's `fullyParallel` and Vitest's `sequence.concurrent` make tests
 `isParallel` where the file sets no mode, when every project that runs the test sets it.
 
 A `.only` in a Playwright file whose config sets `forbidOnly` gets the new `forbidden-only` error, since the run then

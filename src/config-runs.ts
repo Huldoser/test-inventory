@@ -729,6 +729,13 @@ function configDefaults(projects: ProjectAbout[]): ConfigDefaults | null {
       ? values[0]
       : null;
   };
+  const agreedText = (read: (defaults: ProjectDefaults) => Setting | null): string | null => {
+    const texts = projects.map(({ defaults }) => {
+      const setting = read(defaults);
+      return setting?.kind === 'unknown' ? unknownText(setting) : null;
+    });
+    return texts.every((text) => text === texts[0]) ? texts[0] : null;
+  };
   return {
     timeout: agreed((defaults) => numberIn(defaults.timeout)),
     retry: agreed((defaults) => retryIn(defaults.retry)),
@@ -738,12 +745,23 @@ function configDefaults(projects: ProjectAbout[]): ConfigDefaults | null {
       const repeatEach = numberIn(defaults.repeatEach);
       return typeof repeatEach === 'number' ? Math.max(repeatEach - 1, 0) : repeatEach;
     }),
+    timeoutText: agreedText((defaults) => defaults.timeout),
+    retryText: agreedText(({ retry }) => (retry?.kind === 'object' ? settingAt(retry, ['count']) : retry)),
+    repeatsText: agreedText((defaults) => defaults.repeatEach ?? defaults.repeats),
     parallel: projects.every(({ defaults }) => defaults.parallel?.kind === 'value' && defaults.parallel.value === true),
   };
 }
 
 /** Projects the scan can't work out may set any run setting. */
-const UNKNOWN_DEFAULTS: ConfigDefaults = { timeout: null, retry: null, repeats: null, parallel: false };
+const UNKNOWN_DEFAULTS: ConfigDefaults = {
+  timeout: null,
+  retry: null,
+  repeats: null,
+  timeoutText: null,
+  retryText: null,
+  repeatsText: null,
+  parallel: false,
+};
 
 /**
  * What the config a file uses gives it: Playwright's `forbidOnly`, read from the top level only, as Playwright reads

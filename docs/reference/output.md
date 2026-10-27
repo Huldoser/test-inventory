@@ -167,9 +167,13 @@ say which: `test`, `suite`, `file` or `config`, or `null` when nothing sets it, 
    `test.describe.configure({ timeout, retries })`, `test.setTimeout()` and `test.slow()` written in the describe, and
    the options Vitest passes down from `describe()`.
 5. The config the file uses: Playwright's `timeout`, `retries` and `repeatEach` of the projects that run the test,
-   with `repeatEach` as `repeats`, the runs after the first; Vitest's `testTimeout`, `retry` and, from Vitest 5, `repeats`. When the projects set
-   different values, or the value depends on a condition, as in `process.env.CI ? 2 : 0`, the key is `null` with its
+   with `repeatEach` as `repeats`, the runs after the first; Vitest's `testTimeout`, `retry` and, from Vitest 5,
+   `repeats`. When the projects set different values, or the value depends on a condition, the key is `null` with its
    source `config`; so are all three when the scan can't work out the projects.
+
+The scan doesn't guess whether a run is in CI, so a value under a condition stays `null`, and `timeoutConfigText`,
+`retriesConfigText` and `repeatsConfigText` hold the config's text for it, such as `"process.env.CI ? 2 : 0"`, shortened
+when long. They are `null` for any other value, and when the projects that run the test write different texts.
 
 A Vitest `retry` replaces the whole `retry` around it, so a test with `retry: 1` in a describe with a `delay` has no
 `retryDelay`. Vitest reads the `retry` object from 4.1 and ignores it before, and so does the scan; in the config before 4.1, the scan
