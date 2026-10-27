@@ -181,7 +181,6 @@ test.describe('orders', () => {
   });
 
   it.each([
-    [['--framework', 'playwright'], 'give at least one glob pattern for the test files.'],
     [['tests/**/*.spec.ts'], '--framework is required: playwright or vitest.'],
     [['tests', '--framework', 'jest'], '--framework must be "playwright" or "vitest".'],
     [['tests', '--framework', 'vitest', '--comments', 'some'], '--comments must be "all", "non-active" or "none".'],
@@ -230,6 +229,20 @@ test.describe('orders', () => {
   });
 });
 
+describe('run without globs', () => {
+  it('scans the files the configs run', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': "export default { testDir: './e2e' };\n",
+      'e2e/orders.spec.ts': SPEC,
+    });
+    const result = await cli(['--framework', 'playwright'], root);
+    expect((JSON.parse(result.stdout) as Inventory).files.map((file) => file.relativeFilePath)).toEqual([
+      'e2e/orders.spec.ts',
+    ]);
+  });
+});
+
 describe('the built binary', () => {
   const bin = path.resolve(import.meta.dirname, '../dist/bin.js');
   const exec = promisify(execFile);
@@ -244,11 +257,22 @@ describe('the built binary', () => {
   });
 
   it('sets exit code 2 for invalid arguments', async () => {
-    await expect(exec(process.execPath, [bin, '--framework', 'vitest'])).rejects.toMatchObject({
+    await expect(exec(process.execPath, [bin, 'tests/*.spec.ts'])).rejects.toMatchObject({
       code: 2,
-      stderr:
-        'test-inventory: give at least one glob pattern for the test files.\nRun test-inventory --help for usage.\n',
+      stderr: 'test-inventory: --framework is required: playwright or vitest.\nRun test-inventory --help for usage.\n',
     });
+  });
+
+  it('finds the test files from the configs without globs', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': "export default { testDir: './e2e' };\n",
+      'e2e/orders.spec.ts':
+        "import { test } from '@playwright/test';\ntest('places a market order', async () => {});\n",
+      'tests/helpers.spec.ts': "import { test } from '@playwright/test';\ntest('formats a price', async () => {});\n",
+    });
+    const { stdout } = await exec(process.execPath, [bin, '--framework', 'playwright'], { cwd: root });
+    expect((JSON.parse(stdout) as Inventory).tests.map((test) => test.fullName)).toEqual(['places a market order']);
   });
 });
 

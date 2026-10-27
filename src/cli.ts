@@ -17,9 +17,10 @@ export interface Io {
   cwd: string;
 }
 
-export const HELP = `Usage: test-inventory <glob...> --framework <playwright|vitest> [options]
+export const HELP = `Usage: test-inventory [glob...] --framework <playwright|vitest> [options]
 
-Lists the tests in the matching files as JSON, read from the source code without running them.
+Lists the tests in the matching files as JSON, read from the source code without running them. Without globs, the
+test files are those the Playwright or Vitest configs in the root and the folders below it run.
 
 Options:
   --framework <name>           playwright or vitest (required)
@@ -144,7 +145,6 @@ export async function run(argv: string[], io: Io): Promise<number> {
     io.stdout.write(`${toolVersion}\n`);
     return FINISHED;
   }
-  if (positionals.length === 0) return fail('give at least one glob pattern for the test files.');
   if (values.framework === undefined) return fail('--framework is required: playwright or vitest.');
   const format = values.format ?? 'json';
   if (!FORMATS.includes(format)) return fail('--format must be json or jsonl.');
@@ -165,7 +165,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
     matcher(filter);
     if (fields !== undefined) checkFields(fields);
     inventory = await scan({
-      patterns: positionals,
+      patterns: positionals.length > 0 ? positionals : undefined,
       framework: values.framework as 'playwright',
       root: path.resolve(io.cwd, values.root ?? '.'),
       ignore: values.ignore ?? [],
