@@ -41,6 +41,7 @@
     {
       "relativeFilePath": "tests/playwright.spec.ts",
       "fileName": "playwright.spec.ts",
+      "config": null,
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

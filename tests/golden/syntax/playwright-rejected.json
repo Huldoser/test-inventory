@@ -37,6 +37,7 @@
     {
       "relativeFilePath": "tests/playwright-rejected.spec.ts",
       "fileName": "playwright-rejected.spec.ts",
+      "config": null,
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

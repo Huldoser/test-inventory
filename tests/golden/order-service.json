@@ -42,6 +42,7 @@
     {
       "relativeFilePath": "tests/broker/fill-events.test.ts",
       "fileName": "fill-events.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -56,6 +57,7 @@
     {
       "relativeFilePath": "tests/repository/orders-repository.test.ts",
       "fileName": "orders-repository.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -70,6 +72,7 @@
     {
       "relativeFilePath": "tests/risk/daily-loss-limit.test.ts",
       "fileName": "daily-loss-limit.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -84,6 +87,7 @@
     {
       "relativeFilePath": "tests/routes/orders.test.ts",
       "fileName": "orders.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

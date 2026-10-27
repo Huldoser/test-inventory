@@ -50,6 +50,7 @@
     {
       "relativeFilePath": "packages/broker-gateway/src/rate-limiter.test.ts",
       "fileName": "rate-limiter.test.ts",
+      "config": "packages/broker-gateway/vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -64,6 +65,7 @@
     {
       "relativeFilePath": "packages/market-data/src/quote-cache.test.ts",
       "fileName": "quote-cache.test.ts",
+      "config": "packages/market-data/vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -78,6 +80,7 @@
     {
       "relativeFilePath": "packages/risk/src/exposure.test.ts",
       "fileName": "exposure.test.ts",
+      "config": "packages/risk/vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

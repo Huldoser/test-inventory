@@ -40,6 +40,7 @@
     {
       "relativeFilePath": "src/components/OrderTicket.test.tsx",
       "fileName": "OrderTicket.test.tsx",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -54,6 +55,7 @@
     {
       "relativeFilePath": "src/components/PnlBadge.test.tsx",
       "fileName": "PnlBadge.test.tsx",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -68,6 +70,7 @@
     {
       "relativeFilePath": "src/components/PositionsTable.test.tsx",
       "fileName": "PositionsTable.test.tsx",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

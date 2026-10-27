@@ -40,6 +40,7 @@
     {
       "relativeFilePath": "src/candlestick-chart.test.ts",
       "fileName": "candlestick-chart.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

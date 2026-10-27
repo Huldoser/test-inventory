@@ -11,14 +11,20 @@ such as `isInLoop`; each section says when one does not.
 ## Config files are read only in part
 
 `playwright.config.*` and `vitest.config.*` can change which tests run and how: `grep`, `testIgnore`, `forbidOnly`,
-`fullyParallel`, projects, and Vitest tags with options. The scan finds the config each file uses and lists it in
-[`configs`](/reference/output#configs), but so far it reads only Vitest's `test.globals` from it. A test that a config
-`grep` leaves out is still listed, and `isParallel` only reflects what is written in the file. Nothing in the output
-says so.
+`fullyParallel`, projects, and Vitest tags with options. The scan finds the config each file uses, reads which files
+it runs and lists it in [`configs`](/reference/output#configs), but beyond that it reads only Vitest's `test.globals`.
+A test that a config `grep` leaves out is still listed, and `isParallel` only reflects what is written in the file.
+Nothing in the output says so.
+
+Which files a config runs is read with three gaps. A `.gitignore` rule that brings back a file inside a folder another
+rule leaves out, such as `!dist/keep.spec.ts` after `dist/`, doesn't bring it back, as the scan doesn't look inside a
+folder it leaves out. A Vitest project written with `extends: './vitest.base.ts'` doesn't get that file's settings. And
+Vitest 3's `vitest.workspace.*` file, and its `test.workspace` option, are not read.
 
 A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
 installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config
-the runner is pointed to with `--config` is not known from the files.
+the runner is pointed to with `--config` is not known from the files, nor a config built by a function the config
+calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`.
 
 When a Vitest file uses tags, a `config-may-change-state` warning points out that a tag defined in the config can
 skip a test or change how it runs.
@@ -31,8 +37,7 @@ decides. Calls that change settings while tests run are not read either: `testIn
 
 `expectCount`, `steps` and `fixtures` read the test function only. Assertions and steps in page objects and helpers,
 and fixtures that other fixtures or automatic fixtures set up, are not in them. A test or hook function passed by name
-is read when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read. Vitest's `benchmark.include` in the
-config can name other benchmark files than `*.bench.ts` and `*.benchmark.ts`.
+is read when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read.
 
 ## Imported values are not resolved
 

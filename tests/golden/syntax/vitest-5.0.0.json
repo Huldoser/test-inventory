@@ -41,6 +41,7 @@
     {
       "relativeFilePath": "tests/vitest.test.ts",
       "fileName": "vitest.test.ts",
+      "config": null,
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

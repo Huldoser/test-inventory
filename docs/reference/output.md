@@ -266,11 +266,12 @@ record.
 
 A file record is written for every scanned file, also one that has no tests, could not be read or failed to parse.
 
-| Key                            | Type   | Meaning                                                                              |
-| ------------------------------ | ------ | ------------------------------------------------------------------------------------ |
-| `relativeFilePath`, `fileName` | string | As for tests.                                                                        |
-| `hooks`                        | object | The hooks at the top level of the file, which run around every test in it.           |
-| `suiteCount`, `testCount`      | number | The describes and tests in the file, all of them also when a filter keeps only some. |
+| Key                            | Type           | Meaning                                                                                              |
+| ------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------- |
+| `relativeFilePath`, `fileName` | string         | As for tests.                                                                                        |
+| `config`                       | string or null | The config the file uses, from the project root; see [configs](#configs). `null` when there is none. |
+| `hooks`                        | object         | The hooks at the top level of the file, which run around every test in it.                           |
+| `suiteCount`, `testCount`      | number         | The describes and tests in the file, all of them also when a filter keeps only some.                 |
 
 `hooks` counts each kind: `beforeAll`, `beforeEach`, `afterEach` and `afterAll`, and Vitest's `aroundEach` and
 `aroundAll` (4.1). A hook in a helper function with a name counts where the helper is called, and not at all when
@@ -303,11 +304,26 @@ their page in a `beforeEach`:
 
 ## Configs
 
-`configs` lists the configs the scanned files use, sorted by path. A file uses the nearest config in its folder or a
-folder above it, up to the root, as the runner started in that folder would: `playwright.config.*` for Playwright,
-and `vitest.config.*` for Vitest, or `vite.config.*` when a folder has no `vitest.config.*`. A config is read as code
-and never run, with the settings it imports from other files: `defineConfig()`, `defineProject()`, `mergeConfig()`,
-spreads, also those a condition picks, constants, and a function that returns the config.
+`configs` lists the configs the scanned files use, sorted by path. A file uses the config the runner started at the
+root would use for it: of the configs in its folder and the folders above it, up to the root, the outermost one that
+runs it, and for Vitest `projects` the project that does. When none runs it, it uses the nearest one, and a file with
+tests gets a `file-not-run` warning, as the runner doesn't collect them. In each folder, the config is
+`playwright.config.*` for Playwright, and `vitest.config.*` for Vitest, or `vite.config.*` when there is no
+`vitest.config.*`.
+
+Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
+that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
+`.gitignore` files in the test folder leave out when no `testDir` is set or `respectGitIgnore` is on. For Vitest: the
+files under `test.dir`, `test.root` or `root` that `include` matches and `exclude` doesn't, with each version's
+defaults, `includeSource` files that hold in-source tests, `typecheck.include` when `typecheck.enabled` is on, and
+`benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root
+config as each version decides; a config file or folder it names is a project of its own, and a folder without a
+config gets Vitest's defaults.
+
+A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
+`defineProject()`, `mergeConfig()`, spreads, also those a condition picks, constants, a function that returns the
+config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
+`fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`.
 
 | Key                | Type   | Meaning                                                                                                |
 | ------------------ | ------ | ------------------------------------------------------------------------------------------------------ |
@@ -341,9 +357,10 @@ export default mergeConfig(
 }
 ```
 
-So far the scan reads one setting from a config: Vitest's `test.globals`, for the `globals-not-enabled` warning. A
-setting it reads but can't work out, such as one computed from `process.env` or taken from an installed package, gets
-a `config-value-unknown` warning that names it.
+Besides which files it runs, the scan reads Vitest's `test.globals` from the file's project, for the
+`globals-not-enabled` warning. A setting it reads but can't work out, such as one computed from `process.env` or taken
+from an installed package, gets a `config-value-unknown` warning that names it, and the config is taken to run the
+file.
 
 ::: details TypeScript
 

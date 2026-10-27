@@ -44,6 +44,7 @@
     {
       "relativeFilePath": "src/indicators/rsi.ts",
       "fileName": "rsi.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -58,6 +59,7 @@
     {
       "relativeFilePath": "src/indicators/sma.ts",
       "fileName": "sma.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -72,6 +74,7 @@
     {
       "relativeFilePath": "src/market-data/client.ts",
       "fileName": "client.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -86,6 +89,7 @@
     {
       "relativeFilePath": "src/orders/order.ts",
       "fileName": "order.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -100,6 +104,7 @@
     {
       "relativeFilePath": "src/orders/validate-order.ts",
       "fileName": "validate-order.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -114,6 +119,7 @@
     {
       "relativeFilePath": "src/pnl/fees.ts",
       "fileName": "fees.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -128,6 +134,7 @@
     {
       "relativeFilePath": "src/pnl/format.ts",
       "fileName": "format.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -142,6 +149,7 @@
     {
       "relativeFilePath": "src/pnl/pnl.ts",
       "fileName": "pnl.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -156,6 +164,7 @@
     {
       "relativeFilePath": "src/risk/position-size.ts",
       "fileName": "position-size.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -170,6 +179,7 @@
     {
       "relativeFilePath": "src/risk/stop-loss.ts",
       "fileName": "stop-loss.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -184,6 +194,7 @@
     {
       "relativeFilePath": "src/strategies/crossover.ts",
       "fileName": "crossover.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -198,6 +209,7 @@
     {
       "relativeFilePath": "tests/indicators/rsi.test.ts",
       "fileName": "rsi.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -212,6 +224,7 @@
     {
       "relativeFilePath": "tests/indicators/sma.test.ts",
       "fileName": "sma.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -226,6 +239,7 @@
     {
       "relativeFilePath": "tests/orders/order.test-d.ts",
       "fileName": "order.test-d.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -240,6 +254,7 @@
     {
       "relativeFilePath": "tests/orders/short-selling.test.ts",
       "fileName": "short-selling.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -254,6 +269,7 @@
     {
       "relativeFilePath": "tests/orders/validate-order.test.ts",
       "fileName": "validate-order.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -268,6 +284,7 @@
     {
       "relativeFilePath": "tests/pnl/fees.test.ts",
       "fileName": "fees.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -282,6 +299,7 @@
     {
       "relativeFilePath": "tests/pnl/pnl.test.ts",
       "fileName": "pnl.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -296,6 +314,7 @@
     {
       "relativeFilePath": "tests/risk/position-size.test.ts",
       "fileName": "position-size.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -310,6 +329,7 @@
     {
       "relativeFilePath": "tests/risk/stop-loss.test.ts",
       "fileName": "stop-loss.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,
@@ -324,6 +344,7 @@
     {
       "relativeFilePath": "tests/strategies/crossover.test.ts",
       "fileName": "crossover.test.ts",
+      "config": "vitest.config.ts",
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

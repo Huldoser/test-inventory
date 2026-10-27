@@ -35,6 +35,7 @@
     {
       "relativeFilePath": "tests/vitest-rejected.test.ts",
       "fileName": "vitest-rejected.test.ts",
+      "config": null,
       "hooks": {
         "beforeAll": 0,
         "beforeEach": 0,

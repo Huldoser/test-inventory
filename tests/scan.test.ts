@@ -1375,7 +1375,7 @@ describe('scan checks that Vitest globals are turned on', () => {
     ],
     [
       'projects joined by mergeConfig',
-      "export default mergeConfig(\n  { test: { projects: [{ test: { name: 'unit' } }] } },\n  { test: { projects: [{ test: { name: 'browser', globals: true } }] } },\n);\n",
+      "export default mergeConfig(\n  { test: { projects: [{ test: { name: 'unit', include: ['src/**/*.test.ts'] } }] } },\n  { test: { projects: [{ test: { name: 'browser', globals: true } }] } },\n);\n",
     ],
     ['a function', 'export default defineConfig(({ mode }) => ({ mode, test: { globals: true } }));\n'],
     [
@@ -1551,7 +1551,7 @@ describe('scan checks that Vitest globals are turned on', () => {
     });
     const inventory = await scan({ root, patterns: ['packages/*/src/*.test.ts'], framework: 'vitest' });
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
-      "The file uses Vitest's global test functions, but packages/quotes/vitest.config.ts doesn't set test.globals to true and no tsconfig has vitest/globals in its types.",
+      "The file uses Vitest's global test functions, but packages/quotes/vitest.config.ts doesn't set test.globals to true for it and no tsconfig has vitest/globals in its types.",
     ]);
   });
 
@@ -1583,19 +1583,19 @@ describe('scan checks that Vitest globals are turned on', () => {
     [
       'a spread of an installed package',
       "import { brokerDefaults } from '@trading/broker-kit';\nexport default defineConfig({ test: { ...brokerDefaults, environment: 'node' } });\n",
-      'test.globals',
+      'test.projects',
       'brokerDefaults',
     ],
     [
       'a defineConfig declared in the file',
       'function defineConfig(config) {\n  return config;\n}\nexport default defineConfig({ test: { globals: true } });\n',
-      'test.globals',
+      'test.projects',
       'defineConfig({ test: { globals: true } })',
     ],
     [
       'a function with more than one return',
       "export default defineConfig(({ mode }) => {\n  if (mode === 'ci') return { test: { globals: true } };\n  return {};\n});\n",
-      'test.globals',
+      'test.projects',
       "({ mode }) => { if (mode === 'ci') return { test: { globals: true } }; return {}; }",
     ],
     [
@@ -1637,25 +1637,25 @@ describe('scan checks that Vitest globals are turned on', () => {
     [
       'a condition in a spread that may take settings from an installed package',
       "import { ciDefaults } from '@trading/broker-kit';\nexport default { test: { globals: true, ...(process.env.CI ? ciDefaults : {}) } };\n",
-      'test.globals',
+      'test.projects',
       'process.env.CI ? ciDefaults : {}',
     ],
     [
       'a key computed at run time',
       'const KEY = process.env.VITEST_KEY;\nexport default { test: { [KEY]: true } };\n',
-      'test.globals',
+      'test.projects',
       'KEY',
     ],
     [
       'a config merged into one from an installed package',
       "import { brokerDefaults } from '@trading/broker-kit';\nexport default mergeConfig(brokerDefaults, { test: { projects: [{ test: { name: 'unit' } }] } });\n",
-      'test.globals',
+      'test.projects',
       'brokerDefaults',
     ],
     [
       'a config from an installed package merged over one written here',
       "import { brokerDefaults } from '@trading/broker-kit';\nexport default mergeConfig({ test: { environment: 'node' } }, brokerDefaults);\n",
-      'test.globals',
+      'test.projects',
       'brokerDefaults',
     ],
   ])('warns about %s it cannot work out', async (_, content, key, source) => {

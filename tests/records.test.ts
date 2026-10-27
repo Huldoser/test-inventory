@@ -347,6 +347,7 @@ test('shows the watchlist', async () => {});
       {
         relativeFilePath: 'tests/orders.spec.ts',
         fileName: 'orders.spec.ts',
+        config: null,
         hooks: { ...NO_HOOKS, beforeAll: 1, beforeEach: 1 },
         suiteCount: 2,
         testCount: 3,
@@ -428,6 +429,7 @@ test.describe('orders', () => {
       {
         relativeFilePath: 'tests/orders.test.ts',
         fileName: 'orders.test.ts',
+        config: null,
         hooks: NO_HOOKS,
         suiteCount: 0,
         testCount: 0,

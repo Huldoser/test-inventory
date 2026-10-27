@@ -119,6 +119,19 @@ describe('scan', () => {
     ]);
   });
 
+  it('reports a source file it may not read without taking it for a test file of includeSource', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': "export default { test: { includeSource: ['src/**/*.ts'] } };\n",
+      'src/sma.ts': "if (import.meta.vitest) {\n  import.meta.vitest.it('averages', () => {});\n}\n",
+    });
+    lock(root, 'src/sma.ts');
+    const inventory = await scan({ root, patterns: ['src/*.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.relativeFilePath])).toEqual([
+      ['read-error', 'src/sma.ts'],
+    ]);
+  });
+
   it('reports a folder it may not open', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
