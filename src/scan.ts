@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ConfigRuns, testProjects, type Placement } from './config-runs.ts';
+import { ConfigRuns, configDefaults, testProjects, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
@@ -163,6 +163,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       readModule: readerFor(absolutePath),
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
+      config: configDefaults(placement.projects),
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.

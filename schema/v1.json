@@ -961,7 +961,7 @@
               "type": "null"
             }
           ],
-          "description": "In milliseconds: the last `test.setTimeout()` in the body or a `beforeEach`, otherwise the nearest describe or file that sets one. Null when the file sets none, so the config's timeout applies."
+          "description": "In milliseconds: the last `test.setTimeout()` in the body or a `beforeEach`, otherwise the nearest describe or file that sets one, otherwise the config. Null when none sets it, so the runner's default applies."
         },
         "isSlow": {
           "type": "boolean",
@@ -1015,7 +1015,40 @@
               "type": "null"
             }
           ],
-          "description": "Vitest only: how many times the runner runs the test again after the first run."
+          "description": "How many times the runner runs the test again after the first run: Vitest's `repeats`, or Playwright's `repeatEach` from the config less one."
+        },
+        "timeoutSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where `timeout` comes from; null when nothing sets it. A null `timeout` from the config means the config sets it, but its projects set different values or the value depends on a condition, as in `process.env.CI ? 2 : 0`."
+        },
+        "retriesSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where `retries`, `retryDelay` and `retryCondition` come from, read as `timeoutSource` is."
+        },
+        "repeatsSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SettingSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where `repeats` comes from, read as `timeoutSource` is."
         },
         "fixtures": {
           "type": "array",
@@ -1149,6 +1182,9 @@
         "retryDelay",
         "retryCondition",
         "repeats",
+        "timeoutSource",
+        "retriesSource",
+        "repeatsSource",
         "fixtures",
         "expectCount",
         "expectedAssertions",
@@ -1193,6 +1229,23 @@
             "test",
             "suite",
             "file"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "SettingSource": {
+      "description": "Where a test's run setting comes from: the test, a describe around it, the file, or the config its file uses. Other values may be added in later releases.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "test",
+            "suite",
+            "file",
+            "config"
           ]
         },
         {
@@ -1346,7 +1399,8 @@
             "empty-title",
             "bench-outside-benchmark-file",
             "config-value-unknown",
-            "file-not-run"
+            "file-not-run",
+            "forbidden-only"
           ]
         },
         {

@@ -1,4 +1,4 @@
-import type { FunctionBody, Node } from 'oxc-parser';
+import type { CallExpression, FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
 import {
@@ -15,6 +15,7 @@ import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Problem, RunSettings, Span, StateSetting } from './model.ts';
 import type { ParsedFile } from './parse.ts';
+import { snippet } from './source.ts';
 import type {
   DeclaredAt,
   Diagnostic,
@@ -22,6 +23,7 @@ import type {
   Framework,
   HookCounts,
   MetaValue,
+  SettingSource,
   StateSource,
   SuiteRecord,
   TestRecord,
@@ -38,6 +40,18 @@ export interface FileRecords {
   diagnostics: Diagnostic[];
 }
 
+/** What the config the file uses sets for its tests, where the file sets nothing. */
+export interface ConfigDefaults {
+  /** A run setting the config sets; null when its projects set different values or it depends on a condition. */
+  timeout?: number | null;
+  retry?: RunSettings['retry'] | null;
+  repeats?: number | null;
+  /** Whether tests run in parallel unless the file says otherwise: Playwright's `fullyParallel`, Vitest's `sequence.concurrent`. */
+  parallel: boolean;
+  /** Whether a `.only` fails the run: Playwright's `forbidOnly`, always, never, or under the condition with this text. */
+  forbidOnly: boolean | string;
+}
+
 interface RecordOptions {
   relativeFilePath: string;
   framework: Framework;
@@ -45,6 +59,7 @@ interface RecordOptions {
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
   isBenchmarkFile: boolean;
+  config: ConfigDefaults | null;
 }
 
 interface Chosen {
@@ -86,6 +101,11 @@ function bodyNodes(fn: FunctionNode): Node[] {
   return body.type === 'BlockStatement' ? body.body : [body];
 }
 
+/** Where a run setting of a scope is written, for a test in it: the file, or a describe. */
+function placeOf(scope: Scope): SettingSource {
+  return scope.kind === 'file' ? 'file' : 'suite';
+}
+
 function addHooks(scopes: Scope[]): HookCounts {
   const total = noHooks();
   for (const scope of scopes) {
@@ -116,6 +136,40 @@ function runKeys(places: RunSettings[]): RunKeys {
     retryCondition: retry?.condition ?? null,
     repeats: first('repeats') ?? null,
   };
+}
+
+type RunSources = Pick<TestRecord, 'timeoutSource' | 'retriesSource' | 'repeatsSource'>;
+
+/**
+ * A test's run settings and where each comes from: the nearest place in the file that sets it, otherwise the config
+ * the file uses.
+ */
+function testRun(
+  places: { run: RunSettings; source: SettingSource }[],
+  config: ConfigDefaults | null,
+): RunKeys & RunSources {
+  const from = (key: keyof RunSettings) => places.find((place) => place.run[key] !== undefined)?.source ?? null;
+  const run: RunKeys & RunSources = {
+    ...runKeys(places.map((place) => place.run)),
+    timeoutSource: from('timeout'),
+    retriesSource: from('retry'),
+    repeatsSource: from('repeats'),
+  };
+  if (run.timeoutSource === null && config?.timeout !== undefined) {
+    run.timeout = config.timeout;
+    run.timeoutSource = 'config';
+  }
+  if (run.retriesSource === null && config?.retry !== undefined) {
+    run.retries = config.retry?.count ?? null;
+    run.retryDelay = config.retry?.delay ?? null;
+    run.retryCondition = config.retry?.condition ?? null;
+    run.retriesSource = 'config';
+  }
+  if (run.repeatsSource === null && config?.repeats !== undefined) {
+    run.repeats = config.repeats;
+    run.repeatsSource = 'config';
+  }
+  return run;
 }
 
 /** The record of a scanned file, from its records and the hooks at its top level. */
@@ -220,8 +274,25 @@ class RecordBuilder {
     return shortHash(JSON.stringify([this.options.relativeFilePath, ...parts, ordinal]));
   }
 
+  /**
+   * Reports a `.only` that the config's `forbidOnly` makes fail the run, at `located`; one under a condition is a
+   * warning. `call` is the `.only` call when it is in this file, whose callee the diagnostic shows.
+   */
+  private forbidOnly(located: Span, call: CallExpression | null): void {
+    const forbid = this.options.config?.forbidOnly ?? false;
+    if (forbid === false) return;
+    const message =
+      forbid === true
+        ? 'The config sets forbidOnly, so this .only fails the run before any test runs.'
+        : `The config sets forbidOnly when ${forbid}, so then this .only fails the run before any test runs.`;
+    const callee = call && snippet(this.parsed.source.text.slice(call.callee.start, call.callee.end));
+    const found = problem('forbidden-only', located, message, callee);
+    this.diagnostics.push(this.diagnostic(forbid === true ? found : { ...found, level: 'warning' }));
+  }
+
   private suite(pending: PendingSuite): SuiteRecord {
     const { scope, declaration, call } = pending;
+    if (declaration.isOnly) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
     const parents = outward(scope).slice(1, -1).reverse();
     const title = declaration.title;
     // Suite ids are marked so that a describe and a test with the same title in the same place differ.
@@ -307,6 +378,7 @@ class RecordBuilder {
         'The test uses the bench fixture, which Vitest only provides in benchmark files such as *.bench.ts; elsewhere the test fails.';
       this.diagnostics.push(this.diagnostic(problem('bench-outside-benchmark-file', located, message), id));
     }
+    if (declaration.isOnly) this.forbidOnly(located, pending.site ? null : pending.call);
     if (pending.isInLoop) {
       this.diagnostics.push(
         this.diagnostic(
@@ -359,7 +431,7 @@ class RecordBuilder {
       hasDynamicReason: setting?.hasDynamicReason ?? false,
       stateSource: rejected ? 'file' : (chosen?.source ?? null),
       stateLine: rejected ? this.rejectedAt : (setting?.line ?? null),
-      isParallel: mode === 'parallel',
+      isParallel: mode === 'parallel' || (mode === null && this.options.config?.parallel === true),
       isSerial: mode === 'serial',
       tags: unique([
         ...fileScope.details.tags,
@@ -376,12 +448,15 @@ class RecordBuilder {
       meta: Object.keys(meta).length > 0 ? meta : null,
       hooks: addHooks(scopes),
       // Calls in the body and in `beforeEach` hooks run last, so they win over what the describes set.
-      ...runKeys([
-        pending.run,
-        ...scopes.map((scope) => scope.hookRun),
-        declaration.details.run,
-        ...scopes.map((scope) => scope.details.run),
-      ]),
+      ...testRun(
+        [
+          { run: pending.run, source: 'test' },
+          ...scopes.map((scope) => ({ run: scope.hookRun, source: placeOf(scope) })),
+          { run: declaration.details.run, source: 'test' },
+          ...scopes.map((scope) => ({ run: scope.details.run, source: placeOf(scope) })),
+        ],
+        this.options.config,
+      ),
       fixtures: unique([...declaration.fixtures, ...[...scopes].reverse().flatMap((scope) => scope.hookFixtures)]),
       expectCount: pending.expectCount,
       expectedAssertions: pending.expectedAssertions,

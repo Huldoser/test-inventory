@@ -8,7 +8,7 @@ const root = path.resolve(import.meta.dirname, '..');
 export const schemaPath = path.join(root, 'schema', 'v1.json');
 
 /** Sets that later releases may add values to; a reader of v1 must accept a value it doesn't know yet. */
-const OPEN_SETS = ['Framework', 'TestState', 'StateSource', 'DiagnosticCode'];
+const OPEN_SETS = ['Framework', 'TestState', 'StateSource', 'SettingSource', 'DiagnosticCode'];
 
 export function generateSchema(): string {
   const schema = createGenerator({
