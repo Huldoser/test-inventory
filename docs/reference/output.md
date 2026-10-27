@@ -91,8 +91,8 @@ the file around it.
 | `condition`                                                                     | string or null                 | The condition's source text, on one line and cut at 200 characters.                                                                                                                                                                                                                                                                    |
 | `reason`                                                                        | string or null                 | The reason given with the state.                                                                                                                                                                                                                                                                                                       |
 | `hasDynamicReason`                                                              | boolean                        | The reason could not be worked out to a string; `reason` holds its source text.                                                                                                                                                                                                                                                        |
-| `stateSource`                                                                   | string or null                 | Where the state is set: `test`, `suite` or `file`. `null` for active tests.                                                                                                                                                                                                                                                            |
-| `stateLine`                                                                     | number or null                 | The line that sets the state. `null` for active tests.                                                                                                                                                                                                                                                                                 |
+| `stateSource`                                                                   | string or null                 | Where the state is set: `test`, `suite` or `file`, or `config` for a Vitest tag the config defines. `null` for active tests.                                                                                                                                                                                                           |
+| `stateLine`                                                                     | number or null                 | The line that sets the state. `null` for active tests and a state from the config.                                                                                                                                                                                                                                                     |
 | `isParallel`, `isSerial`                                                        | boolean                        | The mode set in the file. Both `false` means the framework's default. Where the file sets no mode, `isParallel` is true when every project that runs the test sets Playwright's `fullyParallel` or Vitest's `sequence.concurrent`.                                                                                                     |
 | `tags`                                                                          | string[]                       | Tags of the test and every describe around it, outermost first, without duplicates.                                                                                                                                                                                                                                                    |
 | `annotations`                                                                   | object[]                       | `{ type, description, lineStart }` from Playwright's `annotation` option and `test.info().annotations.push()`.                                                                                                                                                                                                                         |
@@ -139,6 +139,13 @@ over its options, and so does a test's for its mode. A describe passes its `skip
 describes inside, where it wins over todo: `test.todo()` in `describe('title', { skip: true }, fn)` is skipped. It does
 so also when the describe's own `.only` keeps the describe from being skipped.
 
+A Vitest tag the config defines in `test.tags` sets its options on every test that carries it, also through a
+describe or a `@module-tag` comment: `skip`, `todo` and `fails` give the state, with `stateSource: "config"`, and
+`only`, `concurrent`, `timeout`, `retry`, `repeats` and `meta` the keys they set. When two tags set the same option,
+the one with the lowest `priority` wins, and one without a priority loses to every one with one. The test's own
+options win over its tags. From Vitest 5 the tags win over the options a describe passes down; in Vitest 4.1 the
+describe's win. A test's own option set to `false`, as `skip: false`, doesn't undo its tag's, though Vitest lets it.
+
 A `test.skip()`, `test.fixme()`, `test.fail()` or `test.describe.configure()` call inside a plain function in the file
 applies where the function is called: to a test that calls it in its body, to the tests a hook covers when a hook calls
 it, or to a describe when it is called directly in the describe's body. The conditions around the call and inside the
@@ -165,7 +172,8 @@ say which: `test`, `suite`, `file` or `config`, or `null` when nothing sets it, 
    `test(title, fn, 30_000)`.
 4. Each describe around the test, from the innermost out, and then the file: Playwright's
    `test.describe.configure({ timeout, retries })`, `test.setTimeout()` and `test.slow()` written in the describe, and
-   the options Vitest passes down from `describe()`.
+   the options Vitest passes down from `describe()`. From Vitest 5, the test's tags come before the describes, with
+   source `config`; in Vitest 4.1, after them.
 5. The config the file uses: Playwright's `timeout`, `retries` and `repeatEach` of the projects that run the test,
    with `repeatEach` as `repeats`, the runs after the first; Vitest's `testTimeout`, `retry` and, from Vitest 5,
    `repeats`. When the projects set different values, or the value depends on a condition, the key is `null` with its

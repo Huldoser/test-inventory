@@ -1245,14 +1245,15 @@
       ]
     },
     "StateSource": {
-      "description": "Where a test's state is set: on the test, on a describe around it, or at file level. Other values may be added in later releases.",
+      "description": "Where a test's state is set: on the test, on a describe around it, at file level, or by a Vitest tag the config defines. Other values may be added in later releases.",
       "anyOf": [
         {
           "type": "string",
           "enum": [
             "test",
             "suite",
-            "file"
+            "file",
+            "config"
           ]
         },
         {
@@ -1407,6 +1408,7 @@
             "removed-api",
             "only-in-skipped-describe",
             "config-may-change-state",
+            "undefined-tag",
             "symlink-ignored",
             "invalid-import",
             "globals-not-enabled",

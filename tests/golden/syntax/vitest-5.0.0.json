@@ -2243,7 +2243,7 @@
     {
       "code": "config-may-change-state",
       "level": "warning",
-      "message": "The file uses Vitest tags, and tags defined in the Vitest config can skip tests or change how they run; the config is not read.",
+      "message": "The file uses Vitest tags, and tags defined in the Vitest config can skip tests or change how they run; the scan can't work out the config's tags.",
       "relativeFilePath": "tests/vitest.test.ts",
       "lineStart": 1,
       "columnStart": 1,

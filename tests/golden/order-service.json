@@ -26,7 +26,7 @@
     "inFunctionCount": 0,
     "typeTestCount": 0,
     "benchmarkCount": 0,
-    "diagnosticCount": 1,
+    "diagnosticCount": 0,
     "tagCounts": {
       "db": 2
     },
@@ -1497,16 +1497,5 @@
       ]
     }
   ],
-  "diagnostics": [
-    {
-      "code": "config-may-change-state",
-      "level": "warning",
-      "message": "The file uses Vitest tags, and tags defined in the Vitest config can skip tests or change how they run; the config is not read.",
-      "relativeFilePath": "tests/repository/orders-repository.test.ts",
-      "lineStart": 5,
-      "columnStart": 73,
-      "testId": null,
-      "source": null
-    }
-  ]
+  "diagnostics": []
 }

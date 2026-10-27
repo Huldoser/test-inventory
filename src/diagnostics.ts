@@ -26,6 +26,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'removed-api': 'error',
   'only-in-skipped-describe': 'warning',
   'config-may-change-state': 'warning',
+  'undefined-tag': 'error',
   'config-value-unknown': 'warning',
   'file-not-run': 'warning',
   'forbidden-only': 'error',
@@ -52,7 +53,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
  */
 export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   playwright: new Set(['test-without-body', 'tag-without-at', 'invalid-chain', 'duplicate-title']),
-  vitest: new Set(['invalid-chain', 'removed-api']),
+  vitest: new Set(['invalid-chain', 'removed-api', 'undefined-tag']),
 };
 
 export function toDiagnostic(

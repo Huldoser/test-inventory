@@ -14,7 +14,8 @@ export interface StateSetting {
   reason: string | null;
   /** The reason could not be worked out to a string, so `reason` holds its source text. */
   hasDynamicReason: boolean;
-  line: number;
+  /** The line in the file that sets the state; null for a state from the config. */
+  line: number | null;
   /**
    * Set by code in a test or hook body, which runs only when the test does: a state set while the file loads, on the
    * test or a describe around it, keeps the test from getting there.
@@ -179,6 +180,8 @@ export interface Adapter {
   problems: Problem[];
   /** Tags that apply to every test in the file. */
   fileTags: string[];
+  /** Where each of `fileTags` is written. */
+  fileTagSpans: Span[];
   usesGlobals: boolean;
   classify(call: CallExpression, context: CallContext): ApiCall | null;
   /**

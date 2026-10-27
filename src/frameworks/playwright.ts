@@ -9,6 +9,7 @@ import type {
   ModuleReader,
   Problem,
   RunSettings,
+  Span,
   State,
 } from '../model.ts';
 import { snippet } from '../source.ts';
@@ -276,6 +277,7 @@ const PLAYWRIGHT: Framework = {
 export class PlaywrightAdapter implements Adapter {
   readonly problems: Problem[];
   readonly fileTags: string[] = [];
+  readonly fileTagSpans: Span[] = [];
   readonly usesGlobals = false;
   private readonly file: FileContext;
   private readonly readModule: ModuleReader | null;

@@ -13,7 +13,7 @@ import {
 } from './extract.ts';
 import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
-import type { Problem, RunSettings, Span, StateSetting } from './model.ts';
+import type { Mode, Problem, RunSettings, Span, State, StateSetting } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
 import type {
@@ -54,12 +54,41 @@ export interface ConfigDefaults {
   parallel: boolean;
 }
 
+/** What a Vitest tag the config defines sets on the tests that carry it. */
+export interface TagOptions {
+  skip?: boolean;
+  only?: boolean;
+  todo?: boolean;
+  fails?: boolean;
+  concurrent?: boolean;
+  run: RunSettings;
+  meta?: Record<string, MetaValue>;
+}
+
+export interface TagDefinition {
+  name: string;
+  /** Lower numbers win when two tags set the same option; a tag without one loses to every tag with one. */
+  priority: number | null;
+  options: TagOptions;
+}
+
+/** The tags the Vitest config defines (Vitest 4.1). */
+export interface VitestTags {
+  definitions: TagDefinition[];
+  /** `strictTags`: a tag the config doesn't define fails the file while it loads. */
+  isStrict: boolean;
+  /** From Vitest 5 a tag's options win over the describe's around the test; before, the describe's win. */
+  beatsDescribes: boolean;
+}
+
 /** What the config the file uses gives it. */
 export interface FileConfig {
   /** Whether a `.only` fails the run: Playwright's `forbidOnly`, always, never, or under the condition with this text. */
   forbidOnly: boolean | string;
   /** The names of the projects that run a test, null when unknown, and what they set for it. */
   forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
+  /** Vitest's tags; null when the scan can't work them out, or the projects that run the file define different ones. */
+  tags: VitestTags | null;
 }
 
 interface RecordOptions {
@@ -88,6 +117,39 @@ function chooseState(candidates: Chosen[]): Chosen | null {
   return (
     stops.find((candidate) => !candidate.setting.afterLoad) ?? stops.at(0) ?? always.at(0) ?? candidates.at(0) ?? null
   );
+}
+
+/**
+ * The first use of each tag the Vitest config doesn't define, by `strictTags` an error that fails the file while it
+ * loads: in a `@module-tag` comment, or in a describe's or test's `tags`.
+ */
+function undefinedTags(extraction: Extraction, tags: VitestTags): Problem[] {
+  const defined = new Set(tags.definitions.map(({ name }) => name));
+  const uses = [
+    ...extraction.fileTags,
+    ...[...extraction.suites, ...extraction.tests].flatMap(({ declaration, site, call }) =>
+      declaration.details.tags.map((name) => ({ name, span: site ?? call })),
+    ),
+  ].sort((a, b) => a.span.start - b.span.start);
+  const reported = new Set<string>();
+  return uses.flatMap(({ name, span }) => {
+    if (defined.has(name) || reported.has(name)) return [];
+    reported.add(name);
+    const message = `The Vitest config doesn't define the tag "${name}", so with strictTags Vitest fails the file while it loads, and none of its tests run.`;
+    return [problem('undefined-tag', span, message)];
+  });
+}
+
+/** The states the options of a test's Vitest tags set. */
+function tagStates(options: TagOptions | null): StateSetting[] {
+  const states: [boolean | undefined, State][] = [
+    [options?.skip, 'skip'],
+    [options?.todo, 'todo'],
+    [options?.fails, 'expectedToFail'],
+  ];
+  return states
+    .filter(([isSet]) => isSet === true)
+    .map(([, state]) => ({ state, condition: null, reason: null, hasDynamicReason: false, line: null }));
 }
 
 /** The scope and the scopes around it, innermost first. */
@@ -237,8 +299,14 @@ class RecordBuilder {
 
   build(extraction: Extraction): FileRecords {
     const duplicates = this.duplicates(extraction.tests);
+    const tags = this.options.framework === 'vitest' ? (this.options.config?.tags ?? null) : null;
+    // With the config's tags known, what they do is in the records.
+    const problems = [
+      ...extraction.problems.filter((item) => tags === null || item.code !== 'config-may-change-state'),
+      ...(tags?.isStrict ? undefinedTags(extraction, tags) : []),
+    ];
     const rejecting = [
-      ...extraction.problems,
+      ...problems,
       ...extraction.tests.flatMap((test) => test.problems),
       ...duplicates.map((item) => item.problem),
     ].filter((item) => REJECTS_FILE[this.options.framework].has(item.code) && item.afterLoad !== true);
@@ -247,7 +315,7 @@ class RecordBuilder {
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
     const suites = extraction.suites.map((suite) => this.suite(suite));
     const tests = extraction.tests.map((test) => this.test(test, suites));
-    for (const item of extraction.problems) this.diagnostics.push(this.diagnostic(item));
+    for (const item of problems) this.diagnostics.push(this.diagnostic(item));
     for (const { index, problem: item } of duplicates) {
       this.diagnostics.push(this.diagnostic(item, tests[index].id));
     }
@@ -353,6 +421,24 @@ class RecordBuilder {
     };
   }
 
+  /** What the config's Vitest tags set on a test with `tags`, merged as Vitest merges them; null when none applies. */
+  private tagOptions(tags: string[]): TagOptions | null {
+    const definitions = this.options.config?.tags?.definitions ?? [];
+    const applied = tags.flatMap((name) => definitions.filter((definition) => definition.name === name));
+    if (applied.length === 0) return null;
+    // Vitest applies the tags from the highest number to the lowest, so the lowest wins; a tag without one goes first.
+    const rank = ({ priority }: TagDefinition) => priority ?? Infinity;
+    applied.sort((a, b) => rank(b) - rank(a));
+    const merged: TagOptions = { run: {} };
+    for (const { options } of applied) {
+      const { run, meta, ...flags } = options;
+      Object.assign(merged, flags);
+      Object.assign(merged.run, run);
+      if (meta) merged.meta = { ...merged.meta, ...meta };
+    }
+    return merged;
+  }
+
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
     // A test from an imported helper is placed at the call in this file that registers it.
@@ -361,27 +447,46 @@ class RecordBuilder {
     const describes = scopes.filter((scope) => scope.kind === 'describe').reverse();
     const title = declaration.title;
     const id = this.id([this.describeTitles(describes), title.withoutTags]);
-    const chosen = chooseState([
-      ...pending.states.map((setting) => ({ setting, source: 'test' as const })),
-      ...scopes.flatMap((scope) =>
-        scope.states.map((setting) => ({
-          setting,
-          source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
-        })),
-      ),
+    const fileScope = scopes[scopes.length - 1];
+    const tags = unique([
+      ...fileScope.details.tags,
+      ...describes.flatMap((scope) => scope.details.tags),
+      ...declaration.details.tags,
     ]);
+    const fromTags = this.tagOptions(tags);
+    // In Vitest 5 the options of a test's tags win over those the describes pass down; before, the describes' win.
+    const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
+    const tagged = <T>(own: T[], tag: T[], around: T[]) =>
+      tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
+    const chosen = chooseState(
+      tagged<Chosen>(
+        pending.states.map((setting) => ({ setting, source: 'test' as const })),
+        tagStates(fromTags).map((setting) => ({ setting, source: 'config' as const })),
+        scopes.flatMap((scope) =>
+          scope.states.map((setting) => ({
+            setting,
+            source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
+          })),
+        ),
+      ),
+    );
     // When the runner refuses the file, no test in it runs, whatever else is written.
     const rejected = this.rejectedAt !== null;
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
     const setting = rejected ? null : (chosen?.setting ?? null);
     const suitePath = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []);
-    const fileScope = scopes[scopes.length - 1];
-    const mode = declaration.mode ?? scopes.find((scope) => scope.mode !== null)?.mode ?? null;
+    const tagMode: Mode | null =
+      fromTags?.concurrent === undefined ? null : fromTags.concurrent ? 'parallel' : 'default';
+    const [mode = null] = tagged(
+      [declaration.mode],
+      [tagMode],
+      scopes.map((scope) => scope.mode),
+    ).filter((item) => item !== null);
     const meta: Record<string, MetaValue> = {};
-    for (const values of [...describes.map((scope) => scope.details.meta), declaration.details.meta]) {
+    for (const values of [fromTags?.meta, ...describes.map((scope) => scope.details.meta), declaration.details.meta]) {
       Object.assign(meta, values);
     }
-    const isOnly = declaration.isOnly || scopes.some((scope) => scope.isOnly);
+    const isOnly = declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments
@@ -451,11 +556,7 @@ class RecordBuilder {
       stateLine: rejected ? this.rejectedAt : (setting?.line ?? null),
       isParallel: mode === 'parallel',
       isSerial: mode === 'serial',
-      tags: unique([
-        ...fileScope.details.tags,
-        ...describes.flatMap((scope) => scope.details.tags),
-        ...declaration.details.tags,
-      ]),
+      tags,
       annotations: [...describes.flatMap((scope) => scope.details.annotations), ...pending.annotations],
       comments,
       locks: unique([
@@ -469,8 +570,11 @@ class RecordBuilder {
       ...testRun([
         { run: pending.run, source: 'test' },
         ...scopes.map((scope) => ({ run: scope.hookRun, source: placeOf(scope) })),
-        { run: declaration.details.run, source: 'test' },
-        ...scopes.map((scope) => ({ run: scope.details.run, source: placeOf(scope) })),
+        ...tagged(
+          [{ run: declaration.details.run, source: 'test' as const }],
+          [{ run: fromTags?.run ?? {}, source: 'config' as const }],
+          scopes.map((scope) => ({ run: scope.details.run, source: placeOf(scope) })),
+        ),
       ]),
       fixtures: unique([...declaration.fixtures, ...[...scopes].reverse().flatMap((scope) => scope.hookFixtures)]),
       expectCount: pending.expectCount,

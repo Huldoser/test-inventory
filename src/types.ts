@@ -25,11 +25,12 @@ export type Framework = 'playwright' | 'vitest';
 export type TestState = 'active' | 'skip' | 'fixme' | 'todo' | 'expectedToFail' | 'notLoaded';
 
 /**
- * Where a test's state is set: on the test, on a describe around it, or at file level.
+ * Where a test's state is set: on the test, on a describe around it, at file level, or by a Vitest tag the config
+ * defines.
  *
  * @inline
  */
-export type StateSource = 'test' | 'suite' | 'file';
+export type StateSource = 'test' | 'suite' | 'file' | 'config';
 
 /**
  * Where a test's run setting comes from: the test, a describe around it, the file, or the config its file uses.
@@ -68,6 +69,7 @@ export type DiagnosticCode =
   | 'removed-api'
   | 'only-in-skipped-describe'
   | 'config-may-change-state'
+  | 'undefined-tag'
   | 'symlink-ignored'
   | 'invalid-import'
   | 'globals-not-enabled'

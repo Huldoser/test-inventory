@@ -380,6 +380,7 @@ class VitestBindings implements TestObjects {
 export class VitestAdapter implements Adapter {
   readonly problems: Problem[];
   readonly fileTags: string[] = [];
+  readonly fileTagSpans: Span[] = [];
   usesGlobals = false;
   private readonly file: FileContext;
   private readonly readModule: ModuleReader | null;
@@ -425,8 +426,10 @@ export class VitestAdapter implements Adapter {
     if (atLeast(file.version, 4, 1)) {
       // Vitest's own pattern, over the whole text as Vitest reads it, so the same tags come out.
       for (const match of parsed.source.text.matchAll(/(\/\/|\*)\s*@module-tag\s+([\w\-/]+)\b/g)) {
+        const span = { start: match.index, end: match.index + match[0].length };
         this.fileTags.push(match[2]);
-        this.tagsUsed({ start: match.index, end: match.index + match[0].length });
+        this.fileTagSpans.push(span);
+        this.tagsUsed(span);
       }
     }
   }
@@ -1041,7 +1044,7 @@ export class VitestAdapter implements Adapter {
       problem(
         'config-may-change-state',
         node,
-        'The file uses Vitest tags, and tags defined in the Vitest config can skip tests or change how they run; the config is not read.',
+        "The file uses Vitest tags, and tags defined in the Vitest config can skip tests or change how they run; the scan can't work out the config's tags.",
       ),
     );
   }

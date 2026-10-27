@@ -118,6 +118,8 @@ export interface Extraction {
   /** Hooks at the top level of the file. */
   hooks: HookCounts;
   usesGlobals: boolean;
+  /** The file's `@module-tag` tags, where each is written. */
+  fileTags: { name: string; span: Span }[];
 }
 
 interface Context {
@@ -374,6 +376,10 @@ class Walker {
       problems: [...this.main.adapter.problems, ...this.problems],
       hooks: this.fileScope.hooks,
       usesGlobals: this.main.adapter.usesGlobals,
+      fileTags: this.main.adapter.fileTags.map((name, index) => ({
+        name,
+        span: this.main.adapter.fileTagSpans[index],
+      })),
     };
   }
 
