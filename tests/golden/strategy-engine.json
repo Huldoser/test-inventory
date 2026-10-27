@@ -37,7 +37,14 @@
   "configs": [
     {
       "relativeFilePath": "vitest.config.ts",
-      "extends": []
+      "extends": [],
+      "projects": [
+        {
+          "name": "",
+          "testDir": ".",
+          "dependencies": []
+        }
+      ]
     }
   ],
   "files": [
@@ -1180,7 +1187,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "ceb2288b30fb0cee",
@@ -1248,7 +1258,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "73d712d2bf05f887",
@@ -1316,7 +1329,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "7a002fd6d6cc8525",
@@ -1382,7 +1398,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "8c736ca50389a689",
@@ -1450,7 +1469,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "32bd9e9bc159f1bf",
@@ -1518,7 +1540,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "ea7ee016a2c38a37",
@@ -1586,7 +1611,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "5e13a2afe5a8d01d",
@@ -1654,7 +1682,10 @@
       "caseCount": 2,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "288f119ad918c2e9",
@@ -1722,7 +1753,10 @@
       "caseCount": 4,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "8860da104849a805",
@@ -1790,7 +1824,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "7c6c64ebaa135889",
@@ -1858,7 +1895,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "f612d51f5b110ce9",
@@ -1926,7 +1966,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "bb2b4407c0602dd6",
@@ -1994,7 +2037,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "e0f8d43668329563",
@@ -2062,7 +2108,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "5ada633edd92ada3",
@@ -2130,7 +2179,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "b435c4ea3af02d86",
@@ -2198,7 +2250,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "c1a4d5ba0d0d367f",
@@ -2266,7 +2321,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "666150fc836cb82b",
@@ -2334,7 +2392,10 @@
       "caseCount": 4,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "2c344a335b4ef778",
@@ -2402,7 +2463,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "62ec2696d71f7e1a",
@@ -2470,7 +2534,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "622ed2a5ee95e007",
@@ -2538,7 +2605,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "87c3ecab56765249",
@@ -2608,7 +2678,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "9e150fb03ac49817",
@@ -2678,7 +2751,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "6dfa8c37957529e4",
@@ -2748,7 +2824,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "346f07bbb28b10fc",
@@ -2820,7 +2899,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "ae338fdae0069ebc",
@@ -2888,7 +2970,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "3e783e6123df29fc",
@@ -2956,7 +3041,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "c13fe172b4586cc5",
@@ -3024,7 +3112,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "bb53d5b108dbdea7",
@@ -3092,7 +3183,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "3c70a2d755873575",
@@ -3160,7 +3254,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "b20dcbff3a673f92",
@@ -3228,7 +3325,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "de14faf1c3f90a9b",
@@ -3296,7 +3396,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "8031fcf3b89cfaa0",
@@ -3364,7 +3467,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "a9878602cb722cf0",
@@ -3432,7 +3538,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "d6f6dd0395ed01c3",
@@ -3500,7 +3609,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "1143995c7e7ce2a1",
@@ -3569,7 +3681,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "063d666be690b551",
@@ -3638,7 +3753,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "e32c84d790e8baf4",
@@ -3707,7 +3825,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "2b810a2d1c28846c",
@@ -3776,7 +3897,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "47014eb32c707c5d",
@@ -3844,7 +3968,10 @@
       "caseCount": 3,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "2145d2afe4c63cc5",
@@ -3912,7 +4039,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "62082774e76103f3",
@@ -3980,7 +4110,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "73a7c7defd505f74",
@@ -4048,7 +4181,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "221cec097cfeb947",
@@ -4116,7 +4252,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "7907355b5a987822",
@@ -4184,7 +4323,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "069578d639e7bef3",
@@ -4258,7 +4400,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     },
     {
       "id": "1fcd0da48a1207cd",
@@ -4326,7 +4471,10 @@
       "caseCount": null,
       "isInLoop": false,
       "isInCondition": false,
-      "isInFunction": false
+      "isInFunction": false,
+      "projects": [
+        ""
+      ]
     }
   ],
   "diagnostics": [

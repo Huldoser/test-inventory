@@ -159,6 +159,21 @@ export interface ConfigRecord {
   relativeFilePath: string;
   /** Files the config takes settings from through imports, such as a shared base config, in the order read. */
   extends: string[];
+  /**
+   * The projects the config runs tests in: Playwright's `projects`, or one for a config without them; Vitest's, with
+   * each browser instance as one. Null when the scan can't work them out.
+   */
+  projects: ProjectRecord[] | null;
+}
+
+/** @inline */
+export interface ProjectRecord {
+  /** As the runner names it: `''` for a project without a name. */
+  name: string;
+  /** The folder the project's test files are found in, from the project root: Playwright's `testDir`, Vitest's `dir`. */
+  testDir: string;
+  /** Playwright's projects that run before this one; `[]` for Vitest. */
+  dependencies: string[];
 }
 
 /** A scanned file, also one that has no tests or could not be read. */
@@ -386,6 +401,11 @@ export interface TestRecord {
   isInCondition: boolean;
   /** Declared inside a plain function. */
   isInFunction: boolean;
+  /**
+   * Names of the projects that run the test, of the config its file uses, after each project's files and Playwright's
+   * `grep` and `grepInvert`. `[]` when no project runs it; null when there is no config, or the scan can't tell.
+   */
+  projects: string[] | null;
 }
 
 /** @inline */
