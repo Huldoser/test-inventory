@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ConfigRuns, configDefaults, testProjects, type Placement } from './config-runs.ts';
+import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
@@ -163,7 +163,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       readModule: readerFor(absolutePath),
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
-      config: configDefaults(placement.projects),
+      config: fileConfig(placement, framework, absolutePath),
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.
@@ -171,11 +171,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       const message = `The file has tests, but no config in its folder or above runs it, so the runner doesn't collect them; the nearest config is ${config}.`;
       notRun.push(fileDiagnostic('file-not-run', relativeFilePath, message));
     }
-    const tests = result.tests.map((test) => ({
-      ...test,
-      projects: testProjects(placement, test, result.suites, absolutePath),
-    }));
-    results.push({ ...result, file: { ...result.file, config }, tests });
+    results.push({ ...result, file: { ...result.file, config } });
   }
   const missingGlobals = globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;

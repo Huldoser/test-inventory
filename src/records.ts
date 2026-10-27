@@ -48,8 +48,14 @@ export interface ConfigDefaults {
   repeats?: number | null;
   /** Whether tests run in parallel unless the file says otherwise: Playwright's `fullyParallel`, Vitest's `sequence.concurrent`. */
   parallel: boolean;
+}
+
+/** What the config the file uses gives it. */
+export interface FileConfig {
   /** Whether a `.only` fails the run: Playwright's `forbidOnly`, always, never, or under the condition with this text. */
   forbidOnly: boolean | string;
+  /** The names of the projects that run a test, null when unknown, and what they set for it. */
+  forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
 }
 
 interface RecordOptions {
@@ -59,7 +65,7 @@ interface RecordOptions {
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
   isBenchmarkFile: boolean;
-  config: ConfigDefaults | null;
+  config: FileConfig | null;
 }
 
 interface Chosen {
@@ -140,21 +146,20 @@ function runKeys(places: RunSettings[]): RunKeys {
 
 type RunSources = Pick<TestRecord, 'timeoutSource' | 'retriesSource' | 'repeatsSource'>;
 
-/**
- * A test's run settings and where each comes from: the nearest place in the file that sets it, otherwise the config
- * the file uses.
- */
-function testRun(
-  places: { run: RunSettings; source: SettingSource }[],
-  config: ConfigDefaults | null,
-): RunKeys & RunSources {
+/** A test's run settings from the file, and where each comes from: the nearest place that sets it. */
+function testRun(places: { run: RunSettings; source: SettingSource }[]): RunKeys & RunSources {
   const from = (key: keyof RunSettings) => places.find((place) => place.run[key] !== undefined)?.source ?? null;
-  const run: RunKeys & RunSources = {
+  return {
     ...runKeys(places.map((place) => place.run)),
     timeoutSource: from('timeout'),
     retriesSource: from('retry'),
     repeatsSource: from('repeats'),
   };
+}
+
+/** A test's run settings, with what the config sets where the file sets nothing. */
+function withConfig<T extends RunKeys & RunSources>(fromFile: T, config: ConfigDefaults | null): T {
+  const run = { ...fromFile };
   if (run.timeoutSource === null && config?.timeout !== undefined) {
     run.timeout = config.timeout;
     run.timeoutSource = 'config';
@@ -228,7 +233,7 @@ class RecordBuilder {
     const lines = rejecting.map((item) => this.parsed.source.line((item.node as Span).start));
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
     const suites = extraction.suites.map((suite) => this.suite(suite));
-    const tests = extraction.tests.map((test) => this.test(test));
+    const tests = extraction.tests.map((test) => this.test(test, suites));
     for (const item of extraction.problems) this.diagnostics.push(this.diagnostic(item));
     for (const { index, problem: item } of duplicates) {
       this.diagnostics.push(this.diagnostic(item, tests[index].id));
@@ -335,7 +340,7 @@ class RecordBuilder {
     };
   }
 
-  private test(pending: PendingTest): TestRecord {
+  private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
     // A test from an imported helper is placed at the call in this file that registers it.
     const located = pending.site ?? pending.call;
@@ -403,7 +408,7 @@ class RecordBuilder {
         ),
       );
     }
-    return {
+    const record: TestRecord = {
       id,
       bodyHash: declaration.hashed ? hashNodes([declaration.hashed]) : null,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
@@ -431,7 +436,7 @@ class RecordBuilder {
       hasDynamicReason: setting?.hasDynamicReason ?? false,
       stateSource: rejected ? 'file' : (chosen?.source ?? null),
       stateLine: rejected ? this.rejectedAt : (setting?.line ?? null),
-      isParallel: mode === 'parallel' || (mode === null && this.options.config?.parallel === true),
+      isParallel: mode === 'parallel',
       isSerial: mode === 'serial',
       tags: unique([
         ...fileScope.details.tags,
@@ -448,15 +453,12 @@ class RecordBuilder {
       meta: Object.keys(meta).length > 0 ? meta : null,
       hooks: addHooks(scopes),
       // Calls in the body and in `beforeEach` hooks run last, so they win over what the describes set.
-      ...testRun(
-        [
-          { run: pending.run, source: 'test' },
-          ...scopes.map((scope) => ({ run: scope.hookRun, source: placeOf(scope) })),
-          { run: declaration.details.run, source: 'test' },
-          ...scopes.map((scope) => ({ run: scope.details.run, source: placeOf(scope) })),
-        ],
-        this.options.config,
-      ),
+      ...testRun([
+        { run: pending.run, source: 'test' },
+        ...scopes.map((scope) => ({ run: scope.hookRun, source: placeOf(scope) })),
+        { run: declaration.details.run, source: 'test' },
+        ...scopes.map((scope) => ({ run: scope.details.run, source: placeOf(scope) })),
+      ]),
       fixtures: unique([...declaration.fixtures, ...[...scopes].reverse().flatMap((scope) => scope.hookFixtures)]),
       expectCount: pending.expectCount,
       expectedAssertions: pending.expectedAssertions,
@@ -470,6 +472,12 @@ class RecordBuilder {
       isInCondition: pending.isInCondition,
       isInFunction: pending.isInFunction,
       projects: null,
+    };
+    const { projects, defaults } = this.options.config?.forTest(record, suites) ?? { projects: null, defaults: null };
+    return {
+      ...withConfig(record, defaults),
+      isParallel: record.isParallel || (mode === null && defaults?.parallel === true),
+      projects,
     };
   }
 

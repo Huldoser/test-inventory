@@ -116,6 +116,49 @@ describe('run settings from the config', () => {
       ['tests/*.test.ts'],
     );
     expect(plain.tests[0]).toMatchObject({ retries: 3, retryDelay: null, retryCondition: null });
+    const delayOnly = await scanned(
+      { 'vitest.config.ts': 'export default { test: { retry: { delay: 500 } } };\n', 'tests/fees.test.ts': UNIT },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(delayOnly.tests[0]).toMatchObject({ retries: 0, retryDelay: 500, retriesSource: 'config' });
+    const fromEnv = await scanned(
+      {
+        'vitest.config.ts': 'export default { test: { retry: { count: Number(process.env.RETRIES), delay: 500 } } };\n',
+        'tests/fees.test.ts': UNIT,
+      },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(fromEnv.tests[0]).toMatchObject({ retries: null, retryDelay: null, retriesSource: 'config' });
+  });
+
+  it('has no retries, from the config, for a retry object before Vitest 4.1, which reads only a count', async () => {
+    const inventory = await scan({
+      root: project({
+        'package.json': JSON.stringify({ devDependencies: { vitest: '4.0.0' } }),
+        'vitest.config.ts': 'export default { test: { retry: { count: 2 } } };\n',
+        'tests/fees.test.ts': UNIT,
+      }),
+      patterns: ['tests/*.test.ts'],
+      framework: 'vitest',
+    });
+    expect(sources(inventory.tests[0]).retries).toEqual([null, 'config']);
+  });
+
+  it("takes Vitest's repeats from the config from Vitest 5, which added it", async () => {
+    const files = {
+      'vitest.config.ts': 'export default { test: { repeats: 2 } };\n',
+      'tests/fees.test.ts': UNIT,
+    };
+    const latest = await scanned(files, 'vitest', ['tests/*.test.ts']);
+    expect(sources(latest.tests[0]).repeats).toEqual([2, 'config']);
+    const before = await scan({
+      root: project({ 'package.json': JSON.stringify({ devDependencies: { vitest: '4.1.12' } }), ...files }),
+      patterns: ['tests/*.test.ts'],
+      framework: 'vitest',
+    });
+    expect(sources(before.tests[0]).repeats).toEqual([null, null]);
   });
 
   it('has no value, from the config, when its projects disagree or it depends on a condition', async () => {
@@ -124,6 +167,7 @@ describe('run settings from the config', () => {
         'playwright.config.ts': [
           'export default {',
           '  retries: process.env.CI ? 2 : 0,',
+          "  repeatEach: Number(process.env.REPEAT_EACH ?? '1'),",
           "  projects: [{ name: 'desktop', timeout: 30_000 }, { name: 'mobile', timeout: 60_000 }],",
           '};',
           '',
@@ -136,9 +180,81 @@ describe('run settings from the config', () => {
     expect(sources(inventory.tests[0])).toEqual({
       timeout: [null, 'config'],
       retries: [null, 'config'],
-      repeats: [null, null],
+      repeats: [null, 'config'],
     });
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('takes the run settings of the projects that run each test, after their grep', async () => {
+    const inventory = await scanned(
+      {
+        'playwright.config.ts': [
+          'export default {',
+          '  projects: [',
+          "    { name: 'mobile', grep: /@mobile/, retries: 3 },",
+          "    { name: 'desktop', grepInvert: /@mobile/, retries: 0 },",
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/orders.spec.ts': [
+          "import { test } from '@playwright/test';",
+          "test('places a market order @mobile', async () => {});",
+          "test('places a limit order', async () => {});",
+          '',
+        ].join('\n'),
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(inventory.tests.map((test) => [test.projects, test.retries, test.retriesSource])).toEqual([
+      [['mobile'], 3, 'config'],
+      [['desktop'], 0, 'config'],
+    ]);
+  });
+
+  it("has no values, from the config, when the scan can't read its projects, and still reads forbidOnly", async () => {
+    const inventory = await scanned(
+      {
+        'playwright.config.ts': [
+          "import { devices } from '@playwright/test';",
+          "const names = ['Desktop Chrome', 'iPhone 15'];",
+          'export default {',
+          '  forbidOnly: true,',
+          '  retries: 2,',
+          '  projects: names.map((name) => ({ name, use: devices[name] })),',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest.only('places a market order', async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(sources(inventory.tests[0])).toEqual({
+      timeout: [null, 'config'],
+      retries: [null, 'config'],
+      repeats: [null, 'config'],
+    });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      'config-value-unknown',
+      'forbidden-only',
+    ]);
+  });
+
+  it("has no values, from the config, and no forbidden-only when the config can't be parsed", async () => {
+    const inventory = await scanned(
+      {
+        'playwright.config.ts': "export default { forbidOnly: true,, testDir: 'tests' };\n",
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest.only('places a market order', async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(sources(inventory.tests[0]).retries).toEqual([null, 'config']);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('forbidden-only');
   });
 
   it('runs tests in parallel with fullyParallel or sequence.concurrent, unless the file sets the mode', async () => {
