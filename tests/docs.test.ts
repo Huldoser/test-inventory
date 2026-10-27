@@ -93,7 +93,14 @@ function matches(shown: unknown, actual: unknown): boolean {
 
 /** The records and objects of a scan output, the output itself included, that a JSON block can show. */
 function candidates(inventory: Inventory): unknown[] {
-  return [inventory, inventory.summary, ...inventory.tests, ...inventory.suites, ...inventory.diagnostics];
+  return [
+    inventory,
+    inventory.summary,
+    ...inventory.configs,
+    ...inventory.tests,
+    ...inventory.suites,
+    ...inventory.diagnostics,
+  ];
 }
 
 describe('docs', () => {

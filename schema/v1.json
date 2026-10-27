@@ -28,6 +28,13 @@
         "summary": {
           "$ref": "#/definitions/Summary"
         },
+        "configs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ConfigRecord"
+          },
+          "description": "The configs the scanned files use, sorted by path."
+        },
         "files": {
           "type": "array",
           "items": {
@@ -60,6 +67,7 @@
         "framework",
         "frameworkVersion",
         "summary",
+        "configs",
         "files",
         "suites",
         "tests",
@@ -224,6 +232,27 @@
         "annotationCounts"
       ],
       "description": "Counts over the whole scan. Each test count uses the same definition as the matching test key."
+    },
+    "ConfigRecord": {
+      "type": "object",
+      "properties": {
+        "relativeFilePath": {
+          "type": "string",
+          "description": "Path from the project root, with `/` separators."
+        },
+        "extends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files the config takes settings from through imports, such as a shared base config, in the order read."
+        }
+      },
+      "required": [
+        "relativeFilePath",
+        "extends"
+      ],
+      "description": "A Playwright or Vitest config that scanned files use: the nearest one in a file's folder or a folder above it, up to the root, as the runner started in that folder would. Read as code, never run."
     },
     "FileRecord": {
       "type": "object",
@@ -1252,7 +1281,8 @@
             "approximate-framework-version",
             "test-in-function",
             "empty-title",
-            "bench-outside-benchmark-file"
+            "bench-outside-benchmark-file",
+            "config-value-unknown"
           ]
         },
         {

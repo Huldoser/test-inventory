@@ -59,6 +59,7 @@ export async function writeInventoryLines(inventory: Output, write: (chunk: stri
   const line = (type: string, record: object) => emit(`${JSON.stringify({ type, ...record })}\n`);
   const { schemaVersion, tool, framework, frameworkVersion } = inventory;
   await line('inventory', { schemaVersion, tool, framework, frameworkVersion });
+  for (const config of inventory.configs) await line('config', config);
   for (const file of inventory.files) await line('file', file);
   for (const suite of inventory.suites) await line('suite', suite);
   for (const test of inventory.tests) await line('test', test);

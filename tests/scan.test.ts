@@ -1367,6 +1367,282 @@ describe('scan checks that Vitest globals are turned on', () => {
     const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
     expect(inventory.diagnostics).toEqual([]);
   });
+
+  it.each([
+    [
+      'mergeConfig',
+      "export default mergeConfig(\n  { test: { css: false, environment: 'jsdom', globals: false } },\n  { test: { css: { include: ['src/**/*.module.css'] }, environment: 'node', globals: true } },\n);\n",
+    ],
+    [
+      'projects joined by mergeConfig',
+      "export default mergeConfig(\n  { test: { projects: [{ test: { name: 'unit' } }] } },\n  { test: { projects: [{ test: { name: 'browser', globals: true } }] } },\n);\n",
+    ],
+    ['a function', 'export default defineConfig(({ mode }) => ({ mode, test: { globals: true } }));\n'],
+    [
+      'an async function',
+      'export default defineConfig(async () => {\n  const plugins = [];\n  return { plugins, test: { globals: true } };\n});\n',
+    ],
+    ['constants', 'const test = { globals: true };\nconst config = { test };\nexport default config;\n'],
+    [
+      'a spread of a member',
+      'const shared = { test: { globals: true } };\nexport default { test: { ...shared.test } };\n',
+    ],
+    [
+      'a constant picked by a computed key',
+      "const MODE = 'ci';\nconst MODES = { ci: { globals: true, include: ['tests/**/*.test.ts'] } };\nexport default { test: MODES[MODE] };\n",
+    ],
+    [
+      'a spread of a project list',
+      "const BROWSER_PROJECTS = [{ test: { name: 'browser', globals: true } }];\nexport default { test: { projects: [...BROWSER_PROJECTS, { test: { name: 'unit' } }] } };\n",
+    ],
+    [
+      'a project written in the config',
+      "export default defineConfig({ test: { projects: [{ extends: true, test: { name: 'unit', globals: true } }] } });\n",
+    ],
+  ])('reads test.globals through %s', async (_, content) => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': content,
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads test.globals from module.exports in a CommonJS config', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.cjs': 'module.exports = { test: { globals: true } };\n',
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    [
+      'a spread whose test key replaces the one it spreads',
+      {
+        'vitest.config.ts':
+          "const shared = { test: { globals: true } };\nexport default { ...shared, test: { environment: 'node' } };\n",
+      },
+    ],
+    ['globals outside test', { 'vitest.config.ts': 'export default defineConfig({ define: { globals: true } });\n' }],
+    [
+      'a vite.config next to the vitest.config Vitest picks',
+      {
+        'vite.config.ts': 'export default { test: { globals: true } };\n',
+        'vitest.config.ts': "export default { test: { environment: 'node' } };\n",
+      },
+    ],
+    [
+      'a config in a folder above the nearest one',
+      {
+        'vitest.config.ts': "export default { test: { globals: true, projects: ['tests'] } };\n",
+        'tests/vitest.config.ts': "export default { test: { name: 'unit' } };\n",
+      },
+    ],
+  ])('warns when only %s turns globals on, which Vitest does not read for the file', async (_, configs) => {
+    const root = project({ 'package.json': VITEST_PACKAGE, ...configs, 'tests/a.test.ts': GLOBAL_TEST });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['globals-not-enabled']);
+  });
+
+  it('warns when a config that names project folders turns globals on in none of them', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': "export default defineConfig({ test: { projects: ['packages/*'] } });\n",
+      'packages/quotes/src/feed.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['packages/*/src/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['globals-not-enabled']);
+  });
+
+  it('reads test.globals from a shared config through barrels, renamed exports and a re-exported default', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'config/index.ts': "export * from './playwright';\nexport * from './vitest';\n",
+      'config/playwright.ts': 'export const e2eDefaults = { retries: 2 };\n',
+      'config/vitest.ts':
+        'const unitDefaults = { test: { globals: true } };\nexport { unitDefaults as sharedVitest };\n',
+      'config/default.ts': "export { sharedVitest as default } from './index';\n",
+      'vitest.config.ts':
+        "import shared from './config/default';\nexport default mergeConfig(shared, { test: { environment: 'node' } });\n",
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.configs).toEqual([
+      {
+        relativeFilePath: 'vitest.config.ts',
+        extends: ['config/default.ts', 'config/index.ts', 'config/playwright.ts', 'config/vitest.ts'],
+      },
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    ['does not export it', 'export const sharedTest = { globals: true };\n'],
+    ['has a syntax error', 'export const sharedConfig = { test: { globals: true };\n'],
+  ])('warns about a setting imported from a module that %s, at the import', async (_, shared) => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.shared.ts': shared,
+      'vitest.config.ts':
+        "import { sharedConfig } from './vitest.shared';\nexport default mergeConfig(sharedConfig, { test: {} });\n",
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(
+      inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.relativeFilePath, diagnostic.source]),
+    ).toEqual([['config-value-unknown', 'vitest.config.ts', 'sharedConfig']]);
+  });
+
+  it('names the config the file uses when it does not turn globals on', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'packages/quotes/vitest.config.ts': "export default { test: { environment: 'node' } };\n",
+      'packages/quotes/src/feed.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['packages/*/src/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The file uses Vitest's global test functions, but packages/quotes/vitest.config.ts doesn't set test.globals to true and no tsconfig has vitest/globals in its types.",
+    ]);
+  });
+
+  it('warns about a test.globals it cannot work out, where it is written, and takes globals to be on', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.shared.ts': "export default { test: { globals: process.env.VITEST_GLOBALS === 'on' } };\n",
+      'vitest.config.ts': "import shared from './vitest.shared';\nexport default mergeConfig(shared, { test: {} });\n",
+      'tests/a.test.ts': GLOBAL_TEST,
+      'tests/b.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toEqual([
+      {
+        code: 'config-value-unknown',
+        level: 'warning',
+        message:
+          "The config's test.globals could not be worked out without running the config, so files that use Vitest's global test functions are taken to have them.",
+        relativeFilePath: 'vitest.shared.ts',
+        lineStart: 1,
+        columnStart: 35,
+        testId: null,
+        source: "process.env.VITEST_GLOBALS === 'on'",
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      'a spread of an installed package',
+      "import { brokerDefaults } from '@trading/broker-kit';\nexport default defineConfig({ test: { ...brokerDefaults, environment: 'node' } });\n",
+      'test.globals',
+      'brokerDefaults',
+    ],
+    [
+      'a defineConfig declared in the file',
+      'function defineConfig(config) {\n  return config;\n}\nexport default defineConfig({ test: { globals: true } });\n',
+      'test.globals',
+      'defineConfig({ test: { globals: true } })',
+    ],
+    [
+      'a function with more than one return',
+      "export default defineConfig(({ mode }) => {\n  if (mode === 'ci') return { test: { globals: true } };\n  return {};\n});\n",
+      'test.globals',
+      "({ mode }) => { if (mode === 'ci') return { test: { globals: true } }; return {}; }",
+    ],
+    [
+      'projects built at run time',
+      "const DESKS = ['equities', 'fx'];\nexport default { test: { projects: DESKS.map((desk) => ({ test: { name: desk } })) } };\n",
+      'test.projects',
+      'DESKS.map((desk) => ({ test: { name: desk } }))',
+    ],
+    [
+      'a project from an installed package',
+      "import { unitProject } from '@trading/broker-kit';\nexport default { test: { projects: [unitProject] } };\n",
+      'test.projects',
+      'unitProject',
+    ],
+    [
+      'projects spread from an installed package',
+      "import { brokerProjects } from '@trading/broker-kit';\nexport default { test: { projects: [...brokerProjects] } };\n",
+      'test.projects',
+      '...brokerProjects',
+    ],
+    [
+      'a project list with an empty slot',
+      "export default { test: { projects: [{ test: { name: 'unit' } }, , { test: { name: 'browser' } }] } };\n",
+      'test.projects',
+      "[{ test: { name: 'unit' } }, , { test: { name: 'browser' } }]",
+    ],
+    [
+      'a setting read from the environment',
+      'export default defineConfig({ test: { globals: process.env.VITEST_GLOBALS } });\n',
+      'test.globals',
+      'process.env.VITEST_GLOBALS',
+    ],
+    [
+      'a key computed at run time',
+      'const KEY = process.env.VITEST_KEY;\nexport default { test: { [KEY]: true } };\n',
+      'test.globals',
+      'KEY',
+    ],
+    [
+      'a config merged into one from an installed package',
+      "import { brokerDefaults } from '@trading/broker-kit';\nexport default mergeConfig(brokerDefaults, { test: { projects: [{ test: { name: 'unit' } }] } });\n",
+      'test.globals',
+      'brokerDefaults',
+    ],
+    [
+      'a config from an installed package merged over one written here',
+      "import { brokerDefaults } from '@trading/broker-kit';\nexport default mergeConfig({ test: { environment: 'node' } }, brokerDefaults);\n",
+      'test.globals',
+      'brokerDefaults',
+    ],
+  ])('warns about %s it cannot work out', async (_, content, key, source) => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': content,
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(
+      inventory.diagnostics.map((diagnostic) => [
+        diagnostic.code,
+        diagnostic.message.split(' could')[0],
+        diagnostic.source,
+      ]),
+    ).toEqual([['config-value-unknown', `The config's ${key}`, source]]);
+  });
+
+  it('reads no setting of the config when no file uses globals', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': "export default { test: { globals: process.env.VITEST_GLOBALS === 'on' } };\n",
+      'tests/a.test.ts': "import { test } from 'vitest';\ntest('charges the minimum', () => {});\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('stops following a config whose constants or imports refer to each other', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.shared.ts': "import config from './vitest.config';\nexport default config;\n",
+      'vitest.config.ts': [
+        "import shared from './vitest.shared';",
+        'const base = { ...local };',
+        'const local = { ...base };',
+        'export default mergeConfig(shared, local);',
+        '',
+      ].join('\n'),
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.configs).toEqual([{ relativeFilePath: 'vitest.config.ts', extends: ['vitest.shared.ts'] }]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['config-value-unknown']);
+  });
 });
 
 describe('scan options', () => {

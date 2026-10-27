@@ -30,6 +30,22 @@
     "tagCounts": {},
     "annotationCounts": {}
   },
+  "configs": [
+    {
+      "relativeFilePath": "packages/broker-gateway/vitest.config.ts",
+      "extends": []
+    },
+    {
+      "relativeFilePath": "packages/market-data/vitest.config.ts",
+      "extends": []
+    },
+    {
+      "relativeFilePath": "packages/risk/vitest.config.ts",
+      "extends": [
+        "vitest.shared.ts"
+      ]
+    }
+  ],
   "files": [
     {
       "relativeFilePath": "packages/broker-gateway/src/rate-limiter.test.ts",

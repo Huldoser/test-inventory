@@ -26,6 +26,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'removed-api': 'error',
   'only-in-skipped-describe': 'warning',
   'config-may-change-state': 'warning',
+  'config-value-unknown': 'warning',
   'symlink-ignored': 'warning',
   'invalid-import': 'error',
   'globals-not-enabled': 'warning',

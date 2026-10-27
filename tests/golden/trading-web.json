@@ -37,6 +37,12 @@
       "issue": 3
     }
   },
+  "configs": [
+    {
+      "relativeFilePath": "playwright.config.ts",
+      "extends": []
+    }
+  ],
   "files": [
     {
       "relativeFilePath": "tests/alerts.spec.ts",

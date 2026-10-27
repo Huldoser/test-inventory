@@ -51,6 +51,7 @@ In the TypeScript declarations on this page, ids and hashes are a `Hash`, lines 
 | `framework`        | string         | `playwright` or `vitest`, as given to the scan.                                                                    |
 | `frameworkVersion` | string or null | Read from the project, or given with `--framework-version`. See [framework version](/guide/cli#framework-version). |
 | `summary`          | object         | Counts over the whole scan.                                                                                        |
+| `configs`          | array          | The Playwright or Vitest configs the scanned files use.                                                            |
 | `files`            | array          | One record per scanned file.                                                                                       |
 | `suites`           | array          | One record per describe.                                                                                           |
 | `tests`            | array          | One record per test declaration.                                                                                   |
@@ -300,6 +301,56 @@ their page in a `beforeEach`:
 
 :::
 
+## Configs
+
+`configs` lists the configs the scanned files use, sorted by path. A file uses the nearest config in its folder or a
+folder above it, up to the root, as the runner started in that folder would: `playwright.config.*` for Playwright,
+and `vitest.config.*` for Vitest, or `vite.config.*` when a folder has no `vitest.config.*`. A config is read as code
+and never run, with the settings it imports from other files: `defineConfig()`, `defineProject()`, `mergeConfig()`,
+spreads, constants, and a function that returns the config.
+
+| Key                | Type   | Meaning                                                                                                |
+| ------------------ | ------ | ------------------------------------------------------------------------------------------------------ |
+| `relativeFilePath` | string | The config, from the project root.                                                                     |
+| `extends`          | array  | Files the config takes settings from through imports, such as a shared base config, in the order read. |
+
+In the monorepo, the risk package builds on a config the packages share:
+
+<!-- code: trading-monorepo/packages/risk/vitest.config.ts -->
+
+```ts
+import { defineProject, mergeConfig } from 'vitest/config';
+import shared from '../../vitest.shared';
+
+export default mergeConfig(
+  shared,
+  defineProject({
+    test: {
+      name: 'risk',
+    },
+  }),
+);
+```
+
+<!-- output: trading-monorepo -->
+
+```json
+{
+  "relativeFilePath": "packages/risk/vitest.config.ts",
+  "extends": ["vitest.shared.ts"]
+}
+```
+
+So far the scan reads one setting from a config: Vitest's `test.globals`, for the `globals-not-enabled` warning. A
+setting it reads but can't work out, such as one computed from `process.env` or taken from an installed package, gets
+a `config-value-unknown` warning that names it.
+
+::: details TypeScript
+
+<!-- types: ConfigRecord -->
+
+:::
+
 ## Summary
 
 Each count uses the same definition as the matching key: `skipCount` counts tests with `isSkipped: true`.
@@ -339,7 +390,7 @@ of tests with at least one annotation of that type. Both are sorted by name.
 ## JSON Lines
 
 With `--format jsonl` the same records are written one per line, each with a `type` key added in front: first an
-`inventory` line with the keys of the top level, then a `file`, `suite`, `test` or `diagnostic` line for each record,
+`inventory` line with the keys of the top level, then a `config`, `file`, `suite`, `test` or `diagnostic` line for each record,
 in the order of the JSON output, and a `summary` line last. Without its `type`, a line has exactly the keys of the record
 described above, and filters and `--fields` work the same way.
 

@@ -32,6 +32,12 @@
     },
     "annotationCounts": {}
   },
+  "configs": [
+    {
+      "relativeFilePath": "vitest.config.ts",
+      "extends": []
+    }
+  ],
   "files": [
     {
       "relativeFilePath": "tests/broker/fill-events.test.ts",
