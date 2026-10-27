@@ -1,5 +1,75 @@
 # test-inventory
 
+## 0.5.0
+
+### Minor Changes
+
+- [#51](https://github.com/Huldoser/test-inventory/pull/51) [`acec7e7`](https://github.com/Huldoser/test-inventory/commit/acec7e7fd9bae8301ba3559c3986264ea35c3056) - Each file record has a new `config` key: the config the file uses, as the runner started at the root would pick it.
+  That is the outermost config at or above the file that runs it, and for Vitest `projects` the project that does,
+  read from Playwright's `testDir`, `testMatch`, `testIgnore` and `.gitignore` files, and from Vitest's `include`,
+  `exclude`, `includeSource`, `typecheck.include` and `benchmark.include` with each version's defaults. Before, the
+  nearest config was taken, which is wrong for a root config whose `include` covers packages that have their own
+  `vite.config.ts`. A file with tests that no config runs gets the new `file-not-run` warning.
+
+  The globals check follows the same choice, so a test in a folder project without a config of its own gets Vitest's
+  defaults, and a test the root config runs takes the root's `test.globals`. Files named by `benchmark.include` are
+  marked `isBenchmark`, in place of the default `*.bench.*` and `*.benchmark.*` names. The config reader now reads
+  regular expressions and paths built from `__dirname`, `__filename` or `import.meta` with `path.join()`,
+  `path.resolve()`, `path.dirname()`, `fileURLToPath()` and `new URL()`.
+
+- [#50](https://github.com/Huldoser/test-inventory/pull/50) [`3e55445`](https://github.com/Huldoser/test-inventory/commit/3e55445d0b195941813368b7beeea239ccf8792f) - The output lists the configs the scanned files use in a new top-level `configs` key, and as `config` lines in JSON
+  Lines. A file uses the nearest `playwright.config.*`, `vitest.config.*` or `vite.config.*` in its folder or a folder
+  above, up to the root, as the runner started in that folder would. A config is read as code, never run, and `extends`
+  lists the files it takes settings from through imports, such as a shared base config.
+
+  Vitest's globals now come from `test.globals` in the config a file uses, read through `defineConfig()`,
+  `mergeConfig()`, spreads, constants and imported base configs. Before, any `globals: true` in a Vitest or Vite config
+  in the file's folder or a folder above counted, also one Vitest doesn't read for the file, as in a `vite.config.ts`
+  next to a `vitest.config.ts`. So `globals-not-enabled` can now appear where it didn't, and go away where a base config
+  turns globals on. A `test.globals` the scan can't work out without running the config, and a config it can't read,
+  get the new `config-value-unknown` warning.
+
+- [#55](https://github.com/Huldoser/test-inventory/pull/55) [`a714612`](https://github.com/Huldoser/test-inventory/commit/a714612dcaf01eaa40d218bae44e7d27e68dbce6) - Run settings now come also from the config a file uses: Playwright's `timeout`, `retries` and `repeatEach`, and
+  Vitest's `testTimeout`, `retry` and `repeats`, where the file sets none. New `timeoutSource`, `retriesSource` and `repeatsSource`
+  keys say where each value comes from: `test`, `suite`, `file` or `config`, or `null` when nothing sets it. A test
+  takes the settings of the projects that run it, after their `grep`. When those projects disagree, the config sets the
+  value under a condition, as in `process.env.CI ? 2 : 0`, or the scan can't work out the projects, the value is `null`
+  with its source `config`. For a value under a condition, `timeoutConfigText`, `retriesConfigText` and
+  `repeatsConfigText` hold the config's text for it, so `retries: process.env.CI ? 2 : 0` reads as written. Playwright's `fullyParallel` and Vitest's `sequence.concurrent` make tests
+  `isParallel` where the file sets no mode, when every project that runs the test sets it.
+
+  A `.only` in a Playwright file whose config sets `forbidOnly` gets the new `forbidden-only` error, since the run then
+  fails before any test runs. When `forbidOnly` depends on a condition, as in `!!process.env.CI`, it is a warning that
+  quotes the condition.
+
+- [#59](https://github.com/Huldoser/test-inventory/pull/59) [`aeb3eb1`](https://github.com/Huldoser/test-inventory/commit/aeb3eb10896ba79b82fb34e5b3dd08cb601a251d) - Vitest tags the config defines in `test.tags` now apply to the tests that carry them, as Vitest applies them. Their
+  `skip`, `todo`, `fails` and `only` are merged with the test's own and those a describe passes down, and Vitest's order,
+  `only` over `skip` over `todo`, gives the state, with the new `stateSource` value `config` when a tag sets it. Their
+  `concurrent`, `timeout`, `retry`, `repeats` and `meta` set those keys where the test sets none: from Vitest 5 over a
+  describe's options, and in Vitest 4.1 under them. The lowest `priority` wins between tags, and a Vitest 5 project's
+  own `tags` replace those of the config it extends.
+
+  A tag the config doesn't define fails the file in Vitest unless `strictTags` is off, also when there is no config, so
+  it now gets the new `undefined-tag` error, and the file's tests are `notLoaded`; in a function or under a condition it
+  is a warning, as that code may not run. The `config-may-change-state` warning now shows only when
+  the scan can't work out the config's tags.
+
+- [#54](https://github.com/Huldoser/test-inventory/pull/54) [`c610789`](https://github.com/Huldoser/test-inventory/commit/c61078957ce5150fde089a45a444cf5bef41cfe5) - Each test record has a new `projects` key: the names of the projects that run the test, of the config its file uses.
+  For Playwright, those whose `testDir`, `testMatch` and `testIgnore` include the file, less those whose `grep` or
+  `grepInvert` leaves the test's title and tags out; for Vitest, those whose files include it, with each browser
+  instance as a project, named as Vitest names it, such as `unit (chromium)`. It is `[]` when no project runs the test,
+  and `null` without a config or when the scan can't tell. Config records list their projects in `projects`, each with
+  its `name`, `testDir` and Playwright's `dependencies`.
+
+- [#53](https://github.com/Huldoser/test-inventory/pull/53) [`b9471ec`](https://github.com/Huldoser/test-inventory/commit/b9471ecd36f9f6157c21b013c7fa6cc9584250cd) - Glob patterns are optional, in `scan()` and on the command line: without them, the test files are those the
+  Playwright or Vitest configs in the root and the folders below it run, each with the config it uses. A config whose
+  files the scan can't work out gets a `config-value-unknown` warning that says to give patterns, and a scan without
+  patterns and without a config says so in `no-files-matched`. An empty list of patterns is still an error.
+
+### Patch Changes
+
+- [#58](https://github.com/Huldoser/test-inventory/pull/58) [`1a34d74`](https://github.com/Huldoser/test-inventory/commit/1a34d74e76faead734afe87c0babc2a23fdbe4b7) - oxc-parser is updated from 0.154.0 to 0.156.0. The scan output doesn't change.
+
 ## 0.4.1
 
 ### Patch Changes
