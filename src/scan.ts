@@ -163,7 +163,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       readModule: readerFor(absolutePath),
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
-      config: fileConfig(placement, framework, absolutePath),
+      config: fileConfig(placement, framework, rules, absolutePath),
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.

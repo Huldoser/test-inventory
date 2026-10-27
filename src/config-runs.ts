@@ -14,8 +14,8 @@ import {
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
 import type { RunSettings } from './model.ts';
-import type { ConfigDefaults, FileConfig } from './records.ts';
-import type { Framework, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
+import type { ConfigDefaults, FileConfig, TagDefinition, TagOptions, VitestTags } from './records.ts';
+import type { Framework, MetaValue, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
 import {
   VITEST_BENCHMARK_INCLUDE,
   VITEST_INCLUDE,
@@ -64,7 +64,7 @@ export interface ProjectAbout {
 
 /**
  * The settings a project gives its tests, as written; null when unset. Playwright's `timeout`, `retries`, `repeatEach`
- * and `fullyParallel`; Vitest's `testTimeout`, `retry`, `repeats` and `sequence.concurrent`.
+ * and `fullyParallel`; Vitest's `testTimeout`, `retry`, `repeats` and `sequence.concurrent`, and the tags it defines.
  */
 interface ProjectDefaults {
   timeout: Setting | null;
@@ -72,6 +72,7 @@ interface ProjectDefaults {
   repeatEach: Setting | null;
   repeats: Setting | null;
   parallel: Setting | null;
+  tags: VitestTags | null;
 }
 
 const NO_DEFAULTS: ProjectDefaults = {
@@ -80,6 +81,7 @@ const NO_DEFAULTS: ProjectDefaults = {
   repeatEach: null,
   repeats: null,
   parallel: null,
+  tags: null,
 };
 
 /** The config a file uses, the settings of its project, and how that config runs it. */
@@ -355,6 +357,7 @@ export class ConfigRuns {
         repeatEach: take('repeatEach')?.setting ?? null,
         repeats: null,
         parallel: take('fullyParallel')?.setting ?? null,
+        tags: null,
       },
     };
     return {
@@ -434,7 +437,7 @@ export class ConfigRuns {
       // Vitest 3 takes its projects from a workspace file, which the scan doesn't read.
       return [this.unknownProject(config, { kind: 'unknown', where: null }, 'test.projects')];
     }
-    if (list === null) return this.vitestProject(config, config.settings, folder);
+    if (list === null) return this.vitestProject(config, config.settings, folder, null);
     if (list.kind !== 'list') return [this.unknownProject(config, unknownAt(list), 'test.projects')];
     this.expanding.add(config);
     const globs: string[] = [];
@@ -477,7 +480,9 @@ export class ConfigRuns {
     } else if (extended?.kind === 'value' ? extended.value === true : this.version === null || this.version[0] >= 5) {
       base = withoutProjects(config.settings);
     }
-    return this.vitestProject(config, mergeDeep(base, entry), folder);
+    // Vitest 5 takes a project's own tags in place of those it extends.
+    const ownTags = atLeast(this.version, 5, 0) ? settingAt(entry, ['test', 'tags']) : null;
+    return this.vitestProject(config, mergeDeep(base, entry), folder, ownTags);
   }
 
   /**
@@ -486,19 +491,19 @@ export class ConfigRuns {
    */
   private vitestPath(config: ConfigFile, target: string): Project[] {
     const nested = VITEST_CONFIG.test(path.basename(target)) ? this.configs.at(target) : this.configs.inFolder(target);
-    if (!nested) return this.vitestProject(config, emptySettings(), target);
+    if (!nested) return this.vitestProject(config, emptySettings(), target, null);
     const isContainer = (this.version === null || this.version[0] >= 5) && !this.expanding.has(nested);
     return isContainer && settingAt(nested.settings, ['test', 'projects'])
       ? this.vitestProjects(nested)
-      : this.vitestProject(nested, nested.settings, path.dirname(nested.file));
+      : this.vitestProject(nested, nested.settings, path.dirname(nested.file), null);
   }
 
   /**
    * A Vitest project: its files are found from `test.dir`, else `test.root` or `root`, else its folder. With browser
    * mode on, each of `browser.instances` is a project of its own, named as Vitest names it.
    */
-  private vitestProject(config: ConfigFile, settings: Setting, folder: string): Project[] {
-    const project = this.vitestFiles(config, settings, folder);
+  private vitestProject(config: ConfigFile, settings: Setting, folder: string, ownTags: Setting | null): Project[] {
+    const project = this.vitestFiles(config, settings, folder, ownTags);
     if (project.unknown) return [project];
     const enabled = settingAt(settings, ['test', 'browser', 'enabled']);
     if (enabled?.kind === 'unknown') return [this.unknownProject(config, enabled, 'test.browser.enabled')];
@@ -518,7 +523,8 @@ export class ConfigRuns {
     });
   }
 
-  private vitestFiles(config: ConfigFile, settings: Setting, folder: string): Project {
+  /** The files a Vitest project runs and its settings; `ownTags`, when set, in place of the tags in `settings`. */
+  private vitestFiles(config: ConfigFile, settings: Setting, folder: string, ownTags: Setting | null): Project {
     let root = folder;
     let dir: string | null = null;
     let hasTestRoot = false;
@@ -582,6 +588,12 @@ export class ConfigRuns {
         // Vitest 5 added `repeats` to the config.
         repeats: atLeast(this.version, 5, 0) ? settingAt(settings, ['test', 'repeats']) : null,
         parallel: settingAt(settings, ['test', 'sequence', 'concurrent']),
+        tags: vitestTags(
+          ownTags ?? settingAt(settings, ['test', 'tags']),
+          settingAt(settings, ['test', 'strictTags']),
+          settingAt(settings, ['test', 'sequence', 'concurrent']),
+          atLeast(this.version, 5, 0),
+        ),
       },
     };
     return {
@@ -715,6 +727,77 @@ function retryIn(setting: Setting | null): RunSettings['retry'] | null | undefin
   };
 }
 
+const TAG_FLAGS = ['skip', 'only', 'todo', 'fails', 'concurrent'] as const;
+
+/** A config value as test meta: a string, number, boolean or null, or lists and objects of them; undefined otherwise. */
+function metaIn(setting: Setting): MetaValue | undefined {
+  if (setting.kind === 'value') return setting.value;
+  if (setting.kind === 'list') {
+    const items = setting.items.map(metaIn);
+    return items.every((item) => item !== undefined) ? items : undefined;
+  }
+  if (setting.kind !== 'object' || setting.rest !== null) return undefined;
+  const entries = [...setting.keys].map(([key, value]) => [key, metaIn(value)] as const);
+  return entries.every(([, value]) => value !== undefined)
+    ? (Object.fromEntries(entries) as Record<string, MetaValue>)
+    : undefined;
+}
+
+/** A tag definition from Vitest's `test.tags`; null when the scan can't work out one of its options. */
+function tagIn(setting: Setting): TagDefinition | null {
+  if (setting.kind !== 'object' || setting.rest !== null) return null;
+  const at = (key: string) => setting.keys.get(key) ?? null;
+  const name = at('name');
+  const priority = numberIn(at('priority'));
+  if (name?.kind !== 'value' || typeof name.value !== 'string' || priority === null) return null;
+  const options: TagOptions = { run: {} };
+  for (const flag of TAG_FLAGS) {
+    const value = at(flag);
+    if (value?.kind !== 'value' && value !== null) return null;
+    if (value && !isUnset(value)) options[flag] = Boolean(value.value);
+  }
+  for (const key of ['timeout', 'repeats'] as const) {
+    const value = numberIn(at(key));
+    if (value === null) return null;
+    if (value !== undefined) options.run[key] = value;
+  }
+  const retry = at('retry');
+  // Vitest refuses a `retry.condition` function in the config, which can't be passed to the test files.
+  if (retry?.kind === 'object' && settingAt(retry, ['condition'])?.kind === 'unknown') return null;
+  const count = retryIn(retry);
+  if (count === null) return null;
+  if (count !== undefined) options.run.retry = count;
+  const meta = at('meta');
+  if (meta && !isUnset(meta)) {
+    const values = meta.kind === 'object' ? (metaIn(meta) as Record<string, MetaValue> | undefined) : undefined;
+    if (!values) return null;
+    options.meta = values;
+  }
+  return { name: name.value, priority: priority ?? null, options };
+}
+
+/**
+ * The tags a Vitest config defines, from `test.tags` and `test.strictTags`; null when the scan can't work them out.
+ * Vitest 4.1 passes a `sequence.concurrent` the config sets to every test as an option, where it wins over a tag's.
+ */
+function vitestTags(
+  tags: Setting | null,
+  strictTags: Setting | null,
+  concurrent: Setting | null,
+  beatsDescribes: boolean,
+): VitestTags | null {
+  const items = tags === null || isUnset(tags) ? [] : tags.kind === 'list' ? tags.items : null;
+  const definitions = items?.map(tagIn) ?? null;
+  if (definitions === null || definitions.includes(null)) return null;
+  if (strictTags !== null && strictTags.kind !== 'value') return null;
+  return {
+    definitions: definitions as TagDefinition[],
+    isStrict: Boolean(strictTags?.value ?? true),
+    beatsDescribes,
+    concurrentBeatsTags: !beatsDescribes && concurrent !== null && !isUnset(concurrent),
+  };
+}
+
 /**
  * What the config sets for a test, from the projects that run it: a setting they all agree on, or null when they set
  * different values or one depends on a condition; null without projects.
@@ -752,6 +835,8 @@ function configDefaults(projects: ProjectAbout[]): ConfigDefaults | null {
   };
 }
 
+const NO_CONFIG = { projects: null, defaults: null };
+
 /** Projects the scan can't work out may set any run setting. */
 const UNKNOWN_DEFAULTS: ConfigDefaults = {
   timeout: null,
@@ -767,9 +852,18 @@ const UNKNOWN_DEFAULTS: ConfigDefaults = {
  * What the config a file uses gives it: Playwright's `forbidOnly`, read from the top level only, as Playwright reads
  * it, and for each test, the projects that run it and what they set; null without a config.
  */
-export function fileConfig(placement: Placement, framework: Framework, file: string): FileConfig | null {
+export function fileConfig(
+  placement: Placement,
+  framework: Framework,
+  version: [number, number] | null,
+  file: string,
+): FileConfig | null {
   const { config, projects } = placement;
-  if (config === null) return null;
+  if (config === null) {
+    // Without a config, Vitest defines no tags and keeps strictTags on.
+    const tags = vitestTags(null, null, null, atLeast(version, 5, 0));
+    return framework === 'vitest' ? { forbidOnly: false, forTest: () => NO_CONFIG, tags } : null;
+  }
   const forbidOnly = framework === 'playwright' ? settingAt(config.settings, ['forbidOnly']) : null;
   return {
     forbidOnly:
@@ -782,5 +876,13 @@ export function fileConfig(placement: Placement, framework: Framework, file: str
       // A grep the scan can't match leaves the projects that run the file, which may still agree.
       return { projects: running?.map(({ name }) => name) ?? null, defaults: configDefaults(running ?? projects) };
     },
+    tags: agreedTags(projects),
   };
+}
+
+/** The tags the projects that run a file define, when they all define the same; null otherwise. */
+function agreedTags(projects: ProjectAbout[] | null): VitestTags | null {
+  const [first, ...others] = (projects ?? []).map(({ defaults }) => defaults.tags);
+  const text = JSON.stringify(first ?? null);
+  return first && others.every((tags) => JSON.stringify(tags) === text) ? first : null;
 }

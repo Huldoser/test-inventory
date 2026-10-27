@@ -117,19 +117,8 @@ comes from:
 }
 ```
 
-The project's Vitest config defines the `db` tag, and a tag in the config can skip tests or change how they run. The
-scan does not read the config, and says so:
-
-<!-- output: order-service -->
-
-```json
-{
-  "code": "config-may-change-state",
-  "level": "warning",
-  "relativeFilePath": "tests/repository/orders-repository.test.ts",
-  "lineStart": 5
-}
-```
+The project's Vitest config defines the `db` tag with only a description, so the tag changes nothing else about these
+tests. A tag the config doesn't define would fail the file, and the scan would report it as `undefined-tag`.
 
 A skip from the test context is read as well, with its condition and note:
 

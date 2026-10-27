@@ -65,6 +65,9 @@ export interface PendingSuite {
   order: number;
   /** Statements of the tests and describes directly inside, left out of the describe's body hash. */
   cuts: Span[];
+  /** Declared under a condition, or in a function: it may not run while the file loads. */
+  isInCondition: boolean;
+  isInFunction: boolean;
 }
 
 export interface PendingTest {
@@ -118,6 +121,8 @@ export interface Extraction {
   /** Hooks at the top level of the file. */
   hooks: HookCounts;
   usesGlobals: boolean;
+  /** The file's `@module-tag` tags, where each is written. */
+  fileTags: { name: string; span: Span }[];
 }
 
 interface Context {
@@ -374,6 +379,10 @@ class Walker {
       problems: [...this.main.adapter.problems, ...this.problems],
       hooks: this.fileScope.hooks,
       usesGlobals: this.main.adapter.usesGlobals,
+      fileTags: this.main.adapter.fileTags.map((name, index) => ({
+        name,
+        span: this.main.adapter.fileTagSpans[index],
+      })),
     };
   }
 
@@ -1192,6 +1201,8 @@ class Walker {
       declaredAt: this.declaredAt(call),
       order: context.registeredAt ?? call.start,
       cuts: [],
+      isInCondition: context.isInCondition,
+      isInFunction: context.isInFunction,
     };
     scope.suite = suite;
     this.suites.push(suite);

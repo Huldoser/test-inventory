@@ -10,11 +10,11 @@ such as `isInLoop`; each section says when one does not.
 
 ## Config files are read only in part
 
-`playwright.config.*` and `vitest.config.*` can change which tests run and how: `grep`, `testIgnore`, `forbidOnly`,
-`fullyParallel`, projects, and Vitest tags with options. The scan finds the config each file uses, reads which files
-it runs and lists it in [`configs`](/reference/output#configs), but beyond that it reads only Vitest's `test.globals`.
-A test that a config `grep` leaves out is still listed, and `isParallel` only reflects what is written in the file.
-Nothing in the output says so.
+`playwright.config.*` and `vitest.config.*` can change which tests run and how. The scan finds the config each file
+uses and lists it in [`configs`](/reference/output#configs), and reads from it which files and projects run each test,
+Vitest's `test.globals`, the run settings and modes it gives the tests, Playwright's `forbidOnly`, and the tags Vitest
+defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
+out is still listed, with that project missing from its `projects`.
 
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
 that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
@@ -28,12 +28,12 @@ installed package, can't be worked out; when the scan needs it, a `config-value-
 the runner is pointed to with `--config` is not known from the files, nor a config built by a function the config
 calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`.
 
-When a Vitest file uses tags, a `config-may-change-state` warning points out that a tag defined in the config can
-skip a test or change how it runs.
+A run setting the config sets under a condition, as `retries: process.env.CI ? 2 : 0`, is `null` with its source
+`config`, since the scan doesn't know where the tests will run; `retriesConfigText` and the other `ConfigText` keys
+quote it. When the scan can't work out the tags a Vitest config defines, a file that uses tags gets a
+`config-may-change-state` warning, as a tag can skip a test or change how it runs.
 
-The same goes for run settings: the config's `timeout`, `retries` and `repeatEach`, and Vitest's `testTimeout`,
-`retry` and tags with options. A `timeout`, `retries` or `repeats` of `null` means the file sets none, so the config
-decides. Calls that change settings while tests run are not read either: `testInfo.setTimeout()` and
+Calls that change settings while tests run are not read: `testInfo.setTimeout()` and
 `testInfo.slow()`, Vitest's `vi.setConfig()`, and calls in an imported function passed to a hook by name, as in
 `test.beforeEach(slowOnCI)` with `slowOnCI` from another file.
 

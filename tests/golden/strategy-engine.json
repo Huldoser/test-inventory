@@ -26,7 +26,7 @@
     "inFunctionCount": 0,
     "typeTestCount": 3,
     "benchmarkCount": 0,
-    "diagnosticCount": 1,
+    "diagnosticCount": 0,
     "tagCounts": {
       "fees": 4
     },
@@ -4759,16 +4759,5 @@
       ]
     }
   ],
-  "diagnostics": [
-    {
-      "code": "config-may-change-state",
-      "level": "warning",
-      "message": "The file uses Vitest tags, and tags defined in the Vitest config can skip tests or change how they run; the config is not read.",
-      "relativeFilePath": "tests/pnl/fees.test.ts",
-      "lineStart": 4,
-      "columnStart": 26,
-      "testId": null,
-      "source": null
-    }
-  ]
+  "diagnostics": []
 }
