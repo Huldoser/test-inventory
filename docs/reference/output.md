@@ -93,7 +93,7 @@ the file around it.
 | `hasDynamicReason`                                                              | boolean                        | The reason could not be worked out to a string; `reason` holds its source text.                                                                                                                                                                                                                                                        |
 | `stateSource`                                                                   | string or null                 | Where the state is set: `test`, `suite` or `file`. `null` for active tests.                                                                                                                                                                                                                                                            |
 | `stateLine`                                                                     | number or null                 | The line that sets the state. `null` for active tests.                                                                                                                                                                                                                                                                                 |
-| `isParallel`, `isSerial`                                                        | boolean                        | The mode set in the file. Both `false` means the framework's default.                                                                                                                                                                                                                                                                  |
+| `isParallel`, `isSerial`                                                        | boolean                        | The mode set in the file. Both `false` means the framework's default. Where the file sets no mode, `isParallel` is true when every project that runs the test sets Playwright's `fullyParallel` or Vitest's `sequence.concurrent`.                                                                                                     |
 | `tags`                                                                          | string[]                       | Tags of the test and every describe around it, outermost first, without duplicates.                                                                                                                                                                                                                                                    |
 | `annotations`                                                                   | object[]                       | `{ type, description, lineStart }` from Playwright's `annotation` option and `test.info().annotations.push()`.                                                                                                                                                                                                                         |
 | `comments`                                                                      | string[]                       | The comment lines directly above the test, without lint, compiler, formatter and coverage directives. By default only for tests that are not active.                                                                                                                                                                                   |
@@ -155,7 +155,8 @@ that declares a test or describe is listed without the part that fails, so its t
 
 ### Run settings
 
-The run settings are those written in the file. Each key comes from the nearest place that sets it:
+Each run setting comes from the nearest place that sets it, and `timeoutSource`, `retriesSource` and `repeatsSource`
+say which: `test`, `suite`, `file` or `config`, or `null` when nothing sets it, so the runner's default applies.
 
 1. Calls in the test body, the last one winning: Playwright's `test.setTimeout()` and `test.slow()`.
 2. The same calls in a `beforeEach` around the test, which runs before the body. In `beforeAll` and `afterAll` they
@@ -165,9 +166,14 @@ The run settings are those written in the file. Each key comes from the nearest 
 4. Each describe around the test, from the innermost out, and then the file: Playwright's
    `test.describe.configure({ timeout, retries })`, `test.setTimeout()` and `test.slow()` written in the describe, and
    the options Vitest passes down from `describe()`.
+5. The config the file uses: Playwright's `timeout`, `retries` and `repeatEach` of the projects that run the test,
+   with `repeatEach` as `repeats`, the runs after the first; Vitest's `testTimeout`, `retry` and, from Vitest 5, `repeats`. When the projects set
+   different values, or the value depends on a condition, as in `process.env.CI ? 2 : 0`, the key is `null` with its
+   source `config`; so are all three when the scan can't work out the projects.
 
 A Vitest `retry` replaces the whole `retry` around it, so a test with `retry: 1` in a describe with a `delay` has no
-`retryDelay`. Vitest reads the `retry` object from 4.1 and ignores it before, and so does the scan.
+`retryDelay`. Vitest reads the `retry` object from 4.1 and ignores it before, and so does the scan; in the config before 4.1, the scan
+gives `null` with source `config`.
 
 Playwright triples the timeout of a slow test once, when `test.slow()` runs; a `test.setTimeout()` after it replaces
 the tripled value. The record keeps `timeout` as written and `isSlow` beside it. `test.slow()` under a condition, or
@@ -195,7 +201,8 @@ test.describe('live price stream', () => {
   "isSlow": false,
   "retries": 2,
   "retryDelay": null,
-  "repeats": null
+  "repeats": null,
+  "retriesSource": "suite"
 }
 ```
 

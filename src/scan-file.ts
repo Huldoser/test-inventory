@@ -6,7 +6,7 @@ import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
-import { buildRecords, fileRecord, type CommentsMode, type FileRecords } from './records.ts';
+import { buildRecords, fileRecord, type CommentsMode, type FileConfig, type FileRecords } from './records.ts';
 import { snippet } from './source.ts';
 import type { Framework } from './types.ts';
 import { Values } from './values.ts';
@@ -21,6 +21,8 @@ export interface FileSettings {
   root: string | null;
   /** Whether the config runs the file as a benchmark; null takes it from the file's name, as Vitest 5's default does. */
   isBenchmarkFile?: boolean | null;
+  /** What the config the file uses sets for its tests; null without a config. */
+  config?: FileConfig | null;
 }
 
 export interface FileResult extends FileRecords {
@@ -87,6 +89,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
         settings.framework === 'vitest' &&
         atLeast(settings.version, 5, 0) &&
         (settings.isBenchmarkFile ?? BENCHMARK.test(relativeFilePath)),
+      config: settings.config ?? null,
     });
     return {
       ...records,

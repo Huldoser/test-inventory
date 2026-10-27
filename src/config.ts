@@ -186,6 +186,12 @@ function fromValue(value: Value): Setting {
   return { kind: 'value', value };
 }
 
+/** The source text of a setting the scan can't work out; null for one of a config it couldn't read at all. */
+export function unknownText(setting: Unknown): string | null {
+  const { where } = setting;
+  return where && snippet(where.frame.parsed.source.text.slice(where.node.start, where.node.end));
+}
+
 /** The setting under a key; null when the config doesn't set it. */
 function child(setting: Setting, key: string): Setting | null {
   if (setting.kind === 'unknown') return setting;

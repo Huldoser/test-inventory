@@ -10,7 +10,11 @@ import {
   type ObjectSetting,
   type Setting,
   type Unknown,
+  unknownText,
 } from './config.ts';
+import { atLeast } from './frameworks/common.ts';
+import type { RunSettings } from './model.ts';
+import type { ConfigDefaults, FileConfig } from './records.ts';
 import type { Framework, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
 import {
   VITEST_BENCHMARK_INCLUDE,
@@ -55,7 +59,28 @@ export interface ProjectAbout {
   dependencies: string[];
   grep: ((title: string) => boolean) | null;
   grepRoot: string;
+  defaults: ProjectDefaults;
 }
+
+/**
+ * The settings a project gives its tests, as written; null when unset. Playwright's `timeout`, `retries`, `repeatEach`
+ * and `fullyParallel`; Vitest's `testTimeout`, `retry`, `repeats` and `sequence.concurrent`.
+ */
+interface ProjectDefaults {
+  timeout: Setting | null;
+  retry: Setting | null;
+  repeatEach: Setting | null;
+  repeats: Setting | null;
+  parallel: Setting | null;
+}
+
+const NO_DEFAULTS: ProjectDefaults = {
+  timeout: null,
+  retry: null,
+  repeatEach: null,
+  repeats: null,
+  parallel: null,
+};
 
 /** The config a file uses, the settings of its project, and how that config runs it. */
 export interface Placement {
@@ -233,9 +258,21 @@ export class ConfigRuns {
     return projects;
   }
 
+  /** Vitest's `retry`: before 4.1, which reads only a count, an object is one the scan can't work out. */
+  private vitestRetry(setting: Setting | null): Setting | null {
+    return setting?.kind === 'object' && !atLeast(this.version, 4, 1) ? unknownAt(setting) : setting;
+  }
+
   /** A project whose files can't be worked out, because of `setting` under `key`: it may run any file. */
   private unknownProject(config: ConfigFile, setting: Unknown, key: string): Project {
-    const about = { name: '', testDir: path.dirname(config.file), dependencies: [], grep: null, grepRoot: '' };
+    const about = {
+      name: '',
+      testDir: path.dirname(config.file),
+      dependencies: [],
+      grep: null,
+      grepRoot: '',
+      defaults: NO_DEFAULTS,
+    };
     return { config, settings: setting, about, runs: null, unknown: { setting, key } };
   }
 
@@ -312,6 +349,13 @@ export class ConfigRuns {
         configDir?.kind === 'value' && typeof configDir.value === 'string'
           ? path.resolve(folder, configDir.value)
           : folder,
+      defaults: {
+        timeout: take('timeout')?.setting ?? null,
+        retry: take('retries')?.setting ?? null,
+        repeatEach: take('repeatEach')?.setting ?? null,
+        repeats: null,
+        parallel: take('fullyParallel')?.setting ?? null,
+      },
     };
     return {
       config,
@@ -531,6 +575,14 @@ export class ConfigRuns {
       dependencies: [],
       grep: null,
       grepRoot: base,
+      defaults: {
+        timeout: settingAt(settings, ['test', 'testTimeout']),
+        retry: this.vitestRetry(settingAt(settings, ['test', 'retry'])),
+        repeatEach: null,
+        // Vitest 5 added `repeats` to the config.
+        repeats: atLeast(this.version, 5, 0) ? settingAt(settings, ['test', 'repeats']) : null,
+        parallel: settingAt(settings, ['test', 'sequence', 'concurrent']),
+      },
     };
     return {
       config,
@@ -610,27 +662,107 @@ function folders(relative: string): string[] {
 }
 
 /**
- * The names of the projects that run a test: those that run its file, less those whose Playwright `grep` or
- * `grepInvert` leaves its title out, matched as Playwright matches it, against the project's name, the file's path
- * from the config's root folder, the titles of the describes and the test and their tags. Null when the placement
- * can't tell, or a `grep` meets a title the scan can't work out.
+ * The projects that run a test: those that run its file, less those whose Playwright `grep` or `grepInvert` leaves its
+ * title out, matched as Playwright matches it, against the project's name, the file's path from the config's root
+ * folder, the titles of the describes and the test and their tags. Null when a `grep` meets a title the scan can't work
+ * out.
  */
-export function testProjects(
-  placement: Placement,
+function projectsRunning(
+  projects: ProjectAbout[],
   test: TestRecord,
   suites: SuiteRecord[],
   file: string,
-): string[] | null {
-  if (placement.projects === null) return null;
+): ProjectAbout[] | null {
   const titles = [...test.suitePath, test.title];
   const isDynamic =
     test.hasDynamicTitle || suites.some((suite) => suite.hasDynamicTitle && test.suitePath.includes(suite.title));
   // Tags written into a title are in its text already; Playwright adds the others after it.
   const tags = test.tags.filter((tag) => !titles.some((title) => title.includes(tag)));
-  const names: string[] = [];
-  for (const { name, grep, grepRoot } of placement.projects) {
+  const running: ProjectAbout[] = [];
+  for (const project of projects) {
+    const { name, grep, grepRoot } = project;
     if (grep && isDynamic) return null;
-    if (!grep || grep([name, path.relative(grepRoot, file), ...titles, ...tags].join(' '))) names.push(name);
+    if (!grep || grep([name, path.relative(grepRoot, file), ...titles, ...tags].join(' '))) running.push(project);
   }
-  return names;
+  return running;
+}
+
+/** A number a setting holds: undefined when unset, null when it holds something else or can't be worked out. */
+function numberIn(setting: Setting | null): number | null | undefined {
+  if (setting === null || isUnset(setting)) return undefined;
+  return setting.kind === 'value' && typeof setting.value === 'number' ? setting.value : null;
+}
+
+/** Playwright's `retries`, or Vitest's `retry` as a count or an object with a `delay` and a `condition`. */
+function retryIn(setting: Setting | null): RunSettings['retry'] | null | undefined {
+  if (setting?.kind !== 'object') {
+    const count = numberIn(setting);
+    return typeof count === 'number' ? { count, delay: null, condition: null } : count;
+  }
+  const count = numberIn(settingAt(setting, ['count']));
+  if (count === null) return null;
+  const condition = settingAt(setting, ['condition']);
+  return {
+    // Vitest counts a `retry` object without a `count` as no retries.
+    count: count ?? 0,
+    delay: numberIn(settingAt(setting, ['delay'])) ?? null,
+    condition:
+      condition?.kind === 'regex'
+        ? `/${condition.source}/${condition.flags}`
+        : condition?.kind === 'unknown'
+          ? unknownText(condition)
+          : null,
+  };
+}
+
+/**
+ * What the config sets for a test, from the projects that run it: a setting they all agree on, or null when they set
+ * different values or one depends on a condition; null without projects.
+ */
+function configDefaults(projects: ProjectAbout[]): ConfigDefaults | null {
+  if (projects.length === 0) return null;
+  const agreed = <T>(read: (defaults: ProjectDefaults) => T | null | undefined): T | null | undefined => {
+    const values = projects.map((project) => read(project.defaults));
+    if (values.every((value) => value === undefined)) return undefined;
+    const first = JSON.stringify(values[0]);
+    return values.every((value) => value !== null && value !== undefined && JSON.stringify(value) === first)
+      ? values[0]
+      : null;
+  };
+  return {
+    timeout: agreed((defaults) => numberIn(defaults.timeout)),
+    retry: agreed((defaults) => retryIn(defaults.retry)),
+    repeats: agreed((defaults) => {
+      if (defaults.repeatEach === null) return numberIn(defaults.repeats);
+      // Playwright runs a test `repeatEach` times in all; `repeats` counts the runs after the first.
+      const repeatEach = numberIn(defaults.repeatEach);
+      return typeof repeatEach === 'number' ? Math.max(repeatEach - 1, 0) : repeatEach;
+    }),
+    parallel: projects.every(({ defaults }) => defaults.parallel?.kind === 'value' && defaults.parallel.value === true),
+  };
+}
+
+/** Projects the scan can't work out may set any run setting. */
+const UNKNOWN_DEFAULTS: ConfigDefaults = { timeout: null, retry: null, repeats: null, parallel: false };
+
+/**
+ * What the config a file uses gives it: Playwright's `forbidOnly`, read from the top level only, as Playwright reads
+ * it, and for each test, the projects that run it and what they set; null without a config.
+ */
+export function fileConfig(placement: Placement, framework: Framework, file: string): FileConfig | null {
+  const { config, projects } = placement;
+  if (config === null) return null;
+  const forbidOnly = framework === 'playwright' ? settingAt(config.settings, ['forbidOnly']) : null;
+  return {
+    forbidOnly:
+      forbidOnly?.kind === 'unknown'
+        ? (unknownText(forbidOnly) ?? false)
+        : forbidOnly?.kind === 'value' && forbidOnly.value === true,
+    forTest(test, suites) {
+      if (projects === null) return { projects: null, defaults: UNKNOWN_DEFAULTS };
+      const running = projectsRunning(projects, test, suites, file);
+      // A grep the scan can't match leaves the projects that run the file, which may still agree.
+      return { projects: running?.map(({ name }) => name) ?? null, defaults: configDefaults(running ?? projects) };
+    },
+  };
 }

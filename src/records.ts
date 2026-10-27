@@ -1,4 +1,4 @@
-import type { FunctionBody, Node } from 'oxc-parser';
+import type { CallExpression, FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
 import {
@@ -15,6 +15,7 @@ import { problem } from './frameworks/common.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Problem, RunSettings, Span, StateSetting } from './model.ts';
 import type { ParsedFile } from './parse.ts';
+import { snippet } from './source.ts';
 import type {
   DeclaredAt,
   Diagnostic,
@@ -22,6 +23,7 @@ import type {
   Framework,
   HookCounts,
   MetaValue,
+  SettingSource,
   StateSource,
   SuiteRecord,
   TestRecord,
@@ -38,6 +40,24 @@ export interface FileRecords {
   diagnostics: Diagnostic[];
 }
 
+/** What the config the file uses sets for its tests, where the file sets nothing. */
+export interface ConfigDefaults {
+  /** A run setting the config sets; null when its projects set different values or it depends on a condition. */
+  timeout?: number | null;
+  retry?: RunSettings['retry'] | null;
+  repeats?: number | null;
+  /** Whether tests run in parallel unless the file says otherwise: Playwright's `fullyParallel`, Vitest's `sequence.concurrent`. */
+  parallel: boolean;
+}
+
+/** What the config the file uses gives it. */
+export interface FileConfig {
+  /** Whether a `.only` fails the run: Playwright's `forbidOnly`, always, never, or under the condition with this text. */
+  forbidOnly: boolean | string;
+  /** The names of the projects that run a test, null when unknown, and what they set for it. */
+  forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
+}
+
 interface RecordOptions {
   relativeFilePath: string;
   framework: Framework;
@@ -45,6 +65,7 @@ interface RecordOptions {
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
   isBenchmarkFile: boolean;
+  config: FileConfig | null;
 }
 
 interface Chosen {
@@ -86,6 +107,11 @@ function bodyNodes(fn: FunctionNode): Node[] {
   return body.type === 'BlockStatement' ? body.body : [body];
 }
 
+/** Where a run setting of a scope is written, for a test in it: the file, or a describe. */
+function placeOf(scope: Scope): SettingSource {
+  return scope.kind === 'file' ? 'file' : 'suite';
+}
+
 function addHooks(scopes: Scope[]): HookCounts {
   const total = noHooks();
   for (const scope of scopes) {
@@ -116,6 +142,39 @@ function runKeys(places: RunSettings[]): RunKeys {
     retryCondition: retry?.condition ?? null,
     repeats: first('repeats') ?? null,
   };
+}
+
+type RunSources = Pick<TestRecord, 'timeoutSource' | 'retriesSource' | 'repeatsSource'>;
+
+/** A test's run settings from the file, and where each comes from: the nearest place that sets it. */
+function testRun(places: { run: RunSettings; source: SettingSource }[]): RunKeys & RunSources {
+  const from = (key: keyof RunSettings) => places.find((place) => place.run[key] !== undefined)?.source ?? null;
+  return {
+    ...runKeys(places.map((place) => place.run)),
+    timeoutSource: from('timeout'),
+    retriesSource: from('retry'),
+    repeatsSource: from('repeats'),
+  };
+}
+
+/** A test's run settings, with what the config sets where the file sets nothing. */
+function withConfig<T extends RunKeys & RunSources>(fromFile: T, config: ConfigDefaults | null): T {
+  const run = { ...fromFile };
+  if (run.timeoutSource === null && config?.timeout !== undefined) {
+    run.timeout = config.timeout;
+    run.timeoutSource = 'config';
+  }
+  if (run.retriesSource === null && config?.retry !== undefined) {
+    run.retries = config.retry?.count ?? null;
+    run.retryDelay = config.retry?.delay ?? null;
+    run.retryCondition = config.retry?.condition ?? null;
+    run.retriesSource = 'config';
+  }
+  if (run.repeatsSource === null && config?.repeats !== undefined) {
+    run.repeats = config.repeats;
+    run.repeatsSource = 'config';
+  }
+  return run;
 }
 
 /** The record of a scanned file, from its records and the hooks at its top level. */
@@ -174,7 +233,7 @@ class RecordBuilder {
     const lines = rejecting.map((item) => this.parsed.source.line((item.node as Span).start));
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
     const suites = extraction.suites.map((suite) => this.suite(suite));
-    const tests = extraction.tests.map((test) => this.test(test));
+    const tests = extraction.tests.map((test) => this.test(test, suites));
     for (const item of extraction.problems) this.diagnostics.push(this.diagnostic(item));
     for (const { index, problem: item } of duplicates) {
       this.diagnostics.push(this.diagnostic(item, tests[index].id));
@@ -220,8 +279,25 @@ class RecordBuilder {
     return shortHash(JSON.stringify([this.options.relativeFilePath, ...parts, ordinal]));
   }
 
+  /**
+   * Reports a `.only` that the config's `forbidOnly` makes fail the run, at `located`; one under a condition is a
+   * warning. `call` is the `.only` call when it is in this file, whose callee the diagnostic shows.
+   */
+  private forbidOnly(located: Span, call: CallExpression | null): void {
+    const forbid = this.options.config?.forbidOnly ?? false;
+    if (forbid === false) return;
+    const message =
+      forbid === true
+        ? 'The config sets forbidOnly, so this .only fails the run before any test runs.'
+        : `The config sets forbidOnly when ${forbid}, so then this .only fails the run before any test runs.`;
+    const callee = call && snippet(this.parsed.source.text.slice(call.callee.start, call.callee.end));
+    const found = problem('forbidden-only', located, message, callee);
+    this.diagnostics.push(this.diagnostic(forbid === true ? found : { ...found, level: 'warning' }));
+  }
+
   private suite(pending: PendingSuite): SuiteRecord {
     const { scope, declaration, call } = pending;
+    if (declaration.isOnly) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
     const parents = outward(scope).slice(1, -1).reverse();
     const title = declaration.title;
     // Suite ids are marked so that a describe and a test with the same title in the same place differ.
@@ -264,7 +340,7 @@ class RecordBuilder {
     };
   }
 
-  private test(pending: PendingTest): TestRecord {
+  private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
     // A test from an imported helper is placed at the call in this file that registers it.
     const located = pending.site ?? pending.call;
@@ -307,6 +383,7 @@ class RecordBuilder {
         'The test uses the bench fixture, which Vitest only provides in benchmark files such as *.bench.ts; elsewhere the test fails.';
       this.diagnostics.push(this.diagnostic(problem('bench-outside-benchmark-file', located, message), id));
     }
+    if (declaration.isOnly) this.forbidOnly(located, pending.site ? null : pending.call);
     if (pending.isInLoop) {
       this.diagnostics.push(
         this.diagnostic(
@@ -331,7 +408,7 @@ class RecordBuilder {
         ),
       );
     }
-    return {
+    const record: TestRecord = {
       id,
       bodyHash: declaration.hashed ? hashNodes([declaration.hashed]) : null,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
@@ -376,11 +453,11 @@ class RecordBuilder {
       meta: Object.keys(meta).length > 0 ? meta : null,
       hooks: addHooks(scopes),
       // Calls in the body and in `beforeEach` hooks run last, so they win over what the describes set.
-      ...runKeys([
-        pending.run,
-        ...scopes.map((scope) => scope.hookRun),
-        declaration.details.run,
-        ...scopes.map((scope) => scope.details.run),
+      ...testRun([
+        { run: pending.run, source: 'test' },
+        ...scopes.map((scope) => ({ run: scope.hookRun, source: placeOf(scope) })),
+        { run: declaration.details.run, source: 'test' },
+        ...scopes.map((scope) => ({ run: scope.details.run, source: placeOf(scope) })),
       ]),
       fixtures: unique([...declaration.fixtures, ...[...scopes].reverse().flatMap((scope) => scope.hookFixtures)]),
       expectCount: pending.expectCount,
@@ -395,6 +472,12 @@ class RecordBuilder {
       isInCondition: pending.isInCondition,
       isInFunction: pending.isInFunction,
       projects: null,
+    };
+    const { projects, defaults } = this.options.config?.forTest(record, suites) ?? { projects: null, defaults: null };
+    return {
+      ...withConfig(record, defaults),
+      isParallel: record.isParallel || (mode === null && defaults?.parallel === true),
+      projects,
     };
   }
 

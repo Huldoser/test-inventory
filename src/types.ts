@@ -32,6 +32,13 @@ export type TestState = 'active' | 'skip' | 'fixme' | 'todo' | 'expectedToFail' 
 export type StateSource = 'test' | 'suite' | 'file';
 
 /**
+ * Where a test's run setting comes from: the test, a describe around it, the file, or the config its file uses.
+ *
+ * @inline
+ */
+export type SettingSource = 'test' | 'suite' | 'file' | 'config';
+
+/**
  * `error`: tests may be missing from the output. `warning`: a value is missing or approximate.
  *
  * @inline
@@ -77,7 +84,8 @@ export type DiagnosticCode =
   | 'empty-title'
   | 'bench-outside-benchmark-file'
   | 'config-value-unknown'
-  | 'file-not-run';
+  | 'file-not-run'
+  | 'forbidden-only';
 
 export type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
@@ -356,7 +364,7 @@ export interface TestRecord {
   hooks: HookCounts;
   /**
    * In milliseconds: the last `test.setTimeout()` in the body or a `beforeEach`, otherwise the nearest describe or file
-   * that sets one. Null when the file sets none, so the config's timeout applies.
+   * that sets one, otherwise the config. Null when none sets it, so the runner's default applies.
    */
   timeout: Count | null;
   /** Playwright `test.slow()` applies: the runner triples the timeout. */
@@ -369,8 +377,20 @@ export interface TestRecord {
   retryDelay: Count | null;
   /** Vitest only: source text of the `retry` object's `condition`, a RegExp or a function. */
   retryCondition: string | null;
-  /** Vitest only: how many times the runner runs the test again after the first run. */
+  /**
+   * How many times the runner runs the test again after the first run: Vitest's `repeats`, or Playwright's `repeatEach`
+   * from the config less one.
+   */
   repeats: Count | null;
+  /**
+   * Where `timeout` comes from; null when nothing sets it. A null `timeout` from the config means the config sets it, but
+   * its projects set different values or the value depends on a condition, as in `process.env.CI ? 2 : 0`.
+   */
+  timeoutSource: SettingSource | null;
+  /** Where `retries`, `retryDelay` and `retryCondition` come from, read as `timeoutSource` is. */
+  retriesSource: SettingSource | null;
+  /** Where `repeats` comes from, read as `timeoutSource` is. */
+  repeatsSource: SettingSource | null;
   /**
    * Names the test function takes from its context, then those of the `beforeEach`, `afterEach` and `aroundEach` hooks
    * around it, once each. Vitest's own context keys, such as `expect` and `task`, are left out.
