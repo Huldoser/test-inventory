@@ -2,11 +2,11 @@ import { createWriteStream, openSync, renameSync, rmSync } from 'node:fs';
 import { once } from 'node:events';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import type { Writable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { readFailure } from './files.ts';
 import { checkFields, filterInventory, matcher, pickTestFields, type InventoryFilter } from './filter.ts';
 import { writeInventory, writeInventoryLines, type Output } from './json.ts';
-import { OptionsError } from './options.ts';
+import { OptionsError, toPosixPath } from './options.ts';
 import { scan } from './scan.ts';
 import type { TestRecord, TestState } from './types.ts';
 import { toolVersion } from './version.ts';
@@ -15,6 +15,8 @@ export interface Io {
   stdout: Writable;
   stderr: Writable;
   cwd: string;
+  /** Read for `--related -`. */
+  stdin?: Readable;
 }
 
 export const HELP = `Usage: test-inventory [glob...] --framework <playwright|vitest> [options]
@@ -33,6 +35,8 @@ Options:
   --grep <regex>               keep tests whose full name matches, ignoring case
   --only                       keep tests that use .only, or are inside a describe that does
   --without-reason             keep tests that don't run and give no reason
+  --related <file>             keep tests a change to this file can affect; can be repeated; - reads files, one per
+                               line, from standard input, as git diff --name-only writes them
   --fields <keys>              write only these keys of each test, separated by commas; id is always kept
   --format <format>            json or jsonl, one record per line (default: json)
   -o, --output <file>          write to a file instead of standard output
@@ -59,6 +63,7 @@ const FLAGS: Record<string, string> = {
   'filter.states': '--state',
   'filter.tags': '--tag',
   'filter.grep': '--grep',
+  'filter.related': '--related',
   fields: '--fields',
 };
 
@@ -98,6 +103,13 @@ async function writeOutput(
   }
 }
 
+/** All of a stream's text, as `git diff --name-only` writes to it. */
+async function text(stream: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /** ESLint's exit codes. 1 is reserved for a future release. */
 const FINISHED = 0;
 const FAILED = 2;
@@ -125,6 +137,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
         grep: { type: 'string' },
         only: { type: 'boolean' },
         'without-reason': { type: 'boolean' },
+        related: { type: 'string', multiple: true },
         fields: { type: 'string' },
         format: { type: 'string' },
         output: { type: 'string', short: 'o' },
@@ -156,6 +169,16 @@ export async function run(argv: string[], io: Io): Promise<number> {
     only: values.only,
     withoutReason: values['without-reason'],
   };
+  const root = path.resolve(io.cwd, values.root ?? '.');
+  if (values.related) {
+    const read = values.related.includes('-') && io.stdin ? await text(io.stdin) : '';
+    const named = [
+      ...values.related.filter((file) => file !== '-'),
+      ...read.split(/\r?\n/).filter((line) => line.trim()),
+    ];
+    // Paths from the current folder, as git writes them there, to the root the output's paths start from.
+    filter.related = named.map((file) => toPosixPath(path.relative(root, path.resolve(io.cwd, file.trim()))));
+  }
   const fields = values.fields?.split(',').map((field) => field.trim()) as (keyof TestRecord)[] | undefined;
 
   let inventory;
@@ -167,7 +190,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
     inventory = await scan({
       patterns: positionals.length > 0 ? positionals : undefined,
       framework: values.framework as 'playwright',
-      root: path.resolve(io.cwd, values.root ?? '.'),
+      root,
       ignore: values.ignore ?? [],
       frameworkVersion: values['framework-version'],
       comments: values.comments as 'all' | undefined,

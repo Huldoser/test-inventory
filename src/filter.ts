@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { checkObject, OptionsError } from './options.ts';
 import { summarize } from './summary.ts';
 import type { Inventory, TestRecord, TestState } from './types.ts';
@@ -14,6 +15,12 @@ export interface InventoryFilter {
   only?: boolean;
   /** Keeps tests that don't run and give no reason. Tests in a file the runner refuses are left out. */
   withoutReason?: boolean;
+  /**
+   * Keeps the tests a change to one of these files can affect: those whose `dependencies` include it, and those that
+   * reach code the scan can't follow (`hasUnfollowedDependencies`). Paths are from the project root, as
+   * `dependencies` writes them. An empty list keeps only the tests the scan can't follow.
+   */
+  related?: string[];
 }
 
 /** An inventory whose test records have only `id` and the keys picked with `pickTestFields()`. */
@@ -28,6 +35,7 @@ const FILTER_KEYS: readonly string[] = [
   'grep',
   'only',
   'withoutReason',
+  'related',
 ] satisfies (keyof InventoryFilter)[];
 
 // Typed as a record of every key, so a key added to TestRecord fails to compile until it is listed here.
@@ -140,12 +148,20 @@ export function matcher(filter: InventoryFilter): (test: TestRecord) => boolean 
   const grep = pattern(checked.grep);
   const only = flag(checked.only, 'filter.only');
   const withoutReason = flag(checked.withoutReason, 'filter.withoutReason');
+  // Written as a shell or Windows may write them, as `./pages/order-ticket.ts` or `pages\\order-ticket.ts`.
+  const related =
+    checked.related === undefined
+      ? null
+      : new Set(
+          list(checked.related, 'filter.related', null).map((file) => path.posix.normalize(file.replaceAll('\\', '/'))),
+        );
   return (test) =>
     (states.length === 0 || states.includes(test.state)) &&
     (tags.length === 0 || test.tags.some((tag) => tags.includes(tag))) &&
     (grep === null || grep.test(test.fullName)) &&
     (!only || test.isOnly) &&
-    (!withoutReason || (!test.isActive && !test.isNotLoaded && test.reason === null));
+    (!withoutReason || (!test.isActive && !test.isNotLoaded && test.reason === null)) &&
+    (related === null || test.hasUnfollowedDependencies || test.dependencies.some((file) => related.has(file)));
 }
 
 /**

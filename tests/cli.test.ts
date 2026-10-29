@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { PassThrough, Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { HELP, run } from '../src/cli.ts';
@@ -22,6 +22,14 @@ async function cli(argv: string[], cwd: string) {
   stderr.on('data', (chunk: Buffer) => err.push(chunk.toString()));
   const code = await run(argv, { stdout, stderr, cwd });
   return { code, stdout: out.join(''), stderr: err.join('') };
+}
+
+async function related(argv: string[], cwd: string, input: string) {
+  const stdout = new PassThrough();
+  const out: string[] = [];
+  stdout.on('data', (chunk: Buffer) => out.push(chunk.toString()));
+  const code = await run(argv, { stdout, stderr: new PassThrough(), cwd, stdin: Readable.from([input]) });
+  return { code, inventory: JSON.parse(out.join('')) as Inventory };
 }
 
 describe('run', () => {
@@ -298,5 +306,42 @@ describe('run with a slow reader', () => {
     expect(code).toBe(0);
     expect(drains).toBeGreaterThan(0);
     expect(JSON.parse(chunks.join(''))).toMatchObject({ summary: { testCount: 200 } });
+  });
+});
+
+describe('--related', () => {
+  const files = {
+    'web/package.json': PLAYWRIGHT_PACKAGE,
+    'web/pages/order-ticket.ts': 'export class OrderTicket {}\n',
+    'web/tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { OrderTicket } from '../pages/order-ticket';
+test('opens the order ticket', async () => {
+  new OrderTicket();
+});
+`,
+    'web/tests/quotes.spec.ts': "import { test } from '@playwright/test';\ntest('quotes AAPL', async () => {});\n",
+  };
+
+  it('keeps the tests a changed file can affect, with paths from the current folder', async () => {
+    const root = project(files);
+    const result = await cli(
+      ['tests/*.spec.ts', '--framework', 'playwright', '--root', 'web', '--related', 'web/pages/order-ticket.ts'],
+      root,
+    );
+    expect(result.code).toBe(0);
+    expect((JSON.parse(result.stdout) as Inventory).tests.map((test) => test.title)).toEqual([
+      'opens the order ticket',
+    ]);
+  });
+
+  it('reads the changed files from standard input for -, one per line, as git diff --name-only writes them', async () => {
+    const root = project(files);
+    const { code, inventory } = await related(
+      ['tests/*.spec.ts', '--framework', 'playwright', '--root', 'web', '--related', '-'],
+      root,
+      'web/tests/quotes.spec.ts\n\nREADME.md\n',
+    );
+    expect(code).toBe(0);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['quotes AAPL']);
   });
 });
