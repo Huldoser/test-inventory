@@ -350,37 +350,55 @@ export class DependencyGraph {
    */
   dependencies(roots: Unit[], base: Reach, needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
     const reached = [base, this.reach(roots, [base])];
-    // A fixture can ask for one an object it extends defines, or use another test object, so names and objects are
-    // shared and followed until nothing new turns up.
-    const names = new Set(needs.names);
-    let all = needs.all;
+    // A fixture can ask for one an object it extends defines, or use another test object, so names are shared by
+    // every test object reached, and each name and object is read once.
+    const names = new Set<string>();
+    const queue: string[] = [];
+    const objects: Fixtures[] = [];
     const taken = new Set<Unit>();
-    for (let grew = true; grew;) {
-      grew = false;
-      const fixtures = new Set(reached.flatMap((item) => item.fixtures));
-      const fresh: Unit[] = [];
-      for (const item of fixtures) {
-        for (const name of item.auto) names.add(name);
-      }
-      for (const item of fixtures) {
-        for (const name of all ? item.byName.keys() : [...names]) {
-          for (const fixture of item.byName.get(name) ?? []) {
-            if (!taken.has(fixture.unit)) fresh.push(fixture.unit);
-            taken.add(fixture.unit);
-            if (fixture.uses === null) {
-              grew ||= !all;
-              all = true;
-            }
-            for (const used of fixture.uses ?? []) {
-              grew ||= !names.has(used);
-              names.add(used);
-            }
-          }
+    let fresh: Unit[] = [];
+    let all = false;
+    const need = (name: string) => {
+      if (names.has(name)) return;
+      names.add(name);
+      queue.push(name);
+    };
+    const takeAll = () => {
+      all = true;
+      for (const item of objects) for (const name of item.byName.keys()) need(name);
+    };
+    const resolve = (item: Fixtures, name: string) => {
+      for (const fixture of item.byName.get(name) ?? []) {
+        if (taken.has(fixture.unit)) continue;
+        taken.add(fixture.unit);
+        fresh.push(fixture.unit);
+        if (fixture.uses === null) {
+          if (!all) takeAll();
+        } else {
+          for (const used of fixture.uses) need(used);
         }
       }
+    };
+    const found = (reach: Reach) => {
+      // Each walk skips what earlier ones reached, so an object turns up once.
+      for (const item of reach.fixtures) {
+        objects.push(item);
+        for (const name of all ? item.byName.keys() : item.auto) need(name);
+        for (const name of names) resolve(item, name);
+      }
+    };
+    for (const name of needs.names) need(name);
+    for (const reach of reached) found(reach);
+    if (needs.all) takeAll();
+    while (queue.length > 0 || fresh.length > 0) {
+      for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
+        for (const item of objects) resolve(item, name);
+      }
       if (fresh.length > 0) {
-        reached.push(this.reach(fresh, reached));
-        grew = true;
+        const reach = this.reach(fresh, reached);
+        fresh = [];
+        reached.push(reach);
+        found(reach);
       }
     }
     const places = reached.flatMap((item) => item.places);
