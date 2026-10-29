@@ -36,7 +36,12 @@ const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
     ['expect', 'toHaveScreenshot', 'pathTemplate'],
     ['expect', 'toMatchAriaSnapshot', 'pathTemplate'],
   ],
-  vitest: [['test', 'resolveSnapshotPath']],
+  vitest: [
+    ['test', 'resolveSnapshotPath'],
+    ['test', 'snapshotEnvironment'],
+    ['test', 'browser', 'expect', 'toMatchScreenshot', 'resolveScreenshotPath'],
+    ['test', 'browser', 'expect', 'toMatchScreenshot', 'screenshotDirectory'],
+  ],
 };
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
@@ -169,13 +174,21 @@ export class ConfigDependencies {
     return { config: own, modules: [...modules], gaps, moved: this.moved(own, config, placement) };
   }
 
+  /** Whether Playwright's `snapshotDir` is the testDir of every project that runs the file, its default. */
+  private isDefault(config: ConfigFile, placement: Placement, keys: string[], found: Setting): boolean {
+    if (keys[0] !== 'snapshotDir' || found.kind !== 'value' || typeof found.value !== 'string') return false;
+    const folder = path.resolve(path.dirname(config.file), found.value);
+    const projects = placement.projects ?? [];
+    return projects.length > 0 && projects.every((project) => project.testDir === folder);
+  }
+
   /** The first setting of the config or a project running the file that puts snapshots elsewhere; null for none. */
   private moved(own: ModuleSource, config: ConfigFile, placement: Placement): ConfigGap | null {
     const settings = [config.settings, ...(placement.projects ?? []).map((project) => project.settings)];
     for (const keys of SNAPSHOT_KEYS[this.framework]) {
       for (const setting of settings) {
         const found = settingAt(setting, keys);
-        if (found === null) continue;
+        if (found === null || this.isDefault(config, placement, keys, found)) continue;
         const message = `${keys.join('.')} puts snapshots where the scan doesn't look, so dependencyHash doesn't cover them.`;
         if (found.kind === 'unknown' && found.where) {
           const { frame, node } = found.where;

@@ -78,17 +78,27 @@ interface Unit {
 export interface SnapshotUse {
   matcher: string;
   name: string | null;
+  /** Given as path parts, as `['portfolio', 'allocation.png']`, which Playwright doesn't sanitize. */
+  isParts: boolean;
 }
 
 /** Reads the snapshot files of a scan from disk, and says whether the config moves them. */
 export interface SnapshotFiles {
   framework: Framework;
   /** The files in a folder of the project and the folders in it, as paths in the folder with `/`; none for no folder. */
-  list(folder: string): string[];
-  /** A file's bytes, from the project root; null when it can't be read, as before a snapshot is first written. */
-  read(file: string): Uint8Array | null;
+  list(folder: string): string[] | 'unreadable';
+  /** A file's bytes, from the project root; null when there is none, as before a snapshot is first written. */
+  read(file: string): Uint8Array | null | 'unreadable';
   /** Where the config puts snapshots elsewhere, which the scan doesn't follow; null when it doesn't. */
   moved: ConfigGap | null;
+}
+
+/** The snapshot files of a test: files by path, folders with the name stems wanted, and whether a path leaves the project. */
+interface SnapshotPaths {
+  files: string[];
+  /** By folder, the stems of the names given, null for a matcher that gives none. */
+  folders: Map<string, (string | null)[]>;
+  isOutside: boolean;
 }
 
 /** Something a test reaches that the scan can't follow. */
@@ -226,6 +236,8 @@ const GLOBAL_TESTS = new Set([
 /** Matchers that compare against a file beside the test: Vitest's snapshots and file snapshots, Playwright's too. */
 const SNAPSHOT_MATCHERS = new Set([
   'toMatchSnapshot',
+  'matchSnapshot',
+  'toMatchScreenshot',
   'toThrowErrorMatchingSnapshot',
   'toMatchFileSnapshot',
   'toHaveScreenshot',
@@ -236,11 +248,14 @@ const SNAPSHOT_MATCHERS = new Set([
  * The name or path a snapshot matcher is given: a string, a list of path parts as Playwright takes, or an options
  * object's `name`; null for anything else, as a name worked out at run time.
  */
-function snapshotName(argument: Node): string | null {
-  if (argument.type === 'Literal' && typeof argument.value === 'string') return argument.value;
+function snapshotName(argument: Node): { name: string; isParts: boolean } | null {
+  if (argument.type === 'Literal' && typeof argument.value === 'string')
+    return { name: argument.value, isParts: false };
   if (argument.type === 'ArrayExpression') {
     const parts = argument.elements.map((element) => (element ? snapshotName(element) : null));
-    return parts.every((part) => part !== null) ? parts.join('/') : null;
+    return parts.every((part) => part !== null)
+      ? { name: parts.map((part) => part.name).join('/'), isParts: true }
+      : null;
   }
   if (argument.type === 'ObjectExpression') {
     const property = argument.properties.find((item) => item.type === 'Property' && propertyKey(item) === 'name');
@@ -248,6 +263,12 @@ function snapshotName(argument: Node): string | null {
   }
   return null;
 }
+
+/** How a matcher is called from another, as a custom matcher calls Vitest's own. */
+const CALLS = new Set(['call', 'apply']);
+
+/** The characters Playwright 1.64 turns into `-` in a snapshot name before its extension. */
+const UNSAFE_NAME = /[\x00-\x2C\x2E-\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+/g;
 
 /** Calls that set fixtures for a file or a describe: Playwright's `test.use()`, Vitest's `override()` and `scoped()`. */
 const USE_CALLS = new Set(['use', 'override', 'scoped']);
@@ -408,7 +429,7 @@ export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
   private readonly imports = new WeakMap<Node, Unit>();
-  private readonly snapshotFiles = new Map<string, Unit>();
+  private readonly snapshotFiles = new Map<string, Unit | null | 'unreadable'>();
   private readonly calledTests = new WeakMap<Node, boolean>();
   private readonly testObjects: [WeakMap<Node, Unit | null>, WeakMap<Node, Unit | null>] = [
     new WeakMap(),
@@ -729,13 +750,20 @@ export class DependencyGraph {
     return found;
   }
 
-  /** A file a test compares against, by its bytes: a snapshot or a screenshot. */
-  snapshotUnit(relativeFilePath: string, bytes: Uint8Array): Unit {
+  /**
+   * A file a test compares against, by its bytes: a snapshot or a screenshot, read once per scan however many tests
+   * compare against it; null when there is none yet.
+   */
+  snapshotUnit(relativeFilePath: string, read: () => Uint8Array | null | 'unreadable'): Unit | null | 'unreadable' {
     let unit = this.snapshotFiles.get(relativeFilePath);
-    if (!unit) {
-      unit = this.newUnit(this.newModule(relativeFilePath, null, null, new Values(), null), [], new Map(), false);
-      unit.edges = new Set();
-      unit.hash = shortHash(bytes);
+    if (unit === undefined) {
+      const bytes = read();
+      if (bytes === null || bytes === 'unreadable') unit = bytes;
+      else {
+        unit = this.newUnit(this.newModule(relativeFilePath, null, null, new Values(), null), [], new Map(), false);
+        unit.edges = new Set();
+        unit.hash = shortHash(bytes);
+      }
       this.snapshotFiles.set(relativeFilePath, unit);
     }
     return unit;
@@ -1272,20 +1300,18 @@ export class DependencyGraph {
     /** A snapshot matcher's call: the file it compares against, or nothing for one written inline. */
     const snapshot = (matcher: string, call: CallExpression) => {
       const first = call.arguments.at(0);
-      const name = first === undefined ? null : snapshotName(first);
       // `toMatchAriaSnapshot('- heading "Portfolio"')` holds the snapshot in the code.
-      if (matcher === 'toMatchAriaSnapshot' && first?.type !== 'ObjectExpression' && first !== undefined) return;
-      if (matcher === 'toMatchFileSnapshot' && name === null) {
-        edges.add(
-          this.placeUnit(
-            module,
-            call,
-            "The file this compares against is worked out at run time, so dependencyHash doesn't cover it.",
-          ),
-        );
+      const isInline =
+        first?.type === 'TemplateLiteral' || (first?.type === 'Literal' && typeof first.value === 'string');
+      if (matcher === 'toMatchAriaSnapshot' && isInline) return;
+      const named = first === undefined ? null : snapshotName(this.valueOf(module, first, [program], types).node);
+      if (matcher === 'toMatchFileSnapshot' && (named === null || named.name.startsWith('/'))) {
+        const why = named === null ? 'is worked out at run time' : "is an absolute path, which the scan doesn't place";
+        const message = `The file this compares against ${why}, so dependencyHash doesn't cover it.`;
+        edges.add(this.placeUnit(module, call, message));
         return;
       }
-      unit.snapshots.push({ matcher, name });
+      unit.snapshots.push({ matcher, name: named?.name ?? null, isParts: named?.isParts ?? false });
     };
     const walk = (node: Node, scopes: Node[], key: string | null, parent: Node | null): void => {
       if (unit.cut.get(node.start) === node.end) return;
@@ -1321,6 +1347,10 @@ export class DependencyGraph {
           if (callee.type === 'MemberExpression' && !callee.computed) {
             const { object, property } = callee;
             if (SNAPSHOT_MATCHERS.has(property.name)) snapshot(property.name, node);
+            // `Snapshots.toMatchSnapshot.call(this, received)` in a custom matcher.
+            const target = object.type === 'MemberExpression' && !object.computed ? object.property.name : '';
+            if (CALLS.has(property.name) && SNAPSHOT_MATCHERS.has(target))
+              unit.snapshots.push({ matcher: target, name: null, isParts: false });
             if (object.type === 'Identifier' && object.name === 'vi' && VI_MODULE_CALLS.has(property.name)) {
               loadsByPath(node.arguments.at(0), node);
             }
@@ -1455,35 +1485,38 @@ function literalIn(node: Node, value: string): Span | null {
 
 /**
  * The snapshot files the matchers of a test compare against, from the project root, at the runners' default places:
- * Vitest's `__snapshots__/<file>.snap` and paths given to `toMatchFileSnapshot()`, beside the test file; Playwright's
- * `<file>-snapshots/` folder, the files that start with a name given, or all of them when a matcher gives none.
+ * Vitest's `__snapshots__/<file>.snap`, paths given to `toMatchFileSnapshot()`, and browser screenshots in
+ * `__screenshots__/<file>/`, beside the test file; Playwright's `<file>-snapshots/` folder. Of a folder, the files that
+ * start with a name given, or all of them when a matcher gives none; `outside` when a path leaves the project.
  */
-function snapshotPaths(testFile: string, uses: SnapshotUse[], files: SnapshotFiles): string[] {
+function snapshotPaths(testFile: string, uses: SnapshotUse[], framework: Framework): SnapshotPaths {
   const folder = path.posix.dirname(testFile);
   const name = path.posix.basename(testFile);
-  if (files.framework === 'vitest') {
-    return [
-      ...new Set(
-        uses.map((use) =>
-          use.matcher === 'toMatchFileSnapshot'
-            ? path.posix.join(folder, use.name as string)
-            : path.posix.join(folder, '__snapshots__', `${name}.snap`),
-        ),
-      ),
-    ];
+  const found = new Set<string>();
+  const folders = new Map<string, (string | null)[]>();
+  const named = (target: string, use: SnapshotUse, sanitize: boolean) => {
+    // A name is taken without its extension, as the runners add the project or browser and platform before it.
+    const stem = use.name?.replace(/(\.aria\.yml|\.[^./]*)$/, '') ?? null;
+    const stems = folders.get(target) ?? [];
+    stems.push(stem !== null && sanitize && !use.isParts ? stem.replace(UNSAFE_NAME, '-') : stem);
+    folders.set(target, stems);
+  };
+  for (const use of uses) {
+    if (framework === 'playwright') named(path.posix.join(folder, `${name}-snapshots`), use, true);
+    else if (use.matcher === 'toMatchScreenshot') named(path.posix.join(folder, '__screenshots__', name), use, false);
+    else if (use.matcher === 'toMatchFileSnapshot') found.add(path.posix.join(folder, use.name as string));
+    else found.add(path.posix.join(folder, '__snapshots__', `${name}.snap`));
   }
-  const snapshots = path.posix.join(folder, `${name}-snapshots`);
-  const names = uses.map((use) => use.name);
-  // A name is taken without its extension, as Playwright adds the project and platform before it.
-  const stems = names.map((item) => item?.replace(/\.[^./]*$/, ''));
-  return files
-    .list(snapshots)
-    .filter(
-      (file) =>
-        names.includes(null) ||
-        stems.some((stem) => file === stem || file.startsWith(`${stem}-`) || file.startsWith(`${stem}.`)),
-    )
-    .map((file) => `${snapshots}/${file}`);
+  return {
+    files: [...found].filter((file) => !file.startsWith('../')),
+    folders,
+    isOutside: [...found].some((file) => file.startsWith('../')),
+  };
+}
+
+/** Whether a file in a snapshots folder is one a name gives, as Playwright and Vitest add a suffix to the name. */
+function hasStem(file: string, stem: string | null): boolean {
+  return stem === null || file === stem || file.startsWith(`${stem}-`) || file.startsWith(`${stem}.`);
 }
 
 /** The statements of a describe's callback, or its expression when it has no block body. */
@@ -1566,12 +1599,30 @@ export function fileDependencies(
   const snapshots = (uses: SnapshotUse[]): Unit[] => {
     if (!snapshotFiles) return [graph.quietUnit(mainModule, 'Snapshot files are not read when one file is scanned.')];
     if (snapshotFiles.moved) return [graph.gapUnit(snapshotFiles.moved)];
-    const files = snapshotPaths(main.relativeFilePath, uses, snapshotFiles);
-    return files.flatMap((file) => {
-      const bytes = snapshotFiles.read(file);
+    const paths = snapshotPaths(main.relativeFilePath, uses, snapshotFiles.framework);
+    const units: Unit[] = [];
+    const unreadable = () =>
+      graph.quietUnit(mainModule, "A snapshot file can't be read, so dependencyHash doesn't cover it.");
+    if (paths.isOutside)
+      units.push(
+        graph.quietUnit(mainModule, "A snapshot path leaves the project, so dependencyHash doesn't cover it."),
+      );
+    const files = [...paths.files];
+    for (const [folder, stems] of paths.folders) {
+      const listed = snapshotFiles.list(folder);
+      if (listed === 'unreadable') units.push(unreadable());
+      else
+        files.push(
+          ...listed.filter((file) => stems.some((stem) => hasStem(file, stem))).map((file) => `${folder}/${file}`),
+        );
+    }
+    for (const file of files) {
       // A snapshot not written yet is written by the test's first run.
-      return bytes ? [graph.snapshotUnit(file, bytes)] : [];
-    });
+      const unit = graph.snapshotUnit(file, () => snapshotFiles.read(file));
+      if (unit === 'unreadable') units.push(unreadable());
+      else if (unit) units.push(unit);
+    }
+    return units;
   };
   // A test declared in a helper is one call for every test the helper's calls register.
   const calls = new Map<Node, Unit>();

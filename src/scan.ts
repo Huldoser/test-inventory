@@ -83,25 +83,41 @@ function folderHint(root: string, patterns: string[], framework: Framework): str
 /** The JavaScript and TypeScript files the runners read, which the configs choose the test files from. */
 const SCRIPT_FILES = '**/*.{js,jsx,ts,tsx,mjs,mjsx,mts,mtsx,cjs,cjsx,cts,ctsx}';
 
-/** The files in a folder of the project and the folders in it, as paths in the folder with `/`; none for no folder. */
-function filesIn(root: string, folder: string): string[] {
+/** Whether an error says a file or folder isn't there, as a snapshot isn't before a test first writes it. */
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+/**
+ * The files in a folder of the project and the folders in it, linked files too, as paths in the folder with `/`;
+ * none for no folder.
+ */
+function filesIn(root: string, folder: string): string[] | 'unreadable' {
+  const base = path.join(root, folder);
   try {
-    const entries = readdirSync(path.join(root, folder), { recursive: true, withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => toPosixPath(path.relative(path.join(root, folder), path.join(entry.parentPath, entry.name))))
+    return readdirSync(base, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() || (entry.isSymbolicLink() && isFile(path.join(entry.parentPath, entry.name))))
+      .map((entry) => toPosixPath(path.relative(base, path.join(entry.parentPath, entry.name))))
       .sort();
-  } catch {
-    return [];
+  } catch (error) {
+    return isMissing(error) ? [] : 'unreadable';
   }
 }
 
-/** A file's bytes, from the project root; null when it can't be read. */
-function bytesOf(root: string, file: string): Uint8Array | null {
+function isFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** A file's bytes, from the project root; null when there is none. */
+function bytesOf(root: string, file: string): Uint8Array | null | 'unreadable' {
   try {
     return readFileSync(path.join(root, file));
-  } catch {
-    return null;
+  } catch (error) {
+    return isMissing(error) ? null : 'unreadable';
   }
 }
 
@@ -181,11 +197,13 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   );
   const candidates = setupFiles.flat().map((file) => path.resolve(file));
   const configDependencies = new ConfigDependencies(framework, runs, readerFor, candidates);
-  const snapshotFiles = {
-    framework,
-    list: (folder: string) => filesIn(root, folder),
-    read: (file: string) => bytesOf(root, file),
+  // Many tests of a file compare against one folder, so each is listed once.
+  const listed = new Map<string, string[] | 'unreadable'>();
+  const list = (folder: string) => {
+    if (!listed.has(folder)) listed.set(folder, filesIn(root, folder));
+    return listed.get(folder) as string[] | 'unreadable';
   };
+  const snapshotFiles = { framework, list, read: (file: string) => bytesOf(root, file) };
   const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
