@@ -5,7 +5,7 @@ description: Give AI coding agents a project's tests with the test-inventory MCP
 # AI agents
 
 Coding agents ask the questions about tests that people do: which tests cover limit orders, which are skipped on
-WebKit and why, whether a change left a `.only` behind. test-inventory answers them from the source code, so an agent
+WebKit and why, whether a change left a `.only` behind, which tests a change can affect. test-inventory answers them from the source code, so an agent
 gets the answer without running the suite.
 
 ## MCP server
@@ -18,25 +18,28 @@ code from the project, writes nothing and opens no network connections.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.2 "tests/**/*.spec.ts" --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.4 --framework playwright
 ```
 
-`--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. The globs and
-`--framework` are the ones you would give the [command line](/guide/cli). The setup for Cursor and VS Code, the
+`--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. Given only
+`--framework`, it scans the test files the project's configs run; globs before it pick the files instead, as on the
+[command line](/guide/cli). The setup for Cursor and VS Code, the
 options and the security notes are in the server's [README](https://github.com/Huldoser/test-inventory-mcp#setup).
 
-| Tool               | Answers                                                                                       |
-| ------------------ | --------------------------------------------------------------------------------------------- |
-| `test_summary`     | Counts by state, tag and annotation, for the whole suite or for each file or tag.             |
-| `find_tests`       | The tests that match states, tags, title text, `.only` or a missing reason, with chosen keys. |
-| `get_tests`        | Every key of up to 20 tests by id, with the diagnostics about them.                           |
-| `scan_diagnostics` | What the scan could not read, such as a file that failed to parse.                            |
+| Tool               | Answers                                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `test_summary`     | Counts by state, tag and annotation, for the whole suite or for each file, tag or project, with the configs and their projects.     |
+| `find_tests`       | The tests that match states, tags, title text, changed files (`related`), projects, `.only` or a missing reason, with chosen keys.  |
+| `get_tests`        | Every key of up to 20 tests by id, with the diagnostics about them; as many as fit in one answer, and the other ids in `remaining`. |
+| `scan_diagnostics` | What the scan could not read, such as a file that failed to parse.                                                                  |
 
 The tests have the keys of the [output](/reference/output). Each call scans the files again, so answers follow the
-agent's edits.
+agent's edits. `related` takes the files a change touches, as `git diff --name-only` writes them, and keeps the tests
+whose [`dependencies`](/reference/output#tests) include one of them, as [`--related`](/guide/cli#tests-a-change-can-affect)
+does on the command line.
 
 The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.2` gets fixes only.
+`test-inventory-mcp@0.4` gets fixes only.
 
 ## Command line
 
