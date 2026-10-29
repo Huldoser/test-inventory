@@ -1,3 +1,4 @@
+import { DependencyGraph, fileDependencies, type Place } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
 import { parseModule } from './frameworks/bindings.ts';
@@ -23,6 +24,8 @@ export interface FileSettings {
   isBenchmarkFile?: boolean | null;
   /** What the config the file uses sets for its tests; null without a config. */
   config?: FileConfig | null;
+  /** Shared by the files of one scan, so that code many tests reach is read once. */
+  graph?: DependencyGraph;
 }
 
 export interface FileResult extends FileRecords {
@@ -79,21 +82,35 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       const helper = parseModule(module);
       return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule);
     });
+    const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
+    const unfollowed: Place[] = [];
+    const dependencies = fileDependencies(
+      settings.graph ?? new DependencyGraph(),
+      main,
+      extraction,
+      isTypeTest,
+      (place) => unfollowed.push(place),
+    );
     const records = buildRecords(extraction, parsed, {
       relativeFilePath,
       framework: settings.framework,
       comments: settings.comments,
-      isTypeTest: settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath),
+      isTypeTest,
       // Vitest 5's default `benchmark.include`, when no config says.
       isBenchmarkFile:
         settings.framework === 'vitest' &&
         atLeast(settings.version, 5, 0) &&
         (settings.isBenchmarkFile ?? BENCHMARK.test(relativeFilePath)),
       config: settings.config ?? null,
+      dependencies,
     });
     return {
       ...records,
-      diagnostics: [...diagnostics, ...records.diagnostics],
+      diagnostics: [
+        ...diagnostics,
+        ...records.diagnostics,
+        ...unfollowed.map((place) => toDiagnostic(place.problem, place.relativeFilePath, place.source)),
+      ],
       usesGlobals: extraction.usesGlobals,
     };
   } catch (error) {

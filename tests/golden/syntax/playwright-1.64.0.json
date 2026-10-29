@@ -662,6 +662,11 @@
     {
       "id": "1aa78a55759c21a3",
       "bodyHash": "d58a58eca9a97bdf",
+      "dependencyHash": "576ddb331a783081",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -742,6 +747,11 @@
     {
       "id": "e59cd787e72ca48b",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "11b00826779b0098",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -821,6 +831,11 @@
     {
       "id": "90d41c6059fb7054",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "81dcb14373678f0f",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -902,6 +917,11 @@
     {
       "id": "9c02421598066ed9",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "a58421f900c1e78c",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -981,6 +1001,11 @@
     {
       "id": "9467740196f5d9f8",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "646a815df7e060fc",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -1066,6 +1091,11 @@
     {
       "id": "72fd9513bf7815fa",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "65eae5ea6e3fc1ab",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -1145,6 +1175,11 @@
     {
       "id": "34f4e94e3e801690",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "d9330f335591050a",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -1226,6 +1261,11 @@
     {
       "id": "1881b95893b108ff",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "7d24157320926712",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "5cc33495c49878ff",
       "suitePath": [
         "order ticket"
@@ -1305,6 +1345,11 @@
     {
       "id": "b9a763c1c41a0182",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "fcb538cc6c97c064",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "464f00b0c2716014",
       "suitePath": [
         "order lifecycle"
@@ -1380,6 +1425,11 @@
     {
       "id": "74ce093ced32a712",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "8f27b5a06413253d",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "464f00b0c2716014",
       "suitePath": [
         "order lifecycle"
@@ -1455,6 +1505,11 @@
     {
       "id": "5e36f32343b3a916",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "d1d141cc62224512",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "2f3335bfb6489fbc",
       "suitePath": [
         "options chain"
@@ -1530,6 +1585,11 @@
     {
       "id": "abeb1840c719c666",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "3161a85f66a1bfff",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "884e6c3eefa86520",
       "suitePath": [],
       "relativeFilePath": "tests/playwright.spec.ts",
@@ -1603,6 +1663,11 @@
     {
       "id": "1a1c4b6acd23ea97",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "515bba94d7652396",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "0aedf5dec987ce56",
       "suitePath": [
         "market hours"
@@ -1678,6 +1743,11 @@
     {
       "id": "dc0548bdd234adf2",
       "bodyHash": "dd6414d5d6923f58",
+      "dependencyHash": "1ec77168b0e73f47",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "abe8599a62a74cd7",
       "suitePath": [
         "steps"
@@ -1774,6 +1844,11 @@
     {
       "id": "b9b25b0d01b60253",
       "bodyHash": "19fd63f424a8adfc",
+      "dependencyHash": "106e7af84a6fd18d",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "abe8599a62a74cd7",
       "suitePath": [
         "steps"
@@ -1849,6 +1924,11 @@
     {
       "id": "4508ba679f9720d2",
       "bodyHash": "0abfa9ca6483053e",
+      "dependencyHash": "b497bae668f17a41",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "abe8599a62a74cd7",
       "suitePath": [
         "steps"
@@ -1926,6 +2006,11 @@
     {
       "id": "24f9dc4519f814e1",
       "bodyHash": "95b174c783dd086c",
+      "dependencyHash": "4d7811ccc5d1e547",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": null,
       "suitePath": [],
       "relativeFilePath": "tests/playwright.spec.ts",
@@ -2001,6 +2086,11 @@
     {
       "id": "68656e13dde140fc",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "c18b17a5055ee9b9",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "cbe580900205418a",
       "suitePath": [
         "audited trades"
@@ -2076,6 +2166,11 @@
     {
       "id": "1f95eed7d8e58c58",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "072d7077bdcf6869",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "2435437f0e7997ef",
       "suitePath": [
         "quotes"
@@ -2151,6 +2246,11 @@
     {
       "id": "679c7de40f39c99a",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "3cabe49915d43ed2",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": null,
       "suitePath": [],
       "relativeFilePath": "tests/playwright.spec.ts",
@@ -2224,6 +2324,11 @@
     {
       "id": "09d9dfd55f12c49a",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "4fe3876d70014e22",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "3ca84e721af687e4",
       "suitePath": [
         "market data"
@@ -2299,6 +2404,11 @@
     {
       "id": "ea22beedc70f190f",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "33a6a736833e43aa",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4627b08e40e0c8a3",
       "suitePath": [
         "account settings"
@@ -2376,6 +2486,11 @@
     {
       "id": "3752afd166715387",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "e3e9d6c4d770b1c6",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "ddb542dbb280a4e9",
       "suitePath": [
         "quote feed"
@@ -2451,6 +2566,11 @@
     {
       "id": "265f4775f3a0e094",
       "bodyHash": "bca8bb3ded1fe64f",
+      "dependencyHash": "7288db307eaad989",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "ddb542dbb280a4e9",
       "suitePath": [
         "quote feed"
@@ -2528,6 +2648,11 @@
     {
       "id": "690cb8ee54899dfe",
       "bodyHash": "a93beeada71e996b",
+      "dependencyHash": "960527a339ab819f",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "6c86245155477cd1",
       "suitePath": [
         "order book depth"
@@ -2603,6 +2728,11 @@
     {
       "id": "bb3ba43e768bc66a",
       "bodyHash": "f16489874db99df7",
+      "dependencyHash": "c63d16dba5250eec",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "6c86245155477cd1",
       "suitePath": [
         "order book depth"
@@ -2678,6 +2808,11 @@
     {
       "id": "91752dcee059a6ac",
       "bodyHash": "3d0bfe1c5311d92a",
+      "dependencyHash": "f7e56f088ed831de",
+      "dependencies": [
+        "tests/playwright.spec.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": null,
       "suitePath": [],
       "relativeFilePath": "tests/playwright.spec.ts",

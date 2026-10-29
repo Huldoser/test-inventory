@@ -193,6 +193,31 @@ A skip inside `if`, `?:`, `&&`, `||`, `??`, `switch` or a `catch` block runs onl
 conditional too, with the source text of what decides it as its condition. For a `catch` block that is the clause
 itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws.
 
+## What dependencyHash leaves out
+
+A test's [`dependencyHash`](/reference/output#tests) follows the names its code uses to where they are declared, in
+its own file and through imports, and takes the code each module runs when it loads. Some of what a test runs is out
+of its reach:
+
+- Installed packages, such as `@playwright/test` or a library from `node_modules`. An upgrade shows in the lockfile,
+  not in the hash.
+- Files the code reads while it runs, with `fs` or `fetch`, environment variables, and the clock.
+- A module loaded by a path worked out at run time, as in ``import(`./venues/${venue}`)``. The test gets
+  `hasUnfollowedDependencies`, with a `dependency-not-followed` warning.
+- Config files, setup files and global setup.
+- Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
+- What a single-file component (`.vue`, `.svelte`) imports. A file that isn't JavaScript or TypeScript, such as a
+  component or JSON, is taken by its text.
+
+Some of what the hash takes is more than the test needs, so a change can change the hash of a test it doesn't affect:
+
+- A custom test object is taken with all its fixtures, so every test that uses it has every fixture, and what those
+  use, in its hash.
+- A helper function that declares tests is taken whole for each test it declares.
+
+When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
+`hasUnfollowedDependencies` without a warning.
+
 ## What a scan never sees
 
 Tests created inside a function from an installed package, or from a file the scan can't read, as in

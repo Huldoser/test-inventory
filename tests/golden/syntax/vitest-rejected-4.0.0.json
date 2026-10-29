@@ -304,6 +304,11 @@
     {
       "id": "dea5755edf440d6e",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "ba79f243183ecab4",
+      "dependencies": [
+        "tests/vitest-rejected.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "9b8c9c751a192001",
       "suitePath": [
         "position sizing"
@@ -379,6 +384,11 @@
     {
       "id": "172e2c49ca8c3ed4",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "24328d85c6437c48",
+      "dependencies": [
+        "tests/vitest-rejected.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "9b8c9c751a192001",
       "suitePath": [
         "position sizing"
@@ -454,6 +464,11 @@
     {
       "id": "ab260d07928421a8",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "8226ecd28ea6e47a",
+      "dependencies": [
+        "tests/vitest-rejected.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "4839062f18bbcd42",
       "suitePath": [
         "stop orders"
@@ -529,6 +544,11 @@
     {
       "id": "6e33c04b9497a7d4",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "cfec19c2bd78d704",
+      "dependencies": [
+        "tests/vitest-rejected.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "d891c3b51b58f2d6",
       "suitePath": [
         "fees"
@@ -604,6 +624,11 @@
     {
       "id": "5224378a87d61aea",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "d303242b14c8a5cd",
+      "dependencies": [
+        "tests/vitest-rejected.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "d3035adf5dc6630c",
       "suitePath": [
         "quotes"

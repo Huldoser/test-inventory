@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
+import { DependencyGraph } from './dependency-hash.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
 import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
@@ -131,6 +132,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   projectDiagnostics.push(...found.diagnostics);
 
   const readerFor = moduleResolver(root);
+  const graph = new DependencyGraph();
   const configs = new Configs(root, framework, readerFor, rules);
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
@@ -164,6 +166,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
+      graph,
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.
