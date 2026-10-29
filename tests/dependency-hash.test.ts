@@ -2292,4 +2292,170 @@ test('labels the navigation', async ({ page }) => {
       ]);
     });
   });
+
+  describe('components', () => {
+    const WATCHLIST = `<script setup lang="ts">
+import { computed } from 'vue';
+import type { Quote } from '../types/quote';
+import WatchlistRow from './WatchlistRow.vue';
+import { formatChange } from '../format';
+
+const props = defineProps<{ quotes: Quote[] }>();
+const rows = computed(() => [...props.quotes].sort((a, b) => b.changePercent - a.changePercent));
+</script>
+
+<template>
+  <table>
+    <WatchlistRow v-for="quote in rows" :key="quote.symbol" :quote="quote" :change="formatChange(quote)" />
+  </table>
+</template>
+`;
+    const WATCHLIST_PROJECT = {
+      'package.json': VITEST_PACKAGE,
+      'src/components/Watchlist.vue': WATCHLIST,
+      'src/components/WatchlistRow.vue': `<script setup lang = "ts">
+defineProps<{ quote: { symbol: string }; change: string }>();
+</script>
+
+<template>
+  <tr data-test="watchlist-row"><td>{{ quote.symbol }}</td><td>{{ change }}</td></tr>
+</template>
+`,
+      'src/format.ts':
+        'export function formatChange(quote: { changePercent: number }) {\n  return `${quote.changePercent.toFixed(2)}%`;\n}\nexport const UNUSED = 1;\n',
+      'src/types/quote.ts': 'export interface Quote {\n  symbol: string;\n  changePercent: number;\n}\n',
+      'tests/watchlist.test.ts': `import { expect, test } from 'vitest';
+import Watchlist from '../src/components/Watchlist.vue';
+
+test('lists the biggest gainer first', () => {
+  expect(Watchlist).toBeDefined();
+});
+`,
+    };
+
+    it('follows what a Vue component imports, also what only its template uses', async () => {
+      const inventory = await scanProject(project(WATCHLIST_PROJECT), 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: [
+          'src/components/Watchlist.vue',
+          'src/components/WatchlistRow.vue',
+          'src/format.ts',
+          'src/types/quote.ts',
+          'tests/watchlist.test.ts',
+        ],
+        hasUnfollowedDependencies: false,
+      });
+      expect(inventory.diagnostics).toEqual([]);
+    });
+
+    it('changes the hash when a child component, a helper its template calls or its props type changes', async () => {
+      const before = await hashesAfter(WATCHLIST_PROJECT, null, 'vitest');
+      for (const change of [
+        [
+          'src/components/WatchlistRow.vue',
+          WATCHLIST_PROJECT['src/components/WatchlistRow.vue'].replace('<tr', '<tr class="row"'),
+        ],
+        ['src/format.ts', WATCHLIST_PROJECT['src/format.ts'].replace('toFixed(2)', 'toFixed(1)')],
+        ['src/components/Watchlist.vue', `${WATCHLIST}\n<style scoped>\ntable { width: 100%; }\n</style>\n`],
+        // Vue builds the runtime props of `defineProps<{ quotes: Quote[] }>()` from the types.
+        [
+          'src/types/quote.ts',
+          'export interface Quote {\n  symbol: string;\n  changePercent: number;\n  isHalted: boolean;\n}\n',
+        ],
+      ] as const) {
+        expect(await hashesAfter(WATCHLIST_PROJECT, [...change], 'vitest'), change[0]).not.toEqual(before);
+      }
+      const unused = ['src/format.ts', WATCHLIST_PROJECT['src/format.ts'].replace('UNUSED = 1', 'UNUSED = 2')] as const;
+      expect(await hashesAfter(WATCHLIST_PROJECT, [...unused], 'vitest')).toEqual(before);
+    });
+
+    it('ends comments and script blocks where HTML does', async () => {
+      const root = project({
+        ...WATCHLIST_PROJECT,
+        'src/components/Watchlist.vue': `<!-- Before WatchlistRow: <script setup>import LegacyRow from './LegacyRow.vue';</script> --!>
+<script setup lang="ts">
+import WatchlistRow from './WatchlistRow.vue';
+</script lang="ts">
+
+<template>
+  <table><WatchlistRow /></table>
+</template>
+`,
+      });
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: ['src/components/Watchlist.vue', 'src/components/WatchlistRow.vue', 'tests/watchlist.test.ts'],
+        hasUnfollowedDependencies: false,
+      });
+    });
+
+    it('follows what both scripts of a Svelte component import', async () => {
+      const root = project({
+        'package.json': VITEST_PACKAGE,
+        'src/lib/PriceTicker.svelte': `<script module lang="ts">
+  import { MARKETS } from './markets';
+  export const DEFAULT_MARKET = MARKETS[0];
+</script>
+
+<script lang="ts" generics="Market extends Record<string, number>">
+  import { lastPrice } from './stores';
+  import Flash from './Flash.svelte';
+  let { symbol }: { symbol: string } = $props();
+</script>
+
+<!-- <script>import './not-code';</script> -->
+<Flash>{symbol} {$lastPrice}</Flash>
+`,
+        'src/lib/Flash.svelte':
+          '<script>\n  export let tone = \'up\';\n</script>\n\n<span class="flash {tone}"><slot /></span>\n',
+        'src/lib/markets.ts': "export const MARKETS = ['NASDAQ', 'NYSE'];\n",
+        'src/lib/stores.ts': "import { writable } from 'svelte/store';\nexport const lastPrice = writable(187.5);\n",
+        'tests/price-ticker.test.ts': `import { expect, test } from 'vitest';
+import PriceTicker from '../src/lib/PriceTicker.svelte';
+
+test('shows the last price of AAPL', () => {
+  expect(PriceTicker).toBeDefined();
+});
+`,
+      });
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: [
+          'src/lib/Flash.svelte',
+          'src/lib/PriceTicker.svelte',
+          'src/lib/markets.ts',
+          'src/lib/stores.ts',
+          'tests/price-ticker.test.ts',
+        ],
+        hasUnfollowedDependencies: false,
+      });
+    });
+
+    it('takes a component whose script does not parse by its text, and marks the test', async () => {
+      const root = project({
+        ...WATCHLIST_PROJECT,
+        'src/components/Watchlist.vue': WATCHLIST.replace('const rows =', 'const rows ='.repeat(2)),
+      });
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: ['src/components/Watchlist.vue', 'tests/watchlist.test.ts'],
+        hasUnfollowedDependencies: true,
+      });
+      expect(
+        inventory.diagnostics.map(({ code, relativeFilePath, lineStart, message }) => [
+          code,
+          relativeFilePath,
+          lineStart,
+          message,
+        ]),
+      ).toEqual([
+        [
+          'dependency-not-followed',
+          'tests/watchlist.test.ts',
+          2,
+          "'../src/components/Watchlist.vue' could not be parsed, so dependencyHash doesn't cover it.",
+        ],
+      ]);
+    });
+  });
 });

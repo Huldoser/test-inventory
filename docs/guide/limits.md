@@ -217,8 +217,8 @@ something included. Some of what a test runs is out of its reach:
   screenshot settings. Tests that use snapshots then get a `dependency-not-followed` warning at that setting. Folders
   linked into a snapshots folder aren't followed; linked files are.
 - Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
-- What a single-file component (`.vue`, `.svelte`) imports. A file that isn't JavaScript or TypeScript, such as a
-  component or JSON, is taken by its text.
+- A Vue component's script loaded with `src`, as in `<script src="./watchlist.ts">`. A file that isn't JavaScript or
+  TypeScript, such as JSON, is taken by its text.
 
 Some of what the hash takes is more than the test needs, so a change can change the hash of a test it doesn't affect:
 
@@ -239,6 +239,8 @@ Some of what the hash takes is more than the test needs, so a change can change 
   `Snapshots.toMatchSnapshot.call(this, received)`, gives every test that can reach it the file's snapshot file.
 - Importing a module runs the code of every module it imports, as a barrel file does for each module it re-exports,
   so all of that is in the hash, whichever export the test uses.
+- A Vue or Svelte single-file component is taken whole, by its text, with every module its `<script>` blocks import,
+  types too, as its markup may use any of them and Vue builds the props of `defineProps<Props>()` from the types.
 
 When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
 `hasUnfollowedDependencies` without a warning.

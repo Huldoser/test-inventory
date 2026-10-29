@@ -1503,6 +1503,7 @@ level1();
       return `function route${level + 1}(venue: string) {\n  ${body}\n}`;
     }).join('\n');
 
+  // Over 4.8 s on the macOS Intel runner.
   it('stops following helper calls after 10,000 in a file, with one warning where it stops', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 ${routes('test(`routes the order to ${venue}`, async () => {});', (level, index) => `route${level}(\`\${venue}.${index}\`);`)}
@@ -1521,7 +1522,7 @@ test.describe('order routing', () => {
         "The file's helper functions are called more than 10,000 times, counting the calls inside them, so the scan stops following them here. Tests they register from here on are missing, or listed once where they are written.",
       ],
     ]);
-  });
+  }, 20_000);
 
   it('applies the states of a helper reached many times from a test once for each condition, up to 10,000', () => {
     const skip = "test.skip(venue === 'LSE', 'The exchange is closed');";
