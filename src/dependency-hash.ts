@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   visitorKeys,
   type CallExpression,
@@ -68,7 +69,26 @@ interface Unit {
    * or a test, as a helper that registers a hook does; null when one takes them whole or can't be told.
    */
   asks: string[] | null;
+  /** The snapshot matchers its code calls, which compare against files beside the test file. */
+  snapshots: SnapshotUse[];
   hash: string | null | undefined;
+}
+
+/** A snapshot matcher a test's code calls, and the name or path it gives; null when it gives none the scan can read. */
+export interface SnapshotUse {
+  matcher: string;
+  name: string | null;
+}
+
+/** Reads the snapshot files of a scan from disk, and says whether the config moves them. */
+export interface SnapshotFiles {
+  framework: Framework;
+  /** The files in a folder of the project and the folders in it, as paths in the folder with `/`; none for no folder. */
+  list(folder: string): string[];
+  /** A file's bytes, from the project root; null when it can't be read, as before a snapshot is first written. */
+  read(file: string): Uint8Array | null;
+  /** Where the config puts snapshots elsewhere, which the scan doesn't follow; null when it doesn't. */
+  moved: ConfigGap | null;
 }
 
 /** Something a test reaches that the scan can't follow. */
@@ -89,6 +109,7 @@ interface Reach {
   fixtures: Fixtures[];
   /** The fixtures the units' code asks for; null when some of it asks for all. */
   asks: string[] | null;
+  snapshots: SnapshotUse[];
 }
 
 /** A fixture one `extend()` call defines, and the fixtures it asks for; null when it takes them whole. */
@@ -201,6 +222,32 @@ const GLOBAL_TESTS = new Set([
   ...['test', 'it', 'describe', 'suite', 'bench'],
   ...['beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'aroundEach', 'aroundAll'],
 ]);
+
+/** Matchers that compare against a file beside the test: Vitest's snapshots and file snapshots, Playwright's too. */
+const SNAPSHOT_MATCHERS = new Set([
+  'toMatchSnapshot',
+  'toThrowErrorMatchingSnapshot',
+  'toMatchFileSnapshot',
+  'toHaveScreenshot',
+  'toMatchAriaSnapshot',
+]);
+
+/**
+ * The name or path a snapshot matcher is given: a string, a list of path parts as Playwright takes, or an options
+ * object's `name`; null for anything else, as a name worked out at run time.
+ */
+function snapshotName(argument: Node): string | null {
+  if (argument.type === 'Literal' && typeof argument.value === 'string') return argument.value;
+  if (argument.type === 'ArrayExpression') {
+    const parts = argument.elements.map((element) => (element ? snapshotName(element) : null));
+    return parts.every((part) => part !== null) ? parts.join('/') : null;
+  }
+  if (argument.type === 'ObjectExpression') {
+    const property = argument.properties.find((item) => item.type === 'Property' && propertyKey(item) === 'name');
+    return property?.type === 'Property' ? snapshotName(property.value) : null;
+  }
+  return null;
+}
 
 /** Calls that set fixtures for a file or a describe: Playwright's `test.use()`, Vitest's `override()` and `scoped()`. */
 const USE_CALLS = new Set(['use', 'override', 'scoped']);
@@ -361,6 +408,7 @@ export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
   private readonly imports = new WeakMap<Node, Unit>();
+  private readonly snapshotFiles = new Map<string, Unit>();
   private readonly calledTests = new WeakMap<Node, boolean>();
   private readonly testObjects: [WeakMap<Node, Unit | null>, WeakMap<Node, Unit | null>] = [
     new WeakMap(),
@@ -438,7 +486,9 @@ export class DependencyGraph {
     const places: Place[] = [];
     const fixtures: Fixtures[] = [];
     let asks: string[] | null = [];
+    const snapshots: SnapshotUse[] = [];
     for (const unit of units) {
+      snapshots.push(...unit.snapshots);
       if (unit.place) places.push(unit.place);
       if (unit.fixtures) fixtures.push(unit.fixtures);
       if (unit.asks === null) asks = null;
@@ -451,7 +501,7 @@ export class DependencyGraph {
     }
     // Sorted by hash, so that moving code around in a file doesn't change it; each part keeps its own order.
     for (const hashes of byFile.values()) hashes.sort();
-    return { units, byFile, places, fixtures, asks };
+    return { units, byFile, places, fixtures, asks, snapshots };
   }
 
   /**
@@ -459,7 +509,13 @@ export class DependencyGraph {
    * with the fixtures it needs of each test object reached: the hash, the files, and whether all of it could be
    * followed.
    */
-  dependencies(roots: Unit[], bases: Reach[], needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
+  dependencies(
+    roots: Unit[],
+    bases: Reach[],
+    needs: FixtureNeeds,
+    snapshots: (uses: SnapshotUse[]) => Unit[],
+    report: (place: Place) => void,
+  ): Dependencies {
     const reached = [...bases, this.reach(roots, bases)];
     // A fixture can ask for one an object it extends defines, or use another test object, so names are shared by
     // every test object reached, and each name and object is read once.
@@ -514,6 +570,9 @@ export class DependencyGraph {
         found(reach);
       }
     }
+    // The snapshot files the matchers it reaches compare against, which have no code to reach in turn.
+    const uses = reached.flatMap((item) => item.snapshots);
+    if (uses.length > 0) reached.push(this.reach(snapshots(uses), reached));
     const places = reached.flatMap((item) => item.places);
     const start = (place: Place) => (place.problem.node as Span).start;
     // Compared by code unit, as `files` is, so that the order doesn't depend on the locale.
@@ -565,6 +624,7 @@ export class DependencyGraph {
       fixtures: null,
       prepare: null,
       asks: [],
+      snapshots: [],
       hash: undefined,
     };
   }
@@ -667,6 +727,23 @@ export class DependencyGraph {
       this.calledTests.set(declaration, found);
     }
     return found;
+  }
+
+  /** A file a test compares against, by its bytes: a snapshot or a screenshot. */
+  snapshotUnit(relativeFilePath: string, bytes: Uint8Array): Unit {
+    let unit = this.snapshotFiles.get(relativeFilePath);
+    if (!unit) {
+      unit = this.newUnit(this.newModule(relativeFilePath, null, null, new Values(), null), [], new Map(), false);
+      unit.edges = new Set();
+      unit.hash = shortHash(bytes);
+      this.snapshotFiles.set(relativeFilePath, unit);
+    }
+    return unit;
+  }
+
+  /** A place in a scanned file that marks its tests without a warning, as for what one file's code can't show. */
+  quietUnit(module: Module, message: string): Unit {
+    return this.placeUnit(module, { start: 0, end: 0 }, message, true);
   }
 
   /** An import of a name a test uses: the module it names and how, as `import { round } from 'lodash'`. */
@@ -1192,6 +1269,24 @@ export class DependencyGraph {
         }
       }
     };
+    /** A snapshot matcher's call: the file it compares against, or nothing for one written inline. */
+    const snapshot = (matcher: string, call: CallExpression) => {
+      const first = call.arguments.at(0);
+      const name = first === undefined ? null : snapshotName(first);
+      // `toMatchAriaSnapshot('- heading "Portfolio"')` holds the snapshot in the code.
+      if (matcher === 'toMatchAriaSnapshot' && first?.type !== 'ObjectExpression' && first !== undefined) return;
+      if (matcher === 'toMatchFileSnapshot' && name === null) {
+        edges.add(
+          this.placeUnit(
+            module,
+            call,
+            "The file this compares against is worked out at run time, so dependencyHash doesn't cover it.",
+          ),
+        );
+        return;
+      }
+      unit.snapshots.push({ matcher, name });
+    };
     const walk = (node: Node, scopes: Node[], key: string | null, parent: Node | null): void => {
       if (unit.cut.get(node.start) === node.end) return;
       switch (node.type) {
@@ -1225,6 +1320,7 @@ export class DependencyGraph {
           if (callee.type === 'Identifier' && callee.name === 'require') loadsByPath(node.arguments.at(0), node);
           if (callee.type === 'MemberExpression' && !callee.computed) {
             const { object, property } = callee;
+            if (SNAPSHOT_MATCHERS.has(property.name)) snapshot(property.name, node);
             if (object.type === 'Identifier' && object.name === 'vi' && VI_MODULE_CALLS.has(property.name)) {
               loadsByPath(node.arguments.at(0), node);
             }
@@ -1357,6 +1453,39 @@ function literalIn(node: Node, value: string): Span | null {
   return null;
 }
 
+/**
+ * The snapshot files the matchers of a test compare against, from the project root, at the runners' default places:
+ * Vitest's `__snapshots__/<file>.snap` and paths given to `toMatchFileSnapshot()`, beside the test file; Playwright's
+ * `<file>-snapshots/` folder, the files that start with a name given, or all of them when a matcher gives none.
+ */
+function snapshotPaths(testFile: string, uses: SnapshotUse[], files: SnapshotFiles): string[] {
+  const folder = path.posix.dirname(testFile);
+  const name = path.posix.basename(testFile);
+  if (files.framework === 'vitest') {
+    return [
+      ...new Set(
+        uses.map((use) =>
+          use.matcher === 'toMatchFileSnapshot'
+            ? path.posix.join(folder, use.name as string)
+            : path.posix.join(folder, '__snapshots__', `${name}.snap`),
+        ),
+      ),
+    ];
+  }
+  const snapshots = path.posix.join(folder, `${name}-snapshots`);
+  const names = uses.map((use) => use.name);
+  // A name is taken without its extension, as Playwright adds the project and platform before it.
+  const stems = names.map((item) => item?.replace(/\.[^./]*$/, ''));
+  return files
+    .list(snapshots)
+    .filter(
+      (file) =>
+        names.includes(null) ||
+        stems.some((stem) => file === stem || file.startsWith(`${stem}-`) || file.startsWith(`${stem}.`)),
+    )
+    .map((file) => `${snapshots}/${file}`);
+}
+
 /** The statements of a describe's callback, or its expression when it has no block body. */
 function bodyNodes(fn: FunctionNode): Node[] {
   const body = fn.body as Node;
@@ -1374,7 +1503,8 @@ export function fileDependencies(
   extraction: Extraction,
   types: boolean,
   report: (place: Place) => void,
-  runsWith: RunsWith = { config: null, modules: [], gaps: [] },
+  runsWith: RunsWith = { config: null, modules: [], gaps: [], moved: null },
+  snapshotFiles: SnapshotFiles | null = null,
 ): (test: PendingTest) => Dependencies {
   const moduleOf = (frame: Frame) => graph.module(frame.parsed, frame.relativeFilePath, frame.values, frame.readModule);
   const mainModule = moduleOf(main);
@@ -1433,6 +1563,16 @@ export function fileDependencies(
     }
     return context;
   };
+  const snapshots = (uses: SnapshotUse[]): Unit[] => {
+    if (!snapshotFiles) return [graph.quietUnit(mainModule, 'Snapshot files are not read when one file is scanned.')];
+    if (snapshotFiles.moved) return [graph.gapUnit(snapshotFiles.moved)];
+    const files = snapshotPaths(main.relativeFilePath, uses, snapshotFiles);
+    return files.flatMap((file) => {
+      const bytes = snapshotFiles.read(file);
+      // A snapshot not written yet is written by the test's first run.
+      return bytes ? [graph.snapshotUnit(file, bytes)] : [];
+    });
+  };
   // A test declared in a helper is one call for every test the helper's calls register.
   const calls = new Map<Node, Unit>();
   return (test) => {
@@ -1447,6 +1587,6 @@ export function fileDependencies(
       needs.names.push(...scope.setupFixtures);
       needs.all ||= scope.takesAllFixtures;
     }
-    return graph.dependencies(roots, [base, contextOf(test.scope, test.registeredBy)], needs, report);
+    return graph.dependencies(roots, [base, contextOf(test.scope, test.registeredBy)], needs, snapshots, report);
   };
 }

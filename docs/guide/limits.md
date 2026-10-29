@@ -212,7 +212,9 @@ something included. Some of what a test runs is out of its reach:
   `require.resolve('./global-setup')`, or a path that doesn't exist, gets a `dependency-not-followed` warning. Projects
   the scan can't work out, such as those of a Vitest 3 workspace file, mark the tests without one, as the config's
   own warning says where.
-- Snapshot files, such as Vitest's `__snapshots__` and Playwright's screenshots.
+- Snapshot files a config puts elsewhere than the runner's default place, with Playwright's `snapshotPathTemplate`,
+  `snapshotDir` or a matcher's `pathTemplate`, or Vitest's `resolveSnapshotPath`. Tests that use snapshots then get a
+  `dependency-not-followed` warning at that setting.
 - Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
 - What a single-file component (`.vue`, `.svelte`) imports. A file that isn't JavaScript or TypeScript, such as a
   component or JSON, is taken by its text.
@@ -229,6 +231,9 @@ Some of what the hash takes is more than the test needs, so a change can change 
 - A test object whose fixtures aren't written as an object literal in `extend()`, as in `base.extend(fixtures)`, is
   taken with all of them.
 - A helper function that declares tests is taken whole for each test it declares.
+- Vitest keeps one `.snap` file for all the snapshot tests of a file, so updating one test's snapshot changes the hash
+  of every test in the file that uses `toMatchSnapshot()`. A Playwright screenshot without a name, or with one worked out
+  at run time, takes every file in the test file's `-snapshots` folder.
 - Importing a module runs the code of every module it imports, as a barrel file does for each module it re-exports,
   so all of that is in the hash, whichever export the test uses.
 

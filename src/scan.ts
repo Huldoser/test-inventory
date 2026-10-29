@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { glob } from 'tinyglobby';
@@ -18,6 +18,7 @@ import {
   checkVersion,
   invalid,
   majorMinor,
+  toPosixPath,
   type ScanOptions,
 } from './options.ts';
 import type { FileRecords } from './records.ts';
@@ -81,6 +82,28 @@ function folderHint(root: string, patterns: string[], framework: Framework): str
 
 /** The JavaScript and TypeScript files the runners read, which the configs choose the test files from. */
 const SCRIPT_FILES = '**/*.{js,jsx,ts,tsx,mjs,mjsx,mts,mtsx,cjs,cjsx,cts,ctsx}';
+
+/** The files in a folder of the project and the folders in it, as paths in the folder with `/`; none for no folder. */
+function filesIn(root: string, folder: string): string[] {
+  try {
+    const entries = readdirSync(path.join(root, folder), { recursive: true, withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => toPosixPath(path.relative(path.join(root, folder), path.join(entry.parentPath, entry.name))))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** A file's bytes, from the project root; null when it can't be read. */
+function bytesOf(root: string, file: string): Uint8Array | null {
+  try {
+    return readFileSync(path.join(root, file));
+  } catch {
+    return null;
+  }
+}
 
 /** Why a scan found no test files: what the patterns matched, or whether there is a config to find them from. */
 function noFiles(
@@ -158,6 +181,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   );
   const candidates = setupFiles.flat().map((file) => path.resolve(file));
   const configDependencies = new ConfigDependencies(framework, runs, readerFor, candidates);
+  const snapshotFiles = {
+    framework,
+    list: (folder: string) => filesIn(root, folder),
+    read: (file: string) => bytesOf(root, file),
+  };
   const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
@@ -179,6 +207,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       });
       continue;
     }
+    const runsWith = configDependencies.of(placement);
     const result = scanFile(code, relativeFilePath, {
       framework,
       version: rules,
@@ -188,7 +217,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
       graph,
-      runsWith: configDependencies.of(placement),
+      runsWith,
+      snapshotFiles: { ...snapshotFiles, moved: runsWith.moved },
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.
