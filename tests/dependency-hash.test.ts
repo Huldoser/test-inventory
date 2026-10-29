@@ -864,4 +864,100 @@ test('opens at half past nine', () => {
       ],
     ]);
   });
+
+  it('follows a name through a re-export cycle the module system accepts', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'lib/quotes.ts': "export { quote } from './barrel';\n",
+      'lib/barrel.ts': "export * from './quotes';\nexport * from './nasdaq';\n",
+      'lib/nasdaq.ts': 'export function quote(symbol: string) {\n  return `NASDAQ:${symbol}`;\n}\n',
+      'tests/quote.test.ts': `import { expect, test } from 'vitest';
+import { quote } from '../lib/quotes';
+
+test('quotes AAPL on NASDAQ', () => {
+  expect(quote('AAPL')).toBe('NASDAQ:AAPL');
+});
+`,
+      'tests/barrel.test.ts': `import { expect, test } from 'vitest';
+import { quote } from '../lib/barrel';
+
+test('quotes MSFT on NASDAQ', () => {
+  expect(quote('MSFT')).toBe('NASDAQ:MSFT');
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    // Files that only re-export have no code of their own to list.
+    expect(inventory.tests.map((test) => test.dependencies)).toEqual([
+      ['lib/nasdaq.ts', 'tests/barrel.test.ts'],
+      ['lib/nasdaq.ts', 'tests/quote.test.ts'],
+    ]);
+  });
+
+  it('follows export import = require(), and vi.mock() given an import()', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/fees.ts': 'export function commission(notional: number) {\n  return notional * 0.001;\n}\n',
+      'src/broker.ts': "export import Fees = require('./fees');\n",
+      'src/exchange.ts': "export const connect = () => 'live';\n",
+      'tests/broker.test.ts': `import { expect, test, vi } from 'vitest';
+import { Fees } from '../src/broker';
+
+vi.mock(import('../src/exchange'), () => ({ connect: () => 'paper' }));
+
+test('charges a tenth of a basis point', () => {
+  expect(Fees.commission(100)).toBeCloseTo(0.1);
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/exchange.ts', 'src/fees.ts', 'tests/broker.test.ts'],
+      hasUnfollowedDependencies: false,
+    });
+  });
+
+  it("leaves out another class's instance fields, which run only when that class is built", async () => {
+    const files = {
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'pages/trading.ts': `import type { Page } from '@playwright/test';
+
+export class OrderTicket {
+  readonly fills = new Map<string, number>();
+  constructor(private readonly page: Page) {}
+  async buy(symbol: string) {
+    await this.page.getByRole('button', { name: \`Buy \${symbol}\` }).click();
+  }
+}
+
+const KIND = 'kind';
+
+export class Watchlist {
+  readonly symbols = new Set<string>();
+  readonly [KIND] = 'watchlist';
+  add(symbol: string) {
+    this.symbols.add(symbol);
+  }
+}
+`,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { OrderTicket } from '../pages/trading';
+
+test('buys AAPL', async ({ page }) => {
+  await new OrderTicket(page).buy('AAPL');
+});
+`,
+    };
+    const before = await hashesAfter(files, null);
+    const method = await hashesAfter(files, [
+      'pages/trading.ts',
+      files['pages/trading.ts'].replace('this.symbols.add(symbol);', 'this.symbols.add(symbol.toUpperCase());'),
+    ]);
+    const field = await hashesAfter(files, [
+      'pages/trading.ts',
+      files['pages/trading.ts'].replace('new Map<string, number>()', 'new Map<string, number>([["AAPL", 0]])'),
+    ]);
+    expect(method).toEqual(before);
+    expect(field).not.toEqual(before);
+  });
 });

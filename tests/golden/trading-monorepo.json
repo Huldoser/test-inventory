@@ -436,7 +436,7 @@
     {
       "id": "2ec3d46885c8b3a4",
       "bodyHash": "c950dd19fc895be4",
-      "dependencyHash": "0cdbc02742bd4807",
+      "dependencyHash": "4107945aab723771",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
         "packages/market-data/src/quote-cache.ts"
@@ -519,7 +519,7 @@
     {
       "id": "147dc22efd2f062b",
       "bodyHash": "ada5417ab5376678",
-      "dependencyHash": "bc7e90bb176721e6",
+      "dependencyHash": "d14714a8227c3ab8",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
         "packages/market-data/src/quote-cache.ts"
@@ -602,7 +602,7 @@
     {
       "id": "267dff365856f75a",
       "bodyHash": "30c90f821cc2a9f4",
-      "dependencyHash": "b30b46e00aeb9736",
+      "dependencyHash": "d8ab80d81f811de4",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
         "packages/market-data/src/quote-cache.ts"

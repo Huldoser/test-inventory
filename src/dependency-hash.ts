@@ -129,6 +129,12 @@ const CODE_FILE = /\.[cm]?[jt]sx?$/;
 
 const DECLARATION_FILE = /\.d\.[cm]?ts$/;
 
+/**
+ * What an import being looked up stands for while the lookup leads back to it, through re-exports: nothing found
+ * there, so that an `export *` goes on to the next module, as the module system does.
+ */
+const IN_PROGRESS: Unit[] = [];
+
 const COMPUTED = "The module this loads is worked out at run time, so dependencyHash doesn't cover it.";
 
 function isLocalSpecifier(specifier: string): boolean {
@@ -177,6 +183,10 @@ function declared(statement: Node): Node {
 /** Whether evaluating a statement runs code, leaving out the bodies of the functions it declares, which run later. */
 function runsOnLoad(node: Node): boolean {
   if (RUNS.has(node.type)) return true;
+  // An instance field's value is worked out when the class is built, not when it is defined.
+  if ((node.type === 'PropertyDefinition' || node.type === 'AccessorProperty') && !node.static) {
+    return node.decorators.length > 0 || (node.computed && runsOnLoad(node.key));
+  }
   if (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') return false;
   if (node.type === 'ArrowFunctionExpression') return false;
   return childNodes(node).some(runsOnLoad);
@@ -193,7 +203,7 @@ function isLoadCode(statement: Node): boolean {
  */
 export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
-  private readonly units: [WeakMap<Node, Unit>, WeakMap<Node, Unit>] = [new WeakMap(), new WeakMap()];
+  private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
   /** Places already reported, so that one the scan reaches from many files is reported once. */
   private readonly reported = new Set<string>();
 
@@ -270,7 +280,10 @@ export class DependencyGraph {
     const own = this.reach(roots, base);
     const places = [...base.places, ...own.places];
     const start = (place: Place) => (place.problem.node as Span).start;
-    places.sort((a, b) => a.relativeFilePath.localeCompare(b.relativeFilePath) || start(a) - start(b));
+    // Compared by code unit, as `files` is, so that the order doesn't depend on the locale.
+    const path = (a: Place, b: Place) =>
+      a.relativeFilePath < b.relativeFilePath ? -1 : a.relativeFilePath > b.relativeFilePath ? 1 : 0;
+    places.sort((a, b) => path(a, b) || start(a) - start(b));
     for (const place of places) {
       const key = `${place.relativeFilePath}\0${start(place)}\0${place.problem.message}`;
       if (place.isQuiet || this.reported.has(key)) continue;
@@ -373,7 +386,9 @@ export class DependencyGraph {
   /** The unit of a declaration: a declarator, function, class, enum, namespace or `import x = require()`. */
   private declarationUnit(module: Module, declaration: Node, types: boolean, roots?: Node[]): Unit {
     const cache = this.units[Number(types)];
-    let unit = cache.get(declaration);
+    // A function's parameters alone are a unit of their own, kept apart from the whole function.
+    const key = roots ?? declaration;
+    let unit = cache.get(key);
     if (!unit) {
       const program = (module.parsed as ParsedFile).program;
       const scopes = scopesAt(program, declaration);
@@ -387,7 +402,7 @@ export class DependencyGraph {
       );
       // Code in a module runs only once the module is loaded, which runs its top-level code.
       unit.with.push(this.loadUnit(module, types));
-      cache.set(declaration, unit);
+      cache.set(key, unit);
     }
     return unit;
   }
@@ -415,10 +430,11 @@ export class DependencyGraph {
     const key = `${Number(types)}\0${specifier}\0${name}\0${at.start}`;
     let units = from.imports.get(key);
     if (!units) {
-      // A re-export that leads back to itself, which the runtime rejects, gives nothing more.
-      from.imports.set(key, []);
+      from.imports.set(key, IN_PROGRESS);
       units = this.readImport(from, specifier, name, types, at);
-      from.imports.set(key, units);
+      // Within a cycle, the answer depends on where the search started, so it isn't kept.
+      if (units === IN_PROGRESS) from.imports.delete(key);
+      else from.imports.set(key, units);
     }
     return units;
   }
@@ -497,7 +513,8 @@ export class DependencyGraph {
           const declarator = declaration.declarations.find((item) => bindingNames(item.id).includes(name));
           if (declarator) return [this.declarationUnit(module, declarator, types)];
         } else if ('id' in declaration && declaration.id?.type === 'Identifier' && declaration.id.name === name) {
-          return [this.declarationUnit(module, declaration, types)];
+          // `export import Fees = require('./fees')` stands for the other module.
+          return this.toDeclaration(module, declaration, name, null, types);
         }
         continue;
       }
@@ -527,7 +544,8 @@ export class DependencyGraph {
     if (module.parsed === null || module.parsed.error) return null;
     const found = this.exported(module, name, types, searched);
     // A module that doesn't export the name falls back to the whole of it, which doesn't count as found here.
-    return found.length === 1 && found[0] === module.whole[Number(types)] ? null : found;
+    const isWhole = found.length === 1 && found[0] === module.whole[Number(types)];
+    return isWhole || found === IN_PROGRESS ? null : found;
   }
 
   /**
@@ -593,6 +611,8 @@ export class DependencyGraph {
     };
     /** A module loaded by the path in `argument`, or a place when the path is worked out at run time. */
     const loadsByPath = (argument: Node | undefined, at: Span) => {
+      // `vi.mock(import('./broker'))`: the walk reads the import() itself.
+      if (argument?.type === 'ImportExpression') return;
       if (argument?.type === 'Literal' && typeof argument.value === 'string') {
         add(this.imported(module, argument.value, '*', types, at));
       } else {
