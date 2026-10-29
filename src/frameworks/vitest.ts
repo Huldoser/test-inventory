@@ -62,6 +62,7 @@ import {
   returnedFunction,
   returnedTestObject,
   destructuredNames,
+  takesWhole,
   readCount,
   readOptions,
   readStrings,
@@ -680,6 +681,7 @@ export class VitestAdapter implements Adapter {
       fn,
       testContext: index === null ? null : contextNames(fn, index),
       fixtures: fixturesOf(fn, index, this.file.version),
+      takesAllFixtures: takesWhole(fn, index),
     };
   }
 
@@ -858,6 +860,7 @@ export class VitestAdapter implements Adapter {
         ...base,
         testContext: contextNames(base.hashed, index),
         fixtures: fixturesOf(base.hashed, index, this.file.version),
+        takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
       };
     }

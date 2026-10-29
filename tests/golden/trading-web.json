@@ -843,17 +843,12 @@
     {
       "id": "006bcf2289191aef",
       "bodyHash": "59438661c8c3f654",
-      "dependencyHash": "97561d80cf09d06e",
+      "dependencyHash": "632970a01b4a06c6",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "test-data/market-hours.ts",
         "tests/alerts.spec.ts"
@@ -939,17 +934,12 @@
     {
       "id": "4ef5fcb2d36793f3",
       "bodyHash": "07826f998240c37b",
-      "dependencyHash": "7ed7103b78a82c91",
+      "dependencyHash": "5bd1ac4d0ad58d45",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "test-data/market-hours.ts",
         "tests/alerts.spec.ts"
@@ -1035,17 +1025,12 @@
     {
       "id": "1168c683916c057d",
       "bodyHash": "028a38797f3a6de0",
-      "dependencyHash": "c29e7da319e3eb26",
+      "dependencyHash": "1bc4a1c8d62fe2ff",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "test-data/market-hours.ts",
         "tests/alerts.spec.ts"
@@ -1131,17 +1116,12 @@
     {
       "id": "b7c9430311aa4b77",
       "bodyHash": "fc2f355e115db06e",
-      "dependencyHash": "6df4a962a7e4c288",
+      "dependencyHash": "348e7e42edcf48cd",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
         "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/backtest.spec.ts"
       ],
@@ -1228,17 +1208,12 @@
     {
       "id": "ff957972a74e13e4",
       "bodyHash": "ef5682ab7a165259",
-      "dependencyHash": "74394d9fd02ec5c1",
+      "dependencyHash": "85d764513bb2e306",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
         "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/backtest.spec.ts"
       ],
@@ -1325,17 +1300,12 @@
     {
       "id": "228b371fb6239871",
       "bodyHash": "94573e4cc4645fdb",
-      "dependencyHash": "c156310d86f05b18",
+      "dependencyHash": "9c4ab2ceb09241c5",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
         "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/backtest.spec.ts"
       ],
@@ -1428,17 +1398,10 @@
     {
       "id": "c5e380de5d1489e7",
       "bodyHash": "7e88c071a1b22e35",
-      "dependencyHash": "3b5fd298092f0f69",
+      "dependencyHash": "b00093af61e97a0e",
       "dependencies": [
-        "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1526,17 +1489,10 @@
     {
       "id": "a52668cce1b6dfe7",
       "bodyHash": "f5cbeeb3d655953f",
-      "dependencyHash": "bfb1b61725333f4b",
+      "dependencyHash": "1522e081bac5a61a",
       "dependencies": [
-        "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1623,17 +1579,10 @@
     {
       "id": "f003008cc3991e32",
       "bodyHash": "72b7c07d73a18c68",
-      "dependencyHash": "ae1737a332a4325e",
+      "dependencyHash": "a8759c04a0ebe3b3",
       "dependencies": [
-        "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1726,17 +1675,10 @@
     {
       "id": "dbb8916ae393be67",
       "bodyHash": "3bd267efc7ff4ded",
-      "dependencyHash": "dbf07c9715b9f42b",
+      "dependencyHash": "23cf4e06f51ac3be",
       "dependencies": [
-        "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1826,17 +1768,13 @@
     {
       "id": "b19ccff56f21de38",
       "bodyHash": "1002e94a52a56d2f",
-      "dependencyHash": "f91e03b8acae4bae",
+      "dependencyHash": "b71d86ac0e165697",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
         "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/buying-power.spec.ts"
       ],
@@ -1925,17 +1863,13 @@
     {
       "id": "4da7984cdc6987dd",
       "bodyHash": "abe023bbfb8c2368",
-      "dependencyHash": "bed2f67e0b39f790",
+      "dependencyHash": "3b64e97ef1e4a862",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
         "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/buying-power.spec.ts"
       ],
@@ -2024,17 +1958,13 @@
     {
       "id": "fca65859363f6383",
       "bodyHash": "c5253d69a305868c",
-      "dependencyHash": "69be48e5ae73c992",
+      "dependencyHash": "e4066ab24b287326",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/limit-orders.spec.ts"
       ],
@@ -2124,17 +2054,13 @@
     {
       "id": "74099e2f6d05b9ee",
       "bodyHash": "fecbf7b60ca6ad7d",
-      "dependencyHash": "d019fa5808264020",
+      "dependencyHash": "14d39423aea1fc5f",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "test-data/tags.ts",
         "tests/orders/limit-orders.spec.ts"
@@ -2224,17 +2150,12 @@
     {
       "id": "da2f5749ba9ab068",
       "bodyHash": "70f928ee03102484",
-      "dependencyHash": "63fd30816470cf37",
+      "dependencyHash": "8ced64d259092a3b",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/limit-orders.spec.ts"
       ],
@@ -2331,17 +2252,13 @@
     {
       "id": "b41aa3c939163d5f",
       "bodyHash": "82a3a523b24b312e",
-      "dependencyHash": "d17001d2d72f61d6",
+      "dependencyHash": "1fac8dba01ee60b4",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/market-orders.spec.ts"
       ],
@@ -2430,17 +2347,13 @@
     {
       "id": "edfbf522f166bdee",
       "bodyHash": "48d034318e843972",
-      "dependencyHash": "e02304eb75a1c08a",
+      "dependencyHash": "a03dafb052f2f033",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/market-orders.spec.ts"
       ],
@@ -2529,17 +2442,12 @@
     {
       "id": "b56da584c703ffdc",
       "bodyHash": "71f86a4682faff3a",
-      "dependencyHash": "3a6a470d8c29df2f",
+      "dependencyHash": "c0644a8be262a841",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/market-orders.spec.ts"
       ],
@@ -2627,17 +2535,13 @@
     {
       "id": "8406a54addb070ac",
       "bodyHash": "aa358180c53039eb",
-      "dependencyHash": "7484a69213b4f942",
+      "dependencyHash": "ecfa5dbc97c9aa75",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/order-lifecycle.spec.ts"
       ],
@@ -2740,17 +2644,12 @@
     {
       "id": "ce346850c3d0273c",
       "bodyHash": "54a09037d3b79269",
-      "dependencyHash": "3977ce4043ced235",
+      "dependencyHash": "1f08b25681c14f0d",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/order-lifecycle.spec.ts"
       ],
@@ -2837,17 +2736,12 @@
     {
       "id": "52188b0b10d20152",
       "bodyHash": "b6d8ebafda8e61fa",
-      "dependencyHash": "633fcc7aa48834ef",
+      "dependencyHash": "06d0be991a95358f",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/orders/order-lifecycle.spec.ts"
       ],
@@ -2934,17 +2828,12 @@
     {
       "id": "61fb14fe198cbe40",
       "bodyHash": "6b5ebc48dd2373c9",
-      "dependencyHash": "6d7de66a19748580",
+      "dependencyHash": "93130c1685994e8e",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
         "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/portfolio.spec.ts"
       ],
@@ -3031,17 +2920,12 @@
     {
       "id": "18c858ad1ec41ac8",
       "bodyHash": "a3490bae58ac8d0a",
-      "dependencyHash": "e222b856a4573d61",
+      "dependencyHash": "faf2ac25805b047d",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
         "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/portfolio.spec.ts"
       ],
@@ -3126,17 +3010,13 @@
     {
       "id": "170a00cb7431053c",
       "bodyHash": "f1f99ff5e7b7cea5",
-      "dependencyHash": "6e21c315c3f9cdba",
+      "dependencyHash": "bc198b250be5c6b3",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
         "pages/portfolio-page.ts",
-        "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/portfolio.spec.ts"
       ],
@@ -3224,16 +3104,11 @@
     {
       "id": "fc18629952dc377c",
       "bodyHash": "a8ceae1fa36e3eee",
-      "dependencyHash": "e76b1b1e4355f950",
+      "dependencyHash": "27d71b15cbd9616d",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/price-stream.spec.ts"
@@ -3319,16 +3194,11 @@
     {
       "id": "d1ce5bbb95b4d5d0",
       "bodyHash": "1dff3539c9dbf9b5",
-      "dependencyHash": "9dea7ddac77af770",
+      "dependencyHash": "e5a68f8dd297115e",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/price-stream.spec.ts"
@@ -3415,16 +3285,11 @@
     {
       "id": "8be9925edcd4647c",
       "bodyHash": "feaa6dd90440b8fb",
-      "dependencyHash": "ccf765eded16ea23",
+      "dependencyHash": "06d73422ff76109c",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "test-data/symbols.ts",
@@ -3511,16 +3376,11 @@
     {
       "id": "8e9e5ff3ce131b80",
       "bodyHash": "9fca7078043fcfe6",
-      "dependencyHash": "f9f65703127284c0",
+      "dependencyHash": "4a3d1032fe34692a",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
@@ -3608,16 +3468,11 @@
     {
       "id": "d69e0782fe73f7eb",
       "bodyHash": "e6bddac61137812d",
-      "dependencyHash": "3f4c1fe3187be112",
+      "dependencyHash": "32ed548c58a4c05a",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
@@ -3703,16 +3558,11 @@
     {
       "id": "fbc2f79ddf4c0c96",
       "bodyHash": "72a9522ad4269070",
-      "dependencyHash": "1fd8d0ab2ad52400",
+      "dependencyHash": "864c146d8c23092c",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
@@ -3798,16 +3648,11 @@
     {
       "id": "cdf020eea033f19c",
       "bodyHash": "24eef83ccd18d9d6",
-      "dependencyHash": "406c11d4cb150b24",
+      "dependencyHash": "b6c31ecdfe553a28",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
-        "pages/alerts-page.ts",
-        "pages/backtest-page.ts",
         "pages/login-page.ts",
-        "pages/order-ticket.ts",
-        "pages/orders-blotter.ts",
-        "pages/portfolio-page.ts",
         "pages/watchlist-page.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"

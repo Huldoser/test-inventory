@@ -960,4 +960,511 @@ test('buys AAPL', async ({ page }) => {
     expect(method).toEqual(before);
     expect(field).not.toEqual(before);
   });
+
+  describe('fixtures', () => {
+    const FIXTURES_WITH_AUTH = `import { test as base } from '@playwright/test';
+import { OrderTicket } from '../pages/order-ticket';
+import { OrdersBlotter } from '../pages/orders-blotter';
+import { WatchlistPage } from '../pages/watchlist-page';
+import { signedInPage } from './auth';
+
+export const test = base.extend<{
+  signedInPage: unknown;
+  orderTicket: OrderTicket;
+  blotter: OrdersBlotter;
+  watchlistPage: WatchlistPage;
+  auditLog: void;
+  account: string;
+}>({
+  signedInPage,
+  account: ['PAPER-7741', { option: true }],
+  orderTicket: async ({ signedInPage, account }, use) => {
+    await use(new OrderTicket(signedInPage, account));
+  },
+  blotter: async ({ signedInPage }, use) => {
+    await use(new OrdersBlotter(signedInPage));
+  },
+  watchlistPage: async ({ signedInPage }, use) => {
+    await use(new WatchlistPage(signedInPage));
+  },
+  auditLog: [
+    async ({}, use) => {
+      await use();
+    },
+    { auto: true },
+  ],
+});
+export { expect } from '@playwright/test';
+`;
+
+    const files = {
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'fixtures/index.ts': FIXTURES_WITH_AUTH,
+      'fixtures/auth.ts': `import type { Page } from '@playwright/test';
+export async function signedInPage({ page }: { page: Page }, use: (page: Page) => Promise<void>) {
+  await page.goto('/login');
+  await use(page);
+}
+`,
+      'pages/order-ticket.ts':
+        'export class OrderTicket {\n  constructor(readonly page: unknown, readonly account: string) {}\n}\n',
+      'pages/orders-blotter.ts': 'export class OrdersBlotter {\n  constructor(readonly page: unknown) {}\n}\n',
+      'pages/watchlist-page.ts': 'export class WatchlistPage {\n  constructor(readonly page: unknown) {}\n}\n',
+      'tests/orders.spec.ts': `import { test, expect } from '../fixtures';
+
+test.describe('order ticket', () => {
+  test.beforeAll(async ({ account }) => {
+    expect(account).toMatch(/^PAPER/);
+  });
+
+  test('opens the AAPL ticket', async ({ orderTicket }) => {
+    await expect(orderTicket.page).toBeTruthy();
+  });
+
+  test('shows the blotter', async ({ blotter }) => {
+    await expect(blotter.page).toBeTruthy();
+  });
+});
+
+test('reads every fixture', async (fixtures) => {
+  await expect(fixtures).toBeTruthy();
+});
+`,
+    };
+
+    it('takes only the fixtures a test and its hooks ask for, those they ask for, and auto fixtures', async () => {
+      const inventory = await scanProject(project(files));
+      expect(inventory.tests.map((test) => [test.title, test.dependencies])).toEqual([
+        [
+          'opens the AAPL ticket',
+          ['fixtures/auth.ts', 'fixtures/index.ts', 'pages/order-ticket.ts', 'tests/orders.spec.ts'],
+        ],
+        [
+          'shows the blotter',
+          ['fixtures/auth.ts', 'fixtures/index.ts', 'pages/orders-blotter.ts', 'tests/orders.spec.ts'],
+        ],
+        [
+          'reads every fixture',
+          [
+            'fixtures/auth.ts',
+            'fixtures/index.ts',
+            'pages/order-ticket.ts',
+            'pages/orders-blotter.ts',
+            'pages/watchlist-page.ts',
+            'tests/orders.spec.ts',
+          ],
+        ],
+      ]);
+      const before = await hashesAfter(files, null);
+      const fixture = (from: string, to: string) =>
+        hashesAfter(files, ['fixtures/index.ts', FIXTURES_WITH_AUTH.replace(from, to)]);
+      const watchlist = await fixture('new WatchlistPage(signedInPage)', 'new WatchlistPage(signedInPage.mainFrame())');
+      const blotter = await fixture('new OrdersBlotter(signedInPage)', 'new OrdersBlotter(signedInPage.mainFrame())');
+      const account = await fixture("'PAPER-7741'", "'PAPER-7742'");
+      const audit = await fixture('await use();', 'await use(undefined);');
+      expect(watchlist['opens the AAPL ticket']).toBe(before['opens the AAPL ticket']);
+      expect(watchlist['reads every fixture']).not.toBe(before['reads every fixture']);
+      expect(blotter['opens the AAPL ticket']).toBe(before['opens the AAPL ticket']);
+      expect(blotter['shows the blotter']).not.toBe(before['shows the blotter']);
+      // The beforeAll asks for the account, and the order ticket's fixture asks for it too.
+      expect(account['shows the blotter']).not.toBe(before['shows the blotter']);
+      expect(Object.values(audit).every((hash, index) => hash !== Object.values(before)[index])).toBe(true);
+    });
+
+    it('follows fixtures through a chain of extend() calls across files and mergeTests()', async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': PLAYWRIGHT_PACKAGE,
+          'fixtures/market.ts': `import { test as base } from '@playwright/test';
+import { QUOTES } from '../test-data/quotes';
+import { HALTS } from '../test-data/halts';
+export const marketTest = base.extend<{ quotes: string[]; halts: string[] }>({
+  quotes: async ({}, use) => use(QUOTES),
+  halts: async ({}, use) => use(HALTS),
+});
+`,
+          'fixtures/broker.ts': `import { marketTest } from './market';
+import { VENUES } from '../test-data/venues';
+export const brokerTest = marketTest.extend<{ venues: string[] }>({
+  venues: async ({ quotes }, use) => use(VENUES.filter((venue) => quotes.length > 0 && venue !== '')),
+});
+`,
+          'fixtures/index.ts': `import { mergeTests, test as base } from '@playwright/test';
+import { brokerTest } from './broker';
+import { AUDIT } from '../test-data/audit';
+const auditTest = base.extend<{ audit: string }>({ audit: AUDIT });
+export const test = mergeTests(brokerTest, auditTest);
+`,
+          'test-data/quotes.ts': "export const QUOTES = ['AAPL 187.50'];\n",
+          'test-data/halts.ts': "export const HALTS = ['GME'];\n",
+          'test-data/venues.ts': "export const VENUES = ['NASDAQ', 'NYSE'];\n",
+          'test-data/audit.ts': "export const AUDIT = 'on';\n",
+          'tests/routing.spec.ts': `import { test } from '../fixtures';
+test('routes to every venue', async ({ venues }) => {
+  test.expect(venues).toHaveLength(2);
+});
+`,
+        }),
+      );
+      expect(inventory.tests[0].dependencies).toEqual([
+        'fixtures/broker.ts',
+        'fixtures/index.ts',
+        'fixtures/market.ts',
+        'test-data/quotes.ts',
+        'test-data/venues.ts',
+        'tests/routing.spec.ts',
+      ]);
+    });
+
+    it("reads Vitest's fixtures, in objects and in the builder form, with their options", () => {
+      const code = `import { expect, test as base } from 'vitest';
+const LEDGER = { entries: [] as string[] };
+const MARKET_HOURS = { open: '09:30' };
+const ORDER_BOOK = { bids: [187.5] };
+const CLOCK_ZONE = 'America/New_York';
+const test = base
+  .extend({
+    ledger: [async ({}, use) => use(LEDGER), { scope: 'file' }],
+    orderBook: async ({ ledger }, use) => use({ ...ORDER_BOOK, ledger }),
+  })
+  .extend('marketHours', { scope: 'worker' }, async () => MARKET_HOURS)
+  .extend('clock', { auto: true }, async () => CLOCK_ZONE);
+
+test('reads the order book', ({ orderBook }) => {
+  expect(orderBook.bids).toEqual([187.5]);
+});
+
+test.for([['AAPL'], ['MSFT']])('opens %s at the open', ([symbol], { marketHours }) => {
+  expect(marketHours.open).toBe(symbol === 'AAPL' ? '09:30' : '09:30');
+});
+`;
+      const hashes = (from: string, to: string) =>
+        scanVitest(code.replace(from, to)).tests.map((test) => test.dependencyHash);
+      const before = hashes('', '');
+      const ledger = hashes('entries: []', "entries: ['opening balance']");
+      const hours = hashes("open: '09:30'", "open: '04:00'");
+      const clock = hashes("'America/New_York'", "'UTC'");
+      expect([ledger[0] !== before[0], ledger[1] !== before[1]]).toEqual([true, false]);
+      expect([hours[0] !== before[0], hours[1] !== before[1]]).toEqual([false, true]);
+      expect([clock[0] !== before[0], clock[1] !== before[1]]).toEqual([true, true]);
+    });
+
+    it('takes a test object whole when its fixtures are not an object literal, or it is not a test object', async () => {
+      const files = {
+        'package.json': VITEST_PACKAGE,
+        'src/schemas.ts': `const base = { extend: (shape: object) => shape };
+export const OrderSchema = base.extend({ symbol: 'string', quantity: 'number' });
+`,
+        'tests/fixtures.ts': `import { test as base } from 'vitest';
+const fixtures = { venue: async ({}, use: (venue: string) => Promise<void>) => use('NASDAQ') };
+export const test = base.extend(fixtures);
+`,
+        'tests/orders.test.ts': `import { expect } from 'vitest';
+import { test } from './fixtures';
+import { OrderSchema } from '../src/schemas';
+
+test('describes an order', () => {
+  expect(Object.keys(OrderSchema)).toEqual(['symbol', 'quantity']);
+});
+`,
+      };
+      const before = await hashesAfter(files, null, 'vitest');
+      const venue = await hashesAfter(
+        files,
+        ['tests/fixtures.ts', files['tests/fixtures.ts'].replace("'NASDAQ'", "'NYSE'")],
+        'vitest',
+      );
+      const schema = await hashesAfter(
+        files,
+        ['src/schemas.ts', files['src/schemas.ts'].replace("'number'", "'integer'")],
+        'vitest',
+      );
+      expect(venue).not.toEqual(before);
+      expect(schema).not.toEqual(before);
+    });
+
+    it("takes every fixture when a fixture's own use of them can't be told", async () => {
+      const ledger = 'ledger: async ({}, use: (entries: string[]) => Promise<void>) => use(LEDGER)';
+      const inventory = await scanProject(
+        project({
+          'package.json': VITEST_PACKAGE,
+          'test-data/ledger.ts': "export const LEDGER = ['opening balance'];\n",
+          'fixtures/legacy.cjs': 'module.exports = { legacyQuotes: async ({ ledger }, use) => use(ledger) };\n',
+          'fixtures/index.ts': `import { test as base } from 'vitest';
+import { axeAudit } from '@trading/axe';
+import { LEDGER } from '../test-data/ledger';
+import { legacyQuotes } from './legacy.cjs';
+
+const VENUE = 'NASDAQ',
+  VENUES = [VENUE].map((venue) => venue.toLowerCase());
+async function auditTrail(fixtures: object, use: (trail: object) => Promise<void>) {
+  await use({ ...fixtures, venues: VENUES });
+}
+export const inlineTest = base.extend({ ${ledger}, audit: async (fixtures, use) => use(fixtures) });
+export const globalTest = base.extend({ ${ledger}, fetch });
+export const packageTest = base.extend({ ${ledger}, axeAudit });
+export const legacyTest = base.extend({ ${ledger}, legacyQuotes });
+export const localTest = base.extend({ ${ledger}, auditTrail });
+`,
+          'tests/audit.test.ts': `import { expect } from 'vitest';
+import { globalTest, inlineTest, legacyTest, localTest, packageTest } from '../fixtures';
+
+inlineTest('audits every fixture', ({ audit }) => expect(audit).toBeTruthy());
+globalTest('fetches the quote feed', ({ fetch }) => expect(fetch).toBeTruthy());
+packageTest('runs the accessibility audit', ({ axeAudit }) => expect(axeAudit).toBeTruthy());
+legacyTest('reads legacy quotes', ({ legacyQuotes }) => expect(legacyQuotes).toBeTruthy());
+localTest('keeps an audit trail', ({ auditTrail }) => expect(auditTrail).toBeTruthy());
+`,
+        }),
+        'vitest',
+      );
+      expect(inventory.tests.map((test) => [test.title, test.dependencies.includes('test-data/ledger.ts')])).toEqual([
+        ['audits every fixture', true],
+        ['fetches the quote feed', true],
+        ['runs the accessibility audit', true],
+        ['reads legacy quotes', true],
+        ['keeps an audit trail', true],
+      ]);
+    });
+
+    it('takes the fixtures that built-in fixtures, conditions, test.use(), helpers and factories ask for', async () => {
+      const fixtures = `import { test as base, expect as baseExpect } from '@playwright/test';
+import { pageObject } from './page-objects';
+
+const AUDIT_LOG = [async ({}, use: (log: string[]) => Promise<void>) => use(['session opened']), { auto: true }] as const;
+
+export const test = base.extend<any>({
+  workerStorageState: [async ({}, use) => use('auth/trader.json'), { scope: 'worker' }],
+  storageState: ({ workerStorageState }, use) => use(workerStorageState),
+  tradingAccount: ['margin', { option: true }],
+  marginAccount: async ({}, use) => use({ limit: 50_000 }),
+  accountId: async ({}, use) => use('PAPER-7741'),
+  quotes: async ({}, use) => use(['AAPL 187.50']),
+  blotter: pageObject('blotter'),
+  auditLog: AUDIT_LOG,
+});
+export const empty = base.extend();
+export const expect = baseExpect.extend({
+  async toHaveOrderStatus(locator: { textContent(): Promise<string> }, status: string) {
+    return { pass: (await locator.textContent()) === status, message: () => \`expected \${status}\` };
+  },
+});
+`;
+      const files = {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'fixtures/index.ts': fixtures,
+        'fixtures/page-objects.ts': `export function pageObject(name: string) {
+  return async ({ page, quotes }: { page: unknown; quotes: string[] }, use: (value: object) => Promise<void>) =>
+    use({ name, page, quotes });
+}
+`,
+        'fixtures/steps.ts': `export async function placeLimitBuy({ accountId }: { accountId: string }) {
+  return accountId;
+}
+export async function signInTrader({ accountId }: { accountId: string }) {
+  return accountId;
+}
+export function signInBeforeEach(t: { beforeEach(fn: (fixtures: { accountId: string }) => Promise<void>): void }) {
+  t.beforeEach(async ({ accountId }) => {
+    void accountId;
+  });
+}
+`,
+        'tests/positions.spec.ts': `import { test, expect } from '../fixtures';
+
+test('shows the positions page', async ({ page }) => {
+  await expect(page.getByTestId('status')).toHaveOrderStatus('Open');
+});
+`,
+        'tests/margin.spec.ts': `import { test } from '../fixtures';
+
+const MARGIN_DEFAULTS = { locale: 'en-US' };
+
+test.describe('margin', () => {
+  test.skip(({ tradingAccount }) => tradingAccount === 'cash', 'margin accounts only');
+  test.use({ ...MARGIN_DEFAULTS, orderTicket: async ({ page, marginAccount }, use) => use({ page, marginAccount }) });
+  test('buys on margin', async ({ orderTicket }) => {
+    await orderTicket;
+  });
+});
+`,
+        'tests/steps.spec.ts': `import { test } from '../fixtures';
+import { placeLimitBuy, signInBeforeEach, signInTrader } from '../fixtures/steps';
+
+test.beforeEach(signInTrader);
+signInBeforeEach(test);
+test('places a limit buy order via a step', placeLimitBuy);
+test('reads the blotter', async ({ blotter }) => {
+  await blotter;
+});
+`,
+      };
+      // `empty`, an extend() with no fixtures, is read without a crash.
+      expect((await scanProject(project(files))).diagnostics).toEqual([]);
+      const before = await hashesAfter(files, null);
+      const changed = (from: string, to: string) =>
+        hashesAfter(files, ['fixtures/index.ts', fixtures.replace(from, to)]);
+      const cases: [string, string, string][] = [
+        ["'auth/trader.json'", "'auth/admin.json'", 'shows the positions page'],
+        ['=== status', '!== status', 'shows the positions page'],
+        ["['margin', { option: true }]", "['cash', { option: true }]", 'buys on margin'],
+        ['limit: 50_000', 'limit: 25_000', 'buys on margin'],
+        ["'PAPER-7741'", "'PAPER-7742'", 'places a limit buy order via a step'],
+        ["'AAPL 187.50'", "'AAPL 188.00'", 'reads the blotter'],
+        ["'session opened'", "'session started'", 'shows the positions page'],
+      ];
+      // signInBeforeEach's hook alone asks for accountId in 'reads the blotter'.
+      cases.push(["'PAPER-7741'", "'PAPER-7742'", 'reads the blotter']);
+      const unchanged: string[] = [];
+      for (const [from, to, title] of cases) {
+        if ((await changed(from, to))[title] === before[title]) unchanged.push(`${title}: ${from} -> ${to}`);
+      }
+      expect(unchanged).toEqual([]);
+    });
+
+    it('takes the fixtures of hooks given by member, factory, condition, spread or reassigned name, and use() tuples', async () => {
+      const fixtures = `import { test as base } from '@playwright/test';
+export const test = base.extend<{ ledger: string; broker: string }>({
+  ledger: async ({}, use) => use('NASDAQ'),
+  broker: async ({}, use) => use('IBKR'),
+});
+`;
+      const files = {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'fixtures/index.ts': fixtures,
+        'fixtures/seeds.ts': `export const hooks = {
+  seedLedger: async ({ ledger }: { ledger: string }) => {
+    void ledger;
+  },
+};
+export function seedFor(symbol: string) {
+  return async ({ ledger }: { ledger: string }) => {
+    void [symbol, ledger];
+  };
+}
+`,
+        'tests/seeds.spec.ts': `import { test } from '../fixtures';
+import { hooks, seedFor } from '../fixtures/seeds';
+
+let seed = async ({ page }: { page: unknown }) => {
+  void page;
+};
+if (process.env.LEDGER) {
+  seed = async ({ ledger }: { ledger: string }) => {
+    void ledger;
+  };
+}
+
+test.describe('member hook', () => {
+  test.beforeEach(hooks.seedLedger);
+  test('seeds through a member', async () => {});
+});
+test.describe('factory hook', () => {
+  test.beforeEach(seedFor('AAPL'));
+  test('seeds through a factory', async () => {});
+});
+test.describe('conditional hook', () => {
+  test.beforeEach(process.env.REMOTE ? hooks.seedLedger : seed);
+  test('seeds remotely or locally', async () => {});
+});
+test.describe('spread hooks', () => {
+  test.beforeEach(...[hooks.seedLedger]);
+  test('seeds from a list', async () => {});
+});
+const VENUE_KEY = 'venue';
+const MARGIN_USE = { ledger: async ({ broker }: { broker: string }, use: (value: string) => Promise<void>) => use(broker) };
+
+test.describe('use() from a constant', () => {
+  test.use(MARGIN_USE);
+  test('uses a constant', async ({ ledger }) => {
+    void ledger;
+  });
+});
+test.describe('use() from a factory', () => {
+  test.use(seedFor('MSFT') as never);
+  test('seeds through a use() factory', async () => {});
+});
+test.describe('reassigned hook', () => {
+  test.beforeEach(seed);
+  test('seeds after a reassignment', async () => {});
+});
+test.describe('tuple use', () => {
+  test.use({ ledger: [async ({ broker }, use) => use(broker), { scope: 'test' }], [VENUE_KEY]: 'NASDAQ' });
+  test('uses a tuple', async ({ ledger }) => {
+    void ledger;
+  });
+});
+`,
+      };
+      const before = await hashesAfter(files, null);
+      const ledger = await hashesAfter(files, ['fixtures/index.ts', fixtures.replace("'NASDAQ'", "'NYSE'")]);
+      const broker = await hashesAfter(files, ['fixtures/index.ts', fixtures.replace("'IBKR'", "'SCHWAB'")]);
+      const unchanged = [
+        ...Object.keys(before).filter((title) => !title.startsWith('uses a') && ledger[title] === before[title]),
+        ...['uses a tuple', 'uses a constant'].filter((title) => broker[title] === before[title]),
+      ];
+      expect(unchanged).toEqual([]);
+    });
+
+    it('keeps narrowing past regular expressions, assertions, conditions with values, options and Vitest fixtures', async () => {
+      const playwright = `import { test as base } from '@playwright/test';
+export const test = base.extend<{ ledger: string; broker: string }>({
+  ledger: async ({}, use) => use('NASDAQ'),
+  broker: async ({}, use) => use('IBKR'),
+});
+`;
+      const vitest = `import { test as base } from 'vitest';
+export const test = base.extend({
+  ledger: async ({}, use) => use('NASDAQ'),
+  request: async ({ ledger }, use) => use({ ledger }),
+  riskLimits: async ({}, use) => use({ maxNotional: 1_000_000 }),
+});
+`;
+      const files = {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.1', vitest: '5.0.5' } }),
+        'fixtures/index.ts': playwright,
+        'fixtures/vitest.ts': vitest,
+        'pages/symbol-page.ts': `import assert from 'node:assert';
+export class SymbolPage {
+  isValidSymbol(symbol: string) {
+    if (symbol === '') assert.fail('a symbol is required');
+    return /^[A-Z]{1,5}$/.test(symbol);
+  }
+}
+`,
+        'tests/ledger.spec.ts': `import { devices } from '@playwright/test';
+import { test } from '../fixtures';
+import { SymbolPage } from '../pages/symbol-page';
+
+const isCI = Boolean(process.env.CI);
+test.use({ ...devices['Pixel 5'], baseURL: process.env.STAGING_URL });
+test.skip(isCI, 'runs against a local exchange');
+
+test('shows the ledger venue', async ({ ledger }) => {
+  test.expect(new SymbolPage().isValidSymbol(ledger)).toBe(true);
+});
+`,
+        'tests/risk.test.ts': `import { expect } from 'vitest';
+import { test } from '../fixtures/vitest';
+
+test('caps the notional', ({ riskLimits }) => {
+  expect(riskLimits.maxNotional).toBe(1_000_000);
+});
+`,
+      };
+      const root = project(files);
+      const scanBoth = async (change: [string, string] | null) => {
+        if (change) writeFileSync(path.join(root, change[0]), change[1]);
+        const [playwrightScan, vitestScan] = await Promise.all([
+          scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' }),
+          scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' }),
+        ]);
+        return [...playwrightScan.tests, ...vitestScan.tests].map((test) => test.dependencyHash);
+      };
+      const before = await scanBoth(null);
+      const broker = await scanBoth(['fixtures/index.ts', playwright.replace("'IBKR'", "'SCHWAB'")]);
+      const ledger = await scanBoth(['fixtures/vitest.ts', vitest.replace("'NASDAQ'", "'NYSE'")]);
+      expect([broker[0] === before[0], ledger[1] === before[1]]).toEqual([true, true]);
+    });
+  });
 });

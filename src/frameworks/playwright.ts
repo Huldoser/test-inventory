@@ -44,6 +44,7 @@ import {
   problem,
   readChain,
   destructuredNames,
+  takesWhole,
   readCondition,
   readCount,
   readOptions,
@@ -332,7 +333,14 @@ export class PlaywrightAdapter implements Adapter {
     if (key === 'describe.configure') return this.configure(call, context);
     if (HOOKS.has(key)) {
       const fn = hookFunction(this.file, context.scopes, call.arguments);
-      return { kind: 'hook', name: key as keyof HookCounts, fn, testContext: null, fixtures: destructuredNames(fn, 0) };
+      return {
+        kind: 'hook',
+        name: key as keyof HookCounts,
+        fn,
+        testContext: null,
+        fixtures: destructuredNames(fn, 0),
+        takesAllFixtures: takesWhole(fn, 0),
+      };
     }
     if (RUN_MEMBERS.has(key)) return this.runSetting(call, key, context);
     if (OTHER_MEMBERS.has(key)) return { kind: 'other' };
@@ -548,6 +556,7 @@ export class PlaywrightAdapter implements Adapter {
       caseCount: null,
       testContext: null,
       fixtures: destructuredNames(hashed, 0),
+      takesAllFixtures: takesWhole(hashed, 0),
       usesBench: false,
       problems,
     };
