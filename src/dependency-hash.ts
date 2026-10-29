@@ -15,7 +15,7 @@ import { exportName, parseModule } from './frameworks/bindings.ts';
 import { destructuredNames, problem, takesWhole } from './frameworks/common.ts';
 import { shortHash, hashNodes } from './hash.ts';
 import type { ModuleReader, ModuleSource, Problem, Span } from './model.ts';
-import type { ParsedFile } from './parse.ts';
+import { parseFile, type ParsedFile } from './parse.ts';
 import { snippet, type SourceText } from './source.ts';
 import type { Framework } from './types.ts';
 import { bindingNames, isScopeNode, Values } from './values.ts';
@@ -23,9 +23,9 @@ import { bindingNames, isScopeNode, Values } from './values.ts';
 /** A file whose code a test can run: the scanned file, a module it imports, or a data file such as JSON. */
 interface Module {
   relativeFilePath: string;
-  /** Null for a file that isn't JavaScript or TypeScript, which is taken by its text. */
+  /** Null for a file that isn't JavaScript or TypeScript, which is taken by its text; for a component, its scripts. */
   parsed: ParsedFile | null;
-  /** The file's text with line endings read as `\n`, for a file that isn't code. */
+  /** The file's text with line endings read as `\n`, for a file that isn't code or a component. */
   text: string | null;
   values: Values;
   readModule: ModuleReader | null;
@@ -336,6 +336,36 @@ function isAutoOption(property: Node): boolean {
 }
 
 const CODE_FILE = /\.[cm]?[jt]sx?$/;
+
+/** A Vue or Svelte single-file component: markup with its code in `<script>` blocks. */
+const COMPONENT_FILE = /\.(?:vue|svelte)$/;
+
+/**
+ * A comment, which may hold a `<script>` that isn't one, or a script block with its attributes and code. An attribute
+ * may hold `>`, as Svelte's `generics="T extends Record<string, number>"` does.
+ */
+const COMPONENT_BLOCK = /<!--[\s\S]*?-->|<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/gi;
+
+/**
+ * A component's script blocks as one module, the rest of the file blanked so that offsets stay those of the file, and
+ * a file name for the language they are in: `lang="ts"` is TypeScript, no `lang` JavaScript.
+ */
+function componentScript(code: string): { fileName: string; code: string } {
+  // A byte order mark stays, for the parser to leave out as it does from any file.
+  const blank = (text: string) => text.replace(/[^\r\n\uFEFF]/g, ' ');
+  let script = '';
+  let end = 0;
+  let lang = 'js';
+  for (const match of code.matchAll(COMPONENT_BLOCK)) {
+    const [whole, attributes, body] = match;
+    if (whole.startsWith('<!--')) continue;
+    const start = match.index + '<script'.length + attributes.length + 1;
+    script += blank(code.slice(end, start)) + body;
+    end = start + body.length;
+    lang = /(?:^|\s)lang\s*=\s*["']?(\w+)/.exec(attributes)?.[1] ?? lang;
+  }
+  return { fileName: `component.${lang}`, code: script + blank(code.slice(end)) };
+}
 
 const DECLARATION_FILE = /\.d\.[cm]?ts$/;
 
@@ -653,7 +683,8 @@ export class DependencyGraph {
   private hashOf(unit: Unit): string | null {
     if (unit.hash === undefined) {
       if (unit.module.text !== null) {
-        unit.hash = shortHash(unit.module.text);
+        // Counted once, through the unit of all of it, however many of a component's units a test reaches.
+        unit.hash = unit.module.whole.includes(unit) ? shortHash(unit.module.text) : null;
       } else {
         const cut = [...unit.cut].map(([start, end]) => ({ start, end }));
         unit.hash = hashNodes(
@@ -676,7 +707,12 @@ export class DependencyGraph {
           this.newModule(source.relativeFilePath, parsed, null, new Values(), source.readModule);
         this.modules.set(parsed, module);
       } else {
-        module = this.newModule(source.relativeFilePath, null, source.code.replace(/\r\n?/g, '\n'), new Values(), null);
+        const text = source.code.replace(/\r\n?/g, '\n');
+        // A component's markup and styles shape what it renders, so it is taken by its text, and its scripts are
+        // followed for the modules they import.
+        const script = COMPONENT_FILE.test(source.relativeFilePath) ? componentScript(source.code) : null;
+        const parsed = script && parseFile(script.fileName, script.code);
+        module = this.newModule(source.relativeFilePath, parsed, text, new Values(), parsed && source.readModule);
       }
       this.modules.set(source, module);
     }
@@ -891,8 +927,11 @@ export class DependencyGraph {
       ];
     }
     if (module.parsed.error) {
-      return [this.placeUnit(from, at, `'${specifier}' could not be parsed, so dependencyHash doesn't cover it.`)];
+      const place = this.placeUnit(from, at, `'${specifier}' could not be parsed, so dependencyHash doesn't cover it.`);
+      return module.text === null ? [place] : [this.textUnit(module), place];
     }
+    // A component's markup may use anything its scripts declare or import, its types included.
+    if (module.text !== null) return [this.wholeUnit(module, false)];
     return name === '' ? [this.loadUnit(module, types)] : this.exported(module, name, types, new Set());
   }
 
@@ -1373,9 +1412,21 @@ export class DependencyGraph {
           }
           break;
         }
-        case 'ImportDeclaration':
-          if (node.importKind !== 'type' || types) add(this.imported(module, node.source.value, '', types, node));
+        case 'ImportDeclaration': {
+          if (module.text === null) {
+            if (node.importKind !== 'type' || types) add(this.imported(module, node.source.value, '', types, node));
+            return;
+          }
+          // A component's markup uses what its scripts import, where the scan doesn't look, and Vue builds the props
+          // of `defineProps<Props>()` from the types, so every import counts, types with their types.
+          const isType = node.importKind === 'type';
+          add(this.imported(module, node.source.value, '', isType, node));
+          for (const specifier of node.specifiers) {
+            const isTypeName = isType || (specifier.type === 'ImportSpecifier' && specifier.importKind === 'type');
+            add(this.toDeclaration(module, specifier, specifier.local.name, null, isTypeName));
+          }
           return;
+        }
         case 'TSImportEqualsDeclaration':
           if (node.moduleReference.type !== 'TSExternalModuleReference') break;
           if (node.importKind !== 'type' || types) {

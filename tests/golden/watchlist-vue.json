@@ -232,9 +232,10 @@
     {
       "id": "98607d9cf951d0ad",
       "bodyHash": "fbadd2a5048288d9",
-      "dependencyHash": "1ec36a1db7926ad0",
+      "dependencyHash": "6def4c74df4348b1",
       "dependencies": [
         "src/components/Watchlist.vue",
+        "src/components/WatchlistRow.vue",
         "tests/unit/Watchlist.spec.ts",
         "vitest.config.ts"
       ],
@@ -316,9 +317,10 @@
     {
       "id": "b832207595d60b5a",
       "bodyHash": "26e2eda06a90ad63",
-      "dependencyHash": "18c821332799c0d4",
+      "dependencyHash": "b0eb72b0ada3e0e7",
       "dependencies": [
         "src/components/Watchlist.vue",
+        "src/components/WatchlistRow.vue",
         "tests/unit/Watchlist.spec.ts",
         "vitest.config.ts"
       ],
@@ -400,9 +402,10 @@
     {
       "id": "6845b18187057e8e",
       "bodyHash": "2aa2740813832353",
-      "dependencyHash": "a20ef2dd37b2a15e",
+      "dependencyHash": "d496124dd3abfb94",
       "dependencies": [
         "src/components/Watchlist.vue",
+        "src/components/WatchlistRow.vue",
         "tests/unit/Watchlist.spec.ts",
         "vitest.config.ts"
       ],
@@ -484,9 +487,10 @@
     {
       "id": "486cbcddd832451d",
       "bodyHash": "f9623531b0e1a41a",
-      "dependencyHash": "2398fef13e0e8030",
+      "dependencyHash": "0a0c874941263f8c",
       "dependencies": [
         "src/components/Watchlist.vue",
+        "src/components/WatchlistRow.vue",
         "tests/unit/Watchlist.spec.ts",
         "vitest.config.ts"
       ],
@@ -569,9 +573,10 @@
     {
       "id": "3f34fd72c582871d",
       "bodyHash": null,
-      "dependencyHash": "5d3d4b4f8b8cd88b",
+      "dependencyHash": "98b43c8fedf0f519",
       "dependencies": [
         "src/components/Watchlist.vue",
+        "src/components/WatchlistRow.vue",
         "tests/unit/Watchlist.spec.ts",
         "vitest.config.ts"
       ],
