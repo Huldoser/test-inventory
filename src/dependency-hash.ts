@@ -459,8 +459,8 @@ export class DependencyGraph {
    * with the fixtures it needs of each test object reached: the hash, the files, and whether all of it could be
    * followed.
    */
-  dependencies(roots: Unit[], base: Reach, needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
-    const reached = [base, this.reach(roots, [base])];
+  dependencies(roots: Unit[], bases: Reach[], needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
+    const reached = [...bases, this.reach(roots, bases)];
     // A fixture can ask for one an object it extends defines, or use another test object, so names are shared by
     // every test object reached, and each name and object is read once.
     const names = new Set<string>();
@@ -1416,16 +1416,37 @@ export function fileDependencies(
     ...runsWith.gaps.map((gap) => graph.gapUnit(gap)),
   ];
   const base = graph.reach([load, ...config]);
-  return (test) => {
-    const roots = [graph.unit(moduleOf(test.frame), [test.call], [], types), ...registering(test.registeredBy)];
-    for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
-      if (scope.suite) roots.push(...suiteUnit(scope.suite));
+  // The describes around a test and the helper call that registers it are shared by the tests there, often thousands
+  // for one helper call, so what they reach is walked once for all of them.
+  const contexts = new Map<Scope, Map<Node | null, Reach>>();
+  const contextOf = (scope: Scope, registeredBy: Node | null): Reach => {
+    const byCall = contexts.get(scope) ?? new Map<Node | null, Reach>();
+    contexts.set(scope, byCall);
+    let context = byCall.get(registeredBy);
+    if (!context) {
+      const roots = registering(registeredBy);
+      for (let around: Scope | null = scope; around; around = around.parent) {
+        if (around.suite) roots.push(...suiteUnit(around.suite));
+      }
+      context = graph.reach(roots, [base]);
+      byCall.set(registeredBy, context);
     }
+    return context;
+  };
+  // A test declared in a helper is one call for every test the helper's calls register.
+  const calls = new Map<Node, Unit>();
+  return (test) => {
+    let own = calls.get(test.call);
+    if (!own) {
+      own = graph.unit(moduleOf(test.frame), [test.call], [], types);
+      calls.set(test.call, own);
+    }
+    const roots = [own];
     const needs: FixtureNeeds = { names: [...test.declaration.fixtures], all: test.declaration.takesAllFixtures };
     for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
       needs.names.push(...scope.setupFixtures);
       needs.all ||= scope.takesAllFixtures;
     }
-    return graph.dependencies(roots, base, needs, report);
+    return graph.dependencies(roots, [base, contextOf(test.scope, test.registeredBy)], needs, report);
   };
 }
