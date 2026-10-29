@@ -1124,7 +1124,7 @@
     {
       "id": "31a4ede14a50d495",
       "bodyHash": "3f5cafee0ffa6836",
-      "dependencyHash": "7d63a7b30a721375",
+      "dependencyHash": "12e4283164b72591",
       "dependencies": [
         "src/pnl/format.ts"
       ],
@@ -1206,7 +1206,7 @@
     {
       "id": "ceb2288b30fb0cee",
       "bodyHash": "d70cbc344e83cb89",
-      "dependencyHash": "04d9b4cd0185d1e5",
+      "dependencyHash": "65e7ef8c7a633457",
       "dependencies": [
         "src/pnl/format.ts"
       ],
@@ -1288,7 +1288,7 @@
     {
       "id": "73d712d2bf05f887",
       "bodyHash": "efff807b1f64206b",
-      "dependencyHash": "41c5885fb2223b84",
+      "dependencyHash": "df830d38beed8d9c",
       "dependencies": [
         "src/pnl/format.ts"
       ],
@@ -1370,7 +1370,7 @@
     {
       "id": "7a002fd6d6cc8525",
       "bodyHash": "13a929bf4a57cd98",
-      "dependencyHash": "1fa222beedd0d219",
+      "dependencyHash": "9c209c83cc701e79",
       "dependencies": [
         "src/pnl/format.ts"
       ],
@@ -1450,7 +1450,7 @@
     {
       "id": "8c736ca50389a689",
       "bodyHash": "cd292cb23b1f6309",
-      "dependencyHash": "6a5acbf68ad52b97",
+      "dependencyHash": "0c396ec5f4134274",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts"
@@ -1533,7 +1533,7 @@
     {
       "id": "32bd9e9bc159f1bf",
       "bodyHash": "2f738daed6628313",
-      "dependencyHash": "4c8d3bd33a4cf69d",
+      "dependencyHash": "a7dc31eb65243899",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts"
@@ -1616,7 +1616,7 @@
     {
       "id": "ea7ee016a2c38a37",
       "bodyHash": "68ad8543578f11e2",
-      "dependencyHash": "fc3a328a41244a80",
+      "dependencyHash": "a508386ec3acaa0c",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts"
@@ -1699,7 +1699,7 @@
     {
       "id": "5e13a2afe5a8d01d",
       "bodyHash": "c0dbe581a33fffa2",
-      "dependencyHash": "8e78dc345a4b7d73",
+      "dependencyHash": "8789c9bc8ad11f87",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts"

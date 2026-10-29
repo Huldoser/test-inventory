@@ -1,8 +1,16 @@
-import { visitorKeys, type Node, type Program } from 'oxc-parser';
-import { childNodes, type FunctionNode } from './ast.ts';
+import {
+  visitorKeys,
+  type CallExpression,
+  type Expression,
+  type Node,
+  type Program,
+  type ObjectProperty,
+  type VariableDeclarator,
+} from 'oxc-parser';
+import { childNodes, isFunctionNode, propertyKey, unwrap, type FunctionNode } from './ast.ts';
 import type { Extraction, Frame, PendingSuite, PendingTest, Scope } from './extract.ts';
 import { exportName, parseModule } from './frameworks/bindings.ts';
-import { problem } from './frameworks/common.ts';
+import { destructuredNames, problem, takesWhole } from './frameworks/common.ts';
 import { shortHash, hashNodes } from './hash.ts';
 import type { ModuleReader, ModuleSource, Problem, Span } from './model.ts';
 import type { ParsedFile } from './parse.ts';
@@ -49,6 +57,10 @@ interface Unit {
   with: Unit[];
   edges: Set<Unit> | null;
   place: Place | null;
+  /** For a test object built with `extend()`, the fixtures left out of its code. */
+  fixtures: Fixtures | null;
+  /** Fills in `roots` and `with` when the walk first reaches the unit. */
+  prepare: (() => void) | null;
   hash: string | null | undefined;
 }
 
@@ -66,6 +78,28 @@ interface Reach {
   units: Set<Unit>;
   byFile: Map<string, string[]>;
   places: Place[];
+  /** The fixtures of the test objects among the units, which each test takes as it needs them. */
+  fixtures: Fixtures[];
+}
+
+/** A fixture one `extend()` call defines, and the fixtures it asks for; null when it takes them whole. */
+interface Fixture {
+  unit: Unit;
+  uses: string[] | null;
+}
+
+/** The fixtures a test object's own `extend()` calls define, left out of the object's unit and taken per test. */
+interface Fixtures {
+  byName: Map<string, Fixture[]>;
+  /** Fixtures with `auto: true`, which run for every test that uses the object. */
+  auto: string[];
+}
+
+/** The fixtures a test asks for: its own, and those of the hooks around it. */
+export interface FixtureNeeds {
+  names: string[];
+  /** The test or a hook takes its fixtures whole, so it may use any. */
+  all: boolean;
 }
 
 /** What a test runs, as the test record gives it. */
@@ -124,6 +158,24 @@ const PACKAGE_REASONS = new Set([
   'is an installed package, which is not followed',
   'is not a local file, a path alias or a workspace package',
 ]);
+
+/** Modules whose `test` object fixtures are defined on. */
+const FRAMEWORK = /^(?:@playwright\/test|playwright\/test|@playwright\/experimental-ct-[\w-]+|vitest)$/;
+
+/** A property written as `name: value` or `name() {}`, whose name is known. */
+function isNamedProperty(property: Node): boolean {
+  return property.type === 'Property' && !property.computed && propertyKey(property) !== null;
+}
+
+/** `auto: true` in a fixture's options. */
+function isAutoOption(property: Node): boolean {
+  return (
+    property.type === 'Property' &&
+    propertyKey(property) === 'auto' &&
+    property.value.type === 'Literal' &&
+    property.value.value === true
+  );
+}
 
 const CODE_FILE = /\.[cm]?[jt]sx?$/;
 
@@ -204,6 +256,10 @@ function isLoadCode(statement: Node): boolean {
 export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
+  private readonly testObjects: [WeakMap<Node, Unit | null>, WeakMap<Node, Unit | null>] = [
+    new WeakMap(),
+    new WeakMap(),
+  ];
   /** Places already reported, so that one the scan reaches from many files is reported once. */
   private readonly reported = new Set<string>();
 
@@ -237,30 +293,45 @@ export class DependencyGraph {
     const cached = module.load[index];
     if (cached) return cached;
     const program = (module.parsed as ParsedFile).program;
-    const unit = this.newUnit(
-      module,
-      program.body.filter(isLoadCode).map((node) => ({ node, scopes: [program] })),
-      new Map(cut.map((span) => [span.start, span.end])),
-      types,
-    );
+    const unit = this.newUnit(module, [], new Map(cut.map((span) => [span.start, span.end])), types);
+    // Read once the walk reaches it, as telling a test object apart may need this module's load code in turn.
+    unit.prepare = () => {
+      for (const statement of program.body.filter(isLoadCode)) {
+        const declaration = declared(statement);
+        if (declaration.type !== 'VariableDeclaration') {
+          unit.roots.push({ node: statement, scopes: [program] });
+          continue;
+        }
+        // A test object's fixtures run only for the tests that ask for them.
+        for (const declarator of declaration.declarations) {
+          const testObject = this.testObjectUnit(module, declarator, types);
+          if (testObject) unit.with.push(testObject);
+          else if (runsOnLoad(declarator)) unit.roots.push({ node: declarator, scopes: [program] });
+        }
+      }
+    };
     module.load[index] = unit;
     return unit;
   }
 
-  /** The units a set of roots reaches, leaving out those `base` reached, with their hashes by file. */
-  reach(roots: Unit[], base: Reach | null = null): Reach {
+  /** The units a set of roots reaches, leaving out those `skip` reached, with their hashes by file. */
+  reach(roots: Unit[], skip: Reach[] = []): Reach {
     const units = new Set<Unit>();
     const pending = [...roots];
     for (let unit = pending.pop(); unit; unit = pending.pop()) {
-      if (units.has(unit) || base?.units.has(unit)) continue;
+      if (units.has(unit) || skip.some((reached) => reached.units.has(unit))) continue;
       units.add(unit);
+      unit.prepare?.();
+      unit.prepare = null;
       unit.edges ??= this.edgesOf(unit);
       pending.push(...unit.with, ...unit.edges);
     }
     const byFile = new Map<string, string[]>();
     const places: Place[] = [];
+    const fixtures: Fixtures[] = [];
     for (const unit of units) {
       if (unit.place) places.push(unit.place);
+      if (unit.fixtures) fixtures.push(unit.fixtures);
       const hash = this.hashOf(unit);
       if (hash === null) continue;
       const hashes = byFile.get(unit.module.relativeFilePath);
@@ -269,16 +340,50 @@ export class DependencyGraph {
     }
     // Sorted by hash, so that moving code around in a file doesn't change it; each part keeps its own order.
     for (const hashes of byFile.values()) hashes.sort();
-    return { units, byFile, places };
+    return { units, byFile, places, fixtures };
   }
 
   /**
-   * Everything a test's roots reach on top of `base`, the code its file runs when loaded, which all its tests share:
-   * the hash, the files, and whether all of it could be followed.
+   * Everything a test's roots reach on top of `base`, the code its file runs when loaded, which all its tests share,
+   * with the fixtures it needs of each test object reached: the hash, the files, and whether all of it could be
+   * followed.
    */
-  dependencies(roots: Unit[], base: Reach, report: (place: Place) => void): Dependencies {
-    const own = this.reach(roots, base);
-    const places = [...base.places, ...own.places];
+  dependencies(roots: Unit[], base: Reach, needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
+    const reached = [base, this.reach(roots, [base])];
+    // A fixture can ask for one an object it extends defines, or use another test object, so names and objects are
+    // shared and followed until nothing new turns up.
+    const names = new Set(needs.names);
+    let all = needs.all;
+    const taken = new Set<Unit>();
+    for (let grew = true; grew;) {
+      grew = false;
+      const fixtures = new Set(reached.flatMap((item) => item.fixtures));
+      const fresh: Unit[] = [];
+      for (const item of fixtures) {
+        for (const name of item.auto) names.add(name);
+      }
+      for (const item of fixtures) {
+        for (const name of all ? item.byName.keys() : [...names]) {
+          for (const fixture of item.byName.get(name) ?? []) {
+            if (!taken.has(fixture.unit)) fresh.push(fixture.unit);
+            taken.add(fixture.unit);
+            if (fixture.uses === null) {
+              grew ||= !all;
+              all = true;
+            }
+            for (const used of fixture.uses ?? []) {
+              grew ||= !names.has(used);
+              names.add(used);
+            }
+          }
+        }
+      }
+      if (fresh.length > 0) {
+        reached.push(this.reach(fresh, reached));
+        grew = true;
+      }
+    }
+    const places = reached.flatMap((item) => item.places);
     const start = (place: Place) => (place.problem.node as Span).start;
     // Compared by code unit, as `files` is, so that the order doesn't depend on the locale.
     const path = (a: Place, b: Place) =>
@@ -290,11 +395,9 @@ export class DependencyGraph {
       this.reported.add(key);
       report(place);
     }
-    const files = [...new Set([...base.byFile.keys(), ...own.byFile.keys()])].sort();
+    const files = [...new Set(reached.flatMap((item) => [...item.byFile.keys()]))].sort();
     const parts = files.map((file) => {
-      const shared = base.byFile.get(file) ?? [];
-      const added = own.byFile.get(file);
-      return [file, added ? [...shared, ...added].sort() : shared];
+      return [file, reached.flatMap((item) => item.byFile.get(file) ?? []).sort()];
     });
     return { hash: shortHash(JSON.stringify(parts)), files, isComplete: places.length === 0 };
   }
@@ -320,7 +423,18 @@ export class DependencyGraph {
   }
 
   private newUnit(module: Module, roots: Root[], cut: ReadonlyMap<number, number>, types: boolean): Unit {
-    return { module, roots, cut, types, with: [], edges: null, place: null, hash: undefined };
+    return {
+      module,
+      roots,
+      cut,
+      types,
+      with: [],
+      edges: null,
+      place: null,
+      fixtures: null,
+      prepare: null,
+      hash: undefined,
+    };
   }
 
   private hashOf(unit: Unit): string | null {
@@ -511,7 +625,7 @@ export class DependencyGraph {
       if (declaration) {
         if (declaration.type === 'VariableDeclaration') {
           const declarator = declaration.declarations.find((item) => bindingNames(item.id).includes(name));
-          if (declarator) return [this.declarationUnit(module, declarator, types)];
+          if (declarator) return this.toDeclaration(module, declarator, name, null, types);
         } else if ('id' in declaration && declaration.id?.type === 'Identifier' && declaration.id.name === name) {
           // `export import Fees = require('./fees')` stands for the other module.
           return this.toDeclaration(module, declaration, name, null, types);
@@ -584,8 +698,137 @@ export class DependencyGraph {
           return [this.declarationUnit(module, declaration, types, declaration.params)];
         }
         break;
+      case 'VariableDeclarator': {
+        const testObject = this.testObjectUnit(module, declaration, types);
+        if (testObject) return [testObject];
+        break;
+      }
     }
     return [this.declarationUnit(module, declaration, types)];
+  }
+
+  /**
+   * A test object built with `extend()` on the framework's own: its code without the fixtures its `extend()` calls
+   * define, which each test takes as it needs them. Null for any other value.
+   */
+  private testObjectUnit(module: Module, declarator: VariableDeclarator, types: boolean): Unit | null {
+    const cache = this.testObjects[Number(types)];
+    if (!cache.has(declarator)) {
+      // A test object built on itself, through imports, isn't one.
+      cache.set(declarator, null);
+      cache.set(declarator, this.readTestObject(module, declarator, types));
+    }
+    return cache.get(declarator) ?? null;
+  }
+
+  private readTestObject(module: Module, declarator: VariableDeclarator, types: boolean): Unit | null {
+    const scopes = scopesAt((module.parsed as ParsedFile).program, declarator);
+    const calls: CallExpression[] = [];
+    let node = declarator.init && unwrap(declarator.init);
+    while (node?.type === 'CallExpression' && node.callee.type === 'MemberExpression' && !node.callee.computed) {
+      if (node.callee.property.name !== 'extend') break;
+      calls.push(node);
+      node = unwrap(node.callee.object);
+    }
+    if (!node || calls.length === 0 || !this.isFrameworkTest(module, node, scopes, types)) return null;
+    const byName = new Map<string, Fixture[]>();
+    const auto: string[] = [];
+    const cut: Span[] = [];
+    const define = (name: string, unit: Unit, value: Node | undefined, options: Node | undefined) => {
+      byName.set(name, [...(byName.get(name) ?? []), { unit, uses: this.fixtureUses(module, value, scopes, types) }]);
+      if (options?.type === 'ObjectExpression' && options.properties.some(isAutoOption)) auto.push(name);
+    };
+    for (const call of calls) {
+      const [first] = call.arguments;
+      if (first.type === 'Literal' && typeof first.value === 'string') {
+        // Vitest's `test.extend('name', options?, fn)`.
+        cut.push(...call.arguments);
+        const unit = this.declarationUnit(module, call, types, call.arguments);
+        define(first.value, unit, call.arguments.at(-1), call.arguments.length > 2 ? call.arguments[1] : undefined);
+      } else if (first.type === 'ObjectExpression' && first.properties.every(isNamedProperty)) {
+        cut.push(first);
+        for (const property of first.properties as ObjectProperty[]) {
+          const value = unwrap(property.value);
+          const [fn, options] = value.type === 'ArrayExpression' ? value.elements : [value];
+          define(
+            propertyKey(property) as string,
+            this.declarationUnit(module, property, types),
+            fn ?? undefined,
+            options ?? undefined,
+          );
+        }
+      }
+    }
+    if (cut.length === 0) return null;
+    const unit = this.newUnit(
+      module,
+      [{ node: declarator, scopes }],
+      new Map(cut.map((span) => [span.start, span.end])),
+      types,
+    );
+    unit.with.push(this.loadUnit(module, types));
+    unit.fixtures = { byName, auto };
+    return unit;
+  }
+
+  /**
+   * Whether an expression is a test object of the framework: its own `test`, `mergeTests()` of test objects, or one
+   * built on them with `extend()`, followed through imports.
+   */
+  private isFrameworkTest(module: Module, expression: Node, scopes: readonly Node[], types: boolean): boolean {
+    const node = unwrap(expression as Expression);
+    if (node.type === 'CallExpression') {
+      const { callee } = node;
+      if (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'extend') {
+        return this.isFrameworkTest(module, callee.object, scopes, types);
+      }
+      // `mergeTests(a, b)`.
+      return this.isFrameworkTest(module, callee, scopes, types);
+    }
+    if (node.type !== 'Identifier') return false;
+    const declaration = module.values.declarationOf(node.name, scopes);
+    if (declaration === null) return false;
+    if (declaration.type === 'ImportSpecifier' || declaration.type === 'ImportDefaultSpecifier') {
+      if (FRAMEWORK.test(this.importOf(module, declaration).source.value)) return true;
+    }
+    return this.toDeclaration(module, declaration, node.name, null, types).some((unit) => {
+      if (unit.fixtures) return true;
+      const root = unit.roots.at(0)?.node;
+      return (
+        root?.type === 'VariableDeclarator' &&
+        root.init !== null &&
+        this.isFrameworkTest(
+          unit.module,
+          root.init,
+          root === declaration ? scopes : scopesAt((unit.module.parsed as ParsedFile).program, root),
+          types,
+        )
+      );
+    });
+  }
+
+  /** The fixtures a fixture's function asks for; null when it takes them whole, or isn't a function the scan finds. */
+  private fixtureUses(
+    module: Module,
+    value: Node | undefined,
+    scopes: readonly Node[],
+    types: boolean,
+  ): string[] | null {
+    if (!value) return [];
+    const node = unwrap(value as Expression);
+    if (isFunctionNode(node)) return takesWhole(node, 0) ? null : destructuredNames(node, 0);
+    if (node.type !== 'Identifier') return [];
+    const declaration = module.values.declarationOf(node.name, scopes);
+    if (declaration === null) return null;
+    for (const unit of this.toDeclaration(module, declaration, node.name, null, types)) {
+      const root = unit.roots.at(0)?.node;
+      const fn = root?.type === 'VariableDeclarator' ? root.init && unwrap(root.init) : root;
+      if (fn?.type === 'FunctionDeclaration' || isFunctionNode(fn))
+        return takesWhole(fn, 0) ? null : destructuredNames(fn, 0);
+      // A value fixture, such as a constant, asks for nothing.
+      if (root?.type === 'VariableDeclarator') return [];
+    }
+    return null;
   }
 
   private importOf(module: Module, specifier: Node): Extract<Node, { type: 'ImportDeclaration' }> {
@@ -829,6 +1072,11 @@ export function fileDependencies(
     for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
       if (scope.suite) roots.push(...suiteUnit(scope.suite));
     }
-    return graph.dependencies(roots, base, report);
+    const needs: FixtureNeeds = { names: [...test.declaration.fixtures], all: test.declaration.takesAllFixtures };
+    for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
+      needs.names.push(...scope.setupFixtures);
+      needs.all ||= scope.takesAllFixtures;
+    }
+    return graph.dependencies(roots, base, needs, report);
   };
 }

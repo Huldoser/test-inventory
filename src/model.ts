@@ -90,6 +90,8 @@ export interface TestDeclaration extends Declaration {
   testContext: unknown;
   /** Names the test function takes from its context, without the framework's own keys. */
   fixtures: string[];
+  /** The test function takes its fixtures whole, or keeps the rest of them, so it may use any. */
+  takesAllFixtures: boolean;
   /** Uses Vitest 5's `bench` fixture. */
   usesBench: boolean;
 }
@@ -127,7 +129,14 @@ export type ApiCall =
       /** Source text of the first argument. */ argument: string | null;
       problems: Problem[];
     }
-  | { kind: 'hook'; name: keyof HookCounts; fn: FunctionNode | null; testContext: unknown; fixtures: string[] }
+  | {
+      kind: 'hook';
+      name: keyof HookCounts;
+      fn: FunctionNode | null;
+      testContext: unknown;
+      fixtures: string[];
+      takesAllFixtures: boolean;
+    }
   /** Playwright `test.step()` or `test.step.skip()`. */
   | { kind: 'step'; title: Title; isSkipped: boolean; fn: FunctionNode | null }
   | { kind: 'annotations'; items: Annotation[]; problems: Problem[] }

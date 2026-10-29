@@ -401,6 +401,19 @@ export function destructuredNames(fn: FunctionNode | null, index: number | null)
   return names.filter((name) => name !== null);
 }
 
+/**
+ * Whether a function takes one of its parameters whole, as in `(fixtures) => ...`, or keeps the rest of its object
+ * pattern, so that any key of it may be used.
+ */
+export function takesWhole(fn: FunctionNode | null, index: number | null): boolean {
+  const parameter = index === null ? undefined : fn?.params[index];
+  if (!parameter) return false;
+  return (
+    parameter.type !== 'ObjectPattern' ||
+    parameter.properties.some((property) => property.type === 'RestElement' || property.computed)
+  );
+}
+
 /** A whole number, such as a timeout in milliseconds; null, with a warning, when it can't be worked out. */
 export function readCount(file: FileContext, name: string, option: OptionValue, problems: Problem[]): number | null {
   const { node, resolved } = option;

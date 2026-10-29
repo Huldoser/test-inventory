@@ -246,7 +246,7 @@
     {
       "id": "3e7d121d531e37ad",
       "bodyHash": "fb117453c73db83c",
-      "dependencyHash": "985b99bc1f963b60",
+      "dependencyHash": "bcdcd14992770e98",
       "dependencies": [
         "src/components/OrderTicket.test.tsx",
         "src/components/OrderTicket.tsx"
@@ -329,7 +329,7 @@
     {
       "id": "f060f5a51b9b430e",
       "bodyHash": "5b7720549d4fffa6",
-      "dependencyHash": "920b45af192b0e77",
+      "dependencyHash": "0eba4fd5f9d1bef9",
       "dependencies": [
         "src/components/OrderTicket.test.tsx",
         "src/components/OrderTicket.tsx"
@@ -412,7 +412,7 @@
     {
       "id": "0deff7a937fb0e0e",
       "bodyHash": "677f778c2238bb60",
-      "dependencyHash": "078f42a9fcc88a65",
+      "dependencyHash": "248af3f985f1a3df",
       "dependencies": [
         "src/components/OrderTicket.test.tsx",
         "src/components/OrderTicket.tsx"
@@ -495,7 +495,7 @@
     {
       "id": "a285e11e4981c451",
       "bodyHash": "60af7ff86c5dc0ba",
-      "dependencyHash": "3642ab09ec0ee24d",
+      "dependencyHash": "685ec1bed9573fee",
       "dependencies": [
         "src/components/OrderTicket.test.tsx",
         "src/components/OrderTicket.tsx"
@@ -578,7 +578,7 @@
     {
       "id": "dad14012be79ea24",
       "bodyHash": "0efae0391cd2784d",
-      "dependencyHash": "473412da7f584f2a",
+      "dependencyHash": "b5ed553680a9235e",
       "dependencies": [
         "src/components/OrderTicket.test.tsx",
         "src/components/OrderTicket.tsx"
@@ -663,7 +663,7 @@
     {
       "id": "0592464614c27c53",
       "bodyHash": null,
-      "dependencyHash": "8f07c3f0d9d5278b",
+      "dependencyHash": "fdf455f97cdb4aab",
       "dependencies": [
         "src/components/OrderTicket.test.tsx",
         "src/components/OrderTicket.tsx"
@@ -746,7 +746,7 @@
     {
       "id": "8948fa5df91e1a2a",
       "bodyHash": "655d11e175a3bf19",
-      "dependencyHash": "9c575d41b247ef23",
+      "dependencyHash": "438c8adb9f2e708c",
       "dependencies": [
         "src/components/PnlBadge.test.tsx",
         "src/components/PnlBadge.tsx"
@@ -829,7 +829,7 @@
     {
       "id": "e980ef8d6e6bce41",
       "bodyHash": "c567619df9d60bfc",
-      "dependencyHash": "7393afaa6bdf61e2",
+      "dependencyHash": "a3469c66fcee2870",
       "dependencies": [
         "src/components/PnlBadge.tsx",
         "src/components/PositionsTable.test.tsx",
@@ -913,7 +913,7 @@
     {
       "id": "210c284bbb4a6042",
       "bodyHash": "571f26d6081b2ae4",
-      "dependencyHash": "c52deb26cd1e8636",
+      "dependencyHash": "971a99ca2e12cf8d",
       "dependencies": [
         "src/components/PnlBadge.tsx",
         "src/components/PositionsTable.test.tsx",

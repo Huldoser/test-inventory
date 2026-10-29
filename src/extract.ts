@@ -44,6 +44,10 @@ export interface Scope {
   hookRun: RunSettings;
   /** Fixtures of the hooks in the scope that run around each test. */
   hookFixtures: string[];
+  /** Fixtures of every hook in the scope, `beforeAll` and `afterAll` too, which set up what its tests run. */
+  setupFixtures: string[];
+  /** A hook in the scope takes its fixtures whole, so it may use any. */
+  takesAllFixtures: boolean;
   suite: PendingSuite | null;
 }
 
@@ -352,6 +356,8 @@ class Walker {
       hooks: noHooks(),
       hookRun: {},
       hookFixtures: [],
+      setupFixtures: [],
+      takesAllFixtures: false,
       suite: null,
     };
   }
@@ -617,6 +623,8 @@ class Walker {
         if (!context.hookScope && context.declaredIn === null) {
           context.scope.hooks[api.name] += 1;
           if (EACH_HOOKS.has(api.name)) context.scope.hookFixtures.push(...api.fixtures);
+          context.scope.setupFixtures.push(...api.fixtures);
+          context.scope.takesAllFixtures ||= api.takesAllFixtures;
         }
         if (api.fn) {
           if (!call.arguments.includes(api.fn)) this.walkedAtCall.add(api.fn);
@@ -1201,6 +1209,8 @@ class Walker {
       hooks: noHooks(),
       hookRun: {},
       hookFixtures: [],
+      setupFixtures: [],
+      takesAllFixtures: false,
       suite: null,
     };
     const suite: PendingSuite = {
