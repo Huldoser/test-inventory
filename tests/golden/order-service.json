@@ -415,6 +415,12 @@
     {
       "id": "236370443a34351e",
       "bodyHash": "338b1ab467b09d44",
+      "dependencyHash": "09add703cd42e5dd",
+      "dependencies": [
+        "src/broker/fill-events.ts",
+        "tests/broker/fill-events.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "e5d3fd6171c3d3c6",
       "suitePath": [
         "toOrderStatus"
@@ -492,6 +498,12 @@
     {
       "id": "2e75128ab6a35585",
       "bodyHash": "b9a235e49ebd7a66",
+      "dependencyHash": "96f3594d725d131c",
+      "dependencies": [
+        "src/broker/fill-events.ts",
+        "tests/broker/fill-events.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "01368de13c737b6f",
       "suitePath": [
         "filledShares"
@@ -569,6 +581,12 @@
     {
       "id": "f50b651209755f64",
       "bodyHash": "a88a1c8f1d44458a",
+      "dependencyHash": "8a2b4776baa8a2cd",
+      "dependencies": [
+        "src/broker/fill-events.ts",
+        "tests/broker/fill-events.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "01368de13c737b6f",
       "suitePath": [
         "filledShares"
@@ -648,6 +666,13 @@
     {
       "id": "25bd7ba649cbd992",
       "bodyHash": "3eee6db08f6b711e",
+      "dependencyHash": "4ab264ceb71f90f7",
+      "dependencies": [
+        "src/repository/database.ts",
+        "src/repository/orders-repository.ts",
+        "tests/repository/orders-repository.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "ce489a36e28daa91",
       "suitePath": [
         "orders repository"
@@ -727,6 +752,13 @@
     {
       "id": "0efcdab1e2e15bd8",
       "bodyHash": "2e8189439f2ca7f6",
+      "dependencyHash": "5ee87ede835ac4de",
+      "dependencies": [
+        "src/repository/database.ts",
+        "src/repository/orders-repository.ts",
+        "tests/repository/orders-repository.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "ce489a36e28daa91",
       "suitePath": [
         "orders repository"
@@ -806,6 +838,12 @@
     {
       "id": "af8f5810cb457c7a",
       "bodyHash": "843fc27499d655d2",
+      "dependencyHash": "158de4c4be0d0626",
+      "dependencies": [
+        "src/risk/daily-loss-limit.ts",
+        "tests/risk/daily-loss-limit.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "a2a7d7f0713569f9",
       "suitePath": [
         "daily loss limit"
@@ -883,6 +921,12 @@
     {
       "id": "60578ad103efb294",
       "bodyHash": "ea2933b04e5cdf80",
+      "dependencyHash": "35bc309673a41351",
+      "dependencies": [
+        "src/risk/daily-loss-limit.ts",
+        "tests/risk/daily-loss-limit.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "a2a7d7f0713569f9",
       "suitePath": [
         "daily loss limit"
@@ -960,6 +1004,12 @@
     {
       "id": "2b4af687728e5658",
       "bodyHash": "8bc777e41bcd32e9",
+      "dependencyHash": "f857f8140277b7b2",
+      "dependencies": [
+        "src/risk/daily-loss-limit.ts",
+        "tests/risk/daily-loss-limit.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "a2a7d7f0713569f9",
       "suitePath": [
         "daily loss limit"
@@ -1037,6 +1087,13 @@
     {
       "id": "892bf7f63365ed11",
       "bodyHash": "a66a2a1f7cae69c5",
+      "dependencyHash": "fbb302bf54e93ec8",
+      "dependencies": [
+        "src/app.ts",
+        "src/routes/orders.ts",
+        "tests/routes/orders.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "21e05ad9554be115",
       "suitePath": [
         "POST /orders"
@@ -1114,6 +1171,13 @@
     {
       "id": "84ffb000958b6766",
       "bodyHash": "16e49f6ea90204e7",
+      "dependencyHash": "ef55f32648e4b627",
+      "dependencies": [
+        "src/app.ts",
+        "src/routes/orders.ts",
+        "tests/routes/orders.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "21e05ad9554be115",
       "suitePath": [
         "POST /orders"
@@ -1191,6 +1255,13 @@
     {
       "id": "053d362ecb27e22e",
       "bodyHash": "5fd1e385e919fc2c",
+      "dependencyHash": "2c76f125926f37c6",
+      "dependencies": [
+        "src/app.ts",
+        "src/routes/orders.ts",
+        "tests/routes/orders.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "21e05ad9554be115",
       "suitePath": [
         "POST /orders"
@@ -1268,6 +1339,13 @@
     {
       "id": "c482e55a21c291af",
       "bodyHash": null,
+      "dependencyHash": "c6da5ceeb2952a72",
+      "dependencies": [
+        "src/app.ts",
+        "src/routes/orders.ts",
+        "tests/routes/orders.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "21e05ad9554be115",
       "suitePath": [
         "POST /orders"
@@ -1345,6 +1423,13 @@
     {
       "id": "9adcc20e16a693c4",
       "bodyHash": "6a1167d3cf67670c",
+      "dependencyHash": "929ffb0f81a208c6",
+      "dependencies": [
+        "src/app.ts",
+        "src/routes/orders.ts",
+        "tests/routes/orders.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "8e34b4d56c3217af",
       "suitePath": [
         "DELETE /orders/:id"
@@ -1422,6 +1507,13 @@
     {
       "id": "87825a137a26b9b4",
       "bodyHash": "ba9a84128f2d7821",
+      "dependencyHash": "2e70a6239270e3c4",
+      "dependencies": [
+        "src/app.ts",
+        "src/routes/orders.ts",
+        "tests/routes/orders.test.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "8e34b4d56c3217af",
       "suitePath": [
         "DELETE /orders/:id"

@@ -34,6 +34,9 @@ const FILTER_KEYS: readonly string[] = [
 const TEST_KEYS = Object.keys({
   id: true,
   bodyHash: true,
+  dependencyHash: true,
+  dependencies: true,
+  hasUnfollowedDependencies: true,
   suiteId: true,
   suitePath: true,
   relativeFilePath: true,

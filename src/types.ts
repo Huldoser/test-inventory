@@ -87,7 +87,8 @@ export type DiagnosticCode =
   | 'bench-outside-benchmark-file'
   | 'config-value-unknown'
   | 'file-not-run'
-  | 'forbidden-only';
+  | 'forbidden-only'
+  | 'dependency-not-followed';
 
 export type MetaValue = string | number | boolean | null | MetaValue[] | { [key: string]: MetaValue };
 
@@ -301,6 +302,16 @@ export interface TestRecord {
   id: Hash;
   /** Hash of the test body, ignoring whitespace and comments; null when the test has no body. */
   bodyHash: Hash | null;
+  /**
+   * Hash of everything the test runs in the project: its call, the hooks, options and code of the file and of every
+   * describe around it, and the functions, classes, constants and modules these use, followed through imports. Ignores
+   * whitespace and comments. Installed packages are not in it.
+   */
+  dependencyHash: Hash;
+  /** The files that went into `dependencyHash`, the test's own included, sorted, with `/` separators. */
+  dependencies: string[];
+  /** Something the test reaches couldn't be followed, so a change there doesn't change `dependencyHash`. */
+  hasUnfollowedDependencies: boolean;
   /** The nearest describe; null outside any describe. */
   suiteId: Hash | null;
   /** Titles of the describes around the test, outermost first. */

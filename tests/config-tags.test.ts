@@ -389,6 +389,6 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
         '',
       ].join('\n'),
     });
-    expect(codes(inventory)).toEqual(['config-may-change-state', 'unresolved-tag']);
+    expect(codes(inventory)).toEqual(['config-may-change-state', 'unresolved-tag', 'dependency-not-followed']);
   });
 });

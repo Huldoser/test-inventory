@@ -436,6 +436,12 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
       "'brokerTest' is imported from '../missing', which could not be read; tests that use it are missing.",
       "'base' is imported from './broken', which could not be parsed; tests that use it are missing.",
+      // The file's top-level calls run when it loads, so what they use is in every test's dependencyHash; by file and
+      // position.
+      "'./quotes' could not be read, so dependencyHash doesn't cover it.",
+      "'../missing' could not be read, so dependencyHash doesn't cover it.",
+      "'../missing-checkout' could not be read, so dependencyHash doesn't cover it.",
+      "'./broken' could not be parsed, so dependencyHash doesn't cover it.",
     ]);
   });
 
@@ -689,6 +695,7 @@ quoteTest('quotes AAPL', () => {});
       "'remoteTest' is imported from './support/remote', which builds it from './missing', which could not be read; tests that use it are missing.",
       // An async function returns a promise.
       "'liveTest' is imported from './support/live', which builds it from './broker', which does not export a function that returns a test object that could be recognized; tests that use it are missing.",
+      "'./missing' could not be read, so dependencyHash doesn't cover it.",
     ]);
   });
 
@@ -882,7 +889,16 @@ positionTests('MSFT');
     expect(inventory.suites.map((suite) => [suite.title, suite.lineStart, suite.declaredAt])).toEqual([
       ['buy orders', 4, { relativeFilePath: 'helpers/orders.ts', lineStart: 8, columnStart: 3 }],
     ]);
-    expect(inventory.diagnostics).toEqual([]);
+    // Loading the barrel runs every module it re-exports from, so the missing one is in reach of every test.
+    expect(
+      inventory.diagnostics.map(({ code, relativeFilePath, message }) => [code, relativeFilePath, message]),
+    ).toEqual([
+      [
+        'dependency-not-followed',
+        'helpers/index.ts',
+        "'./missing' could not be read, so dependencyHash doesn't cover it.",
+      ],
+    ]);
   });
 
   it('searches each barrel once for a helper, however many re-exports lead to it', async () => {
@@ -927,6 +943,9 @@ export function venueTests() {
       ['unresolved-test-import', 3],
       ['dynamic-title', 4],
       ['dynamic-title', 4],
+      // Where the helper's own imports can't be followed: in its file, not at the call.
+      ['dependency-not-followed', 1],
+      ['dependency-not-followed', 3],
     ]);
   });
 
@@ -960,7 +979,9 @@ test('places an order', async () => {
     });
     const inventory = await scanProject(root);
     expect(inventory.tests.map((test) => test.title)).toEqual(['places an order']);
-    expect(inventory.diagnostics).toEqual([]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "'../helpers/broken' could not be parsed, so dependencyHash doesn't cover it.",
+    ]);
   });
 
   it('follows a function to the test object or describe it returns, through barrels and default exports', async () => {

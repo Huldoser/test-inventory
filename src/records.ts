@@ -12,6 +12,7 @@ import {
   type Scope,
 } from './extract.ts';
 import { problem } from './frameworks/common.ts';
+import type { Dependencies } from './dependency-hash.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Mode, Problem, RunSettings, Span, State, StateSetting, TestDeclaration } from './model.ts';
 import type { ParsedFile } from './parse.ts';
@@ -101,6 +102,8 @@ interface RecordOptions {
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
   isBenchmarkFile: boolean;
   config: FileConfig | null;
+  /** What a test runs, for its `dependencyHash`. */
+  dependencies: (test: PendingTest) => Dependencies;
 }
 
 interface Chosen {
@@ -488,6 +491,7 @@ class RecordBuilder {
 
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
+    const dependencies = this.options.dependencies(pending);
     // A test from an imported helper is placed at the call in this file that registers it.
     const located = pending.site ?? pending.call;
     const scopes = outward(pending.scope);
@@ -579,6 +583,9 @@ class RecordBuilder {
     const record: TestRecord = {
       id,
       bodyHash: declaration.hashed ? hashNodes([declaration.hashed]) : null,
+      dependencyHash: dependencies.hash,
+      dependencies: dependencies.files,
+      hasUnfollowedDependencies: !dependencies.isComplete,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
       suitePath,
       relativeFilePath: this.options.relativeFilePath,

@@ -454,6 +454,11 @@
     {
       "id": "412871b1b87e8491",
       "bodyHash": "146ff6733957d17a",
+      "dependencyHash": "c7901ada31d5e42d",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4f49c0f8d0ad93da",
       "suitePath": [
         "sma"
@@ -529,6 +534,11 @@
     {
       "id": "89c6f915b05a51aa",
       "bodyHash": "ee0158b30ac09c90",
+      "dependencyHash": "dcb4dea5e9a4d19b",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4f49c0f8d0ad93da",
       "suitePath": [
         "sma"
@@ -604,6 +614,11 @@
     {
       "id": "e32a6fb8b8716b40",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "1e2f10f4d0c5319b",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4f49c0f8d0ad93da",
       "suitePath": [
         "sma"
@@ -679,6 +694,11 @@
     {
       "id": "ad449eae5929af26",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "3645955af32a2af5",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4f49c0f8d0ad93da",
       "suitePath": [
         "sma"
@@ -754,6 +774,11 @@
     {
       "id": "51043f57caa71f70",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "a3760aa6dca2195c",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "13c10df8c2dff1c2",
       "suitePath": [
         "position sizing"
@@ -829,6 +854,11 @@
     {
       "id": "f6c350332462a215",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "a44bad9e80a5a664",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "13c10df8c2dff1c2",
       "suitePath": [
         "position sizing"
@@ -904,6 +934,11 @@
     {
       "id": "ff620c1b33c7ca76",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "0e5f7513118e4302",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "c1450b4c7d0ff1f6",
       "suitePath": [
         "backtests"
@@ -979,6 +1014,11 @@
     {
       "id": "2caa47d79e8fc3b2",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "5c24bfb7150e7673",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1054,6 +1094,11 @@
     {
       "id": "34cc4e5797359301",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "67e107ff55808ab7",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1129,6 +1174,11 @@
     {
       "id": "97917a100eac08af",
       "bodyHash": null,
+      "dependencyHash": "f8f53ffcfe04595c",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1204,6 +1254,11 @@
     {
       "id": "0f765a79e74aca37",
       "bodyHash": null,
+      "dependencyHash": "065f2425a6df200c",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1279,6 +1334,11 @@
     {
       "id": "c56ada0758629cb1",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "a66e0c6980e825e1",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1354,6 +1414,11 @@
     {
       "id": "2cfc6b62862ebd3d",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "14b272b9bd8cf16f",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1429,6 +1494,11 @@
     {
       "id": "9f328f0033c3bb08",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "a29b86a123842d03",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f71c78f2c3125258",
       "suitePath": [
         "fees"
@@ -1504,6 +1574,11 @@
     {
       "id": "0167a61c21cc0a65",
       "bodyHash": "bc0cc642ee31f253",
+      "dependencyHash": "3d75c06a8d33bf23",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "f9e119f384a4d367",
       "suitePath": [
         "market data client"
@@ -1579,6 +1654,11 @@
     {
       "id": "29ef0370f0fbf861",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "d5a070635cf50306",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4a24edbf4de44bc1",
       "suitePath": [
         "quote feed"
@@ -1654,6 +1734,11 @@
     {
       "id": "5b2417437e3abb14",
       "bodyHash": "9fcbe37b4d5984e1",
+      "dependencyHash": "b7c0db4b2170227f",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4a24edbf4de44bc1",
       "suitePath": [
         "quote feed"
@@ -1729,6 +1814,11 @@
     {
       "id": "f15ef5495fc9232a",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "9747252a04f89fa9",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4e0db0d8e503f68f",
       "suitePath": [
         "broker session"
@@ -1804,6 +1894,11 @@
     {
       "id": "ee89baf1bc991790",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "d434cdb145730596",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4e0db0d8e503f68f",
       "suitePath": [
         "broker session"
@@ -1879,6 +1974,11 @@
     {
       "id": "aca61cf11ddbbef3",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "05ed25ab7f2dae4c",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4e0db0d8e503f68f",
       "suitePath": [
         "broker session"
@@ -1954,6 +2054,11 @@
     {
       "id": "3e2356ab11e3483a",
       "bodyHash": "9c4cad5efca79c57",
+      "dependencyHash": "50468431cc0b9c73",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4b60e20bca9c32ef",
       "suitePath": [
         "order book"
@@ -2031,6 +2136,11 @@
     {
       "id": "19aa35a2b86328ea",
       "bodyHash": "0438522f62a179fc",
+      "dependencyHash": "006aa7a4eae55d45",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4b60e20bca9c32ef",
       "suitePath": [
         "order book"
@@ -2108,6 +2218,11 @@
     {
       "id": "0276018ec08649d7",
       "bodyHash": "6252cb86f167c584",
+      "dependencyHash": "fb0ed0b64f6522a2",
+      "dependencies": [
+        "tests/vitest.test.ts"
+      ],
+      "hasUnfollowedDependencies": true,
       "suiteId": "4b60e20bca9c32ef",
       "suitePath": [
         "order book"

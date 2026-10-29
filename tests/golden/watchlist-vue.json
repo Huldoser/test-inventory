@@ -232,6 +232,12 @@
     {
       "id": "98607d9cf951d0ad",
       "bodyHash": "fbadd2a5048288d9",
+      "dependencyHash": "bb2a1f9ef6dd3745",
+      "dependencies": [
+        "src/components/Watchlist.vue",
+        "tests/unit/Watchlist.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "8a1d941793e3b82a",
       "suitePath": [
         "Watchlist"
@@ -309,6 +315,12 @@
     {
       "id": "b832207595d60b5a",
       "bodyHash": "26e2eda06a90ad63",
+      "dependencyHash": "ef63ce7ad7e9ada8",
+      "dependencies": [
+        "src/components/Watchlist.vue",
+        "tests/unit/Watchlist.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "8a1d941793e3b82a",
       "suitePath": [
         "Watchlist"
@@ -386,6 +398,12 @@
     {
       "id": "6845b18187057e8e",
       "bodyHash": "2aa2740813832353",
+      "dependencyHash": "97b053c306577dae",
+      "dependencies": [
+        "src/components/Watchlist.vue",
+        "tests/unit/Watchlist.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "8a1d941793e3b82a",
       "suitePath": [
         "Watchlist"
@@ -463,6 +481,12 @@
     {
       "id": "486cbcddd832451d",
       "bodyHash": "f9623531b0e1a41a",
+      "dependencyHash": "4233656044867e32",
+      "dependencies": [
+        "src/components/Watchlist.vue",
+        "tests/unit/Watchlist.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "121529dd2f0327ad",
       "suitePath": [
         "Watchlist",
@@ -541,6 +565,12 @@
     {
       "id": "3f34fd72c582871d",
       "bodyHash": null,
+      "dependencyHash": "7cd441c8f89039ec",
+      "dependencies": [
+        "src/components/Watchlist.vue",
+        "tests/unit/Watchlist.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "121529dd2f0327ad",
       "suitePath": [
         "Watchlist",
@@ -619,6 +649,12 @@
     {
       "id": "eff7c3afdf4a6ff1",
       "bodyHash": "6036d9e59ea4e389",
+      "dependencyHash": "b82365d7e9a20ecb",
+      "dependencies": [
+        "src/components/WatchlistRow.vue",
+        "tests/unit/WatchlistRow.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "6d95fa148a73003b",
       "suitePath": [
         "WatchlistRow"
@@ -696,6 +732,12 @@
     {
       "id": "c7556fc853f29e94",
       "bodyHash": "5cf800ef909e39b3",
+      "dependencyHash": "6b1174ba01b036c3",
+      "dependencies": [
+        "src/components/WatchlistRow.vue",
+        "tests/unit/WatchlistRow.spec.ts"
+      ],
+      "hasUnfollowedDependencies": false,
       "suiteId": "6d95fa148a73003b",
       "suitePath": [
         "WatchlistRow"

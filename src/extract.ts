@@ -61,6 +61,10 @@ export interface PendingSuite {
   /** For a describe declared in an imported helper, the call in the scanned file that registers it; null otherwise. */
   site: Span | null;
   declaredAt: DeclaredAt | null;
+  /** The file the describe is written in. */
+  frame: Frame;
+  /** The outermost helper call in the scanned file that declares the describe; null when the file declares it. */
+  registeredBy: CallExpression | null;
   /** Where the scanned file registers the describe: its own call, or the outermost helper call that declares it. */
   order: number;
   /** Statements of the tests and describes directly inside, left out of the describe's body hash. */
@@ -77,6 +81,10 @@ export interface PendingTest {
   /** For a test declared in an imported helper, the call in the scanned file that registers it; null otherwise. */
   site: Span | null;
   declaredAt: DeclaredAt | null;
+  /** The file the test is written in. */
+  frame: Frame;
+  /** The outermost helper call in the scanned file that declares the test; null when the file declares it. */
+  registeredBy: CallExpression | null;
   /** Where the scanned file registers the test: its own call, or the outermost helper call that declares it. */
   order: number;
   /** States from the declaration, then from calls in the body such as `test.skip(condition)`. */
@@ -149,8 +157,8 @@ interface Context {
    * are collected, for calls from tests and hooks, and its tests and describes are not recorded again.
    */
   quiet: boolean;
-  /** The start of the outermost helper call being walked from the file or a describe; null outside one. */
-  registeredAt: number | null;
+  /** The outermost helper call being walked from the file or a describe; null outside one. */
+  registeredBy: CallExpression | null;
 }
 
 /** A function with a name, waiting to be walked where it is written once the calls in the file are known. */
@@ -363,7 +371,7 @@ class Walker {
       helper: null,
       declaredIn: null,
       quiet: false,
-      registeredAt: null,
+      registeredBy: null,
     });
     // Functions defined inside these are deferred in turn; the loop reaches them too, as they are added to the end.
     for (const entry of this.deferred) this.walkWhereWritten(entry);
@@ -827,7 +835,7 @@ class Walker {
         ...context,
         isInFunction: true,
         declaredIn: null,
-        registeredAt: context.registeredAt ?? call.start,
+        registeredBy: context.registeredBy ?? call,
       });
     });
     this.callStack.pop();
@@ -1144,7 +1152,9 @@ class Walker {
       call,
       site: this.site,
       declaredAt: this.declaredAt(call),
-      order: context.registeredAt ?? call.start,
+      frame: this.frame,
+      registeredBy: context.registeredBy,
+      order: (context.registeredBy ?? call).start,
       states: [...declaration.states],
       annotations: [...declaration.details.annotations],
       isInLoop: context.isInLoop,
@@ -1199,7 +1209,9 @@ class Walker {
       call,
       site: this.site,
       declaredAt: this.declaredAt(call),
-      order: context.registeredAt ?? call.start,
+      frame: this.frame,
+      registeredBy: context.registeredBy,
+      order: (context.registeredBy ?? call).start,
       cuts: [],
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
