@@ -342,9 +342,11 @@ const COMPONENT_FILE = /\.(?:vue|svelte)$/;
 
 /**
  * A comment, which may hold a `<script>` that isn't one, or a script block with its attributes and code. An attribute
- * may hold `>`, as Svelte's `generics="T extends Record<string, number>"` does.
+ * may hold `>`, as Svelte's `generics="T extends Record<string, number>"` does. Both end where HTML ends them: a
+ * comment also at `--!>`, a script at `</script` with anything before its `>`.
  */
-const COMPONENT_BLOCK = /<!--[\s\S]*?-->|<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/gi;
+const COMPONENT_BLOCK =
+  /<!--[\s\S]*?--!?>|<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script(?:[\s/][^>]*)?>/gi;
 
 /**
  * A component's script blocks as one module, the rest of the file blanked so that offsets stay those of the file, and

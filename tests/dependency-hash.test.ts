@@ -2369,6 +2369,26 @@ test('lists the biggest gainer first', () => {
       expect(await hashesAfter(WATCHLIST_PROJECT, [...unused], 'vitest')).toEqual(before);
     });
 
+    it('ends comments and script blocks where HTML does', async () => {
+      const root = project({
+        ...WATCHLIST_PROJECT,
+        'src/components/Watchlist.vue': `<!-- Before WatchlistRow: <script setup>import LegacyRow from './LegacyRow.vue';</script> --!>
+<script setup lang="ts">
+import WatchlistRow from './WatchlistRow.vue';
+</script lang="ts">
+
+<template>
+  <table><WatchlistRow /></table>
+</template>
+`,
+      });
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: ['src/components/Watchlist.vue', 'src/components/WatchlistRow.vue', 'tests/watchlist.test.ts'],
+        hasUnfollowedDependencies: false,
+      });
+    });
+
     it('follows what both scripts of a Svelte component import', async () => {
       const root = project({
         'package.json': VITEST_PACKAGE,
