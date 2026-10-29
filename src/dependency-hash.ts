@@ -18,10 +18,14 @@ interface Module {
   text: string | null;
   values: Values;
   readModule: ModuleReader | null;
-  /** Its top-level statements that run when it is imported, and the modules it imports, which run then too. */
+  /** Its top-level code that runs when it is imported, and the modules it imports, which run then too. */
   load: [Unit | null, Unit | null];
   /** All of it, for a module used in ways the scan can't narrow down to declarations. */
   whole: [Unit | null, Unit | null];
+  /** What each import in the module stands for, as it is asked for once per test file that reaches it. */
+  imports: Map<string, Unit[]>;
+  /** The module each specifier names, as a barrel's `export *` is searched once for every name imported through it. */
+  reads: Map<string, ReturnType<ModuleReader>>;
 }
 
 /** Code to hash, with the scopes around each node, so that the names it uses can be followed to their declarations. */
@@ -30,7 +34,10 @@ interface Root {
   scopes: readonly Node[];
 }
 
-/** A piece of code a test may run, and the pieces it uses in turn. */
+/**
+ * A piece of code a test may run, and the pieces it uses in turn. A unit with a `place` and no code stands for
+ * something the scan can't follow.
+ */
 interface Unit {
   module: Module;
   roots: Root[];
@@ -41,7 +48,7 @@ interface Unit {
   /** Extra units it always brings in, such as the code its module runs when it is imported. */
   with: Unit[];
   edges: Set<Unit> | null;
-  unfollowed: Place[];
+  place: Place | null;
   hash: string | null | undefined;
 }
 
@@ -54,6 +61,13 @@ export interface Place {
   isQuiet: boolean;
 }
 
+/** The units some roots reach, the hashes of their code by file, each list sorted, and the places among them. */
+interface Reach {
+  units: Set<Unit>;
+  byFile: Map<string, string[]>;
+  places: Place[];
+}
+
 /** What a test runs, as the test record gives it. */
 export interface Dependencies {
   hash: string;
@@ -61,7 +75,7 @@ export interface Dependencies {
   isComplete: boolean;
 }
 
-/** Statements that only declare something: they run code only when what they declare is used. */
+/** Statements that only declare something, unless code in them runs while they are evaluated. */
 const DECLARATIONS = new Set([
   'ImportDeclaration',
   'FunctionDeclaration',
@@ -79,6 +93,17 @@ const DECLARATIONS = new Set([
   'EmptyStatement',
 ]);
 
+/** Expressions that run code other than the declaration's own: calls, constructors, decorators, static blocks. */
+const RUNS = new Set([
+  'CallExpression',
+  'NewExpression',
+  'TaggedTemplateExpression',
+  'AwaitExpression',
+  'ImportExpression',
+  'Decorator',
+  'StaticBlock',
+]);
+
 /** Keys that hold types, which don't run. */
 const TYPE_KEYS = new Set([
   'typeAnnotation',
@@ -91,6 +116,9 @@ const TYPE_KEYS = new Set([
 
 const TYPES = new Set(['TSInterfaceDeclaration', 'TSTypeAliasDeclaration']);
 
+/** Vitest calls that load or mock a module by its path. */
+const VI_MODULE_CALLS = new Set(['mock', 'doMock', 'unmock', 'doUnmock', 'importActual', 'importMock']);
+
 /** Reasons the resolver gives for an installed package, whose code the hash leaves out on purpose. */
 const PACKAGE_REASONS = new Set([
   'is an installed package, which is not followed',
@@ -98,6 +126,10 @@ const PACKAGE_REASONS = new Set([
 ]);
 
 const CODE_FILE = /\.[cm]?[jt]sx?$/;
+
+const DECLARATION_FILE = /\.d\.[cm]?ts$/;
+
+const COMPUTED = "The module this loads is worked out at run time, so dependencyHash doesn't cover it.";
 
 function isLocalSpecifier(specifier: string): boolean {
   return /^\.\.?(?:\/|$)/.test(specifier) || specifier.startsWith('#');
@@ -107,14 +139,32 @@ function contains(outer: Span, inner: Span): boolean {
   return outer.start <= inner.start && inner.end <= outer.end;
 }
 
-/** The scopes around a node, outermost first, found by going down from the program to it. */
+/** The path to a node from `from`, searched node by node, for a node outside its parent's span. */
+function pathTo(from: Node, target: Node): Node[] | null {
+  if (from === target) return [];
+  for (const child of childNodes(from)) {
+    const path = pathTo(child, target);
+    if (path) return [child, ...path];
+  }
+  return null;
+}
+
+/**
+ * The scopes around a node, outermost first, found by going down from the program to it. Spans lead the way, except
+ * where a node is outside its parent's span, as a decorator written before `export` is.
+ */
 function scopesAt(program: Program, target: Node): Node[] {
   const scopes: Node[] = [];
   let node: Node = program;
   while (node !== target) {
     if (isScopeNode(node)) scopes.push(node);
-    // The target is in the program, so one child always holds it.
-    node = childNodes(node).find((child) => contains(child, target)) as Node;
+    const next: Node | undefined = childNodes(node).find((child) => contains(child, target));
+    if (!next) {
+      const rest = pathTo(node, target) as Node[];
+      scopes.push(...rest.slice(0, -1).filter(isScopeNode));
+      break;
+    }
+    node = next;
   }
   return scopes;
 }
@@ -122,6 +172,19 @@ function scopesAt(program: Program, target: Node): Node[] {
 /** Where a statement's own declaration is, for a statement that exports one. */
 function declared(statement: Node): Node {
   return statement.type === 'ExportNamedDeclaration' && statement.declaration ? statement.declaration : statement;
+}
+
+/** Whether evaluating a statement runs code, leaving out the bodies of the functions it declares, which run later. */
+function runsOnLoad(node: Node): boolean {
+  if (RUNS.has(node.type)) return true;
+  if (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') return false;
+  if (node.type === 'ArrowFunctionExpression') return false;
+  return childNodes(node).some(runsOnLoad);
+}
+
+/** Whether a top-level or describe statement runs when the file or describe does. */
+function isLoadCode(statement: Node): boolean {
+  return !DECLARATIONS.has(statement.type) || (statement.type !== 'ImportDeclaration' && runsOnLoad(statement));
 }
 
 /**
@@ -138,7 +201,7 @@ export class DependencyGraph {
   module(parsed: ParsedFile, relativeFilePath: string, values: Values, readModule: ModuleReader | null): Module {
     let module = this.modules.get(parsed);
     if (!module) {
-      module = { relativeFilePath, parsed, text: null, values, readModule, load: [null, null], whole: [null, null] };
+      module = this.newModule(relativeFilePath, parsed, null, values, readModule);
       this.modules.set(parsed, module);
     }
     return module;
@@ -164,10 +227,9 @@ export class DependencyGraph {
     const cached = module.load[index];
     if (cached) return cached;
     const program = (module.parsed as ParsedFile).program;
-    const statements = program.body.filter((statement) => !DECLARATIONS.has(statement.type));
     const unit = this.newUnit(
       module,
-      statements.map((node) => ({ node, scopes: [program] })),
+      program.body.filter(isLoadCode).map((node) => ({ node, scopes: [program] })),
       new Map(cut.map((span) => [span.start, span.end])),
       types,
     );
@@ -175,45 +237,77 @@ export class DependencyGraph {
     return unit;
   }
 
-  /** Everything a set of units reaches: its hash, its files, and whether all of it could be followed. */
-  dependencies(roots: Unit[], report: (place: Place) => void): Dependencies {
-    const reached = new Set<Unit>();
+  /** The units a set of roots reaches, leaving out those `base` reached, with their hashes by file. */
+  reach(roots: Unit[], base: Reach | null = null): Reach {
+    const units = new Set<Unit>();
     const pending = [...roots];
     for (let unit = pending.pop(); unit; unit = pending.pop()) {
-      if (reached.has(unit)) continue;
-      reached.add(unit);
+      if (units.has(unit) || base?.units.has(unit)) continue;
+      units.add(unit);
       unit.edges ??= this.edgesOf(unit);
       pending.push(...unit.with, ...unit.edges);
     }
-    const byFile = new Map<string, { start: number; hash: string }[]>();
-    let isComplete = true;
-    for (const unit of reached) {
-      for (const place of unit.unfollowed) {
-        isComplete = false;
-        if (place.isQuiet) continue;
-        const key = `${place.relativeFilePath}\0${(place.problem.node as Span).start}\0${place.problem.message}`;
-        if (this.reported.has(key)) continue;
-        this.reported.add(key);
-        report(place);
-      }
+    const byFile = new Map<string, string[]>();
+    const places: Place[] = [];
+    for (const unit of units) {
+      if (unit.place) places.push(unit.place);
       const hash = this.hashOf(unit);
       if (hash === null) continue;
-      const parts = byFile.get(unit.module.relativeFilePath) ?? [];
-      parts.push({ start: unit.roots[0]?.node.start ?? 0, hash });
-      byFile.set(unit.module.relativeFilePath, parts);
+      const hashes = byFile.get(unit.module.relativeFilePath);
+      if (hashes) hashes.push(hash);
+      else byFile.set(unit.module.relativeFilePath, [hash]);
     }
-    const files = [...byFile.keys()].sort();
-    const parts = files.map((file) => [
-      file,
-      (byFile.get(file) as { start: number; hash: string }[])
-        .sort((a, b) => a.start - b.start || (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0))
-        .map((part) => part.hash),
-    ]);
-    return { hash: shortHash(JSON.stringify(parts)), files, isComplete };
+    // Sorted by hash, so that moving code around in a file doesn't change it; each part keeps its own order.
+    for (const hashes of byFile.values()) hashes.sort();
+    return { units, byFile, places };
+  }
+
+  /**
+   * Everything a test's roots reach on top of `base`, the code its file runs when loaded, which all its tests share:
+   * the hash, the files, and whether all of it could be followed.
+   */
+  dependencies(roots: Unit[], base: Reach, report: (place: Place) => void): Dependencies {
+    const own = this.reach(roots, base);
+    const places = [...base.places, ...own.places];
+    const start = (place: Place) => (place.problem.node as Span).start;
+    places.sort((a, b) => a.relativeFilePath.localeCompare(b.relativeFilePath) || start(a) - start(b));
+    for (const place of places) {
+      const key = `${place.relativeFilePath}\0${start(place)}\0${place.problem.message}`;
+      if (place.isQuiet || this.reported.has(key)) continue;
+      this.reported.add(key);
+      report(place);
+    }
+    const files = [...new Set([...base.byFile.keys(), ...own.byFile.keys()])].sort();
+    const parts = files.map((file) => {
+      const shared = base.byFile.get(file) ?? [];
+      const added = own.byFile.get(file);
+      return [file, added ? [...shared, ...added].sort() : shared];
+    });
+    return { hash: shortHash(JSON.stringify(parts)), files, isComplete: places.length === 0 };
+  }
+
+  private newModule(
+    relativeFilePath: string,
+    parsed: ParsedFile | null,
+    text: string | null,
+    values: Values,
+    readModule: ModuleReader | null,
+  ): Module {
+    return {
+      relativeFilePath,
+      parsed,
+      text,
+      values,
+      readModule,
+      load: [null, null],
+      whole: [null, null],
+      imports: new Map(),
+      reads: new Map(),
+    };
   }
 
   private newUnit(module: Module, roots: Root[], cut: ReadonlyMap<number, number>, types: boolean): Unit {
-    return { module, roots, cut, types, with: [], edges: null, unfollowed: [], hash: undefined };
+    return { module, roots, cut, types, with: [], edges: null, place: null, hash: undefined };
   }
 
   private hashOf(unit: Unit): string | null {
@@ -237,26 +331,12 @@ export class DependencyGraph {
     if (!module) {
       if (CODE_FILE.test(source.relativeFilePath)) {
         const parsed = parseModule(source);
-        module = this.modules.get(parsed) ?? {
-          relativeFilePath: source.relativeFilePath,
-          parsed,
-          text: null,
-          values: new Values(),
-          readModule: source.readModule,
-          load: [null, null],
-          whole: [null, null],
-        };
+        module =
+          this.modules.get(parsed) ??
+          this.newModule(source.relativeFilePath, parsed, null, new Values(), source.readModule);
         this.modules.set(parsed, module);
       } else {
-        module = {
-          relativeFilePath: source.relativeFilePath,
-          parsed: null,
-          text: source.code.replace(/\r\n?/g, '\n'),
-          values: new Values(),
-          readModule: null,
-          load: [null, null],
-          whole: [null, null],
-        };
+        module = this.newModule(source.relativeFilePath, null, source.code.replace(/\r\n?/g, '\n'), new Values(), null);
       }
       this.modules.set(source, module);
     }
@@ -268,10 +348,8 @@ export class DependencyGraph {
     if (cached) return cached;
     const unit = this.newUnit(module, [], new Map(), false);
     unit.edges = new Set();
-    module.whole[0] = unit;
-    module.whole[1] = unit;
-    module.load[0] = unit;
-    module.load[1] = unit;
+    module.whole = [unit, unit];
+    module.load = [unit, unit];
     return unit;
   }
 
@@ -292,71 +370,114 @@ export class DependencyGraph {
     return unit;
   }
 
-  /** The unit of a declaration: a declarator, function, class or enum, or the function a parameter belongs to. */
-  private declarationUnit(module: Module, declaration: Node, types: boolean): Unit {
+  /** The unit of a declaration: a declarator, function, class, enum, namespace or `import x = require()`. */
+  private declarationUnit(module: Module, declaration: Node, types: boolean, roots?: Node[]): Unit {
     const cache = this.units[Number(types)];
     let unit = cache.get(declaration);
     if (!unit) {
       const program = (module.parsed as ParsedFile).program;
-      unit = this.newUnit(module, [{ node: declaration, scopes: scopesAt(program, declaration) }], new Map(), types);
-      // Code in a module runs only once the module is loaded, which runs its top-level statements.
+      const scopes = scopesAt(program, declaration);
+      const nodes = roots ?? [declaration];
+      const inner = roots ? [...scopes, declaration] : scopes;
+      unit = this.newUnit(
+        module,
+        nodes.map((node) => ({ node, scopes: inner })),
+        new Map(),
+        types,
+      );
+      // Code in a module runs only once the module is loaded, which runs its top-level code.
       unit.with.push(this.loadUnit(module, types));
       cache.set(declaration, unit);
     }
     return unit;
   }
 
-  private unfollowed(unit: Unit, at: Span, message: string, isQuiet = false): void {
-    const { module } = unit;
+  /** A place in a module the scan can't follow, as a unit that marks the tests that reach it. */
+  private placeUnit(module: Module, at: Span, message: string, isQuiet = false): Unit {
     const parsed = module.parsed as ParsedFile;
-    const text = snippet(parsed.source.slice(at.start, at.end));
-    unit.unfollowed.push({
+    const unit = this.newUnit(module, [], new Map(), false);
+    unit.edges = new Set();
+    unit.place = {
       relativeFilePath: module.relativeFilePath,
       source: parsed.source,
-      problem: problem('dependency-not-followed', at, message, text),
+      problem: problem('dependency-not-followed', at, message, snippet(parsed.source.slice(at.start, at.end))),
       isQuiet,
-    });
+    };
+    return unit;
   }
 
   /**
-   * The units a module export stands for, read from the module a specifier names. Installed packages give none; a
-   * local module that can't be read is reported at `at`.
+   * What a module's import of `name` from `specifier` stands for, `at` being the statement in `from` that imports it:
+   * the declaration it exports, `*` for all of it, or `''` for the code it runs when loaded. Installed packages give
+   * nothing; a local module that can't be read gives a place.
    */
-  private imported(unit: Unit, from: Module, specifier: string, name: string, at: Span): Unit[] {
-    const read: ReturnType<ModuleReader> | null = from.readModule ? from.readModule(specifier) : null;
+  private imported(from: Module, specifier: string, name: string, types: boolean, at: Span): Unit[] {
+    const key = `${Number(types)}\0${specifier}\0${name}\0${at.start}`;
+    let units = from.imports.get(key);
+    if (!units) {
+      // A re-export that leads back to itself, which the runtime rejects, gives nothing more.
+      from.imports.set(key, []);
+      units = this.readImport(from, specifier, name, types, at);
+      from.imports.set(key, units);
+    }
+    return units;
+  }
+
+  /** The module a specifier names, from where `from` is; null when no module is read, as for one file's code. */
+  private read(from: Module, specifier: string): ReturnType<ModuleReader> | null {
+    if (!from.readModule) return null;
+    let read = from.reads.get(specifier);
+    if (!read) {
+      // A query, as in Vite's `./script.ts?raw`, says how to load the file, not which file.
+      read = from.readModule(specifier.replace(/\?.*$/s, ''));
+      from.reads.set(specifier, read);
+    }
+    return read;
+  }
+
+  private readImport(from: Module, specifier: string, name: string, types: boolean, at: Span): Unit[] {
+    const read = this.read(from, specifier);
     if (read === null) {
-      if (isLocalSpecifier(specifier)) this.unfollowed(unit, at, `'${specifier}' is not read.`, true);
-      return [];
+      return isLocalSpecifier(specifier) ? [this.placeUnit(from, at, `'${specifier}' is not read.`, true)] : [];
     }
     if ('reason' in read) {
-      if (!PACKAGE_REASONS.has(read.reason)) {
-        this.unfollowed(unit, at, `'${specifier}' ${read.reason}, so dependencyHash doesn't cover it.`);
-      }
-      return [];
+      if (PACKAGE_REASONS.has(read.reason)) return [];
+      return [this.placeUnit(from, at, `'${specifier}' ${read.reason}, so dependencyHash doesn't cover it.`)];
     }
     const module = this.moduleOf(read);
     if (module.parsed === null) return [this.textUnit(module)];
-    if (module.parsed.error) {
-      this.unfollowed(unit, at, `'${specifier}' could not be parsed, so dependencyHash doesn't cover it.`);
-      return [];
+    if (DECLARATION_FILE.test(module.relativeFilePath) && !types) {
+      // An import only types use is dropped when the code is compiled; a value the test uses runs code from elsewhere.
+      if (name === '') return [];
+      return [
+        this.placeUnit(
+          from,
+          at,
+          `'${specifier}' leads to a declaration file, so dependencyHash doesn't cover the code that runs.`,
+        ),
+      ];
     }
-    return name === '' ? [this.loadUnit(module, unit.types)] : this.exported(unit, module, name, new Set());
+    if (module.parsed.error) {
+      return [this.placeUnit(from, at, `'${specifier}' could not be parsed, so dependencyHash doesn't cover it.`)];
+    }
+    return name === '' ? [this.loadUnit(module, types)] : this.exported(module, name, types, new Set());
   }
 
   /**
-   * The units of what a module exports under a name, followed through re-exports. `*` is the whole module. A name the
-   * scan can't find, as with CommonJS exports, also takes the whole module, so that nothing it may run is left out.
+   * The units of what a module exports under a name: its own export first, then one an `export *` passes on, as the
+   * module system picks them. `*` is the whole module. A name the scan can't find, as with CommonJS exports, also
+   * takes the whole module, so that nothing it may run is left out.
    */
-  private exported(unit: Unit, module: Module, name: string, searched: Set<Module>): Unit[] {
-    const { types } = unit;
+  private exported(module: Module, name: string, types: boolean, searched: Set<Module>): Unit[] {
     if (name === '*' || searched.has(module)) return [this.wholeUnit(module, types)];
     searched.add(module);
     const program = (module.parsed as ParsedFile).program;
     const local = (localName: string): Unit[] => {
-      const declaration = module.values.declarationOf(localName, [program]);
+      const declaration =
+        module.values.declarationOf(localName, [program]) ?? otherDeclaration(localName, [program], types);
       // A global the module re-exports, such as `structuredClone`, has no code in the project.
       if (declaration === null) return [];
-      return this.toDeclaration(unit, module, declaration, null);
+      return this.toDeclaration(module, declaration, localName, null, types);
     };
     for (const statement of program.body) {
       if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
@@ -365,15 +486,8 @@ export class DependencyGraph {
           ? local(declaration.name)
           : [this.declarationUnit(module, declaration, types)];
       }
-      if (statement.type === 'ExportAllDeclaration') {
-        const source = statement.source.value;
-        if (statement.exported) {
-          if (exportName(statement.exported) === name) return this.imported(unit, module, source, '*', statement);
-          continue;
-        }
-        const found = this.reexported(unit, module, source, name, searched);
-        if (found) return found;
-        continue;
+      if (statement.type === 'ExportAllDeclaration' && statement.exported && exportName(statement.exported) === name) {
+        return this.imported(module, statement.source.value, '*', types, statement);
       }
       if (statement.type !== 'ExportNamedDeclaration') continue;
       if (statement.exportKind === 'type' && !types) continue;
@@ -391,35 +505,69 @@ export class DependencyGraph {
       if (!specifier) continue;
       const localName = exportName(specifier.local);
       return statement.source
-        ? this.imported(unit, module, statement.source.value, localName, statement)
+        ? this.imported(module, statement.source.value, localName, types, statement)
         : local(localName);
+    }
+    // `export *` passes on every name but `default`, and only when the module doesn't export the name itself.
+    if (name !== 'default') {
+      for (const statement of program.body) {
+        if (statement.type !== 'ExportAllDeclaration' || statement.exported) continue;
+        const found = this.reexported(module, statement.source.value, name, types, searched);
+        if (found) return found;
+      }
     }
     return [this.wholeUnit(module, types)];
   }
 
   /** What `export * from source` gives for a name; null when the module behind it doesn't export it. */
-  private reexported(unit: Unit, from: Module, source: string, name: string, searched: Set<Module>): Unit[] | null {
-    const read = from.readModule?.(source);
+  private reexported(from: Module, source: string, name: string, types: boolean, searched: Set<Module>): Unit[] | null {
+    const read = this.read(from, source);
     if (!read || 'reason' in read) return null;
     const module = this.moduleOf(read);
     if (module.parsed === null || module.parsed.error) return null;
-    const found = this.exported(unit, module, name, searched);
+    const found = this.exported(module, name, types, searched);
     // A module that doesn't export the name falls back to the whole of it, which doesn't count as found here.
-    return found.length === 1 && found[0] === module.whole[Number(unit.types)] ? null : found;
+    return found.length === 1 && found[0] === module.whole[Number(types)] ? null : found;
   }
 
-  /** The units a name stands for where it is declared: the declaration, or the export of the module it's imported from. */
-  private toDeclaration(unit: Unit, module: Module, declaration: Node, member: string | null): Unit[] {
-    if (declaration.type === 'ImportSpecifier' || declaration.type === 'ImportDefaultSpecifier') {
-      const statement = this.importOf(module, declaration);
-      const imported = declaration.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
-      return this.imported(unit, module, statement.source.value, imported, statement);
+  /**
+   * The units a name stands for where it is declared: the declaration, the export of the module it's imported from, or
+   * for a parameter only the parameters, as the call that passes their values is followed on its own.
+   */
+  private toDeclaration(
+    module: Module,
+    declaration: Node,
+    name: string,
+    member: string | null,
+    types: boolean,
+  ): Unit[] {
+    switch (declaration.type) {
+      case 'ImportSpecifier':
+      case 'ImportDefaultSpecifier':
+      case 'ImportNamespaceSpecifier': {
+        const statement = this.importOf(module, declaration);
+        const imported =
+          declaration.type === 'ImportSpecifier'
+            ? exportName(declaration.imported)
+            : declaration.type === 'ImportDefaultSpecifier'
+              ? 'default'
+              : (member ?? '*');
+        return this.imported(module, statement.source.value, imported, types, statement);
+      }
+      case 'TSImportEqualsDeclaration': {
+        const reference = declaration.moduleReference;
+        if (reference.type !== 'TSExternalModuleReference') return [this.declarationUnit(module, declaration, types)];
+        return this.imported(module, reference.expression.value, member ?? '*', types, declaration);
+      }
+      case 'FunctionDeclaration':
+      case 'FunctionExpression':
+      case 'ArrowFunctionExpression':
+        if (declaration.params.some((parameter) => bindingNames(parameter).includes(name))) {
+          return [this.declarationUnit(module, declaration, types, declaration.params)];
+        }
+        break;
     }
-    if (declaration.type === 'ImportNamespaceSpecifier') {
-      const statement = this.importOf(module, declaration);
-      return this.imported(unit, module, statement.source.value, member ?? '*', statement);
-    }
-    return [this.declarationUnit(module, declaration, unit.types)];
+    return [this.declarationUnit(module, declaration, types)];
   }
 
   private importOf(module: Module, specifier: Node): Extract<Node, { type: 'ImportDeclaration' }> {
@@ -432,19 +580,24 @@ export class DependencyGraph {
   /** The units a unit uses directly: the declarations its names refer to, and the modules it loads. */
   private edgesOf(unit: Unit): Set<Unit> {
     const edges = new Set<Unit>();
-    const { module } = unit;
+    const { module, types } = unit;
     const program = (module.parsed as ParsedFile).program;
     const isOwn = (declaration: Node) => unit.roots.some((root) => contains(root.node, declaration));
+    const add = (units: Unit[]) => {
+      for (const target of units) edges.add(target);
+    };
     const follow = (name: string, scopes: readonly Node[], member: string | null) => {
-      const declaration = module.values.declarationOf(name, scopes) ?? otherDeclaration(name, scopes, unit.types);
+      const declaration = module.values.declarationOf(name, scopes) ?? otherDeclaration(name, scopes, types);
       if (declaration === null || isOwn(declaration)) return;
-      for (const target of this.toDeclaration(unit, module, declaration, member)) edges.add(target);
+      add(this.toDeclaration(module, declaration, name, member, types));
     };
-    const load = (specifier: string, at: Span) => {
-      for (const target of this.imported(unit, module, specifier, '', at)) edges.add(target);
-    };
-    const whole = (specifier: string, at: Span) => {
-      for (const target of this.imported(unit, module, specifier, '*', at)) edges.add(target);
+    /** A module loaded by the path in `argument`, or a place when the path is worked out at run time. */
+    const loadsByPath = (argument: Node | undefined, at: Span) => {
+      if (argument?.type === 'Literal' && typeof argument.value === 'string') {
+        add(this.imported(module, argument.value, '*', types, at));
+      } else {
+        edges.add(this.placeUnit(module, at, COMPUTED));
+      }
     };
     const walk = (node: Node, scopes: Node[], key: string | null, parent: Node | null): void => {
       if (unit.cut.get(node.start) === node.end) return;
@@ -453,52 +606,73 @@ export class DependencyGraph {
           if (isReference(key, parent)) follow(node.name, scopes, null);
           break;
         case 'JSXIdentifier':
-          if ((key === 'name' || key === 'object') && /^[A-Z_$]/.test(node.name)) follow(node.name, scopes, null);
+          // `<div>` is an element; `<OrderTicket>` a component.
+          if (key === 'name' && parent?.type !== 'JSXAttribute' && /^[A-Z_$]/.test(node.name)) {
+            follow(node.name, scopes, null);
+          }
           return;
         case 'MemberExpression':
+        case 'JSXMemberExpression': {
           // `pages.OrderTicket` on a namespace import needs only that export.
-          if (!node.computed && node.object.type === 'Identifier') {
-            follow(node.object.name, scopes, node.property.name);
+          const { object, property } = node;
+          const named = node.type === 'JSXMemberExpression' || !node.computed;
+          if (named && (object.type === 'Identifier' || object.type === 'JSXIdentifier')) {
+            // A property that isn't computed is a name.
+            follow(object.name, scopes, (property as { name: string }).name);
             return;
           }
           break;
+        }
         case 'ImportExpression':
+          loadsByPath(node.source, node);
+          break;
         case 'CallExpression': {
-          const target = node.type === 'ImportExpression' ? node.source : requireArgument(node, module.values, scopes);
-          if (target === undefined) break;
-          if (target !== null && target.type === 'Literal' && typeof target.value === 'string') {
-            whole(target.value, node);
-          } else {
-            this.unfollowed(
-              unit,
-              node,
-              "The module this loads is worked out at run time, so dependencyHash doesn't cover it.",
-            );
+          const { callee } = node;
+          if (callee.type === 'Identifier' && callee.name === 'require') loadsByPath(node.arguments.at(0), node);
+          if (callee.type === 'MemberExpression' && !callee.computed) {
+            const { object, property } = callee;
+            if (object.type === 'Identifier' && object.name === 'vi' && VI_MODULE_CALLS.has(property.name)) {
+              loadsByPath(node.arguments.at(0), node);
+            }
+            if (object.type === 'MetaProperty' && property.name.startsWith('glob')) {
+              edges.add(
+                this.placeUnit(
+                  module,
+                  node,
+                  "The modules this loads match a pattern, so dependencyHash doesn't cover them.",
+                ),
+              );
+            }
           }
           break;
         }
         case 'ImportDeclaration':
-          if (node.importKind !== 'type' || unit.types) load(node.source.value, node);
+          if (node.importKind !== 'type' || types) add(this.imported(module, node.source.value, '', types, node));
+          return;
+        case 'TSImportEqualsDeclaration':
+          if (node.moduleReference.type !== 'TSExternalModuleReference') break;
+          if (node.importKind !== 'type' || types) {
+            add(this.imported(module, node.moduleReference.expression.value, '', types, node));
+          }
           return;
         // Re-exports, in a module taken whole: each name comes from the other module.
         case 'ExportNamedDeclaration':
           if (!node.source) break;
-          if (node.exportKind !== 'type' || unit.types) {
+          if (node.exportKind !== 'type' || types) {
             for (const specifier of node.specifiers) {
-              const name = exportName(specifier.local);
-              for (const target of this.imported(unit, module, node.source.value, name, node)) edges.add(target);
+              add(this.imported(module, node.source.value, exportName(specifier.local), types, node));
             }
           }
           return;
         case 'ExportAllDeclaration':
-          if (node.exportKind !== 'type' || unit.types) whole(node.source.value, node);
+          if (node.exportKind !== 'type' || types) add(this.imported(module, node.source.value, '*', types, node));
           return;
       }
       const isScope = isScopeNode(node);
       if (isScope) scopes.push(node);
       const fields = node as unknown as Record<string, unknown>;
       for (const field of visitorKeys[node.type]) {
-        if (!unit.types && TYPE_KEYS.has(field)) continue;
+        if (!types && TYPE_KEYS.has(field)) continue;
         const value = fields[field];
         if (Array.isArray(value)) {
           for (const item of value as (Node | null)[]) if (item) walk(item, scopes, field, node);
@@ -510,14 +684,17 @@ export class DependencyGraph {
     };
     for (const root of unit.roots) walk(root.node, [...root.scopes], null, null);
     // A module's imports run when it is loaded, whatever of them it uses.
-    if (unit === module.load[Number(unit.types)]) {
+    if (unit === module.load[Number(types)]) {
       for (const statement of program.body) {
-        if (statement.type === 'ImportDeclaration') walk(statement, [program], null, null);
+        if (statement.type === 'ImportDeclaration' || statement.type === 'TSImportEqualsDeclaration') {
+          walk(statement, [program], null, null);
+        }
         if (
           (statement.type === 'ExportAllDeclaration' || statement.type === 'ExportNamedDeclaration') &&
-          statement.source
+          statement.source &&
+          (statement.exportKind !== 'type' || types)
         ) {
-          if (statement.exportKind !== 'type' || unit.types) load(statement.source.value, statement);
+          add(this.imported(module, statement.source.value, '', types, statement));
         }
       }
     }
@@ -544,6 +721,7 @@ function isReference(key: string | null, parent: Node | null): boolean {
     case 'TSEnumMember':
     case 'TSModuleDeclaration':
     case 'TSTypeParameter':
+    case 'TSImportEqualsDeclaration':
       return key !== 'id' && key !== 'name';
     case 'TSQualifiedName':
       return key === 'left';
@@ -557,25 +735,8 @@ function isReference(key: string | null, parent: Node | null): boolean {
 }
 
 /**
- * The first argument of a call to the global `require()`; null when it has none or spreads its arguments, undefined
- * when the call is to something else.
- */
-function requireArgument(
-  node: Extract<Node, { type: 'CallExpression' }>,
-  values: Values,
-  scopes: readonly Node[],
-): Node | null | undefined {
-  const { callee } = node;
-  if (callee.type !== 'Identifier' || callee.name !== 'require' || values.declarationOf('require', scopes)) {
-    return undefined;
-  }
-  const argument = node.arguments.at(0);
-  return argument && argument.type !== 'SpreadElement' ? argument : null;
-}
-
-/**
- * A namespace a name refers to, or for a type test also an interface or type alias, looked up in the scopes around
- * it. Imports, classes and enums are bindings `Values` already finds.
+ * A namespace or `import x = require()` a name refers to, or for a type test also an interface or type alias, looked
+ * up in the scopes around it. Imports, classes and enums are bindings `Values` already finds.
  */
 function otherDeclaration(name: string, scopes: readonly Node[], types: boolean): Node | null {
   for (let index = scopes.length - 1; index >= 0; index--) {
@@ -585,7 +746,8 @@ function otherDeclaration(name: string, scopes: readonly Node[], types: boolean)
     for (const statement of body) {
       const node = declared(statement);
       const isNamed = 'id' in node && node.id?.type === 'Identifier' && node.id.name === name;
-      if (isNamed && (node.type === 'TSModuleDeclaration' || (types && TYPES.has(node.type)))) return node;
+      const isValue = node.type === 'TSModuleDeclaration' || node.type === 'TSImportEqualsDeclaration';
+      if (isNamed && (isValue || (types && TYPES.has(node.type)))) return node;
     }
   }
   return null;
@@ -626,11 +788,10 @@ export function fileDependencies(
     if (!units) {
       // A describe without a callback has no tests in it.
       const fn = suite.declaration.fn as FunctionNode;
-      const setup = bodyNodes(fn).filter((node) => !DECLARATIONS.has(node.type));
       units = [
         graph.unit(
           moduleOf(suite.frame),
-          [suite.call, ...setup],
+          [suite.call, ...bodyNodes(fn).filter(isLoadCode)],
           // Offsets in another file could match these by chance.
           [fn, ...suite.cuts, ...(suite.frame === main ? registered : [])],
           types,
@@ -641,11 +802,13 @@ export function fileDependencies(
     }
     return units;
   };
+  // What the file runs when it loads is the same for each of its tests, and often most of what they run.
+  const base = graph.reach([load]);
   return (test) => {
-    const roots = [graph.unit(moduleOf(test.frame), [test.call], [], types), load, ...registering(test.registeredBy)];
+    const roots = [graph.unit(moduleOf(test.frame), [test.call], [], types), ...registering(test.registeredBy)];
     for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
       if (scope.suite) roots.push(...suiteUnit(scope.suite));
     }
-    return graph.dependencies(roots, report);
+    return graph.dependencies(roots, base, report);
   };
 }

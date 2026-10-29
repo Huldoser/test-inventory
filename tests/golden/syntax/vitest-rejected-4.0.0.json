@@ -304,7 +304,7 @@
     {
       "id": "dea5755edf440d6e",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "ba79f243183ecab4",
+      "dependencyHash": "d40f3db338b793ac",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -384,7 +384,7 @@
     {
       "id": "172e2c49ca8c3ed4",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "24328d85c6437c48",
+      "dependencyHash": "671c1e727903a60e",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -544,7 +544,7 @@
     {
       "id": "6e33c04b9497a7d4",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "cfec19c2bd78d704",
+      "dependencyHash": "140ae92ea2faf91b",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -628,7 +628,7 @@
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
-      "hasUnfollowedDependencies": false,
+      "hasUnfollowedDependencies": true,
       "suiteId": "d3035adf5dc6630c",
       "suitePath": [
         "quotes"

@@ -232,7 +232,7 @@
     {
       "id": "98607d9cf951d0ad",
       "bodyHash": "fbadd2a5048288d9",
-      "dependencyHash": "54cc9a68c98be3fa",
+      "dependencyHash": "bb2a1f9ef6dd3745",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts"
@@ -315,7 +315,7 @@
     {
       "id": "b832207595d60b5a",
       "bodyHash": "26e2eda06a90ad63",
-      "dependencyHash": "79d0bb0c168202a1",
+      "dependencyHash": "ef63ce7ad7e9ada8",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts"
@@ -398,7 +398,7 @@
     {
       "id": "6845b18187057e8e",
       "bodyHash": "2aa2740813832353",
-      "dependencyHash": "1c039da30e70558d",
+      "dependencyHash": "97b053c306577dae",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts"
@@ -481,7 +481,7 @@
     {
       "id": "486cbcddd832451d",
       "bodyHash": "f9623531b0e1a41a",
-      "dependencyHash": "eb0f1ec905309278",
+      "dependencyHash": "4233656044867e32",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts"
@@ -565,7 +565,7 @@
     {
       "id": "3f34fd72c582871d",
       "bodyHash": null,
-      "dependencyHash": "f7831ce466494c6b",
+      "dependencyHash": "7cd441c8f89039ec",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts"
@@ -649,7 +649,7 @@
     {
       "id": "eff7c3afdf4a6ff1",
       "bodyHash": "6036d9e59ea4e389",
-      "dependencyHash": "9780105dfbbc34db",
+      "dependencyHash": "b82365d7e9a20ecb",
       "dependencies": [
         "src/components/WatchlistRow.vue",
         "tests/unit/WatchlistRow.spec.ts"
@@ -732,7 +732,7 @@
     {
       "id": "c7556fc853f29e94",
       "bodyHash": "5cf800ef909e39b3",
-      "dependencyHash": "38cfed6dffefaa13",
+      "dependencyHash": "6b1174ba01b036c3",
       "dependencies": [
         "src/components/WatchlistRow.vue",
         "tests/unit/WatchlistRow.spec.ts"

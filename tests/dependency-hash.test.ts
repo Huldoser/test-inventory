@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { scan, type Inventory, type TestRecord } from '../src/index.ts';
-import { expectValidInventory, scanPlaywright } from './helpers.ts';
+import { expectValidInventory, scanPlaywright, scanVitest } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
 
 const FIXTURES = `import { test as base } from '@playwright/test';
@@ -487,23 +487,23 @@ test('quotes AAPL', async ({ page }) => {
       [
         'dependency-not-followed',
         'warning',
+        'support/venues.ts',
+        2,
+        "The module this loads is worked out at run time, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        'warning',
+        'support/venues.ts',
+        2,
+        "The module this loads is worked out at run time, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        'warning',
         'tests/nasdaq.spec.ts',
         3,
         "'../support/missing' could not be read, so dependencyHash doesn't cover it.",
-      ],
-      [
-        'dependency-not-followed',
-        'warning',
-        'support/venues.ts',
-        2,
-        "The module this loads is worked out at run time, so dependencyHash doesn't cover it.",
-      ],
-      [
-        'dependency-not-followed',
-        'warning',
-        'support/venues.ts',
-        2,
-        "The module this loads is worked out at run time, so dependencyHash doesn't cover it.",
       ],
     ]);
   });
@@ -596,5 +596,272 @@ test('places a market order', async ({ page }) => {
     expect(accounts.tests[0].hasUnfollowedDependencies).toBe(true);
     expect(packages.tests[0].hasUnfollowedDependencies).toBe(false);
     expect([...accounts.diagnostics, ...packages.diagnostics]).toEqual([]);
+  });
+
+  it('reads a class decorated before export, and follows what the decorator uses', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/registry.ts': "export const SERVICES = { orders: 'order-service' };\n",
+      'src/order-service.ts': `import { SERVICES } from './registry';
+declare function injectable(pick: (registry: Map<string, unknown>) => unknown): ClassDecorator;
+
+@injectable((registry) => registry.get(SERVICES.orders))
+export class OrderService {
+  place(symbol: string) {
+    return \`placed \${symbol}\`;
+  }
+}
+`,
+      'tests/order-service.test.ts': `import { expect, test } from 'vitest';
+import { OrderService } from '../src/order-service';
+
+test('places an order for AAPL', () => {
+  expect(new OrderService().place('AAPL')).toBe('placed AAPL');
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.diagnostics).toEqual([]);
+    expect(inventory.tests[0].dependencies).toEqual([
+      'src/order-service.ts',
+      'src/registry.ts',
+      'tests/order-service.test.ts',
+    ]);
+  });
+
+  it('takes declarations that run code when the file loads, as a seeded exchange or a registered strategy', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/exchange.ts':
+        'export function seedExchange(symbols: string[]) {\n  return symbols.map((symbol) => ({ symbol, bid: 100 }));\n}\n',
+      'src/strategies.ts':
+        'export const registered: string[] = [];\nexport function register(name: string) {\n  registered.push(name);\n  return name;\n}\n',
+      'src/momentum.ts': "import { register } from './strategies';\nexport default register('momentum');\n",
+      'tests/exchange.test.ts': `import { expect, test } from 'vitest';
+import { seedExchange } from '../src/exchange';
+import { registered } from '../src/strategies';
+import '../src/momentum';
+
+const seeded = seedExchange(['AAPL']);
+
+test('lists the registered strategies', () => {
+  expect(registered).toEqual(['momentum']);
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.tests[0].dependencies).toEqual([
+      'src/exchange.ts',
+      'src/momentum.ts',
+      'src/strategies.ts',
+      'tests/exchange.test.ts',
+    ]);
+    const before = await hashesAfter(files, null, 'vitest');
+    const after = await hashesAfter(
+      files,
+      ['src/momentum.ts', files['src/momentum.ts'].replace("'momentum'", "'mean-reversion'")],
+      'vitest',
+    );
+    expect(after).not.toEqual(before);
+  });
+
+  it('follows import = require() and a namespace exported by name', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/fees.ts': 'export const EQUITY_FEE = 0.005;\n',
+      'src/pricing.ts': 'namespace Pricing {\n  export const SPREAD = 0.01;\n}\nexport { Pricing };\n',
+      'src/fee-types.ts': 'export interface Fee {\n  rate: number;\n}\n',
+      'tests/fees.test.ts': `import { expect, test } from 'vitest';
+import fees = require('../src/fees');
+import type feeTypes = require('../src/fee-types');
+import { Pricing } from '../src/pricing';
+import SPREAD = Pricing.SPREAD;
+
+test('adds the fee and the spread', () => {
+  const fee: feeTypes.Fee = { rate: fees.EQUITY_FEE };
+  expect(fee.rate + SPREAD).toBeCloseTo(0.015);
+  expect(Object.keys(fees)).toEqual(['EQUITY_FEE']);
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/fees.ts', 'src/pricing.ts', 'tests/fees.test.ts'],
+      hasUnfollowedDependencies: false,
+    });
+  });
+
+  it("prefers a module's own export over one from export *, which never re-exports default", async () => {
+    const files = {
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'pages/index.ts':
+        "export * from './order-ticket';\nexport * from './legacy-fees';\nexport default class PageRegistry {\n  readonly pages = ['ticket'];\n}\nexport function feeFor(symbol: string) {\n  return symbol === 'AAPL' ? 0.005 : 0.01;\n}\n",
+      'pages/order-ticket.ts': "export default class OrderTicket {\n  readonly symbol = 'AAPL';\n}\n",
+      'pages/legacy-fees.ts': 'export function feeFor() {\n  return 0.02;\n}\n',
+      'tickets/index.ts': "export * from '../pages/order-ticket';\n",
+      'tests/tickets.spec.ts': `import { test, expect } from '@playwright/test';
+import Ticket from '../tickets';
+
+// tickets/index.ts has no default export of its own, and export * doesn't pass one on.
+test('opens a ticket', async () => {
+  expect(Ticket).toBeUndefined();
+});
+`,
+      'tests/fees.spec.ts': `import { test, expect } from '@playwright/test';
+import PageRegistry, { feeFor } from '../pages';
+
+test('charges the AAPL fee', async () => {
+  expect(new PageRegistry().pages).toContain('ticket');
+  expect(feeFor('AAPL')).toBe(0.005);
+});
+`,
+    };
+    const inventory = await scanProject(project(files));
+    expect(inventory.tests.map((test) => test.dependencies)).toEqual([
+      ['pages/index.ts', 'tests/fees.spec.ts'],
+      // The whole module is taken when the name isn't found, and its export * brings in the rest.
+      ['pages/order-ticket.ts', 'tests/tickets.spec.ts', 'tickets/index.ts'],
+    ]);
+  });
+
+  it('follows a component written as a member of a lowercase namespace, but not attribute names', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/ui.tsx': 'export function OrderTicket() {\n  return <form />;\n}\nexport const Symbol = 1;\n',
+      'tests/ui.test.tsx': `import { expect, test } from 'vitest';
+import { render } from '@testing-library/react';
+import * as ui from '../src/ui';
+
+test('renders the order ticket', () => {
+  expect(render(<ui.OrderTicket Symbol="AAPL" />)).toBeTruthy();
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.tests[0].dependencies).toEqual(['src/ui.tsx', 'tests/ui.test.tsx']);
+  });
+
+  it("follows require() made with createRequire, Vitest's module mocks, and flags import.meta.glob", async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/fees.cjs': 'module.exports = { equity: 0.005 };\n',
+      'src/exchange.ts': "export const connect = () => 'live';\n",
+      'src/broker.ts': "export const route = () => 'NASDAQ';\n",
+      'tests/venues.test.ts': `import { createRequire } from 'node:module';
+import { expect, test, vi } from 'vitest';
+
+vi.mock('../src/exchange', () => ({ connect: () => 'paper' }));
+const require = createRequire(import.meta.url);
+
+test('charges the equity fee', async () => {
+  const broker = await vi.importActual<typeof import('../src/broker')>('../src/broker');
+  expect(require('../src/fees.cjs').equity).toBe(0.005);
+  expect(broker.route()).toBe('NASDAQ');
+});
+
+test('loads every venue', () => {
+  expect(Object.keys(import.meta.glob('../src/venues/*.ts'))).not.toEqual([]);
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.tests.map((test) => [test.title, test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+      ['charges the equity fee', ['src/broker.ts', 'src/exchange.ts', 'src/fees.cjs', 'tests/venues.test.ts'], false],
+      ['loads every venue', ['src/exchange.ts', 'tests/venues.test.ts'], true],
+    ]);
+    expect(inventory.diagnostics.map(({ relativeFilePath, lineStart }) => [relativeFilePath, lineStart])).toEqual([
+      ['tests/venues.test.ts', 14],
+    ]);
+  });
+
+  it('reports a broken module behind a barrel once, in the barrel', async () => {
+    const spec = (title: string) =>
+      `import { test } from '@playwright/test';\nimport { OrderTicket } from '../pages';\n\ntest('${title}', async ({ page }) => {\n  await new OrderTicket(page).open();\n});\n`;
+    const inventory = await scanProject(
+      project({
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'pages/index.ts': "export { OrderTicket } from './order-ticket';\n",
+        'pages/order-ticket.ts': 'export class OrderTicket = ;\n',
+        'tests/buy.spec.ts': spec('buys AAPL'),
+        'tests/sell.spec.ts': spec('sells AAPL'),
+      }),
+    );
+    expect(inventory.tests.every((test) => test.hasUnfollowedDependencies)).toBe(true);
+    expect(
+      inventory.diagnostics.map(({ relativeFilePath, lineStart, source }) => [relativeFilePath, lineStart, source]),
+    ).toEqual([['pages/index.ts', 1, "export { OrderTicket } from './order-ticket';"]]);
+  });
+
+  it('keeps the hash when a test moves above or below the code it uses', () => {
+    const code = `import { test, expect } from '@playwright/test';
+const MAX_QUANTITY = 500;
+
+test('rejects an order above the size limit', async ({ page }) => {
+  await expect(page.getByTestId('max-quantity')).toHaveText(String(MAX_QUANTITY));
+});
+`;
+    const moved = `import { test, expect } from '@playwright/test';
+
+test('rejects an order above the size limit', async ({ page }) => {
+  await expect(page.getByTestId('max-quantity')).toHaveText(String(MAX_QUANTITY));
+});
+const MAX_QUANTITY = 500;
+`;
+    expect(scanPlaywright(moved).tests[0].dependencyHash).toBe(scanPlaywright(code).tests[0].dependencyHash);
+  });
+
+  it("gives the tests of a describe.each their own hashes, not each other's code", () => {
+    const code = (fee: string) => `import { describe, expect, test } from 'vitest';
+describe.each(['NYSE', 'LSE'])('routing to %s', (venue) => {
+  test('accepts a market order', () => {
+    expect(venue).toMatch(/^[A-Z]+$/);
+  });
+  test('charges the venue fee', () => {
+    expect(${fee}).toBeGreaterThan(0);
+  });
+});
+`;
+    const before = scanVitest(code('0.005'));
+    const after = scanVitest(code('0.004'));
+    expect(after.tests[0].dependencyHash).toBe(before.tests[0].dependencyHash);
+    expect(after.tests[1].dependencyHash).not.toBe(before.tests[1].dependencyHash);
+  });
+
+  it('reads a file imported with a Vite query, and marks a value that only a declaration file describes', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'tsconfig.json': JSON.stringify({ compilerOptions: { paths: { '@trading/market': ['./types/market.d.ts'] } } }),
+      'types/market.d.ts':
+        "import './ambient.js';\nexport interface Market {\n  open: string;\n}\nexport declare const OPEN: string;\n",
+      'src/boot-script.ts': "export const BOOT = 'window.__TRADING__ = true';\n",
+      'tests/boot.test.ts': `import { expect, test } from 'vitest';
+import script from '../src/boot-script.ts?raw';
+import { Market } from '@trading/market';
+
+test('boots the trading desk', () => {
+  const market: Market = { open: '09:30' };
+  expect(script).toContain('__TRADING__');
+  expect(market.open).toBe('09:30');
+});
+`,
+      'tests/market.test.ts': `import { expect, test } from 'vitest';
+import { OPEN } from '@trading/market';
+
+test('opens at half past nine', () => {
+  expect(OPEN).toBe('09:30');
+});
+`,
+    };
+    const inventory = await scanProject(project(files), 'vitest');
+    expect(inventory.tests.map((test) => [test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+      [['src/boot-script.ts', 'tests/boot.test.ts'], false],
+      [['tests/market.test.ts'], true],
+    ]);
+    expect(inventory.diagnostics.map(({ relativeFilePath, message }) => [relativeFilePath, message])).toEqual([
+      [
+        'tests/market.test.ts',
+        "'@trading/market' leads to a declaration file, so dependencyHash doesn't cover the code that runs.",
+      ],
+    ]);
   });
 });

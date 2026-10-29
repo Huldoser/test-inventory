@@ -436,11 +436,12 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
       "'brokerTest' is imported from '../missing', which could not be read; tests that use it are missing.",
       "'base' is imported from './broken', which could not be parsed; tests that use it are missing.",
-      // The file's top-level calls run when it loads, so what they use is in every test's dependencyHash.
-      "'../missing' could not be read, so dependencyHash doesn't cover it.",
-      "'./broken' could not be parsed, so dependencyHash doesn't cover it.",
-      "'../missing-checkout' could not be read, so dependencyHash doesn't cover it.",
+      // The file's top-level calls run when it loads, so what they use is in every test's dependencyHash; by file and
+      // position.
       "'./quotes' could not be read, so dependencyHash doesn't cover it.",
+      "'../missing' could not be read, so dependencyHash doesn't cover it.",
+      "'../missing-checkout' could not be read, so dependencyHash doesn't cover it.",
+      "'./broken' could not be parsed, so dependencyHash doesn't cover it.",
     ]);
   });
 
