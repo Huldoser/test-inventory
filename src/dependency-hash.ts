@@ -15,6 +15,7 @@ import { shortHash, hashNodes } from './hash.ts';
 import type { ModuleReader, ModuleSource, Problem, Span } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet, type SourceText } from './source.ts';
+import type { Framework } from './types.ts';
 import { bindingNames, isScopeNode, Values } from './values.ts';
 
 /** A file whose code a test can run: the scanned file, a module it imports, or a data file such as JSON. */
@@ -100,6 +101,7 @@ interface Fixtures {
   byName: Map<string, Fixture[]>;
   /** Fixtures with `auto: true`, which run for every test that uses the object. */
   auto: string[];
+  framework: Framework;
 }
 
 /** An expression's value where it is written: the node, and the module and scopes to read it in. */
@@ -176,9 +178,18 @@ const PACKAGE_REASONS = new Set([
 /** Modules whose `test` object fixtures are defined on. */
 const FRAMEWORK = /^(?:@playwright\/test|playwright\/test|@playwright\/experimental-ct-[\w-]+|vitest)$/;
 
-/** Calls whose functions run with the test's fixtures: tests, hooks, and conditions such as `test.skip(fn)`. */
+/** Calls on a test object whose functions run with the test's fixtures: tests and hooks. */
 const FIXTURE_CALLS = new Set([
-  ...['test', 'it', 'only', 'skip', 'fixme', 'fail', 'slow', 'todo', 'concurrent', 'sequential'],
+  ...['test', 'it', 'only', 'todo', 'concurrent', 'sequential'],
+  ...['beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'aroundEach', 'aroundAll'],
+]);
+
+/** Conditions, which take a value or a function of the fixtures, as in `test.skip(({ account }) => ...)`. */
+const CONDITION_CALLS = new Set(['skip', 'fixme', 'fail', 'slow']);
+
+/** Vitest's globals, which a file with `globals: true` calls without importing them. */
+const GLOBAL_TESTS = new Set([
+  ...['test', 'it', 'describe', 'suite', 'bench'],
   ...['beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'aroundEach', 'aroundAll'],
 ]);
 
@@ -194,7 +205,8 @@ const MAX_VALUE_DEPTH = 16;
 /** Playwright's own fixtures and options (1.64), which a fixtures file can override for every test. */
 const BUILT_INS = new Set([
   ...['browser', 'browserName', 'channel', 'connectOptions', 'context', 'defaultBrowserType', 'headless'],
-  ...['launchOptions', 'mount', 'page', 'playwright', 'request', 'reuseContext', 'screenshot', 'trace', 'video'],
+  ...['launchOptions', 'mount', 'page', 'playwright', 'request', 'reuseContext', 'router', 'screenshot', 'trace'],
+  'video',
   ...['acceptDownloads', 'actionTimeout', 'baseURL', 'bypassCSP', 'clientCertificates', 'colorScheme'],
   ...['contextOptions', 'contrast', 'deviceScaleFactor', 'extraHTTPHeaders', 'forcedColors', 'geolocation'],
   ...['hasTouch', 'httpCredentials', 'ignoreHTTPSErrors', 'isMobile', 'javaScriptEnabled', 'locale'],
@@ -218,6 +230,18 @@ const PLAIN_VALUES = new Set([
   'UnaryExpression',
   'BinaryExpression',
 ]);
+
+/** Whether a declarator at the top of a module, as an exported one is, is a `const`. */
+function isConst(module: Module, declarator: Node): boolean {
+  return (module.parsed as ParsedFile).program.body.some((statement) => {
+    const declaration = declared(statement);
+    return (
+      declaration.type === 'VariableDeclaration' &&
+      declaration.kind === 'const' &&
+      declaration.declarations.includes(declarator as VariableDeclarator)
+    );
+  });
+}
 
 /** A property written as `name: value` or `name() {}`, whose name is known. */
 function isNamedProperty(property: Node): boolean {
@@ -390,7 +414,8 @@ export class DependencyGraph {
     for (const unit of units) {
       if (unit.place) places.push(unit.place);
       if (unit.fixtures) fixtures.push(unit.fixtures);
-      asks = asks && unit.asks && [...asks, ...unit.asks];
+      if (unit.asks === null) asks = null;
+      else if (asks !== null && unit.asks.length > 0) asks.push(...unit.asks);
       const hash = this.hashOf(unit);
       if (hash === null) continue;
       const hashes = byFile.get(unit.module.relativeFilePath);
@@ -810,7 +835,8 @@ export class DependencyGraph {
       calls.push(node);
       node = unwrap(node.callee.object);
     }
-    if (!node || calls.length === 0 || !this.isFrameworkTest(module, node, scopes, types)) return null;
+    const framework = node && calls.length > 0 ? this.frameworkOf(module, node, scopes, types) : null;
+    if (!framework) return null;
     const byName = new Map<string, Fixture[]>();
     const auto: string[] = [];
     const cut: Span[] = [];
@@ -825,7 +851,8 @@ export class DependencyGraph {
       byName.set(name, [...(byName.get(name) ?? []), { unit, uses }]);
       const read = options && this.valueOf(where.module, options, where.scopes, types).node;
       // Playwright's own fixtures and options, such as `page` or `storageState`, shape what every test runs.
-      if (BUILT_INS.has(name) || (read?.type === 'ObjectExpression' && read.properties.some(isAutoOption))) {
+      const isBuiltIn = framework === 'playwright' && BUILT_INS.has(name);
+      if (isBuiltIn || (read?.type === 'ObjectExpression' && read.properties.some(isAutoOption))) {
         auto.push(name);
       }
     };
@@ -856,48 +883,93 @@ export class DependencyGraph {
       types,
     );
     unit.with.push(this.loadUnit(module, types));
-    unit.fixtures = { byName, auto };
+    unit.fixtures = { byName, auto, framework };
     return unit;
   }
 
   /**
-   * Whether an expression is a test object of the framework: its own `test`, `mergeTests()` of test objects, or one
-   * built on them with `extend()`, followed through imports.
+   * The framework of a test object: its own `test`, `mergeTests()` of test objects, or one built on them with
+   * `extend()`, followed through imports; null for an expression that isn't one.
    */
-  private isFrameworkTest(module: Module, expression: Node, scopes: readonly Node[], types: boolean): boolean {
+  private frameworkOf(module: Module, expression: Node, scopes: readonly Node[], types: boolean): Framework | null {
     const node = unwrap(expression as Expression);
     if (node.type === 'CallExpression') {
       const { callee } = node;
       if (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'extend') {
-        return this.isFrameworkTest(module, callee.object, scopes, types);
+        return this.frameworkOf(module, callee.object, scopes, types);
       }
       // `mergeTests(a, b)`.
-      return this.isFrameworkTest(module, callee, scopes, types);
+      return this.frameworkOf(module, callee, scopes, types);
     }
-    if (node.type !== 'Identifier') return false;
+    if (node.type !== 'Identifier') return null;
     const declaration = module.values.declarationOf(node.name, scopes);
-    if (declaration === null) return false;
-    if (declaration.type === 'ImportSpecifier' && FRAMEWORK.test(this.importOf(module, declaration).source.value)) {
+    if (declaration === null) return null;
+    if (declaration.type === 'ImportSpecifier') {
+      const source = this.importOf(module, declaration).source.value;
       // `expect` has an extend() too, for matchers.
-      return TEST_EXPORTS.has(exportName(declaration.imported));
+      if (FRAMEWORK.test(source)) {
+        return TEST_EXPORTS.has(exportName(declaration.imported))
+          ? source === 'vitest'
+            ? 'vitest'
+            : 'playwright'
+          : null;
+      }
     }
-    return this.toDeclaration(module, declaration, node.name, null, types).some((unit) => {
-      if (unit.fixtures) return true;
+    for (const unit of this.toDeclaration(module, declaration, node.name, null, types)) {
+      if (unit.fixtures) return unit.fixtures.framework;
       const root = unit.roots.at(0)?.node;
-      return (
-        root?.type === 'VariableDeclarator' &&
-        root.init !== null &&
-        this.isFrameworkTest(
-          unit.module,
-          root.init,
-          root === declaration ? scopes : scopesAt((unit.module.parsed as ParsedFile).program, root),
-          types,
-        )
-      );
-    });
+      if (root?.type !== 'VariableDeclarator' || root.init === null) continue;
+      const at = root === declaration ? scopes : scopesAt((unit.module.parsed as ParsedFile).program, root);
+      const framework = this.frameworkOf(unit.module, root.init, at, types);
+      if (framework) return framework;
+    }
+    return null;
   }
 
-  /** The fixtures a fixture's function asks for; null when it takes them whole, or isn't a function the scan finds. */
+  /**
+   * Takes what the values given to `test.use()`, `override()` or `scoped()` ask for: functions and `[fn, options]`
+   * pairs, as `extend()` takes them. Playwright's options and a spread of its `devices` are values, not fixtures.
+   */
+  private useValues(values: Extract<Node, { type: 'ObjectExpression' }>, take: (value: Node) => void): void {
+    for (const property of values.properties) {
+      if (property.type === 'SpreadElement') {
+        const argument = unwrap(property.argument);
+        const isDevice =
+          argument.type === 'MemberExpression' &&
+          argument.object.type === 'Identifier' &&
+          argument.object.name === 'devices';
+        if (!isDevice) take(property);
+        continue;
+      }
+      const value = unwrap(property.value);
+      const fn = value.type === 'ArrayExpression' ? value.elements.at(0) : value;
+      const isOption = BUILT_INS.has(propertyKey(property) as string);
+      if (fn && (isFunctionNode(fn) || !isOption)) take(fn);
+    }
+  }
+
+  /**
+   * Whether a call is on a test object, so that its functions run with fixtures: the framework's own, a global one,
+   * one built with `extend()`, or a parameter, as a helper that takes the test object has.
+   */
+  private isTestReference(module: Module, callee: Node, scopes: readonly Node[], types: boolean): boolean {
+    let root = callee;
+    while (root.type === 'MemberExpression' || root.type === 'CallExpression') {
+      root = root.type === 'MemberExpression' ? root.object : root.callee;
+    }
+    if (root.type !== 'Identifier') return false;
+    const declaration = module.values.declarationOf(root.name, scopes);
+    if (declaration === null) return GLOBAL_TESTS.has(root.name);
+    if (declaration.type === 'ImportSpecifier') {
+      if (FRAMEWORK.test(this.importOf(module, declaration).source.value)) return true;
+    }
+    // A parameter's binding is the function it belongs to.
+    if (declaration.type === 'FunctionDeclaration' || isFunctionNode(declaration)) {
+      return declaration.params.some((parameter) => bindingNames(parameter).includes(root.name));
+    }
+    return this.frameworkOf(module, root, scopes, types) !== null;
+  }
+
   /**
    * The fixtures a fixture's or hook's function asks for. A value such as a constant asks for none; null when the
    * function takes them whole, or the value can't be told, as a factory's result or a fixture from a package.
@@ -923,12 +995,15 @@ export class DependencyGraph {
   private valueOf(module: Module, value: Node, scopes: readonly Node[], types: boolean, depth = 0): Value {
     const node = unwrap(value as Expression);
     if (node.type !== 'Identifier' || depth > MAX_VALUE_DEPTH) return { module, node, scopes };
+    // Only a `const` holds one value; a `let` may be given another later.
+    const constant = module.values.constantOf(node.name, scopes);
+    if (constant) return this.valueOf(module, constant.init, constant.scopes, types, depth + 1);
     const declaration = module.values.declarationOf(node.name, scopes);
-    if (declaration === null) return { module, node, scopes };
+    if (declaration === null || declaration.type === 'VariableDeclarator') return { module, node, scopes };
     for (const unit of this.toDeclaration(module, declaration, node.name, null, types)) {
       const root = unit.roots.at(0)?.node;
       if (root?.type === 'FunctionDeclaration') return { module: unit.module, node: root, scopes };
-      if (root?.type === 'VariableDeclarator' && root.init) {
+      if (root?.type === 'VariableDeclarator' && root.init && isConst(unit.module, root)) {
         const at = scopesAt((unit.module.parsed as ParsedFile).program, root);
         return this.valueOf(unit.module, root.init, at, types, depth + 1);
       }
@@ -976,26 +1051,33 @@ export class DependencyGraph {
           : callee.type === 'MemberExpression' && !callee.computed
             ? callee.property.name
             : null;
+      if (name === null || !(FIXTURE_CALLS.has(name) || CONDITION_CALLS.has(name) || USE_CALLS.has(name))) return;
+      // A fixture's own `use(value)` callback is called by name; `test.use()` is a member.
+      if (USE_CALLS.has(name) && callee.type !== 'MemberExpression') return;
+      // `/^[A-Z]+$/.test(symbol)`, `assert.fail()` or `app.use()` don't run with fixtures.
+      if (!this.isTestReference(module, callee, scopes, types)) return;
       const take = (value: Node) => {
         const uses = this.fixtureUses(module, value, scopes, types);
         unit.asks = unit.asks && uses && [...unit.asks, ...uses];
       };
-      if (name !== null && FIXTURE_CALLS.has(name)) {
-        // A title or a condition's value isn't a function; one passed by name is followed to where it's written.
-        for (const argument of call.arguments) {
-          if (isFunctionNode(argument)) take(argument);
-          else if (
-            argument.type === 'Identifier' &&
-            !isPlainValue(this.valueOf(module, argument, scopes, types).node)
-          ) {
-            take(argument);
-          }
+      if (USE_CALLS.has(name)) {
+        // `test.use(MARGIN_ACCOUNT)` is followed to the object, as written in place.
+        for (const values of call.arguments.slice(0, 1)) {
+          const { node } = this.valueOf(module, values, scopes, types);
+          if (node.type === 'ObjectExpression') this.useValues(node, take);
+          else take(values);
         }
+        return;
       }
-      const values = call.arguments.at(0);
-      // A fixture's own `use(value)` callback is called by name; `test.use()` is a member.
-      if (callee.type === 'MemberExpression' && USE_CALLS.has(name as string) && values?.type === 'ObjectExpression') {
-        for (const property of values.properties) take(property.type === 'Property' ? property.value : property);
+      for (const argument of call.arguments) {
+        const { node } = this.valueOf(module, argument, scopes, types);
+        if (CONDITION_CALLS.has(name)) {
+          // A condition's value, as in `test.skip(isCI)`, isn't a function of the fixtures.
+          if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) take(argument);
+        } else if (!isPlainValue(node)) {
+          // A title or options, or else a function, also one a factory, a member or a condition gives.
+          take(argument);
+        }
       }
     };
     const walk = (node: Node, scopes: Node[], key: string | null, parent: Node | null): void => {

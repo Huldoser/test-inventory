@@ -1321,5 +1321,150 @@ test('reads the blotter', async ({ blotter }) => {
       }
       expect(unchanged).toEqual([]);
     });
+
+    it('takes the fixtures of hooks given by member, factory, condition, spread or reassigned name, and use() tuples', async () => {
+      const fixtures = `import { test as base } from '@playwright/test';
+export const test = base.extend<{ ledger: string; broker: string }>({
+  ledger: async ({}, use) => use('NASDAQ'),
+  broker: async ({}, use) => use('IBKR'),
+});
+`;
+      const files = {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'fixtures/index.ts': fixtures,
+        'fixtures/seeds.ts': `export const hooks = {
+  seedLedger: async ({ ledger }: { ledger: string }) => {
+    void ledger;
+  },
+};
+export function seedFor(symbol: string) {
+  return async ({ ledger }: { ledger: string }) => {
+    void [symbol, ledger];
+  };
+}
+`,
+        'tests/seeds.spec.ts': `import { test } from '../fixtures';
+import { hooks, seedFor } from '../fixtures/seeds';
+
+let seed = async ({ page }: { page: unknown }) => {
+  void page;
+};
+if (process.env.LEDGER) {
+  seed = async ({ ledger }: { ledger: string }) => {
+    void ledger;
+  };
+}
+
+test.describe('member hook', () => {
+  test.beforeEach(hooks.seedLedger);
+  test('seeds through a member', async () => {});
+});
+test.describe('factory hook', () => {
+  test.beforeEach(seedFor('AAPL'));
+  test('seeds through a factory', async () => {});
+});
+test.describe('conditional hook', () => {
+  test.beforeEach(process.env.REMOTE ? hooks.seedLedger : seed);
+  test('seeds remotely or locally', async () => {});
+});
+test.describe('spread hooks', () => {
+  test.beforeEach(...[hooks.seedLedger]);
+  test('seeds from a list', async () => {});
+});
+const VENUE_KEY = 'venue';
+const MARGIN_USE = { ledger: async ({ broker }: { broker: string }, use: (value: string) => Promise<void>) => use(broker) };
+
+test.describe('use() from a constant', () => {
+  test.use(MARGIN_USE);
+  test('uses a constant', async ({ ledger }) => {
+    void ledger;
+  });
+});
+test.describe('use() from a factory', () => {
+  test.use(seedFor('MSFT') as never);
+  test('seeds through a use() factory', async () => {});
+});
+test.describe('reassigned hook', () => {
+  test.beforeEach(seed);
+  test('seeds after a reassignment', async () => {});
+});
+test.describe('tuple use', () => {
+  test.use({ ledger: [async ({ broker }, use) => use(broker), { scope: 'test' }], [VENUE_KEY]: 'NASDAQ' });
+  test('uses a tuple', async ({ ledger }) => {
+    void ledger;
+  });
+});
+`,
+      };
+      const before = await hashesAfter(files, null);
+      const ledger = await hashesAfter(files, ['fixtures/index.ts', fixtures.replace("'NASDAQ'", "'NYSE'")]);
+      const broker = await hashesAfter(files, ['fixtures/index.ts', fixtures.replace("'IBKR'", "'SCHWAB'")]);
+      const unchanged = [
+        ...Object.keys(before).filter((title) => !title.startsWith('uses a') && ledger[title] === before[title]),
+        ...['uses a tuple', 'uses a constant'].filter((title) => broker[title] === before[title]),
+      ];
+      expect(unchanged).toEqual([]);
+    });
+
+    it('keeps narrowing past regular expressions, assertions, conditions with values, options and Vitest fixtures', async () => {
+      const playwright = `import { test as base } from '@playwright/test';
+export const test = base.extend<{ ledger: string; broker: string }>({
+  ledger: async ({}, use) => use('NASDAQ'),
+  broker: async ({}, use) => use('IBKR'),
+});
+`;
+      const vitest = `import { test as base } from 'vitest';
+export const test = base.extend({
+  ledger: async ({}, use) => use('NASDAQ'),
+  request: async ({ ledger }, use) => use({ ledger }),
+  riskLimits: async ({}, use) => use({ maxNotional: 1_000_000 }),
+});
+`;
+      const files = {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.1', vitest: '5.0.5' } }),
+        'fixtures/index.ts': playwright,
+        'fixtures/vitest.ts': vitest,
+        'pages/symbol-page.ts': `import assert from 'node:assert';
+export class SymbolPage {
+  isValidSymbol(symbol: string) {
+    if (symbol === '') assert.fail('a symbol is required');
+    return /^[A-Z]{1,5}$/.test(symbol);
+  }
+}
+`,
+        'tests/ledger.spec.ts': `import { devices } from '@playwright/test';
+import { test } from '../fixtures';
+import { SymbolPage } from '../pages/symbol-page';
+
+const isCI = Boolean(process.env.CI);
+test.use({ ...devices['Pixel 5'], baseURL: process.env.STAGING_URL });
+test.skip(isCI, 'runs against a local exchange');
+
+test('shows the ledger venue', async ({ ledger }) => {
+  test.expect(new SymbolPage().isValidSymbol(ledger)).toBe(true);
+});
+`,
+        'tests/risk.test.ts': `import { expect } from 'vitest';
+import { test } from '../fixtures/vitest';
+
+test('caps the notional', ({ riskLimits }) => {
+  expect(riskLimits.maxNotional).toBe(1_000_000);
+});
+`,
+      };
+      const root = project(files);
+      const scanBoth = async (change: [string, string] | null) => {
+        if (change) writeFileSync(path.join(root, change[0]), change[1]);
+        const [playwrightScan, vitestScan] = await Promise.all([
+          scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' }),
+          scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' }),
+        ]);
+        return [...playwrightScan.tests, ...vitestScan.tests].map((test) => test.dependencyHash);
+      };
+      const before = await scanBoth(null);
+      const broker = await scanBoth(['fixtures/index.ts', playwright.replace("'IBKR'", "'SCHWAB'")]);
+      const ledger = await scanBoth(['fixtures/vitest.ts', vitest.replace("'NASDAQ'", "'NYSE'")]);
+      expect([broker[0] === before[0], ledger[1] === before[1]]).toEqual([true, true]);
+    });
   });
 });
