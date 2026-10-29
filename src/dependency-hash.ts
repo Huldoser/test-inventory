@@ -1298,17 +1298,16 @@ export class DependencyGraph {
       }
     };
     /** A snapshot matcher's call: the file it compares against, or nothing for one written inline. */
-    const snapshot = (matcher: string, call: CallExpression) => {
+    const snapshot = (matcher: string, call: CallExpression, scopes: readonly Node[]) => {
       const first = call.arguments.at(0);
-      // `toMatchAriaSnapshot('- heading "Portfolio"')` holds the snapshot in the code.
+      const value = first === undefined ? null : this.valueOf(module, first, scopes, types).node;
+      // `toMatchAriaSnapshot('- heading "Portfolio"')` holds the snapshot in the code, also from a constant.
       const isInline =
-        first?.type === 'TemplateLiteral' || (first?.type === 'Literal' && typeof first.value === 'string');
+        value?.type === 'TemplateLiteral' || (value?.type === 'Literal' && typeof value.value === 'string');
       if (matcher === 'toMatchAriaSnapshot' && isInline) return;
-      const named = first === undefined ? null : snapshotName(this.valueOf(module, first, [program], types).node);
-      if (matcher === 'toMatchFileSnapshot' && (named === null || named.name.startsWith('/'))) {
-        const why = named === null ? 'is worked out at run time' : "is an absolute path, which the scan doesn't place";
-        const message = `The file this compares against ${why}, so dependencyHash doesn't cover it.`;
-        edges.add(this.placeUnit(module, call, message));
+      const named = value === null ? null : snapshotName(value);
+      if (matcher === 'toMatchFileSnapshot' && (named === null || isAbsolute(named.name))) {
+        edges.add(this.placeUnit(module, call, unplacedFile(named === null)));
         return;
       }
       unit.snapshots.push({ matcher, name: named?.name ?? null, isParts: named?.isParts ?? false });
@@ -1346,11 +1345,19 @@ export class DependencyGraph {
           if (callee.type === 'Identifier' && callee.name === 'require') loadsByPath(node.arguments.at(0), node);
           if (callee.type === 'MemberExpression' && !callee.computed) {
             const { object, property } = callee;
-            if (SNAPSHOT_MATCHERS.has(property.name)) snapshot(property.name, node);
-            // `Snapshots.toMatchSnapshot.call(this, received)` in a custom matcher.
-            const target = object.type === 'MemberExpression' && !object.computed ? object.property.name : '';
-            if (CALLS.has(property.name) && SNAPSHOT_MATCHERS.has(target))
+            if (SNAPSHOT_MATCHERS.has(property.name)) snapshot(property.name, node, scopes);
+            // `Snapshots.toMatchSnapshot.call(this, received)` in a custom matcher, or one taken out of `Snapshots`.
+            const target =
+              object.type === 'MemberExpression' && !object.computed
+                ? object.property.name
+                : object.type === 'Identifier'
+                  ? object.name
+                  : '';
+            if (CALLS.has(property.name) && target === 'toMatchFileSnapshot') {
+              edges.add(this.placeUnit(module, node, unplacedFile(true)));
+            } else if (CALLS.has(property.name) && SNAPSHOT_MATCHERS.has(target)) {
               unit.snapshots.push({ matcher: target, name: null, isParts: false });
+            }
             if (object.type === 'Identifier' && object.name === 'vi' && VI_MODULE_CALLS.has(property.name)) {
               loadsByPath(node.arguments.at(0), node);
             }
@@ -1494,24 +1501,56 @@ function snapshotPaths(testFile: string, uses: SnapshotUse[], framework: Framewo
   const name = path.posix.basename(testFile);
   const found = new Set<string>();
   const folders = new Map<string, (string | null)[]>();
-  const named = (target: string, use: SnapshotUse, sanitize: boolean) => {
-    // A name is taken without its extension, as the runners add the project or browser and platform before it.
-    const stem = use.name?.replace(/(\.aria\.yml|\.[^./]*)$/, '') ?? null;
-    const stems = folders.get(target) ?? [];
-    stems.push(stem !== null && sanitize && !use.isParts ? stem.replace(UNSAFE_NAME, '-') : stem);
-    folders.set(target, stems);
+  /** A name in a folder; path parts, as Playwright takes, may lead to another folder. */
+  const named = (target: string, stem: string | null) => {
+    const file = stem === null ? null : path.posix.join(target, stem);
+    const where = file === null ? target : path.posix.dirname(file);
+    folders.set(where, [...(folders.get(where) ?? []), file === null ? null : path.posix.basename(file)]);
   };
   for (const use of uses) {
-    if (framework === 'playwright') named(path.posix.join(folder, `${name}-snapshots`), use, true);
-    else if (use.matcher === 'toMatchScreenshot') named(path.posix.join(folder, '__screenshots__', name), use, false);
-    else if (use.matcher === 'toMatchFileSnapshot') found.add(path.posix.join(folder, use.name as string));
+    if (framework === 'playwright') named(path.posix.join(folder, `${name}-snapshots`), playwrightStem(use));
+    else if (use.matcher === 'toMatchScreenshot') {
+      named(path.posix.join(folder, '__screenshots__', name), use.name === null ? null : vitestStem(use.name));
+    } else if (use.matcher === 'toMatchFileSnapshot') found.add(path.posix.join(folder, use.name as string));
     else found.add(path.posix.join(folder, '__snapshots__', `${name}.snap`));
   }
+  const isInside = (file: string) => !file.startsWith('../');
   return {
-    files: [...found].filter((file) => !file.startsWith('../')),
-    folders,
-    isOutside: [...found].some((file) => file.startsWith('../')),
+    files: [...found].filter(isInside),
+    folders: new Map([...folders].filter(([where]) => isInside(where))),
+    isOutside: ![...found, ...folders.keys()].every(isInside),
   };
+}
+
+/**
+ * The start of the files Playwright writes for a name: without its extension, as the project and platform come
+ * before it, and a string name sanitized as Playwright 1.64 does, where path parts are kept as written.
+ */
+function playwrightStem(use: SnapshotUse): string | null {
+  const stem = use.name?.replace(/(\.aria\.yml|\.[^./]*)$/, '') ?? null;
+  return stem !== null && !use.isParts ? stem.replace(UNSAFE_NAME, '-') : stem;
+}
+
+/** The start of the files Vitest 5 writes for a screenshot name, sanitized as its `sanitizeArg` does. */
+function vitestStem(name: string): string {
+  return name
+    .replace(/\.png$/, '')
+    .replace(/^\.\//, '')
+    .replaceAll('..', '')
+    .replace(/\s+/g, '-')
+    .replace(/[^\w-]/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+/** Whether a path is absolute, on any platform, as Vitest takes it as it is. */
+function isAbsolute(file: string): boolean {
+  return path.posix.isAbsolute(file) || path.win32.isAbsolute(file);
+}
+
+/** Why a file snapshot isn't followed: a path worked out at run time, or an absolute one. */
+function unplacedFile(isComputed: boolean): string {
+  const why = isComputed ? 'is worked out at run time' : "is an absolute path, which the scan doesn't place";
+  return `The file this compares against ${why}, so dependencyHash doesn't cover it.`;
 }
 
 /** Whether a file in a snapshots folder is one a name gives, as Playwright and Vitest add a suffix to the name. */

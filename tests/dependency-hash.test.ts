@@ -2208,5 +2208,88 @@ test('renders the shared card', async () => {
         ['tests/desk.spec.ts', 'totals the positions', false, 1],
       ]);
     });
+
+    it("names Vitest screenshots as Vitest does, and reads custom matchers that call Vitest's", async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': VITEST_PACKAGE,
+          'vitest.config.ts': "export default { test: { setupFiles: ['./tests/setup.ts'] } };\n",
+          'tests/setup.ts': `import { expect } from 'vitest';
+import { Snapshots } from 'vitest/runtime';
+const { toMatchSnapshot } = Snapshots;
+expect.extend({
+  toMatchQuoteSnapshot(received: unknown) {
+    return toMatchSnapshot.call(this, received);
+  },
+  toMatchQuoteFile(received: string, file: string) {
+    return Snapshots.toMatchFileSnapshot.call(this, received.slice(0, 10), file);
+  },
+});
+`,
+          'tests/quote-card.test.tsx': `import { expect, test } from 'vitest';
+import { page } from 'vitest/browser';
+test('renders the quote card', async () => {
+  await expect.element(page.getByTestId('card')).toMatchScreenshot('Quote Card.png');
+});
+test('renders the quote ladder', async () => {
+  await expect.element(page.getByTestId('ladder')).toMatchScreenshot('quote.ladder');
+});
+test('renders the depth chart', async () => {
+  await expect('<svg />').toMatchFileSnapshot('C:/fixtures/depth.svg');
+});
+test('renders the order book', async () => {
+  await expect.element(page.getByTestId('book')).toMatchScreenshot();
+});
+`,
+          'tests/__screenshots__/quote-card.test.tsx/Quote-Card-chromium-linux.png': '\x89PNG card',
+          'tests/__screenshots__/quote-card.test.tsx/quoteladder-chromium-linux.png': '\x89PNG ladder',
+          'tests/__snapshots__/quote-card.test.tsx.snap': 'exports[`x`] = `{}`;\n',
+        }),
+        'vitest',
+      );
+      expect(inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'internal-error')).toEqual([]);
+      const screenshots = (title: string) =>
+        byTitle(inventory, title).dependencies.filter((file) => file.includes('__screenshots__'));
+      expect(screenshots('renders the quote card')).toEqual([
+        'tests/__screenshots__/quote-card.test.tsx/Quote-Card-chromium-linux.png',
+      ]);
+      expect(screenshots('renders the quote ladder')).toEqual([
+        'tests/__screenshots__/quote-card.test.tsx/quoteladder-chromium-linux.png',
+      ]);
+      // Without a name, Vitest names it after the test, so every screenshot of the file may be it.
+      expect(screenshots('renders the order book')).toHaveLength(2);
+      // The setup file's matchers may compare any test against the snapshot file, or a file worked out at run time.
+      expect(
+        inventory.tests.every((test) => test.dependencies.includes('tests/__snapshots__/quote-card.test.tsx.snap')),
+      ).toBe(true);
+      expect(inventory.tests.every((test) => test.hasUnfollowedDependencies)).toBe(true);
+      expect(inventory.diagnostics.map(({ relativeFilePath, lineStart }) => [relativeFilePath, lineStart])).toEqual([
+        ['tests/setup.ts', 9],
+        ['tests/quote-card.test.tsx', 10],
+      ]);
+    });
+
+    it('follows Playwright path parts out of the snapshots folder, and leaves an inline ARIA constant in the code', async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': PLAYWRIGHT_PACKAGE,
+          'tests/blotter.spec.ts': `import { test, expect } from '@playwright/test';
+const NAVIGATION = \`- navigation\`;
+test('shows the shared blotter', async ({ page }) => {
+  await expect(page).toHaveScreenshot(['..', 'shared', 'blotter.png']);
+});
+test('labels the navigation', async ({ page }) => {
+  await expect(page.getByRole('navigation')).toMatchAriaSnapshot(NAVIGATION);
+});
+`,
+          'tests/shared/blotter-chromium-linux.png': '\x89PNG blotter',
+          'tests/blotter.spec.ts-snapshots/other-chromium-linux.png': '\x89PNG other',
+        }),
+      );
+      expect(inventory.tests.map((test) => [test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+        [['tests/blotter.spec.ts', 'tests/shared/blotter-chromium-linux.png'], false],
+        [['tests/blotter.spec.ts'], false],
+      ]);
+    });
   });
 });
