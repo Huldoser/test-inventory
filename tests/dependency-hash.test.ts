@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { scan, type Inventory, type TestRecord } from '../src/index.ts';
@@ -1854,6 +1854,442 @@ export default defineConfig({ testDir: './tests', globalSetup: undefined, projec
         }),
       );
       expect(inventory.tests[0].dependencies).toContain('e2e/(auth)/login.setup.ts');
+    });
+  });
+
+  describe('snapshots', () => {
+    const PORTFOLIO = `import { test, expect } from '@playwright/test';
+
+test('shows the holdings', async ({ page }) => {
+  await expect(page.getByTestId('holdings')).toHaveScreenshot('holdings.png');
+});
+
+test('shows the whole portfolio', async ({ page }) => {
+  await expect(page).toHaveScreenshot();
+});
+
+test('labels the navigation', async ({ page }) => {
+  await expect(page.getByRole('navigation')).toMatchAriaSnapshot({ name: 'navigation.aria.yml' });
+  await expect(page.getByRole('heading')).toMatchAriaSnapshot('- heading "Portfolio"');
+});
+
+test('totals the positions', async ({ page }) => {
+  await expect(page.getByTestId('total')).toHaveText('$12,480.00');
+});
+`;
+    const files = {
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/portfolio.spec.ts': PORTFOLIO,
+      'tests/portfolio.spec.ts-snapshots/holdings-chromium-linux.png': '\x89PNG holdings v1',
+      'tests/portfolio.spec.ts-snapshots/shows-the-whole-portfolio-1-chromium-linux.png': '\x89PNG portfolio v1',
+      'tests/portfolio.spec.ts-snapshots/navigation.aria.yml': '- navigation:\n  - link "Orders"\n',
+    };
+
+    it("takes Playwright's snapshot files a test compares against, by name when it gives one", async () => {
+      const inventory = await scanProject(project(files));
+      expect(inventory.tests.map((test) => [test.title, test.dependencies])).toEqual([
+        [
+          'shows the holdings',
+          ['tests/portfolio.spec.ts', 'tests/portfolio.spec.ts-snapshots/holdings-chromium-linux.png'],
+        ],
+        [
+          'shows the whole portfolio',
+          [
+            'tests/portfolio.spec.ts',
+            'tests/portfolio.spec.ts-snapshots/holdings-chromium-linux.png',
+            'tests/portfolio.spec.ts-snapshots/navigation.aria.yml',
+            'tests/portfolio.spec.ts-snapshots/shows-the-whole-portfolio-1-chromium-linux.png',
+          ],
+        ],
+        ['labels the navigation', ['tests/portfolio.spec.ts', 'tests/portfolio.spec.ts-snapshots/navigation.aria.yml']],
+        ['totals the positions', ['tests/portfolio.spec.ts']],
+      ]);
+      const before = await hashesAfter(files, null);
+      const after = await hashesAfter(files, [
+        'tests/portfolio.spec.ts-snapshots/holdings-chromium-linux.png',
+        '\x89PNG holdings v2',
+      ]);
+      expect(Object.keys(before).filter((title) => after[title] !== before[title])).toEqual([
+        'shows the holdings',
+        'shows the whole portfolio',
+      ]);
+    });
+
+    it("takes Vitest's snapshot file and file snapshots, and leaves inline ones in the code", async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': VITEST_PACKAGE,
+          'tests/quotes.test.ts': `import { expect, test } from 'vitest';
+test('formats the quote', () => {
+  expect({ symbol: 'AAPL', bid: 187.5 }).toMatchSnapshot();
+});
+test('renders the quote card', async () => {
+  await expect('<div>AAPL 187.50</div>').toMatchFileSnapshot('./__fixtures__/quote-card.html');
+});
+test('formats the spread', () => {
+  expect(0.01).toMatchInlineSnapshot('0.01');
+});
+`,
+          'tests/__snapshots__/quotes.test.ts.snap': 'exports[`formats the quote 1`] = `{ bid: 187.5 }`;\n',
+          'tests/__fixtures__/quote-card.html': '<div>AAPL 187.50</div>\n',
+        }),
+        'vitest',
+      );
+      expect(inventory.tests.map((test) => [test.title, test.dependencies])).toEqual([
+        ['formats the quote', ['tests/__snapshots__/quotes.test.ts.snap', 'tests/quotes.test.ts']],
+        ['renders the quote card', ['tests/__fixtures__/quote-card.html', 'tests/quotes.test.ts']],
+        ['formats the spread', ['tests/quotes.test.ts']],
+      ]);
+    });
+
+    it('marks a test that uses snapshots when the config moves them, or one file is scanned', async () => {
+      const inventory = await scanProject(
+        project({
+          ...files,
+          'playwright.config.ts': "export default { snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}' };\n",
+        }),
+      );
+      expect(inventory.tests.map((test) => [test.title, test.hasUnfollowedDependencies])).toEqual([
+        ['shows the holdings', true],
+        ['shows the whole portfolio', true],
+        ['labels the navigation', true],
+        ['totals the positions', false],
+      ]);
+      expect(
+        inventory.diagnostics.map(({ relativeFilePath, lineStart, message }) => [relativeFilePath, lineStart, message]),
+      ).toEqual([
+        [
+          'playwright.config.ts',
+          1,
+          "snapshotPathTemplate puts snapshots where the scan doesn't look, so dependencyHash doesn't cover them.",
+        ],
+      ]);
+      const source = scanPlaywright(PORTFOLIO);
+      expect(source.tests.map((test) => test.hasUnfollowedDependencies)).toEqual([true, true, true, false]);
+      expect(source.diagnostics).toEqual([]);
+    });
+
+    it('reads snapshot names written as path parts, in options, or at run time, and snapshots not written yet', async () => {
+      const playwright = await scanProject(
+        project({
+          'package.json': PLAYWRIGHT_PACKAGE,
+          'tests/allocation.spec.ts': `import { test, expect } from '@playwright/test';
+const SECTOR = 'tech';
+test('shows the allocation', async ({ page }) => {
+  await expect(page).toHaveScreenshot(['portfolio', 'allocation.png']);
+});
+test('shows the sector', async ({ page }) => {
+  await expect(page).toHaveScreenshot(['portfolio', \`\${SECTOR}.png\`]);
+});
+test('shows the full page', async ({ page }) => {
+  await expect(page).toHaveScreenshot({ fullPage: true });
+});
+test('shows a hole in the name', async ({ page }) => {
+  await expect(page).toHaveScreenshot(['portfolio', , 'gap.png']);
+});
+test('shows the chart', async ({ page }) => {
+  await expect(page).toHaveScreenshot({ name: \`chart-\${SECTOR}.png\` });
+});
+`,
+          'tests/allocation.spec.ts-snapshots/portfolio/allocation-chromium-linux.png': '\x89PNG allocation',
+          'tests/allocation.spec.ts-snapshots/portfolio/tech-chromium-linux.png': '\x89PNG tech',
+          'tests/blotter.spec.ts': `import { test, expect } from '@playwright/test';
+test('shows the blotter', async ({ page }) => {
+  await expect(page).toHaveScreenshot('blotter.png');
+});
+`,
+        }),
+      );
+      const folder = 'tests/allocation.spec.ts-snapshots/portfolio';
+      expect(playwright.tests.map((test) => [test.title, test.dependencies.length])).toEqual([
+        ['shows the allocation', 2],
+        ['shows the sector', 3],
+        ['shows the full page', 3],
+        ['shows a hole in the name', 3],
+        ['shows the chart', 3],
+        ['shows the blotter', 1],
+      ]);
+      expect(playwright.tests[0].dependencies).toContain(`${folder}/allocation-chromium-linux.png`);
+      const vitest = await scanProject(
+        project({
+          'package.json': VITEST_PACKAGE,
+          'tests/quotes.test.ts': `import { expect, test } from 'vitest';
+test('formats the quote', () => {
+  expect({ symbol: 'AAPL', bid: 187.5 }).toMatchSnapshot();
+});
+test('renders the quote card', async ({ task }) => {
+  await expect('<div>AAPL</div>').toMatchFileSnapshot(\`./__fixtures__/\${task.name}.html\`);
+});
+`,
+        }),
+        'vitest',
+      );
+      expect(vitest.tests.map((test) => [test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+        [['tests/quotes.test.ts'], false],
+        [['tests/quotes.test.ts'], true],
+      ]);
+      expect(vitest.diagnostics.map(({ lineStart, message }) => [lineStart, message])).toEqual([
+        [6, "The file this compares against is worked out at run time, so dependencyHash doesn't cover it."],
+      ]);
+    });
+
+    it('names Playwright snapshot files as Playwright does, and reads ARIA options from a constant and linked files', async () => {
+      const root = project({
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'tests/desk.spec.ts': `import { test, expect } from '@playwright/test';
+const NAVIGATION = { name: 'navigation.aria.yml' };
+test('shows the holdings summary', async ({ page }) => {
+  await expect(page).toHaveScreenshot('Holdings Summary.png');
+});
+test('shows the order ticket', async ({ page }) => {
+  await expect(page).toHaveScreenshot('order_ticket.png');
+});
+test('shows the open orders', async ({ page }) => {
+  await expect(page).toHaveScreenshot('blotter/open-orders.png');
+});
+test('shows the second P&L', async ({ page }) => {
+  await expect(page).toHaveScreenshot('pnl.v2.png');
+});
+test('labels the navigation', async ({ page }) => {
+  await expect(page.getByRole('navigation')).toMatchAriaSnapshot(NAVIGATION);
+});
+test('shows the linked chart', async ({ page }) => {
+  await expect(page).toHaveScreenshot('chart.png');
+});
+`,
+        'tests/desk.spec.ts-snapshots/Holdings-Summary-chromium-linux.png': '\x89PNG summary',
+        'tests/desk.spec.ts-snapshots/order-ticket-chromium-linux.png': '\x89PNG ticket',
+        'tests/desk.spec.ts-snapshots/blotter-open-orders-chromium-linux.png': '\x89PNG open orders',
+        'tests/desk.spec.ts-snapshots/pnl-v2-chromium-linux.png': '\x89PNG pnl',
+        'tests/desk.spec.ts-snapshots/navigation.aria.yml': '- navigation\n',
+        'charts/chart-chromium-linux.png': '\x89PNG chart',
+      });
+      symlinkSync(
+        path.join(root, 'charts/chart-chromium-linux.png'),
+        path.join(root, 'tests/desk.spec.ts-snapshots/chart-chromium-linux.png'),
+      );
+      const inventory = await scanProject(root);
+      expect(inventory.tests.map((test) => test.dependencies.filter((file) => file !== 'tests/desk.spec.ts'))).toEqual([
+        ['tests/desk.spec.ts-snapshots/Holdings-Summary-chromium-linux.png'],
+        ['tests/desk.spec.ts-snapshots/order-ticket-chromium-linux.png'],
+        ['tests/desk.spec.ts-snapshots/blotter-open-orders-chromium-linux.png'],
+        ['tests/desk.spec.ts-snapshots/pnl-v2-chromium-linux.png'],
+        ['tests/desk.spec.ts-snapshots/navigation.aria.yml'],
+        ['tests/desk.spec.ts-snapshots/chart-chromium-linux.png'],
+      ]);
+    });
+
+    it("takes Vitest's screenshots, its other snapshot matchers, and marks what it can't place", async () => {
+      const files = {
+        'package.json': VITEST_PACKAGE,
+        'tests/setup.ts': `import { expect } from 'vitest';
+import { Snapshots } from 'vitest/runtime';
+expect.extend({
+  toMatchQuoteSnapshot(received: unknown) {
+    return Snapshots.toMatchSnapshot.call(this, received);
+  },
+});
+`,
+        'vitest.config.ts': "export default { test: { setupFiles: ['./tests/setup.ts'] } };\n",
+        'tests/quote-card.test.tsx': `import { expect, test } from 'vitest';
+import { page } from 'vitest/browser';
+test('renders the quote card', async () => {
+  await expect.element(page.getByTestId('quote-card')).toMatchScreenshot('quote-card');
+});
+test('formats the quote', () => {
+  expect({ symbol: 'AAPL' }).to.matchSnapshot();
+});
+test('formats the spread', () => {
+  expect({ spread: 0.01 }).toMatchQuoteSnapshot();
+});
+test('renders the depth chart', async () => {
+  await expect('<svg />').toMatchFileSnapshot('/fixtures/depth.svg');
+});
+`,
+        'tests/__screenshots__/quote-card.test.tsx/quote-card-chromium-linux.png': '\x89PNG card',
+        'tests/__snapshots__/quote-card.test.tsx.snap': 'exports[`formats the quote 1`] = `{}`;\n',
+      };
+      const inventory = await scanProject(project(files), 'vitest');
+      expect(
+        inventory.tests.map((test) => [
+          test.title,
+          test.dependencies.filter((file) => file.includes('__')),
+          test.hasUnfollowedDependencies,
+        ]),
+      ).toEqual([
+        // The setup file's custom matcher may compare any test of the file against its snapshot file.
+        [
+          'renders the quote card',
+          [
+            'tests/__screenshots__/quote-card.test.tsx/quote-card-chromium-linux.png',
+            'tests/__snapshots__/quote-card.test.tsx.snap',
+          ],
+          false,
+        ],
+        ['formats the quote', ['tests/__snapshots__/quote-card.test.tsx.snap'], false],
+        ['formats the spread', ['tests/__snapshots__/quote-card.test.tsx.snap'], false],
+        ['renders the depth chart', ['tests/__snapshots__/quote-card.test.tsx.snap'], true],
+      ]);
+      const moved = await scanProject(
+        project({
+          ...files,
+          'vitest.config.ts': "export default { test: { snapshotEnvironment: './tests/snapshots.ts' } };\n",
+        }),
+        'vitest',
+      );
+      expect(moved.tests[1].hasUnfollowedDependencies).toBe(true);
+    });
+
+    it("doesn't warn about a snapshotDir that is the testDir, Playwright's default", async () => {
+      const inventory = await scanProject(
+        project({
+          ...files,
+          'playwright.config.ts': "export default { testDir: './tests', snapshotDir: './tests' };\n",
+        }),
+      );
+      expect(inventory.tests[0]).toMatchObject({ hasUnfollowedDependencies: false });
+      expect(inventory.diagnostics).toEqual([]);
+      // With projects the scan can't work out, it can't tell that snapshotDir is their testDir.
+      const unknown = await scanProject(
+        project({
+          ...files,
+          'playwright.config.ts':
+            "import { brokerProjects } from '@trading/broker-kit';\nexport default { testDir: './tests', snapshotDir: './tests', projects: brokerProjects() };\n",
+        }),
+      );
+      expect(unknown.tests[0].hasUnfollowedDependencies).toBe(true);
+    });
+
+    it("marks a test whose snapshots leave the project or can't be read, and skips a broken link", async () => {
+      const root = project({
+        'package.json': VITEST_PACKAGE,
+        'tests/quotes.test.ts': `import { expect, test } from 'vitest';
+test('formats the quote', () => {
+  expect({ symbol: 'AAPL' }).toMatchSnapshot();
+});
+test('renders the shared card', async () => {
+  await expect('<div />').toMatchFileSnapshot('../../shared/card.html');
+});
+`,
+        // A folder where the snapshot file should be.
+        'tests/__snapshots__/quotes.test.ts.snap/README.md': 'snapshots moved\n',
+      });
+      const vitest = await scanProject(root, 'vitest');
+      expect(vitest.tests.map((test) => test.hasUnfollowedDependencies)).toEqual([true, true]);
+      expect(vitest.diagnostics).toEqual([]);
+      const playwright = project({
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'tests/desk.spec.ts': PORTFOLIO,
+        // A file where the snapshots folder should be.
+        'tests/desk.spec.ts-snapshots': 'not a folder\n',
+        'tests/blotter.spec.ts': PORTFOLIO,
+        'tests/blotter.spec.ts-snapshots/holdings-chromium-linux.png': '\x89PNG holdings',
+      });
+      symlinkSync(
+        path.join(playwright, 'missing.png'),
+        path.join(playwright, 'tests/blotter.spec.ts-snapshots/holdings-firefox-linux.png'),
+      );
+      const inventory = await scanProject(playwright);
+      expect(
+        inventory.tests.map((test) => [
+          test.relativeFilePath,
+          test.title,
+          test.hasUnfollowedDependencies,
+          test.dependencies.length,
+        ]),
+      ).toEqual([
+        ['tests/blotter.spec.ts', 'shows the holdings', false, 2],
+        ['tests/blotter.spec.ts', 'shows the whole portfolio', false, 2],
+        ['tests/blotter.spec.ts', 'labels the navigation', false, 1],
+        ['tests/blotter.spec.ts', 'totals the positions', false, 1],
+        ['tests/desk.spec.ts', 'shows the holdings', true, 1],
+        ['tests/desk.spec.ts', 'shows the whole portfolio', true, 1],
+        ['tests/desk.spec.ts', 'labels the navigation', true, 1],
+        ['tests/desk.spec.ts', 'totals the positions', false, 1],
+      ]);
+    });
+
+    it("names Vitest screenshots as Vitest does, and reads custom matchers that call Vitest's", async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': VITEST_PACKAGE,
+          'vitest.config.ts': "export default { test: { setupFiles: ['./tests/setup.ts'] } };\n",
+          'tests/setup.ts': `import { expect } from 'vitest';
+import { Snapshots } from 'vitest/runtime';
+const { toMatchSnapshot } = Snapshots;
+expect.extend({
+  toMatchQuoteSnapshot(received: unknown) {
+    return toMatchSnapshot.call(this, received);
+  },
+  toMatchQuoteFile(received: string, file: string) {
+    return Snapshots.toMatchFileSnapshot.call(this, received.slice(0, 10), file);
+  },
+});
+`,
+          'tests/quote-card.test.tsx': `import { expect, test } from 'vitest';
+import { page } from 'vitest/browser';
+test('renders the quote card', async () => {
+  await expect.element(page.getByTestId('card')).toMatchScreenshot('Quote Card.png');
+});
+test('renders the quote ladder', async () => {
+  await expect.element(page.getByTestId('ladder')).toMatchScreenshot('quote.ladder');
+});
+test('renders the depth chart', async () => {
+  await expect('<svg />').toMatchFileSnapshot('C:/fixtures/depth.svg');
+});
+test('renders the order book', async () => {
+  await expect.element(page.getByTestId('book')).toMatchScreenshot();
+});
+`,
+          'tests/__screenshots__/quote-card.test.tsx/Quote-Card-chromium-linux.png': '\x89PNG card',
+          'tests/__screenshots__/quote-card.test.tsx/quoteladder-chromium-linux.png': '\x89PNG ladder',
+          'tests/__snapshots__/quote-card.test.tsx.snap': 'exports[`x`] = `{}`;\n',
+        }),
+        'vitest',
+      );
+      expect(inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'internal-error')).toEqual([]);
+      const screenshots = (title: string) =>
+        byTitle(inventory, title).dependencies.filter((file) => file.includes('__screenshots__'));
+      expect(screenshots('renders the quote card')).toEqual([
+        'tests/__screenshots__/quote-card.test.tsx/Quote-Card-chromium-linux.png',
+      ]);
+      expect(screenshots('renders the quote ladder')).toEqual([
+        'tests/__screenshots__/quote-card.test.tsx/quoteladder-chromium-linux.png',
+      ]);
+      // Without a name, Vitest names it after the test, so every screenshot of the file may be it.
+      expect(screenshots('renders the order book')).toHaveLength(2);
+      // The setup file's matchers may compare any test against the snapshot file, or a file worked out at run time.
+      expect(
+        inventory.tests.every((test) => test.dependencies.includes('tests/__snapshots__/quote-card.test.tsx.snap')),
+      ).toBe(true);
+      expect(inventory.tests.every((test) => test.hasUnfollowedDependencies)).toBe(true);
+      expect(inventory.diagnostics.map(({ relativeFilePath, lineStart }) => [relativeFilePath, lineStart])).toEqual([
+        ['tests/setup.ts', 9],
+        ['tests/quote-card.test.tsx', 10],
+      ]);
+    });
+
+    it('follows Playwright path parts out of the snapshots folder, and leaves an inline ARIA constant in the code', async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': PLAYWRIGHT_PACKAGE,
+          'tests/blotter.spec.ts': `import { test, expect } from '@playwright/test';
+const NAVIGATION = \`- navigation\`;
+test('shows the shared blotter', async ({ page }) => {
+  await expect(page).toHaveScreenshot(['..', 'shared', 'blotter.png']);
+});
+test('labels the navigation', async ({ page }) => {
+  await expect(page.getByRole('navigation')).toMatchAriaSnapshot(NAVIGATION);
+});
+`,
+          'tests/shared/blotter-chromium-linux.png': '\x89PNG blotter',
+          'tests/blotter.spec.ts-snapshots/other-chromium-linux.png': '\x89PNG other',
+        }),
+      );
+      expect(inventory.tests.map((test) => [test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+        [['tests/blotter.spec.ts', 'tests/shared/blotter-chromium-linux.png'], false],
+        [['tests/blotter.spec.ts'], false],
+      ]);
     });
   });
 });

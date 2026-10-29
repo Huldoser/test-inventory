@@ -364,7 +364,8 @@ export class ConfigRuns {
       name: name?.setting.kind === 'value' && typeof name.setting.value === 'string' ? name.setting.value : '',
       testDir: root,
       dependencies: strings(dependencies),
-      settings: config.settings,
+      // A project's own keys, as `snapshotPathTemplate`; the config's apply to every project, and are read there.
+      settings: project,
       root: folder,
       container: null,
       config,

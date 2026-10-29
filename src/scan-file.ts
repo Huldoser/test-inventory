@@ -1,5 +1,5 @@
 import type { RunsWith } from './config-dependencies.ts';
-import { DependencyGraph, fileDependencies, type Place } from './dependency-hash.ts';
+import { DependencyGraph, fileDependencies, type Place, type SnapshotFiles } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
 import { parseModule } from './frameworks/bindings.ts';
@@ -29,6 +29,8 @@ export interface FileSettings {
   graph?: DependencyGraph;
   /** What the file's config runs with each of its tests: the config, setup files and setup projects. */
   runsWith?: RunsWith;
+  /** Reads the snapshot files tests compare against; none when one file's code is scanned. */
+  snapshotFiles?: SnapshotFiles;
 }
 
 export interface FileResult extends FileRecords {
@@ -94,6 +96,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       isTypeTest,
       (place) => unfollowed.push(place),
       settings.runsWith,
+      settings.snapshotFiles,
     );
     const records = buildRecords(extraction, parsed, {
       relativeFilePath,

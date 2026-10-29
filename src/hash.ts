@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Node } from 'oxc-parser';
 import type { Span } from './model.ts';
 
-export function shortHash(input: string): string {
+export function shortHash(input: string | Uint8Array): string {
   return createHash('sha256').update(input).digest('hex').slice(0, 16);
 }
 

@@ -22,9 +22,27 @@ export interface RunsWith {
   /** Its setup files, the configs that list its project, and the files of setup projects. */
   modules: ModuleSource[];
   gaps: ConfigGap[];
+  /** Where the config puts snapshots elsewhere than the runner's default, which the scan doesn't follow. */
+  moved: ConfigGap | null;
 }
 
-const NOTHING: RunsWith = { config: null, modules: [], gaps: [] };
+const NOTHING: RunsWith = { config: null, modules: [], gaps: [], moved: null };
+
+/** The keys that put snapshots elsewhere than the runner's default, by framework. */
+const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
+  playwright: [
+    ['snapshotPathTemplate'],
+    ['snapshotDir'],
+    ['expect', 'toHaveScreenshot', 'pathTemplate'],
+    ['expect', 'toMatchAriaSnapshot', 'pathTemplate'],
+  ],
+  vitest: [
+    ['test', 'resolveSnapshotPath'],
+    ['test', 'snapshotEnvironment'],
+    ['test', 'browser', 'expect', 'toMatchScreenshot', 'resolveScreenshotPath'],
+    ['test', 'browser', 'expect', 'toMatchScreenshot', 'screenshotDirectory'],
+  ],
+};
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
 const SETUP_KEYS: Record<Framework, string[][]> = {
@@ -95,7 +113,7 @@ export class ConfigDependencies {
       const message = "The config can't be read, so dependencyHash doesn't cover it.";
       const span = { start: 0, end: 0 };
       const gap = { relativeFilePath: config.record.relativeFilePath, source: new SourceText(''), span, message };
-      return { config: null, modules: [], gaps: [{ ...gap, isQuiet: true }] };
+      return { config: null, modules: [], gaps: [{ ...gap, isQuiet: true }], moved: null };
     }
     const modules = new Set<ModuleSource>();
     const gaps: ConfigGap[] = [];
@@ -153,7 +171,40 @@ export class ConfigDependencies {
         }
       }
     }
-    return { config: own, modules: [...modules], gaps };
+    return { config: own, modules: [...modules], gaps, moved: this.moved(own, config, placement) };
+  }
+
+  /** Whether Playwright's `snapshotDir` is the testDir of every project that runs the file, its default. */
+  private isDefault(config: ConfigFile, placement: Placement, keys: string[], found: Setting): boolean {
+    if (keys[0] !== 'snapshotDir' || found.kind !== 'value' || typeof found.value !== 'string') return false;
+    const folder = path.resolve(path.dirname(config.file), found.value);
+    const projects = placement.projects ?? [];
+    return projects.length > 0 && projects.every((project) => project.testDir === folder);
+  }
+
+  /** The first setting of the config or a project running the file that puts snapshots elsewhere; null for none. */
+  private moved(own: ModuleSource, config: ConfigFile, placement: Placement): ConfigGap | null {
+    const settings = [config.settings, ...(placement.projects ?? []).map((project) => project.settings)];
+    for (const keys of SNAPSHOT_KEYS[this.framework]) {
+      for (const setting of settings) {
+        const found = settingAt(setting, keys);
+        if (found === null || this.isDefault(config, placement, keys, found)) continue;
+        const message = `${keys.join('.')} puts snapshots where the scan doesn't look, so dependencyHash doesn't cover them.`;
+        if (found.kind === 'unknown' && found.where) {
+          const { frame, node } = found.where;
+          return {
+            relativeFilePath: frame.relativeFilePath,
+            source: frame.parsed.source,
+            span: node,
+            message,
+            isQuiet: false,
+          };
+        }
+        const text = found.kind === 'value' && typeof found.value === 'string' ? found.value : null;
+        return { module: own, text, message, isQuiet: false };
+      }
+    }
+    return null;
   }
 
   /** The files of the setup projects the file's projects depend on, and the ones those depend on. */
