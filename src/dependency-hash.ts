@@ -361,6 +361,7 @@ export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
   private readonly imports = new WeakMap<Node, Unit>();
+  private readonly calledTests = new WeakMap<Node, boolean>();
   private readonly testObjects: [WeakMap<Node, Unit | null>, WeakMap<Node, Unit | null>] = [
     new WeakMap(),
     new WeakMap(),
@@ -650,6 +651,22 @@ export class DependencyGraph {
       cache.set(key, unit);
     }
     return unit;
+  }
+
+  /** Whether a name is bound to a test object, once per declaration, as a file may call a helper thousands of times. */
+  private isTestObject(
+    module: Module,
+    name: Node,
+    declaration: Node,
+    scopes: readonly Node[],
+    types: boolean,
+  ): boolean {
+    let found = this.calledTests.get(declaration);
+    if (found === undefined) {
+      found = this.frameworkOf(module, name, scopes, types) !== null;
+      this.calledTests.set(declaration, found);
+    }
+    return found;
   }
 
   /** An import of a name a test uses: the module it names and how, as `import { round } from 'lodash'`. */
@@ -1145,7 +1162,7 @@ export class DependencyGraph {
       // `mergeTests()` combines test objects, and isn't one.
       const declaration = callee.type === 'Identifier' ? module.values.declarationOf(callee.name, scopes) : null;
       const isMerge = declaration?.type === 'ImportSpecifier' && exportName(declaration.imported) === 'mergeTests';
-      const isTest = declaration !== null && !isMerge && this.frameworkOf(module, callee, scopes, types) !== null;
+      const isTest = declaration !== null && !isMerge && this.isTestObject(module, callee, declaration, scopes, types);
       if (!(isTest || FIXTURE_CALLS.has(name) || CONDITION_CALLS.has(name) || USE_CALLS.has(name))) return;
       // A fixture's own `use(value)` callback is called by name; `test.use()` is a member.
       if (USE_CALLS.has(name) && callee.type !== 'MemberExpression') return;

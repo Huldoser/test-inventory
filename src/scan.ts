@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { escapePath } from 'tinyglobby';
+import { glob } from 'tinyglobby';
 import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
@@ -18,7 +18,6 @@ import {
   checkVersion,
   invalid,
   majorMinor,
-  toPosixPath,
   type ScanOptions,
 } from './options.ts';
 import type { FileRecords } from './records.ts';
@@ -149,21 +148,16 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       const project = seen.has(name) ? null : runs.projectNamed(config, name);
       seen.add(name);
       if (!project) continue;
-      setupDirs.add(toPosixPath(path.relative(root, project.about.testDir)));
+      setupDirs.add(project.about.testDir);
       names.push(...project.about.dependencies);
     }
   }
-  // A folder named like `(auth)` would be read as a glob.
-  const setupPatterns = [...setupDirs].map((folder) =>
-    folder === '' ? SCRIPT_FILES : `${escapePath(folder)}/${SCRIPT_FILES}`,
+  // Searched from the folder itself, as a folder named like `(auth)` would be read as a glob in a pattern.
+  const setupFiles = await Promise.all(
+    [...setupDirs].map((folder) => glob(SCRIPT_FILES, { cwd: folder, absolute: true, ignore: ['**/node_modules/**'] })),
   );
-  const candidates = setupPatterns.length ? (await findFiles(root, setupPatterns, [], framework)).files : [];
-  const configDependencies = new ConfigDependencies(
-    framework,
-    runs,
-    readerFor,
-    candidates.map((file) => file.absolutePath),
-  );
+  const candidates = setupFiles.flat().map((file) => path.resolve(file));
+  const configDependencies = new ConfigDependencies(framework, runs, readerFor, candidates);
   const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
