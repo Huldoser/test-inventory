@@ -238,8 +238,7 @@ test.describe('order ticket', () => {
     expect(buy.bodyHash).toBe(sell.bodyHash);
     expect(buy.dependencyHash).not.toBe(sell.dependencyHash);
     expect(buy.dependencies).toEqual(['helpers/orders.ts', 'tests/orders.spec.ts']);
-    // Loading the helper's file runs its imports, though the test uses nothing from it.
-    expect(byTitle(inventory, 'opens the ticket').dependencies).toEqual(['helpers/orders.ts', 'tests/orders.spec.ts']);
+    expect(byTitle(inventory, 'opens the ticket').dependencies).toEqual(['tests/orders.spec.ts']);
     const before = await hashesAfter(files, null);
     const after = await hashesAfter(files, [
       'tests/orders.spec.ts',
@@ -1630,13 +1629,13 @@ export default { ...brokerDefaults };
       expect(warnings(written)).toEqual([
         [
           'vitest.config.ts',
-          1,
-          "test.setupFiles names './tests/setup/missing.ts', which could not be read, so dependencyHash doesn't cover it.",
+          4,
+          "test.setupFiles can't be worked out, so dependencyHash doesn't cover the files it names.",
         ],
         [
           'vitest.config.ts',
           4,
-          "test.setupFiles can't be worked out, so dependencyHash doesn't cover the files it names.",
+          "test.setupFiles names './tests/setup/missing.ts', which could not be read, so dependencyHash doesn't cover it.",
         ],
         [
           'vitest.config.ts',
@@ -1655,6 +1654,127 @@ export default { ...brokerDefaults };
         "import '@trading/polyfills';\nimport { test } from '@playwright/test';\ntest('opens the blotter', async () => {});\n",
       );
       expect(after.tests[0].dependencyHash).not.toBe(before.tests[0].dependencyHash);
+    });
+
+    it('takes the setup of every Vitest project that runs a file, from its root, and the global setup of the config that lists it', async () => {
+      const root = project({
+        'package.json': VITEST_PACKAGE,
+        'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+export default defineConfig({
+  test: {
+    globalSetup: './setup/exchange.ts',
+    projects: [
+      'packages/*',
+      { extends: true, test: { name: 'ledger-node', include: ['tests/**/*.test.ts'], setupFiles: ['./tests/setup/node.ts'] } },
+      { extends: true, test: { name: 'ledger-dom', include: ['tests/**/*.test.ts'], setupFiles: ['./tests/setup/dom.ts'] } },
+      {
+        extends: false,
+        root: './storybook',
+        test: { name: 'stories', include: ['**/*.stories.test.ts'], setupFiles: ['.storybook/vitest.setup.ts'] },
+      },
+    ],
+  },
+});
+`,
+        'setup/exchange.ts': 'export default function setup() {}\n',
+        'tests/setup/node.ts': "globalThis.runtime = 'node';\n",
+        'tests/setup/dom.ts': "globalThis.runtime = 'dom';\n",
+        'tests/ledger.test.ts':
+          "import { expect, test } from 'vitest';\ntest('opens with a balance', () => {\n  expect(1).toBe(1);\n});\n",
+        'storybook/.storybook/vitest.setup.ts': "globalThis.theme = 'dark';\n",
+        'storybook/ticket.stories.test.ts':
+          "import { expect, test } from 'vitest';\ntest('renders the ticket story', () => {\n  expect(1).toBe(1);\n});\n",
+        'packages/orders/vitest.config.ts': "export default { test: { setupFiles: ['./setup.ts'] } };\n",
+        'packages/orders/setup.ts': "globalThis.venue = 'NASDAQ';\n",
+        'packages/orders/orders.test.ts':
+          "import { expect, test } from 'vitest';\ntest('routes to NASDAQ', () => {\n  expect(1).toBe(1);\n});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(inventory.tests.map((test) => [test.title, test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+        [
+          'routes to NASDAQ',
+          [
+            'packages/orders/orders.test.ts',
+            'packages/orders/setup.ts',
+            'packages/orders/vitest.config.ts',
+            'setup/exchange.ts',
+            'vitest.config.ts',
+          ],
+          false,
+        ],
+        [
+          'renders the ticket story',
+          [
+            'setup/exchange.ts',
+            'storybook/.storybook/vitest.setup.ts',
+            'storybook/ticket.stories.test.ts',
+            'vitest.config.ts',
+          ],
+          false,
+        ],
+        [
+          'opens with a balance',
+          [
+            'setup/exchange.ts',
+            'tests/ledger.test.ts',
+            'tests/setup/dom.ts',
+            'tests/setup/node.ts',
+            'vitest.config.ts',
+          ],
+          false,
+        ],
+      ]);
+      expect(inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'dependency-not-followed')).toEqual([]);
+    });
+
+    it("takes the fixtures a setup project's tests ask for, and marks tests whose setup projects can't be worked out", async () => {
+      const files = {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'fixtures.ts': `import { test as base } from '@playwright/test';
+import { LoginPage } from './pages/login-page';
+export const test = base.extend<{ loginPage: LoginPage }>({
+  loginPage: async ({ page }, use) => use(new LoginPage(page)),
+});
+`,
+        'pages/login-page.ts':
+          "export class LoginPage {\n  constructor(readonly page: unknown) {}\n  signIn() {\n    return 'trader';\n  }\n}\n",
+        'tests/auth.setup.ts': `import { test as setup } from '../fixtures';
+setup('signs in the trader', async ({ loginPage }) => {
+  loginPage.signIn();
+});
+`,
+        'tests/orders.spec.ts': `import { test } from '@playwright/test';
+test('opens the order ticket', async ({ page }) => {
+  await page.goto('/trade/AAPL');
+});
+`,
+      };
+      const config = (projects: string) => `import { defineConfig } from '@playwright/test';
+import { brokerProjects } from '@trading/broker-kit';
+export default defineConfig({ testDir: './tests', globalSetup: undefined, projects: ${projects} });
+`;
+      const known = await scanProject(
+        project({
+          ...files,
+          'playwright.config.ts': config(
+            "[{ name: 'auth', testMatch: /.*\\.setup\\.ts/ }, { name: 'chromium', dependencies: ['auth'] }]",
+          ),
+        }),
+      );
+      const unknown = await scanProject(
+        project({ ...files, 'playwright.config.ts': config("brokerProjects(['auth', 'chromium'])") }),
+      );
+      expect(known.tests[0]).toMatchObject({
+        dependencies: [
+          'fixtures.ts',
+          'pages/login-page.ts',
+          'playwright.config.ts',
+          'tests/auth.setup.ts',
+          'tests/orders.spec.ts',
+        ],
+        hasUnfollowedDependencies: false,
+      });
+      expect(unknown.tests[0].hasUnfollowedDependencies).toBe(true);
     });
   });
 });

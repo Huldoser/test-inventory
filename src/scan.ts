@@ -17,6 +17,7 @@ import {
   checkVersion,
   invalid,
   majorMinor,
+  toPosixPath,
   type ScanOptions,
 } from './options.ts';
 import type { FileRecords } from './records.ts';
@@ -138,12 +139,21 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
   const files = patterns ? found.files : found.files.filter((file) => placements.get(file.absolutePath)?.runs);
-  // A setup project's files may be outside the patterns, so they are looked for among all script files.
-  const hasSetupProjects = [...placements.values()].some((item) =>
-    item.projects?.some((project) => project.dependencies.length > 0),
-  );
-  const candidates =
-    patterns && hasSetupProjects ? (await findFiles(root, [SCRIPT_FILES], ignore, framework)).files : found.files;
+  // A setup project's files may be outside the patterns, or ignored for the scan, so they are looked for in its testDir.
+  const setupDirs = new Set<string>();
+  for (const { config, projects } of placements.values()) {
+    const seen = new Set<string>();
+    const names = (projects ?? []).flatMap((project) => project.dependencies);
+    for (let name = names.pop(); config && name !== undefined; name = names.pop()) {
+      const project = seen.has(name) ? null : runs.projectNamed(config, name);
+      seen.add(name);
+      if (!project) continue;
+      setupDirs.add(toPosixPath(path.relative(root, project.about.testDir)));
+      names.push(...project.about.dependencies);
+    }
+  }
+  const setupPatterns = [...setupDirs].map((folder) => (folder === '' ? SCRIPT_FILES : `${folder}/${SCRIPT_FILES}`));
+  const candidates = setupPatterns.length ? (await findFiles(root, setupPatterns, [], framework)).files : [];
   const configDependencies = new ConfigDependencies(
     framework,
     runs,

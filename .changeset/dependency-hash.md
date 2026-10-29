@@ -14,6 +14,6 @@ hashes. Formatting and comments don't change it, nor does moving the test. Insta
 too, except for type tests.
 
 `dependencies` lists the files that went into the hash. When the test reaches something the scan can't follow, a local
-file that is missing or doesn't parse, an import with a path worked out at run time or a pattern, or a value only a
-declaration file describes, `hasUnfollowedDependencies` is `true` and the new `dependency-not-followed` warning says
-where, once per place.
+file that is missing or doesn't parse, an import with a path worked out at run time or a pattern, a value only a
+declaration file describes, or a setup file the config names in a way the scan can't work out,
+`hasUnfollowedDependencies` is `true` and the new `dependency-not-followed` warning says where, once per place.

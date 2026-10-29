@@ -57,6 +57,12 @@ export interface ProjectAbout {
   name: string;
   testDir: string;
   dependencies: string[];
+  /** The project's settings, which its setup files are read from. */
+  settings: Setting;
+  /** The folder its setup files are found from: Vitest's root, or the config's folder. */
+  root: string;
+  /** For a Vitest project from a config another config lists, the outermost one, whose global setup runs too. */
+  container: ConfigFile | null;
   grep: ((title: string) => boolean) | null;
   grepRoot: string;
   defaults: ProjectDefaults;
@@ -252,13 +258,12 @@ export class ConfigRuns {
   }
 
   /**
-   * The files among `candidates` that a config's project, named as the runner names it, runs; null when the config has
-   * no such project or the scan can't tell which files it runs.
+   * A config's project, named as the runner names it, with the files it runs; null when there is none, or the scan
+   * can't tell which files it runs.
    */
-  filesOfProject(config: ConfigFile, name: string, candidates: readonly string[]): string[] | null {
-    const project = this.projectsOf(config).find((item) => item.about.name === name);
-    const runs = project?.runs;
-    return runs ? candidates.filter((file) => runs(file)) : null;
+  projectNamed(config: ConfigFile, name: string): { about: ProjectAbout; runs: (file: string) => unknown } | null {
+    const project = this.projectsOf(config).find((item) => item.runs && item.about.name === name);
+    return project ? { about: project.about, runs: project.runs as (file: string) => unknown } : null;
   }
 
   private projectsOf(config: ConfigFile): Project[] {
@@ -281,6 +286,9 @@ export class ConfigRuns {
       name: '',
       testDir: path.dirname(config.file),
       dependencies: [],
+      settings: setting,
+      root: path.dirname(config.file),
+      container: null,
       grep: null,
       grepRoot: '',
       defaults: NO_DEFAULTS,
@@ -353,6 +361,9 @@ export class ConfigRuns {
       name: name?.setting.kind === 'value' && typeof name.setting.value === 'string' ? name.setting.value : '',
       testDir: root,
       dependencies: strings(dependencies),
+      settings: config.settings,
+      root: folder,
+      container: null,
       grep:
         grep || grepInvert
           ? (title) => (grep === null || isGrepped(title)) && !(grepInvert && isInverted(title))
@@ -503,9 +514,12 @@ export class ConfigRuns {
     const nested = VITEST_CONFIG.test(path.basename(target)) ? this.configs.at(target) : this.configs.inFolder(target);
     if (!nested) return this.vitestProject(config, emptySettings(), target, null);
     const isContainer = (this.version === null || this.version[0] >= 5) && !this.expanding.has(nested);
-    return isContainer && settingAt(nested.settings, ['test', 'projects'])
-      ? this.vitestProjects(nested)
-      : this.vitestProject(nested, nested.settings, path.dirname(nested.file), null);
+    const projects =
+      isContainer && settingAt(nested.settings, ['test', 'projects'])
+        ? this.vitestProjects(nested)
+        : this.vitestProject(nested, nested.settings, path.dirname(nested.file), null);
+    // The outermost config lists the others, so it is set last.
+    return projects.map((project) => ({ ...project, about: { ...project.about, container: config } }));
   }
 
   /**
@@ -589,6 +603,9 @@ export class ConfigRuns {
       name: label?.kind === 'value' && typeof label.value === 'string' ? label.value : '',
       testDir: base,
       dependencies: [],
+      settings,
+      root,
+      container: null,
       grep: null,
       grepRoot: base,
       defaults: {

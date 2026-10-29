@@ -1,50 +1,54 @@
 import path from 'node:path';
-import type { ConfigRuns, Placement } from './config-runs.ts';
+import type { ConfigRuns, Placement, ProjectAbout } from './config-runs.ts';
 import { settingAt, type ConfigFile, type Setting } from './config.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
-import type { SourceText } from './source.ts';
+import { SourceText } from './source.ts';
 import type { Framework } from './types.ts';
 
-/** Something in a config the scan can't follow: where it is written, or the config when that isn't known. */
+/**
+ * Something in a config the scan can't follow: where it is written, or the config and the path it names, which the
+ * warning points at.
+ */
 export type ConfigGap = {
   message: string;
-  /** Not reported: the key isn't written, and what can't be worked out is the object around it, reported already. */
+  /** Not reported, as the config reader reports it already: the tests are only marked. */
   isQuiet: boolean;
-} & ({ relativeFilePath: string; source: SourceText; span: Span } | { module: ModuleSource });
+} & ({ relativeFilePath: string; source: SourceText; span: Span } | { module: ModuleSource; text: string | null });
 
 /** What the config a file uses runs with each of its tests: modules to take whole, and what can't be followed. */
 export interface RunsWith {
   /** The config the file uses, which builds on others through imports. */
   config: ModuleSource | null;
-  /** Its setup files, and the files of setup projects. */
+  /** Its setup files, the configs that list its project, and the files of setup projects. */
   modules: ModuleSource[];
   gaps: ConfigGap[];
 }
 
 const NOTHING: RunsWith = { config: null, modules: [], gaps: [] };
 
-/** The setup files a config names, by framework: setting paths from the config, or `test` for Vitest's. */
-const SETUP_KEYS: Record<Framework, { keys: string[]; ofProject: boolean }[]> = {
-  playwright: [
-    { keys: ['globalSetup'], ofProject: false },
-    { keys: ['globalTeardown'], ofProject: false },
-  ],
+/** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
+const SETUP_KEYS: Record<Framework, string[][]> = {
+  playwright: [['globalSetup'], ['globalTeardown']],
   vitest: [
-    { keys: ['test', 'setupFiles'], ofProject: true },
-    { keys: ['test', 'globalSetup'], ofProject: true },
+    ['test', 'setupFiles'],
+    ['test', 'globalSetup'],
   ],
 };
 
+const UNKNOWN_PROJECTS =
+  "The projects that run the file can't be worked out, so dependencyHash doesn't cover their setup.";
+
 /**
  * Finds what each file's config makes its tests run besides the file: the config itself, which brings in the configs it
- * builds on through imports, its setup files and global setup and teardown, and for Playwright the files of the setup
- * projects the file's projects depend on. Read once per config and set of projects.
+ * builds on through imports, the setup files and global setup and teardown of each project that runs the file, the
+ * config that lists a Vitest project, whose global setup runs too, and for Playwright the files of the setup projects
+ * the file's projects depend on. Read once per config and set of projects.
  */
 export class ConfigDependencies {
   private readonly framework: Framework;
   private readonly runs: ConfigRuns;
   private readonly readerFor: (fromFile: string) => ModuleReader;
-  /** The files setup projects may run: every script file of the project. */
+  /** The files setup projects may run. */
   private readonly candidates: readonly string[];
   private readonly found = new Map<string, RunsWith>();
 
@@ -64,7 +68,7 @@ export class ConfigDependencies {
     const { config } = placement;
     if (config === null) return NOTHING;
     const names = (placement.projects ?? []).map((project) => project.name);
-    const key = `${config.file}\0${names.join('\0')}`;
+    const key = `${config.file}\0${placement.projects === null}\0${names.join('\0')}`;
     let found = this.found.get(key);
     if (!found) {
       found = this.read(config, placement);
@@ -74,74 +78,105 @@ export class ConfigDependencies {
   }
 
   private read(config: ConfigFile, placement: Placement): RunsWith {
-    const modules: ModuleSource[] = [];
-    const gaps: ConfigGap[] = [];
     const own = this.module(config.file);
-    // The config is read when the scan finds it; one that can't be read is reported then.
-    if (!own) return NOTHING;
-    const folder = path.dirname(config.file);
-    const resolve = (file: string, key: string) => {
-      // `path.join(__dirname, 'setup.ts')` gives an absolute path.
-      const relative = path.isAbsolute(file) ? `./${path.relative(folder, file).replaceAll('\\', '/')}` : file;
-      const isPath = relative.startsWith('.');
-      const read = this.readerFor(config.file)(isPath ? relative : `./${relative}`);
-      if (!('reason' in read)) modules.push(read);
-      // A name that isn't a file beside the config is a package, whose code is left out as installed code is.
-      else if (isPath)
-        gaps.push({
-          module: own,
-          message: `${key} names '${file}', which ${read.reason}, so dependencyHash doesn't cover it.`,
-          isQuiet: false,
-        });
-    };
+    if (!own) {
+      // The config reader reports a config it can't read.
+      const message = "The config can't be read, so dependencyHash doesn't cover it.";
+      const span = { start: 0, end: 0 };
+      const gap = { relativeFilePath: config.record.relativeFilePath, source: new SourceText(''), span, message };
+      return { config: null, modules: [], gaps: [{ ...gap, isQuiet: true }] };
+    }
+    const modules = new Set<ModuleSource>();
+    const gaps: ConfigGap[] = [];
     const places = new Set<Span>();
-    for (const { keys, ofProject } of SETUP_KEYS[this.framework]) {
+    /** The setup files a key of `settings` names, found from `root`, as written in the config `module`. */
+    const setup = (module: ModuleSource, settings: Setting, root: string, keys: string[]) => {
       const key = keys.join('.');
-      // A placement with a config has its project's settings.
-      const found = written(ofProject ? (placement.settings as Setting) : config.settings, keys);
-      if (found === null) continue;
-      for (const item of listOf(found.setting)) {
-        if (item.kind === 'value' && typeof item.value === 'string') resolve(item.value, key);
-        // One gap per place, as both setup keys may come from the same spread.
-        else if (item.kind === 'unknown' && item.where && !places.has(item.where.node)) {
-          places.add(item.where.node);
-          const { frame, node } = item.where;
-          gaps.push({
-            relativeFilePath: frame.relativeFilePath,
-            source: frame.parsed.source,
-            span: node,
-            message: `${key} can't be worked out, so dependencyHash doesn't cover the files it names.`,
-            isQuiet: found.isInherited,
-          });
+      const found = written(settings, keys);
+      for (const item of found ? listOf(found.setting) : []) {
+        if (item.kind === 'value' && typeof item.value === 'string') {
+          const read = this.setupFile(root, item.value);
+          if (read && !('reason' in read)) modules.add(read);
+          else if (read) {
+            const message = `${key} names '${item.value}', which ${read.reason}, so dependencyHash doesn't cover it.`;
+            gaps.push({ module, text: item.value, message, isQuiet: false });
+          }
+        } else if (item.kind === 'unknown') {
+          const message = `${key} can't be worked out, so dependencyHash doesn't cover the files it names.`;
+          // A Vitest 3 workspace file, which the scan doesn't read, has no place in the config.
+          if (!item.where) gaps.push({ module, text: null, message, isQuiet: true });
+          // One gap per place, as both setup keys may come from the same spread.
+          else if (!places.has(item.where.node)) {
+            places.add(item.where.node);
+            const { frame, node } = item.where;
+            const at = { relativeFilePath: frame.relativeFilePath, source: frame.parsed.source, span: node };
+            gaps.push({ ...at, message, isQuiet: (found as Written).isInherited });
+          }
+        }
+      }
+    };
+    const { projects } = placement;
+    if (projects === null) gaps.push({ module: own, text: null, message: UNKNOWN_PROJECTS, isQuiet: true });
+    const folder = path.dirname(config.file);
+    if (this.framework === 'playwright') {
+      for (const keys of SETUP_KEYS.playwright) setup(own, config.settings, folder, keys);
+      this.setupProjects(config, own, projects ?? [], modules, gaps);
+    } else {
+      // A file no project runs still runs with the config's own setup when the runner is given it.
+      const running = projects?.length
+        ? projects
+        : [{ settings: placement.settings as Setting, root: folder, container: null }];
+      // Vitest runs the global setup of the config it starts with for every project, extending it or not.
+      setup(own, config.settings, folder, ['test', 'globalSetup']);
+      for (const project of running) {
+        for (const keys of SETUP_KEYS.vitest) setup(own, project.settings, project.root, keys);
+        const { container } = project;
+        const outer = container && this.module(container.file);
+        if (container && outer) {
+          modules.add(outer);
+          setup(outer, container.settings, path.dirname(container.file), ['test', 'globalSetup']);
         }
       }
     }
-    for (const name of this.setupProjects(config, placement)) {
-      const files = this.runs.filesOfProject(config, name, this.candidates);
-      if (files === null) {
-        gaps.push({
-          module: own,
-          message: `The files of the setup project '${name}' can't be worked out, so dependencyHash doesn't cover them.`,
-          isQuiet: false,
-        });
-        continue;
-      }
-      modules.push(...files.map((file) => this.module(file)).filter((module) => module !== null));
-    }
-    return { config: own, modules, gaps };
+    return { config: own, modules: [...modules], gaps };
   }
 
-  /** The projects that run before the file's own, as their `dependencies` name them, and the ones those depend on. */
-  private setupProjects(config: ConfigFile, placement: Placement): string[] {
-    const records = this.runs.projectsIn(config) ?? [];
+  /** The files of the setup projects the file's projects depend on, and the ones those depend on. */
+  private setupProjects(
+    config: ConfigFile,
+    own: ModuleSource,
+    projects: readonly ProjectAbout[],
+    modules: Set<ModuleSource>,
+    gaps: ConfigGap[],
+  ): void {
     const names = new Set<string>();
-    const pending = (placement.projects ?? []).flatMap((project) => project.dependencies);
+    const pending = projects.flatMap((project) => project.dependencies);
     for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
       if (names.has(name)) continue;
       names.add(name);
-      pending.push(...(records.find((record) => record.name === name)?.dependencies ?? []));
+      const project = this.runs.projectNamed(config, name);
+      if (!project) {
+        // The config reader reports a project it can't work out.
+        const message = `The files of the setup project '${name}' can't be worked out, so dependencyHash doesn't cover them.`;
+        gaps.push({ module: own, text: null, message, isQuiet: true });
+        continue;
+      }
+      pending.push(...project.about.dependencies);
+      const files = this.candidates.filter((file) => project.runs(file)).map((file) => this.module(file));
+      for (const file of files.filter((item) => item !== null)) modules.add(file);
     }
-    return [...names];
+  }
+
+  /**
+   * A setup file a config names, found from `root` as the runners find it; null for a name that isn't a file there,
+   * which is a package, whose code is left out as installed code is.
+   */
+  private setupFile(root: string, file: string): ReturnType<ModuleReader> | null {
+    // `path.join(__dirname, 'setup.ts')` gives an absolute path.
+    const relative = path.isAbsolute(file) ? path.relative(root, file).replaceAll('\\', '/') : file;
+    const isPath = /^\.\.?[\\/]/.test(relative);
+    const read = this.readerFor(path.join(root, 'config'))(isPath ? relative : `./${relative}`);
+    return 'reason' in read && !isPath ? null : read;
   }
 
   /** A file the scan reads code from, by its absolute path, as the modules a test imports are read. */
@@ -151,11 +186,16 @@ export class ConfigDependencies {
   }
 }
 
+interface Written {
+  setting: Setting;
+  isInherited: boolean;
+}
+
 /**
  * The setting under a path of keys, and whether it comes from an object around it that the scan can't work out
  * rather than from the key itself; null when the config doesn't set it.
  */
-function written(setting: Setting, keys: readonly string[]): { setting: Setting; isInherited: boolean } | null {
+function written(setting: Setting, keys: readonly string[]): Written | null {
   const found = settingAt(setting, keys);
   if (found?.kind !== 'unknown') return found && { setting: found, isInherited: false };
   // An unknown setting is set by the object around the key when the key itself isn't written there.

@@ -335,13 +335,13 @@ function runsOnLoad(node: Node): boolean {
 }
 
 /**
- * Whether a top-level or describe statement runs when the file or describe does. An import loads its module then, so
- * which modules a file imports is part of its code, also a package's; a type-only one loads nothing.
+ * Whether a top-level or describe statement runs when the file or describe does. An import that names nothing is there
+ * for what its module does when loaded, so it is code of the file, also for a package.
  */
 function isLoadCode(statement: Node): boolean {
-  if (statement.type === 'ImportDeclaration' || statement.type === 'TSImportEqualsDeclaration') {
-    return statement.importKind !== 'type';
-  }
+  // `import '@testing-library/jest-dom'` runs a module for what it does; a named import is followed through its names.
+  if (statement.type === 'ImportDeclaration')
+    return statement.importKind !== 'type' && statement.specifiers.length === 0;
   return !DECLARATIONS.has(statement.type) || runsOnLoad(statement);
 }
 
@@ -674,8 +674,12 @@ export class DependencyGraph {
 
   /** Something in a config the scan can't follow, as a unit that marks the tests whose config it is. */
   gapUnit(gap: ConfigGap): Unit {
-    if ('module' in gap)
-      return this.placeUnit(this.moduleOf(gap.module), { start: 0, end: 0 }, gap.message, gap.isQuiet);
+    if ('module' in gap) {
+      const module = this.moduleOf(gap.module);
+      // The path a setup key names, where the config writes it.
+      const at = gap.text === null ? null : literalIn((module.parsed as ParsedFile).program, gap.text);
+      return this.placeUnit(module, at ?? { start: 0, end: 0 }, gap.message, gap.isQuiet);
+    }
     const module = this.newModule(gap.relativeFilePath, null, null, new Values(), null);
     const unit = this.newUnit(module, [], new Map(), false);
     unit.edges = new Set();
@@ -1101,7 +1105,13 @@ export class DependencyGraph {
           : callee.type === 'MemberExpression' && !callee.computed
             ? callee.property.name
             : null;
-      if (name === null || !(FIXTURE_CALLS.has(name) || CONDITION_CALLS.has(name) || USE_CALLS.has(name))) return;
+      if (name === null) return;
+      // A test object imported under another name, as Playwright's `import { test as setup }` for setup projects;
+      // `mergeTests()` combines test objects, and isn't one.
+      const declaration = callee.type === 'Identifier' ? module.values.declarationOf(callee.name, scopes) : null;
+      const isMerge = declaration?.type === 'ImportSpecifier' && exportName(declaration.imported) === 'mergeTests';
+      const isTest = declaration !== null && !isMerge && this.frameworkOf(module, callee, scopes, types) !== null;
+      if (!(isTest || FIXTURE_CALLS.has(name) || CONDITION_CALLS.has(name) || USE_CALLS.has(name))) return;
       // A fixture's own `use(value)` callback is called by name; `test.use()` is a member.
       if (USE_CALLS.has(name) && callee.type !== 'MemberExpression') return;
       // `/^[A-Z]+$/.test(symbol)`, `assert.fail()` or `app.use()` don't run with fixtures.
@@ -1281,6 +1291,16 @@ function otherDeclaration(name: string, scopes: readonly Node[], types: boolean)
       const isValue = node.type === 'TSModuleDeclaration' || node.type === 'TSImportEqualsDeclaration';
       if (isNamed && (isValue || (types && TYPES.has(node.type)))) return node;
     }
+  }
+  return null;
+}
+
+/** The first string literal with a value in a tree, in source order; null when there is none. */
+function literalIn(node: Node, value: string): Span | null {
+  if (node.type === 'Literal' && node.value === value) return node;
+  for (const child of childNodes(node)) {
+    const found = literalIn(child, value);
+    if (found) return found;
   }
   return null;
 }
