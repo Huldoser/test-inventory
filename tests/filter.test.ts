@@ -43,6 +43,28 @@ describe('filterInventory', () => {
     ]);
   });
 
+  it('keeps tests whose dependencies include a changed file, and those that reach code the scan cannot follow', () => {
+    expect(names({ related: ['pages/orders-blotter.ts'] })).toEqual([
+      'orders > limit orders > places a limit buy order for AAPL @smoke',
+      'orders > limit orders > cancels an open limit order',
+      'market orders > fills a market buy order',
+      'market orders > fills a market sell order',
+      'order lifecycle > places a limit order for 100 NVDA',
+      'order lifecycle > shows a partial fill',
+      'order lifecycle > cancels the remaining quantity',
+      'portfolio > closes a position from the positions table',
+    ]);
+    // Paths as Windows or a shell writes them.
+    expect(names({ related: ['.\\test-data\\tags.ts'] })).toEqual(names({ related: ['test-data/tags.ts'] }));
+    const unfollowed = {
+      ...web,
+      tests: web.tests.map((test, index) => ({ ...test, hasUnfollowedDependencies: index === 0 })),
+    };
+    expect(filterInventory(unfollowed, { related: ['README.md'] }).tests.map((test) => test.fullName)).toEqual([
+      web.tests[0].fullName,
+    ]);
+  });
+
   it('keeps only tests that pass every condition', () => {
     expect(names({ states: ['fixme'], tags: ['@smoke'] })).toEqual([
       'login > asks for a one-time code on a new device',
@@ -102,7 +124,10 @@ test('shows a quote for', async () => {
 
   it.each<[unknown, string]>([
     [null, 'filter must be an object.'],
-    [{ state: ['skip'] }, 'filter can only have the keys states, tags, grep, only, withoutReason; got "state".'],
+    [
+      { state: ['skip'] },
+      'filter can only have the keys states, tags, grep, only, withoutReason, related; got "state".',
+    ],
     [
       { states: ['skipped'] },
       'filter.states can only hold "active", "skip", "fixme", "todo", "expectedToFail", "notLoaded"; got "skipped".',

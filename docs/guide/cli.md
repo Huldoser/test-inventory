@@ -16,24 +16,25 @@ whose names start with a dot, as in `.storybook/`. On Windows a `\` in a glob se
 works; on Linux and macOS it escapes the next character, as in `tests/\[legacy\]/*.spec.ts`. A `/` separates
 folders on every system.
 
-| Option                        | Meaning                                                                                             |
-| ----------------------------- | --------------------------------------------------------------------------------------------------- |
-| `--framework <name>`          | `playwright` or `vitest`. Required. One run reads one framework.                                    |
-| `--root <dir>`                | The project root. Paths in the output are relative to it. Default: the current folder.              |
-| `--ignore <glob>`             | Leave out matching files. Can be given more than once.                                              |
-| `--framework-version <x.y.z>` | Apply the rules of this version instead of the one read from the project.                           |
-| `--comments <mode>`           | Which tests get the comment lines above them: `all`, `non-active` or `none`. Default: `non-active`. |
-| `--state <state>`             | Keep tests in this state, such as `skip` or `fixme`. Can be given more than once.                   |
-| `--tag <tag>`                 | Keep tests with this tag, as the output writes it, such as `@smoke`. Can be given more than once.   |
-| `--grep <regex>`              | Keep tests whose `fullName` matches the regular expression, ignoring case.                          |
-| `--only`                      | Keep tests that use `.only`, or are inside a describe that does.                                    |
-| `--without-reason`            | Keep tests that don't run and give no reason.                                                       |
-| `--fields <keys>`             | Write only these keys of each test, separated by commas. `id` is always kept.                       |
-| `--format <format>`           | `json`, or `jsonl` for one record per line. Default: `json`.                                        |
-| `-o, --output <file>`         | Write the JSON to a file instead of standard output. The file is replaced only once it is complete. |
-| `--pretty`                    | Indent the JSON with two spaces. Without it the JSON is on one line.                                |
-| `-h, --help`                  | Show the help.                                                                                      |
-| `-v, --version`               | Show the version.                                                                                   |
+| Option                        | Meaning                                                                                                                                                                                   |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--framework <name>`          | `playwright` or `vitest`. Required. One run reads one framework.                                                                                                                          |
+| `--root <dir>`                | The project root. Paths in the output are relative to it. Default: the current folder.                                                                                                    |
+| `--ignore <glob>`             | Leave out matching files. Can be given more than once.                                                                                                                                    |
+| `--framework-version <x.y.z>` | Apply the rules of this version instead of the one read from the project.                                                                                                                 |
+| `--comments <mode>`           | Which tests get the comment lines above them: `all`, `non-active` or `none`. Default: `non-active`.                                                                                       |
+| `--state <state>`             | Keep tests in this state, such as `skip` or `fixme`. Can be given more than once.                                                                                                         |
+| `--tag <tag>`                 | Keep tests with this tag, as the output writes it, such as `@smoke`. Can be given more than once.                                                                                         |
+| `--grep <regex>`              | Keep tests whose `fullName` matches the regular expression, ignoring case.                                                                                                                |
+| `--only`                      | Keep tests that use `.only`, or are inside a describe that does.                                                                                                                          |
+| `--without-reason`            | Keep tests that don't run and give no reason.                                                                                                                                             |
+| `--related <file>`            | Keep tests a change to this file can affect; see [Tests a change can affect](#tests-a-change-can-affect). Can be given more than once; `-` reads files from standard input, one per line. |
+| `--fields <keys>`             | Write only these keys of each test, separated by commas. `id` is always kept.                                                                                                             |
+| `--format <format>`           | `json`, or `jsonl` for one record per line. Default: `json`.                                                                                                                              |
+| `-o, --output <file>`         | Write the JSON to a file instead of standard output. The file is replaced only once it is complete.                                                                                       |
+| `--pretty`                    | Indent the JSON with two spaces. Without it the JSON is on one line.                                                                                                                      |
+| `-h, --help`                  | Show the help.                                                                                                                                                                            |
+| `-v, --version`               | Show the version.                                                                                                                                                                         |
 
 ## Filters
 
@@ -69,6 +70,30 @@ Output written with `--fields` leaves keys out of the test records, so it no lon
 [JSON Schema](/reference/output#versioning), which requires every key. Without `--fields`, filtered output matches it.
 
 To keep only some files, give a narrower glob instead: the files left out are not read at all.
+
+## Tests a change can affect
+
+`--related` keeps the tests a change to a file can affect: those whose
+[`dependencies`](/reference/output#tests) include it, which covers the tests themselves, the code, fixtures, test data,
+configs, setup files and snapshots they use, and the tests that reach code the scan can't follow, which a change may
+affect unseen. To list the web app's tests that use the orders blotter page object:
+
+<!-- scan: trading-web -->
+
+```sh
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --related pages/orders-blotter.ts --fields fullName
+```
+
+`--related -` reads the files from standard input, one per line, so the files a pull request changes can be piped in
+from git. Paths are taken from the current folder, as git writes them when run from the root of the repository, also
+when `--root` is a folder in it:
+
+```sh
+git diff --name-only origin/main... | npx test-inventory --framework playwright --related -
+```
+
+The scan reads the files as they are, so a deleted file is in no test's `dependencies`; the tests that imported it reach
+a file that can't be read, and are kept. Installed packages aren't followed: a lockfile change keeps no test.
 
 ## JSON Lines
 

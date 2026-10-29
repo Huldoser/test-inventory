@@ -37,6 +37,37 @@ fixme tests/price-stream.spec.ts:8 live price stream > updates prices without a 
 fixme tests/price-stream.spec.ts:14 live price stream > shows a stale badge when the stream disconnects (The WebSocket reconnects in a loop on WebKit (TRD-390))
 ```
 
+## Tests a change can affect
+
+The tests whose code, fixtures, test data, config or snapshots include a changed file, and those that reach code the
+scan can't follow. The CLI's `--related` gives the same tests; this shows them by file.
+
+<!-- recipe: trading-web -->
+
+```js
+import { readFileSync } from 'node:fs';
+
+const changed = new Set(['pages/orders-blotter.ts', 'test-data/tags.ts']);
+const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
+for (const test of tests) {
+  const reasons = test.dependencies.filter((file) => changed.has(file));
+  if (test.hasUnfollowedDependencies) reasons.push('code the scan cannot follow');
+  if (reasons.length > 0)
+    console.log(`${test.relativeFilePath}:${test.lineStart} ${test.fullName} (${reasons.join(', ')})`);
+}
+```
+
+```text
+tests/orders/limit-orders.spec.ts:10 orders > limit orders > places a limit buy order for AAPL @smoke (pages/orders-blotter.ts)
+tests/orders/limit-orders.spec.ts:16 orders > limit orders > cancels an open limit order (pages/orders-blotter.ts, test-data/tags.ts)
+tests/orders/market-orders.spec.ts:8 market orders > fills a market buy order (pages/orders-blotter.ts)
+tests/orders/market-orders.spec.ts:14 market orders > fills a market sell order (pages/orders-blotter.ts)
+tests/orders/order-lifecycle.spec.ts:7 order lifecycle > places a limit order for 100 NVDA (pages/orders-blotter.ts)
+tests/orders/order-lifecycle.spec.ts:18 order lifecycle > shows a partial fill (pages/orders-blotter.ts)
+tests/orders/order-lifecycle.spec.ts:22 order lifecycle > cancels the remaining quantity (pages/orders-blotter.ts)
+tests/portfolio.spec.ts:18 portfolio > closes a position from the positions table (pages/orders-blotter.ts)
+```
+
 ## Tickets mentioned by tests that don't run
 
 Ticket numbers such as `TRD-412` in the comments above a test or in its reason. Use it to check that every disabled test has a ticket, or to list the tests a ticket blocks.
