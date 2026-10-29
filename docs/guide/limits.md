@@ -214,12 +214,15 @@ something included. Some of what a test runs is out of its reach:
 
 Some of what the hash takes is more than the test needs, so a change can change the hash of a test it doesn't affect:
 
-- A test that takes its fixtures whole, as in `async (fixtures) => ...`, or a fixture that does, or one whose function
-  the scan can't find, such as a fixture from an installed package, has every fixture of its test objects in its hash.
+- A test's fixtures are those that the test, the hooks around it, conditions such as `test.skip(({ account }) => ...)`
+  and `test.use()` values ask for, in the code the test reaches, helper functions included, with the fixtures those ask
+  for. Any of them that takes its fixtures whole, as in `async (fixtures) => ...`, or a fixture whose value may be a
+  function the scan can't find, such as a factory's result or a fixture from an installed package, brings in every
+  fixture of the test's objects.
+- A fixtures file that overrides Playwright's own fixtures or options, such as `page`, `context`, `storageState` or
+  `baseURL`, or a fixture with `auto: true`, is in the hash of every test that uses the test object.
 - A test object whose fixtures aren't written as an object literal in `extend()`, as in `base.extend(fixtures)`, is
   taken with all of them.
-- Code that changes fixtures for a file or a describe, such as `test.use()` or Vitest's `test.override()`, is in the
-  hash of every test there.
 - A helper function that declares tests is taken whole for each test it declares.
 - Importing a module runs the code of every module it imports, as a barrel file does for each module it re-exports,
   so all of that is in the hash, whichever export the test uses.

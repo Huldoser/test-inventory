@@ -1226,5 +1226,100 @@ localTest('keeps an audit trail', ({ auditTrail }) => expect(auditTrail).toBeTru
         ['keeps an audit trail', true],
       ]);
     });
+
+    it('takes the fixtures that built-in fixtures, conditions, test.use(), helpers and factories ask for', async () => {
+      const fixtures = `import { test as base, expect as baseExpect } from '@playwright/test';
+import { pageObject } from './page-objects';
+
+const AUDIT_LOG = [async ({}, use: (log: string[]) => Promise<void>) => use(['session opened']), { auto: true }] as const;
+
+export const test = base.extend<any>({
+  workerStorageState: [async ({}, use) => use('auth/trader.json'), { scope: 'worker' }],
+  storageState: ({ workerStorageState }, use) => use(workerStorageState),
+  tradingAccount: ['margin', { option: true }],
+  marginAccount: async ({}, use) => use({ limit: 50_000 }),
+  accountId: async ({}, use) => use('PAPER-7741'),
+  quotes: async ({}, use) => use(['AAPL 187.50']),
+  blotter: pageObject('blotter'),
+  auditLog: AUDIT_LOG,
+});
+export const empty = base.extend();
+export const expect = baseExpect.extend({
+  async toHaveOrderStatus(locator: { textContent(): Promise<string> }, status: string) {
+    return { pass: (await locator.textContent()) === status, message: () => \`expected \${status}\` };
+  },
+});
+`;
+      const files = {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'fixtures/index.ts': fixtures,
+        'fixtures/page-objects.ts': `export function pageObject(name: string) {
+  return async ({ page, quotes }: { page: unknown; quotes: string[] }, use: (value: object) => Promise<void>) =>
+    use({ name, page, quotes });
+}
+`,
+        'fixtures/steps.ts': `export async function placeLimitBuy({ accountId }: { accountId: string }) {
+  return accountId;
+}
+export async function signInTrader({ accountId }: { accountId: string }) {
+  return accountId;
+}
+export function signInBeforeEach(t: { beforeEach(fn: (fixtures: { accountId: string }) => Promise<void>): void }) {
+  t.beforeEach(async ({ accountId }) => {
+    void accountId;
+  });
+}
+`,
+        'tests/positions.spec.ts': `import { test, expect } from '../fixtures';
+
+test('shows the positions page', async ({ page }) => {
+  await expect(page.getByTestId('status')).toHaveOrderStatus('Open');
+});
+`,
+        'tests/margin.spec.ts': `import { test } from '../fixtures';
+
+const MARGIN_DEFAULTS = { locale: 'en-US' };
+
+test.describe('margin', () => {
+  test.skip(({ tradingAccount }) => tradingAccount === 'cash', 'margin accounts only');
+  test.use({ ...MARGIN_DEFAULTS, orderTicket: async ({ page, marginAccount }, use) => use({ page, marginAccount }) });
+  test('buys on margin', async ({ orderTicket }) => {
+    await orderTicket;
+  });
+});
+`,
+        'tests/steps.spec.ts': `import { test } from '../fixtures';
+import { placeLimitBuy, signInBeforeEach, signInTrader } from '../fixtures/steps';
+
+test.beforeEach(signInTrader);
+signInBeforeEach(test);
+test('places a limit buy order via a step', placeLimitBuy);
+test('reads the blotter', async ({ blotter }) => {
+  await blotter;
+});
+`,
+      };
+      // `empty`, an extend() with no fixtures, is read without a crash.
+      expect((await scanProject(project(files))).diagnostics).toEqual([]);
+      const before = await hashesAfter(files, null);
+      const changed = (from: string, to: string) =>
+        hashesAfter(files, ['fixtures/index.ts', fixtures.replace(from, to)]);
+      const cases: [string, string, string][] = [
+        ["'auth/trader.json'", "'auth/admin.json'", 'shows the positions page'],
+        ['=== status', '!== status', 'shows the positions page'],
+        ["['margin', { option: true }]", "['cash', { option: true }]", 'buys on margin'],
+        ['limit: 50_000', 'limit: 25_000', 'buys on margin'],
+        ["'PAPER-7741'", "'PAPER-7742'", 'places a limit buy order via a step'],
+        ["'AAPL 187.50'", "'AAPL 188.00'", 'reads the blotter'],
+        ["'session opened'", "'session started'", 'shows the positions page'],
+      ];
+      // signInBeforeEach's hook alone asks for accountId in 'reads the blotter'.
+      cases.push(["'PAPER-7741'", "'PAPER-7742'", 'reads the blotter']);
+      const unchanged: string[] = [];
+      for (const [from, to, title] of cases) {
+        if ((await changed(from, to))[title] === before[title]) unchanged.push(`${title}: ${from} -> ${to}`);
+      }
+      expect(unchanged).toEqual([]);
+    });
   });
 });

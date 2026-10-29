@@ -61,6 +61,11 @@ interface Unit {
   fixtures: Fixtures | null;
   /** Fills in `roots` and `with` when the walk first reaches the unit. */
   prepare: (() => void) | null;
+  /**
+   * Fixtures the functions in its code ask for when passed to a hook, a condition such as `test.skip()`, `test.use()`
+   * or a test, as a helper that registers a hook does; null when one takes them whole or can't be told.
+   */
+  asks: string[] | null;
   hash: string | null | undefined;
 }
 
@@ -80,6 +85,8 @@ interface Reach {
   places: Place[];
   /** The fixtures of the test objects among the units, which each test takes as it needs them. */
   fixtures: Fixtures[];
+  /** The fixtures the units' code asks for; null when some of it asks for all. */
+  asks: string[] | null;
 }
 
 /** A fixture one `extend()` call defines, and the fixtures it asks for; null when it takes them whole. */
@@ -93,6 +100,13 @@ interface Fixtures {
   byName: Map<string, Fixture[]>;
   /** Fixtures with `auto: true`, which run for every test that uses the object. */
   auto: string[];
+}
+
+/** An expression's value where it is written: the node, and the module and scopes to read it in. */
+interface Value {
+  module: Module;
+  node: Node;
+  scopes: readonly Node[];
 }
 
 /** The fixtures a test asks for: its own, and those of the hooks around it. */
@@ -161,6 +175,49 @@ const PACKAGE_REASONS = new Set([
 
 /** Modules whose `test` object fixtures are defined on. */
 const FRAMEWORK = /^(?:@playwright\/test|playwright\/test|@playwright\/experimental-ct-[\w-]+|vitest)$/;
+
+/** Calls whose functions run with the test's fixtures: tests, hooks, and conditions such as `test.skip(fn)`. */
+const FIXTURE_CALLS = new Set([
+  ...['test', 'it', 'only', 'skip', 'fixme', 'fail', 'slow', 'todo', 'concurrent', 'sequential'],
+  ...['beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'aroundEach', 'aroundAll'],
+]);
+
+/** Calls that set fixtures for a file or a describe: Playwright's `test.use()`, Vitest's `override()` and `scoped()`. */
+const USE_CALLS = new Set(['use', 'override', 'scoped']);
+
+/** The exports of a framework module that are test objects, or combine them. */
+const TEST_EXPORTS = new Set(['test', 'it', 'mergeTests']);
+
+/** How many constants and imports deep a fixture's value is followed. */
+const MAX_VALUE_DEPTH = 16;
+
+/** Playwright's own fixtures and options (1.64), which a fixtures file can override for every test. */
+const BUILT_INS = new Set([
+  ...['browser', 'browserName', 'channel', 'connectOptions', 'context', 'defaultBrowserType', 'headless'],
+  ...['launchOptions', 'mount', 'page', 'playwright', 'request', 'reuseContext', 'screenshot', 'trace', 'video'],
+  ...['acceptDownloads', 'actionTimeout', 'baseURL', 'bypassCSP', 'clientCertificates', 'colorScheme'],
+  ...['contextOptions', 'contrast', 'deviceScaleFactor', 'extraHTTPHeaders', 'forcedColors', 'geolocation'],
+  ...['hasTouch', 'httpCredentials', 'ignoreHTTPSErrors', 'isMobile', 'javaScriptEnabled', 'locale'],
+  ...['navigationTimeout', 'offline', 'permissions', 'proxy', 'reducedMotion', 'screen', 'serviceWorkers'],
+  ...['storageState', 'testIdAttribute', 'timezoneId', 'userAgent', 'viewport'],
+]);
+
+/**
+ * Whether an expression is a value that can't be a function, such as a literal, an object or an array: a fixture with
+ * such a value is never called, so it asks for no other fixture.
+ */
+function isPlainValue(node: Node): boolean {
+  return PLAIN_VALUES.has(node.type);
+}
+
+const PLAIN_VALUES = new Set([
+  'Literal',
+  'TemplateLiteral',
+  'ArrayExpression',
+  'ObjectExpression',
+  'UnaryExpression',
+  'BinaryExpression',
+]);
 
 /** A property written as `name: value` or `name() {}`, whose name is known. */
 function isNamedProperty(property: Node): boolean {
@@ -329,9 +386,11 @@ export class DependencyGraph {
     const byFile = new Map<string, string[]>();
     const places: Place[] = [];
     const fixtures: Fixtures[] = [];
+    let asks: string[] | null = [];
     for (const unit of units) {
       if (unit.place) places.push(unit.place);
       if (unit.fixtures) fixtures.push(unit.fixtures);
+      asks = asks && unit.asks && [...asks, ...unit.asks];
       const hash = this.hashOf(unit);
       if (hash === null) continue;
       const hashes = byFile.get(unit.module.relativeFilePath);
@@ -340,7 +399,7 @@ export class DependencyGraph {
     }
     // Sorted by hash, so that moving code around in a file doesn't change it; each part keeps its own order.
     for (const hashes of byFile.values()) hashes.sort();
-    return { units, byFile, places, fixtures };
+    return { units, byFile, places, fixtures, asks };
   }
 
   /**
@@ -380,6 +439,8 @@ export class DependencyGraph {
       }
     };
     const found = (reach: Reach) => {
+      if (reach.asks === null && !all) takeAll();
+      for (const name of reach.asks ?? []) need(name);
       // Each walk skips what earlier ones reached, so an object turns up once.
       for (const item of reach.fixtures) {
         objects.push(item);
@@ -451,6 +512,7 @@ export class DependencyGraph {
       place: null,
       fixtures: null,
       prepare: null,
+      asks: [],
       hash: undefined,
     };
   }
@@ -752,12 +814,24 @@ export class DependencyGraph {
     const byName = new Map<string, Fixture[]>();
     const auto: string[] = [];
     const cut: Span[] = [];
-    const define = (name: string, unit: Unit, value: Node | undefined, options: Node | undefined) => {
-      byName.set(name, [...(byName.get(name) ?? []), { unit, uses: this.fixtureUses(module, value, scopes, types) }]);
-      if (options?.type === 'ObjectExpression' && options.properties.some(isAutoOption)) auto.push(name);
+    const define = (
+      name: string,
+      unit: Unit,
+      value: Node | undefined,
+      options: Node | undefined,
+      where: Value = { module, node: declarator, scopes },
+    ) => {
+      const uses = this.fixtureUses(where.module, value, where.scopes, types);
+      byName.set(name, [...(byName.get(name) ?? []), { unit, uses }]);
+      const read = options && this.valueOf(where.module, options, where.scopes, types).node;
+      // Playwright's own fixtures and options, such as `page` or `storageState`, shape what every test runs.
+      if (BUILT_INS.has(name) || (read?.type === 'ObjectExpression' && read.properties.some(isAutoOption))) {
+        auto.push(name);
+      }
     };
     for (const call of calls) {
-      const [first] = call.arguments;
+      const first = call.arguments.at(0);
+      if (first === undefined) continue;
       if (first.type === 'Literal' && typeof first.value === 'string') {
         // Vitest's `test.extend('name', options?, fn)`.
         cut.push(...call.arguments);
@@ -766,14 +840,11 @@ export class DependencyGraph {
       } else if (first.type === 'ObjectExpression' && first.properties.every(isNamedProperty)) {
         cut.push(first);
         for (const property of first.properties as ObjectProperty[]) {
-          const value = unwrap(property.value);
-          const [fn, options] = value.type === 'ArrayExpression' ? value.elements : [value];
-          define(
-            propertyKey(property) as string,
-            this.declarationUnit(module, property, types),
-            fn ?? undefined,
-            options ?? undefined,
-          );
+          // `[fn, { auto: true }]`, also when a constant holds the pair or the options.
+          const value = this.valueOf(module, property.value, scopes, types);
+          const [fn, options] = value.node.type === 'ArrayExpression' ? value.node.elements : [value.node];
+          const unit = this.declarationUnit(module, property, types);
+          define(propertyKey(property) as string, unit, fn ?? undefined, options ?? undefined, value);
         }
       }
     }
@@ -806,8 +877,9 @@ export class DependencyGraph {
     if (node.type !== 'Identifier') return false;
     const declaration = module.values.declarationOf(node.name, scopes);
     if (declaration === null) return false;
-    if (declaration.type === 'ImportSpecifier' || declaration.type === 'ImportDefaultSpecifier') {
-      if (FRAMEWORK.test(this.importOf(module, declaration).source.value)) return true;
+    if (declaration.type === 'ImportSpecifier' && FRAMEWORK.test(this.importOf(module, declaration).source.value)) {
+      // `expect` has an extend() too, for matchers.
+      return TEST_EXPORTS.has(exportName(declaration.imported));
     }
     return this.toDeclaration(module, declaration, node.name, null, types).some((unit) => {
       if (unit.fixtures) return true;
@@ -826,6 +898,10 @@ export class DependencyGraph {
   }
 
   /** The fixtures a fixture's function asks for; null when it takes them whole, or isn't a function the scan finds. */
+  /**
+   * The fixtures a fixture's or hook's function asks for. A value such as a constant asks for none; null when the
+   * function takes them whole, or the value can't be told, as a factory's result or a fixture from a package.
+   */
   private fixtureUses(
     module: Module,
     value: Node | undefined,
@@ -833,20 +909,31 @@ export class DependencyGraph {
     types: boolean,
   ): string[] | null {
     if (!value) return [];
+    const { node } = this.valueOf(module, value, scopes, types);
+    if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) {
+      return takesWhole(node, 0) ? null : destructuredNames(node, 0);
+    }
+    return isPlainValue(node) ? [] : null;
+  }
+
+  /**
+   * What an expression holds, followed through constants and imports to the function or value they are bound to; the
+   * expression itself when it is something else, with the module and scopes to read it in.
+   */
+  private valueOf(module: Module, value: Node, scopes: readonly Node[], types: boolean, depth = 0): Value {
     const node = unwrap(value as Expression);
-    if (isFunctionNode(node)) return takesWhole(node, 0) ? null : destructuredNames(node, 0);
-    if (node.type !== 'Identifier') return [];
+    if (node.type !== 'Identifier' || depth > MAX_VALUE_DEPTH) return { module, node, scopes };
     const declaration = module.values.declarationOf(node.name, scopes);
-    if (declaration === null) return null;
+    if (declaration === null) return { module, node, scopes };
     for (const unit of this.toDeclaration(module, declaration, node.name, null, types)) {
       const root = unit.roots.at(0)?.node;
-      const fn = root?.type === 'VariableDeclarator' ? root.init && unwrap(root.init) : root;
-      if (fn?.type === 'FunctionDeclaration' || isFunctionNode(fn))
-        return takesWhole(fn, 0) ? null : destructuredNames(fn, 0);
-      // A value fixture, such as a constant, asks for nothing.
-      if (root?.type === 'VariableDeclarator') return [];
+      if (root?.type === 'FunctionDeclaration') return { module: unit.module, node: root, scopes };
+      if (root?.type === 'VariableDeclarator' && root.init) {
+        const at = scopesAt((unit.module.parsed as ParsedFile).program, root);
+        return this.valueOf(unit.module, root.init, at, types, depth + 1);
+      }
     }
-    return null;
+    return { module, node, scopes };
   }
 
   private importOf(module: Module, specifier: Node): Extract<Node, { type: 'ImportDeclaration' }> {
@@ -880,6 +967,37 @@ export class DependencyGraph {
         edges.add(this.placeUnit(module, at, COMPUTED));
       }
     };
+    /** The fixtures a call's functions ask for, when it registers a hook, a condition, a test or `use()` values. */
+    const asks = (call: CallExpression, scopes: readonly Node[]) => {
+      const { callee } = call;
+      const name =
+        callee.type === 'Identifier'
+          ? callee.name
+          : callee.type === 'MemberExpression' && !callee.computed
+            ? callee.property.name
+            : null;
+      const take = (value: Node) => {
+        const uses = this.fixtureUses(module, value, scopes, types);
+        unit.asks = unit.asks && uses && [...unit.asks, ...uses];
+      };
+      if (name !== null && FIXTURE_CALLS.has(name)) {
+        // A title or a condition's value isn't a function; one passed by name is followed to where it's written.
+        for (const argument of call.arguments) {
+          if (isFunctionNode(argument)) take(argument);
+          else if (
+            argument.type === 'Identifier' &&
+            !isPlainValue(this.valueOf(module, argument, scopes, types).node)
+          ) {
+            take(argument);
+          }
+        }
+      }
+      const values = call.arguments.at(0);
+      // A fixture's own `use(value)` callback is called by name; `test.use()` is a member.
+      if (callee.type === 'MemberExpression' && USE_CALLS.has(name as string) && values?.type === 'ObjectExpression') {
+        for (const property of values.properties) take(property.type === 'Property' ? property.value : property);
+      }
+    };
     const walk = (node: Node, scopes: Node[], key: string | null, parent: Node | null): void => {
       if (unit.cut.get(node.start) === node.end) return;
       switch (node.type) {
@@ -909,6 +1027,7 @@ export class DependencyGraph {
           break;
         case 'CallExpression': {
           const { callee } = node;
+          asks(node, scopes);
           if (callee.type === 'Identifier' && callee.name === 'require') loadsByPath(node.arguments.at(0), node);
           if (callee.type === 'MemberExpression' && !callee.computed) {
             const { object, property } = callee;
