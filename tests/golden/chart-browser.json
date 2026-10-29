@@ -121,10 +121,11 @@
     {
       "id": "9c395cd613ff775f",
       "bodyHash": "68a3d0a97c6c1b81",
-      "dependencyHash": "b23ae16bc7e1bfe3",
+      "dependencyHash": "856d8ed13cf73915",
       "dependencies": [
         "src/candlestick-chart.test.ts",
-        "src/candlestick-chart.ts"
+        "src/candlestick-chart.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
@@ -205,10 +206,11 @@
     {
       "id": "a25f4dcefcf0b5b5",
       "bodyHash": "29ee0820db6ca72d",
-      "dependencyHash": "7abe61f635ddacca",
+      "dependencyHash": "a5bcf96849a657d6",
       "dependencies": [
         "src/candlestick-chart.test.ts",
-        "src/candlestick-chart.ts"
+        "src/candlestick-chart.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
@@ -289,10 +291,11 @@
     {
       "id": "dc5ec34ec1808b8d",
       "bodyHash": "30ef72abf8988caa",
-      "dependencyHash": "7a6e58d1139f4f0e",
+      "dependencyHash": "2cf3dbf391e21c0a",
       "dependencies": [
         "src/candlestick-chart.test.ts",
-        "src/candlestick-chart.ts"
+        "src/candlestick-chart.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
@@ -373,10 +376,11 @@
     {
       "id": "f27d38976c1b7c14",
       "bodyHash": "a63556cf2c2698cc",
-      "dependencyHash": "1c30348820bc5d4b",
+      "dependencyHash": "404d2056e513f69f",
       "dependencies": [
         "src/candlestick-chart.test.ts",
-        "src/candlestick-chart.ts"
+        "src/candlestick-chart.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
@@ -459,10 +463,11 @@
     {
       "id": "621d4bea95a8e4a3",
       "bodyHash": "43d2b322a565b7a7",
-      "dependencyHash": "f2fa46b4bbdb8cbd",
+      "dependencyHash": "24a335f7e23ddfd0",
       "dependencies": [
         "src/candlestick-chart.test.ts",
-        "src/candlestick-chart.ts"
+        "src/candlestick-chart.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",

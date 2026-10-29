@@ -8,6 +8,7 @@ import {
   type VariableDeclarator,
 } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, unwrap, type FunctionNode } from './ast.ts';
+import type { ConfigGap, RunsWith } from './config-dependencies.ts';
 import type { Extraction, Frame, PendingSuite, PendingTest, Scope } from './extract.ts';
 import { exportName, parseModule } from './frameworks/bindings.ts';
 import { destructuredNames, problem, takesWhole } from './frameworks/common.ts';
@@ -152,6 +153,14 @@ const RUNS = new Set([
   'ImportExpression',
   'Decorator',
   'StaticBlock',
+]);
+
+/** The nodes an import binds a name with. */
+const IMPORT_BINDINGS = new Set([
+  'ImportSpecifier',
+  'ImportDefaultSpecifier',
+  'ImportNamespaceSpecifier',
+  'TSImportEqualsDeclaration',
 ]);
 
 /** Keys that hold types, which don't run. */
@@ -325,9 +334,23 @@ function runsOnLoad(node: Node): boolean {
   return childNodes(node).some(runsOnLoad);
 }
 
-/** Whether a top-level or describe statement runs when the file or describe does. */
+/**
+ * Whether a top-level or describe statement runs when the file or describe does. An import that names nothing is there
+ * for what its module does when loaded, so it is code of the file, also for a package.
+ */
+/** An import that loads its module when the file runs: not a type-only one. */
+function isRuntimeImport(statement: Node): boolean {
+  return (
+    (statement.type === 'ImportDeclaration' || statement.type === 'TSImportEqualsDeclaration') &&
+    statement.importKind !== 'type'
+  );
+}
+
 function isLoadCode(statement: Node): boolean {
-  return !DECLARATIONS.has(statement.type) || (statement.type !== 'ImportDeclaration' && runsOnLoad(statement));
+  // `import '@testing-library/jest-dom'` runs a module for what it does; a named import is followed through its names.
+  if (statement.type === 'ImportDeclaration')
+    return statement.importKind !== 'type' && statement.specifiers.length === 0;
+  return !DECLARATIONS.has(statement.type) || runsOnLoad(statement);
 }
 
 /**
@@ -337,6 +360,8 @@ function isLoadCode(statement: Node): boolean {
 export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
+  private readonly imports = new WeakMap<Node, Unit>();
+  private readonly calledTests = new WeakMap<Node, boolean>();
   private readonly testObjects: [WeakMap<Node, Unit | null>, WeakMap<Node, Unit | null>] = [
     new WeakMap(),
     new WeakMap(),
@@ -369,15 +394,17 @@ export class DependencyGraph {
   }
 
   /** The code a file runs when it is loaded, leaving out the tests and describes at `cut`. */
-  loadUnit(module: Module, types: boolean, cut: Span[] = []): Unit {
+  loadUnit(module: Module, types: boolean, cut: Span[] = [], allImports = false): Unit {
     const index = Number(types);
     const cached = module.load[index];
     if (cached) return cached;
     const program = (module.parsed as ParsedFile).program;
     const unit = this.newUnit(module, [], new Map(cut.map((span) => [span.start, span.end])), types);
     // Read once the walk reaches it, as telling a test object apart may need this module's load code in turn.
+    // A test file's every import is its own code; another module's are followed through the names a test uses.
+    const isCode = (statement: Node) => isLoadCode(statement) || (allImports && isRuntimeImport(statement));
     unit.prepare = () => {
-      for (const statement of program.body.filter(isLoadCode)) {
+      for (const statement of program.body.filter(isCode)) {
         const declaration = declared(statement);
         if (declaration.type !== 'VariableDeclaration') {
           unit.roots.push({ node: statement, scopes: [program] });
@@ -432,8 +459,8 @@ export class DependencyGraph {
    * with the fixtures it needs of each test object reached: the hash, the files, and whether all of it could be
    * followed.
    */
-  dependencies(roots: Unit[], base: Reach, needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
-    const reached = [base, this.reach(roots, [base])];
+  dependencies(roots: Unit[], bases: Reach[], needs: FixtureNeeds, report: (place: Place) => void): Dependencies {
+    const reached = [...bases, this.reach(roots, bases)];
     // A fixture can ask for one an object it extends defines, or use another test object, so names are shared by
     // every test object reached, and each name and object is read once.
     const names = new Set<string>();
@@ -626,16 +653,82 @@ export class DependencyGraph {
     return unit;
   }
 
+  /** Whether a name is bound to a test object, once per declaration, as a file may call a helper thousands of times. */
+  private isTestObject(
+    module: Module,
+    name: Node,
+    declaration: Node,
+    scopes: readonly Node[],
+    types: boolean,
+  ): boolean {
+    let found = this.calledTests.get(declaration);
+    if (found === undefined) {
+      found = this.frameworkOf(module, name, scopes, types) !== null;
+      this.calledTests.set(declaration, found);
+    }
+    return found;
+  }
+
+  /** An import of a name a test uses: the module it names and how, as `import { round } from 'lodash'`. */
+  private importUnit(module: Module, statement: Extract<Node, { type: 'ImportDeclaration' }>, specifier: Node): Unit {
+    let unit = this.imports.get(specifier);
+    if (!unit) {
+      const roots = [statement.source, specifier].map((node) => ({ node, scopes: [] }));
+      unit = this.newUnit(module, roots, new Map(), false);
+      unit.edges = new Set();
+      this.imports.set(specifier, unit);
+    }
+    return unit;
+  }
+
   /** A place in a module the scan can't follow, as a unit that marks the tests that reach it. */
   private placeUnit(module: Module, at: Span, message: string, isQuiet = false): Unit {
-    const parsed = module.parsed as ParsedFile;
+    const { source } = module.parsed as ParsedFile;
     const unit = this.newUnit(module, [], new Map(), false);
     unit.edges = new Set();
+    const text = snippet(source.slice(at.start, at.end)) || null;
     unit.place = {
       relativeFilePath: module.relativeFilePath,
-      source: parsed.source,
-      problem: problem('dependency-not-followed', at, message, snippet(parsed.source.slice(at.start, at.end))),
+      source,
+      problem: problem('dependency-not-followed', at, message, text),
       isQuiet,
+    };
+    return unit;
+  }
+
+  /**
+   * A module the config runs each test with, taken whole: the config itself, a setup file, or a file of a setup
+   * project.
+   */
+  runUnit(source: ModuleSource, isConfig: boolean): Unit {
+    const module = this.moduleOf(source);
+    if (module.parsed === null) return this.textUnit(module);
+    const { error } = module.parsed;
+    if (error) {
+      // A config that doesn't parse is reported when the scan reads it.
+      const message = "The file could not be parsed, so dependencyHash doesn't cover it.";
+      return this.placeUnit(module, error, message, isConfig);
+    }
+    return this.wholeUnit(module, false);
+  }
+
+  /** Something in a config the scan can't follow, as a unit that marks the tests whose config it is. */
+  gapUnit(gap: ConfigGap): Unit {
+    if ('module' in gap) {
+      const module = this.moduleOf(gap.module);
+      // The path a setup key names, where the config writes it.
+      const at = gap.text === null ? null : literalIn((module.parsed as ParsedFile).program, gap.text);
+      return this.placeUnit(module, at ?? { start: 0, end: 0 }, gap.message, gap.isQuiet);
+    }
+    const module = this.newModule(gap.relativeFilePath, null, null, new Values(), null);
+    const unit = this.newUnit(module, [], new Map(), false);
+    unit.edges = new Set();
+    const text = snippet(gap.source.slice(gap.span.start, gap.span.end));
+    unit.place = {
+      relativeFilePath: gap.relativeFilePath,
+      source: gap.source,
+      problem: problem('dependency-not-followed', gap.span, gap.message, text),
+      isQuiet: gap.isQuiet,
     };
     return unit;
   }
@@ -789,7 +882,11 @@ export class DependencyGraph {
             : declaration.type === 'ImportDefaultSpecifier'
               ? 'default'
               : (member ?? '*');
-        return this.imported(module, statement.source.value, imported, types, statement);
+        // Which module a name comes from is code too, also a package that isn't followed.
+        return [
+          ...this.imported(module, statement.source.value, imported, types, statement),
+          this.importUnit(module, statement, declaration),
+        ];
       }
       case 'TSImportEqualsDeclaration': {
         const reference = declaration.moduleReference;
@@ -891,19 +988,27 @@ export class DependencyGraph {
    * The framework of a test object: its own `test`, `mergeTests()` of test objects, or one built on them with
    * `extend()`, followed through imports; null for an expression that isn't one.
    */
-  private frameworkOf(module: Module, expression: Node, scopes: readonly Node[], types: boolean): Framework | null {
+  private frameworkOf(
+    module: Module,
+    expression: Node,
+    scopes: readonly Node[],
+    types: boolean,
+    seen = new Set<Node>(),
+  ): Framework | null {
     const node = unwrap(expression as Expression);
     if (node.type === 'CallExpression') {
       const { callee } = node;
       if (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'extend') {
-        return this.frameworkOf(module, callee.object, scopes, types);
+        return this.frameworkOf(module, callee.object, scopes, types, seen);
       }
       // `mergeTests(a, b)`.
-      return this.frameworkOf(module, callee, scopes, types);
+      return this.frameworkOf(module, callee, scopes, types, seen);
     }
     if (node.type !== 'Identifier') return null;
     const declaration = module.values.declarationOf(node.name, scopes);
-    if (declaration === null) return null;
+    // Values built from each other, as `const poll = () => retry()` and `const retry = () => poll()`, end here.
+    if (declaration === null || seen.has(declaration)) return null;
+    seen.add(declaration);
     if (declaration.type === 'ImportSpecifier') {
       const source = this.importOf(module, declaration).source.value;
       // `expect` has an extend() too, for matchers.
@@ -920,7 +1025,7 @@ export class DependencyGraph {
       const root = unit.roots.at(0)?.node;
       if (root?.type !== 'VariableDeclarator' || root.init === null) continue;
       const at = root === declaration ? scopes : scopesAt((unit.module.parsed as ParsedFile).program, root);
-      const framework = this.frameworkOf(unit.module, root.init, at, types);
+      const framework = this.frameworkOf(unit.module, root.init, at, types, seen);
       if (framework) return framework;
     }
     return null;
@@ -1029,7 +1134,8 @@ export class DependencyGraph {
     };
     const follow = (name: string, scopes: readonly Node[], member: string | null) => {
       const declaration = module.values.declarationOf(name, scopes) ?? otherDeclaration(name, scopes, types);
-      if (declaration === null || isOwn(declaration)) return;
+      // An import in the unit's own code still names code elsewhere.
+      if (declaration === null || (isOwn(declaration) && !IMPORT_BINDINGS.has(declaration.type))) return;
       add(this.toDeclaration(module, declaration, name, member, types));
     };
     /** A module loaded by the path in `argument`, or a place when the path is worked out at run time. */
@@ -1051,7 +1157,13 @@ export class DependencyGraph {
           : callee.type === 'MemberExpression' && !callee.computed
             ? callee.property.name
             : null;
-      if (name === null || !(FIXTURE_CALLS.has(name) || CONDITION_CALLS.has(name) || USE_CALLS.has(name))) return;
+      if (name === null) return;
+      // A test object imported under another name, as Playwright's `import { test as setup }` for setup projects;
+      // `mergeTests()` combines test objects, and isn't one.
+      const declaration = callee.type === 'Identifier' ? module.values.declarationOf(callee.name, scopes) : null;
+      const isMerge = declaration?.type === 'ImportSpecifier' && exportName(declaration.imported) === 'mergeTests';
+      const isTest = declaration !== null && !isMerge && this.isTestObject(module, callee, declaration, scopes, types);
+      if (!(isTest || FIXTURE_CALLS.has(name) || CONDITION_CALLS.has(name) || USE_CALLS.has(name))) return;
       // A fixture's own `use(value)` callback is called by name; `test.use()` is a member.
       if (USE_CALLS.has(name) && callee.type !== 'MemberExpression') return;
       // `/^[A-Z]+$/.test(symbol)`, `assert.fail()` or `app.use()` don't run with fixtures.
@@ -1235,6 +1347,16 @@ function otherDeclaration(name: string, scopes: readonly Node[], types: boolean)
   return null;
 }
 
+/** The first string literal with a value in a tree, in source order; null when there is none. */
+function literalIn(node: Node, value: string): Span | null {
+  if (node.type === 'Literal' && node.value === value) return node;
+  for (const child of childNodes(node)) {
+    const found = literalIn(child, value);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** The statements of a describe's callback, or its expression when it has no block body. */
 function bodyNodes(fn: FunctionNode): Node[] {
   const body = fn.body as Node;
@@ -1252,6 +1374,7 @@ export function fileDependencies(
   extraction: Extraction,
   types: boolean,
   report: (place: Place) => void,
+  runsWith: RunsWith = { config: null, modules: [], gaps: [] },
 ): (test: PendingTest) => Dependencies {
   const moduleOf = (frame: Frame) => graph.module(frame.parsed, frame.relativeFilePath, frame.values, frame.readModule);
   const mainModule = moduleOf(main);
@@ -1259,10 +1382,12 @@ export function fileDependencies(
   // in the file or a describe runs.
   const items = [...extraction.tests, ...extraction.suites];
   const registered = items.flatMap((item) => (item.registeredBy ? [item.registeredBy] : []));
-  const load = graph.loadUnit(mainModule, types, [
-    ...items.flatMap((item) => (item.frame === main ? [item.call] : [])),
-    ...registered,
-  ]);
+  const load = graph.loadUnit(
+    mainModule,
+    types,
+    [...items.flatMap((item) => (item.frame === main ? [item.call] : [])), ...registered],
+    true,
+  );
   const registering = (call: Node | null) => (call ? [graph.unit(mainModule, [call], [], types)] : []);
   const suiteUnits = new Map<PendingSuite, Unit[]>();
   const suiteUnit = (suite: PendingSuite): Unit[] => {
@@ -1285,17 +1410,43 @@ export function fileDependencies(
     return units;
   };
   // What the file runs when it loads is the same for each of its tests, and often most of what they run.
-  const base = graph.reach([load]);
-  return (test) => {
-    const roots = [graph.unit(moduleOf(test.frame), [test.call], [], types), ...registering(test.registeredBy)];
-    for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
-      if (scope.suite) roots.push(...suiteUnit(scope.suite));
+  const config = [
+    ...(runsWith.config ? [graph.runUnit(runsWith.config, true)] : []),
+    ...runsWith.modules.map((module) => graph.runUnit(module, false)),
+    ...runsWith.gaps.map((gap) => graph.gapUnit(gap)),
+  ];
+  const base = graph.reach([load, ...config]);
+  // The describes around a test and the helper call that registers it are shared by the tests there, often thousands
+  // for one helper call, so what they reach is walked once for all of them.
+  const contexts = new Map<Scope, Map<Node | null, Reach>>();
+  const contextOf = (scope: Scope, registeredBy: Node | null): Reach => {
+    const byCall = contexts.get(scope) ?? new Map<Node | null, Reach>();
+    contexts.set(scope, byCall);
+    let context = byCall.get(registeredBy);
+    if (!context) {
+      const roots = registering(registeredBy);
+      for (let around: Scope | null = scope; around; around = around.parent) {
+        if (around.suite) roots.push(...suiteUnit(around.suite));
+      }
+      context = graph.reach(roots, [base]);
+      byCall.set(registeredBy, context);
     }
+    return context;
+  };
+  // A test declared in a helper is one call for every test the helper's calls register.
+  const calls = new Map<Node, Unit>();
+  return (test) => {
+    let own = calls.get(test.call);
+    if (!own) {
+      own = graph.unit(moduleOf(test.frame), [test.call], [], types);
+      calls.set(test.call, own);
+    }
+    const roots = [own];
     const needs: FixtureNeeds = { names: [...test.declaration.fixtures], all: test.declaration.takesAllFixtures };
     for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {
       needs.names.push(...scope.setupFixtures);
       needs.all ||= scope.takesAllFixtures;
     }
-    return graph.dependencies(roots, base, needs, report);
+    return graph.dependencies(roots, [base, contextOf(test.scope, test.registeredBy)], needs, report);
   };
 }

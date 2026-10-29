@@ -191,7 +191,7 @@ describe('Vitest tags the config defines', () => {
     for (const config of configs) {
       const inventory = await scanned(config, files);
       expect(
-        codes(inventory).filter((code) => code !== 'config-value-unknown'),
+        codes(inventory).filter((code) => code !== 'config-value-unknown' && code !== 'dependency-not-followed'),
         config,
       ).toEqual(['config-may-change-state']);
       expect(inventory.tests[0].state, config).toBe('active');

@@ -1,6 +1,8 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { glob } from 'tinyglobby';
+import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
@@ -137,6 +139,25 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
   const files = patterns ? found.files : found.files.filter((file) => placements.get(file.absolutePath)?.runs);
+  // A setup project's files may be outside the patterns, or ignored for the scan, so they are looked for in its testDir.
+  const setupDirs = new Set<string>();
+  for (const { config, projects } of placements.values()) {
+    const seen = new Set<string>();
+    const names = (projects ?? []).flatMap((project) => project.dependencies);
+    for (let name = names.pop(); config && name !== undefined; name = names.pop()) {
+      const project = seen.has(name) ? null : runs.projectNamed(config, name);
+      seen.add(name);
+      if (!project) continue;
+      setupDirs.add(project.about.testDir);
+      names.push(...project.about.dependencies);
+    }
+  }
+  // Searched from the folder itself, as a folder named like `(auth)` would be read as a glob in a pattern.
+  const setupFiles = await Promise.all(
+    [...setupDirs].map((folder) => glob(SCRIPT_FILES, { cwd: folder, absolute: true, ignore: ['**/node_modules/**'] })),
+  );
+  const candidates = setupFiles.flat().map((file) => path.resolve(file));
+  const configDependencies = new ConfigDependencies(framework, runs, readerFor, candidates);
   const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
@@ -167,6 +188,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
       graph,
+      runsWith: configDependencies.of(placement),
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.

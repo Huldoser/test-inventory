@@ -215,7 +215,10 @@ describe('which Playwright files a config runs', () => {
     );
     expect(configs).toEqual({ 'tests/orders.spec.ts': 'playwright.config.ts' });
     expect(
-      inventory.diagnostics.map((diagnostic) => [diagnostic.message.split(' could')[0], diagnostic.source]),
+      inventory.diagnostics
+        // The config's own imports that can't be read are also dependencyHash warnings, tested with it.
+        .filter((diagnostic) => diagnostic.code !== 'dependency-not-followed')
+        .map((diagnostic) => [diagnostic.message.split(' could')[0], diagnostic.source]),
     ).toEqual([[`The config's ${key}`, source]]);
   });
   it('takes a setting the config changes after writing it as unknown', async () => {
