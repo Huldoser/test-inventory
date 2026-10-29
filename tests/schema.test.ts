@@ -26,9 +26,10 @@ function edited(path: (string | number)[], value: unknown): unknown {
 }
 
 describe('schema/v1.json', () => {
+  // Generating the schema runs the TypeScript compiler: over 4 s on the macOS Intel runner, which once took 9.9 s.
   it('is generated from the current src/types.ts (run npm run schema)', () => {
     expect(readFileSync(schemaPath, 'utf8')).toBe(generateSchema());
-  });
+  }, 20_000);
 
   it('accepts scan output, with no keys outside the schema', () => {
     validateStrict(output);
