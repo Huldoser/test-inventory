@@ -1776,5 +1776,84 @@ export default defineConfig({ testDir: './tests', globalSetup: undefined, projec
       });
       expect(unknown.tests[0].hasUnfollowedDependencies).toBe(true);
     });
+
+    it('changes when a name comes from another package, in the test file or in code it uses', async () => {
+      const test =
+        "import { test } from 'vitest';\nimport { expect } from 'vitest';\ntest('rounds the fill price', () => {\n  expect(round(187.456)).toBe(187.46);\n});\nfunction round(price: number) {\n  return Math.round(price * 100) / 100;\n}\n";
+      const before = scanVitest(test).tests[0].dependencyHash;
+      const chai = scanVitest(test.replace("import { expect } from 'vitest';", "import { expect } from 'chai';"))
+        .tests[0];
+      const unused = scanVitest(`import '@trading/polyfills';\nimport { tz } from '@trading/clock';\n${test}`).tests[0];
+      expect([chai.dependencyHash, unused.dependencyHash].every((hash) => hash !== before)).toBe(true);
+      const files = {
+        'package.json': VITEST_PACKAGE,
+        'src/pricing.ts':
+          "import { round } from 'lodash';\nexport const fillPrice = (price: number) => round(price, 2);\n",
+        'tests/pricing.test.ts':
+          "import { expect, test } from 'vitest';\nimport { fillPrice } from '../src/pricing';\ntest('rounds the fill price', () => {\n  expect(fillPrice(187.456)).toBe(187.46);\n});\n",
+      };
+      const lodash = await hashesAfter(files, null, 'vitest');
+      const es = await hashesAfter(
+        files,
+        ['src/pricing.ts', files['src/pricing.ts'].replace("'lodash'", "'lodash-es'")],
+        'vitest',
+      );
+      expect(es).not.toEqual(lodash);
+    });
+
+    it('takes the config of every project that runs a file, keeps unnamed projects apart, and survives call cycles', async () => {
+      const root = project({
+        'package.json': VITEST_PACKAGE,
+        'vitest.config.ts': `export default {
+  test: {
+    projects: [
+      { extends: true, test: { name: 'ledger-unit', include: ['tests/**/*.test.ts'] } },
+      './vitest.integration.config.ts',
+      { test: { include: ['quotes/**/*.test.ts'], setupFiles: ['./setup/pricing-feed.ts'] } },
+      { test: { include: ['clock/**/*.test.ts'], setupFiles: ['./setup/ledger-clock.ts'] } },
+    ],
+  },
+};
+`,
+        'vitest.integration.config.ts':
+          "export default { test: { include: ['tests/**/*.test.ts'], environment: 'node' } };\n",
+        'setup/pricing-feed.ts': "globalThis.feed = 'paper';\n",
+        'setup/ledger-clock.ts': "globalThis.clock = 'frozen';\n",
+        'tests/retry.ts': 'export const poll = () => retry();\nexport const retry = () => poll();\n',
+        'tests/ledger.test.ts':
+          "import { expect, test } from 'vitest';\nimport { poll } from './retry';\ntest('posts the opening balance', () => {\n  expect(typeof poll).toBe('function');\n});\n",
+        'quotes/spread.test.ts':
+          "import { expect, test } from 'vitest';\ntest('quotes a spread', () => {\n  expect(1).toBe(1);\n});\n",
+        'clock/tick.test.ts':
+          "import { expect, test } from 'vitest';\ntest('ticks the clock', () => {\n  expect(1).toBe(1);\n});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(inventory.diagnostics.filter((diagnostic) => diagnostic.code === 'internal-error')).toEqual([]);
+      const dependencies = Object.fromEntries(inventory.tests.map((test) => [test.title, test.dependencies]));
+      expect(dependencies['posts the opening balance']).toContain('vitest.integration.config.ts');
+      expect(dependencies['quotes a spread']).toContain('setup/pricing-feed.ts');
+      expect(dependencies['quotes a spread']).not.toContain('setup/ledger-clock.ts');
+      expect(dependencies['ticks the clock']).toContain('setup/ledger-clock.ts');
+    });
+
+    it('finds the files of a setup project whose folder has glob characters in its name', async () => {
+      const inventory = await scanProject(
+        project({
+          'package.json': PLAYWRIGHT_PACKAGE,
+          'playwright.config.ts': `export default {
+  projects: [
+    { name: 'setup', testDir: './e2e/(auth)', testMatch: /.*\\.setup\\.ts/ },
+    { name: 'chromium', testDir: './tests', dependencies: ['setup'] },
+  ],
+};
+`,
+          'e2e/(auth)/login.setup.ts':
+            "import { test as setup } from '@playwright/test';\nsetup('signs in', async ({ page }) => {\n  await page.goto('/login');\n});\n",
+          'tests/orders.spec.ts':
+            "import { test } from '@playwright/test';\ntest('opens the order ticket', async ({ page }) => {\n  await page.goto('/trade/AAPL');\n});\n",
+        }),
+      );
+      expect(inventory.tests[0].dependencies).toContain('e2e/(auth)/login.setup.ts');
+    });
   });
 });

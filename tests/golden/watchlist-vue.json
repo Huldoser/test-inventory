@@ -232,7 +232,7 @@
     {
       "id": "98607d9cf951d0ad",
       "bodyHash": "fbadd2a5048288d9",
-      "dependencyHash": "c4d42dc3e1de95e7",
+      "dependencyHash": "1ec36a1db7926ad0",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts",
@@ -316,7 +316,7 @@
     {
       "id": "b832207595d60b5a",
       "bodyHash": "26e2eda06a90ad63",
-      "dependencyHash": "27f5908ef06159c1",
+      "dependencyHash": "18c821332799c0d4",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts",
@@ -400,7 +400,7 @@
     {
       "id": "6845b18187057e8e",
       "bodyHash": "2aa2740813832353",
-      "dependencyHash": "7af6250584b159d9",
+      "dependencyHash": "a20ef2dd37b2a15e",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts",
@@ -484,7 +484,7 @@
     {
       "id": "486cbcddd832451d",
       "bodyHash": "f9623531b0e1a41a",
-      "dependencyHash": "8320379bab43159e",
+      "dependencyHash": "2398fef13e0e8030",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts",
@@ -569,7 +569,7 @@
     {
       "id": "3f34fd72c582871d",
       "bodyHash": null,
-      "dependencyHash": "468802b5169128f9",
+      "dependencyHash": "5d3d4b4f8b8cd88b",
       "dependencies": [
         "src/components/Watchlist.vue",
         "tests/unit/Watchlist.spec.ts",
@@ -654,7 +654,7 @@
     {
       "id": "eff7c3afdf4a6ff1",
       "bodyHash": "6036d9e59ea4e389",
-      "dependencyHash": "bbc5bce93f0bb6f1",
+      "dependencyHash": "a9eb04fcc9e05bad",
       "dependencies": [
         "src/components/WatchlistRow.vue",
         "tests/unit/WatchlistRow.spec.ts",
@@ -738,7 +738,7 @@
     {
       "id": "c7556fc853f29e94",
       "bodyHash": "5cf800ef909e39b3",
-      "dependencyHash": "0088de03eb49d03c",
+      "dependencyHash": "018c133ac22e5d02",
       "dependencies": [
         "src/components/WatchlistRow.vue",
         "tests/unit/WatchlistRow.spec.ts",

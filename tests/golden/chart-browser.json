@@ -121,7 +121,7 @@
     {
       "id": "9c395cd613ff775f",
       "bodyHash": "68a3d0a97c6c1b81",
-      "dependencyHash": "1f0fa2d8b1460d1b",
+      "dependencyHash": "856d8ed13cf73915",
       "dependencies": [
         "src/candlestick-chart.test.ts",
         "src/candlestick-chart.ts",
@@ -206,7 +206,7 @@
     {
       "id": "a25f4dcefcf0b5b5",
       "bodyHash": "29ee0820db6ca72d",
-      "dependencyHash": "c39f5fdf22b0d2ce",
+      "dependencyHash": "a5bcf96849a657d6",
       "dependencies": [
         "src/candlestick-chart.test.ts",
         "src/candlestick-chart.ts",
@@ -291,7 +291,7 @@
     {
       "id": "dc5ec34ec1808b8d",
       "bodyHash": "30ef72abf8988caa",
-      "dependencyHash": "35d9fd4c061e4620",
+      "dependencyHash": "2cf3dbf391e21c0a",
       "dependencies": [
         "src/candlestick-chart.test.ts",
         "src/candlestick-chart.ts",
@@ -376,7 +376,7 @@
     {
       "id": "f27d38976c1b7c14",
       "bodyHash": "a63556cf2c2698cc",
-      "dependencyHash": "9abc8882ad76b2ef",
+      "dependencyHash": "404d2056e513f69f",
       "dependencies": [
         "src/candlestick-chart.test.ts",
         "src/candlestick-chart.ts",
@@ -463,7 +463,7 @@
     {
       "id": "621d4bea95a8e4a3",
       "bodyHash": "43d2b322a565b7a7",
-      "dependencyHash": "2c06c1d7725b6d31",
+      "dependencyHash": "24a335f7e23ddfd0",
       "dependencies": [
         "src/candlestick-chart.test.ts",
         "src/candlestick-chart.ts",

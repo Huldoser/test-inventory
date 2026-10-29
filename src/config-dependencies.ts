@@ -51,6 +51,7 @@ export class ConfigDependencies {
   /** The files setup projects may run. */
   private readonly candidates: readonly string[];
   private readonly found = new Map<string, RunsWith>();
+  private readonly ids = new Map<ProjectAbout, number>();
 
   constructor(
     framework: Framework,
@@ -67,14 +68,24 @@ export class ConfigDependencies {
   of(placement: Placement): RunsWith {
     const { config } = placement;
     if (config === null) return NOTHING;
-    const names = (placement.projects ?? []).map((project) => project.name);
-    const key = `${config.file}\0${placement.projects === null}\0${names.join('\0')}`;
+    // Projects without a name are told apart by identity, as two may have different setup.
+    const ids = (placement.projects ?? []).map((project) => this.idOf(project));
+    const key = `${config.file}\0${placement.projects === null}\0${ids.join('\0')}`;
     let found = this.found.get(key);
     if (!found) {
       found = this.read(config, placement);
       this.found.set(key, found);
     }
     return found;
+  }
+
+  private idOf(project: ProjectAbout): number {
+    let id = this.ids.get(project);
+    if (id === undefined) {
+      id = this.ids.size;
+      this.ids.set(project, id);
+    }
+    return id;
   }
 
   private read(config: ConfigFile, placement: Placement): RunsWith {
@@ -129,7 +140,11 @@ export class ConfigDependencies {
       // Vitest runs the global setup of the config it starts with for every project, extending it or not.
       setup(own, config.settings, folder, ['test', 'globalSetup']);
       for (const project of running) {
-        for (const keys of SETUP_KEYS.vitest) setup(own, project.settings, project.root, keys);
+        // A file several projects run may be run by one from another config, which the file runs with too; the config
+        // reader has read that config, so it can be read.
+        const written = 'config' in project ? (this.module(project.config.file) as ModuleSource) : own;
+        modules.add(written);
+        for (const keys of SETUP_KEYS.vitest) setup(written, project.settings, project.root, keys);
         const { container } = project;
         const outer = container && this.module(container.file);
         if (container && outer) {

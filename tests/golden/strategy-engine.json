@@ -1124,7 +1124,7 @@
     {
       "id": "31a4ede14a50d495",
       "bodyHash": "3f5cafee0ffa6836",
-      "dependencyHash": "6ff0d3324b848e0d",
+      "dependencyHash": "f524e00c2c4d57ef",
       "dependencies": [
         "src/pnl/format.ts",
         "vitest.config.ts"
@@ -1207,7 +1207,7 @@
     {
       "id": "ceb2288b30fb0cee",
       "bodyHash": "d70cbc344e83cb89",
-      "dependencyHash": "b30d2811a137754b",
+      "dependencyHash": "bfd8fb8e44c75350",
       "dependencies": [
         "src/pnl/format.ts",
         "vitest.config.ts"
@@ -1290,7 +1290,7 @@
     {
       "id": "73d712d2bf05f887",
       "bodyHash": "efff807b1f64206b",
-      "dependencyHash": "8bd59c88e9e976e9",
+      "dependencyHash": "3c52ad54bf08f229",
       "dependencies": [
         "src/pnl/format.ts",
         "vitest.config.ts"
@@ -1373,7 +1373,7 @@
     {
       "id": "7a002fd6d6cc8525",
       "bodyHash": "13a929bf4a57cd98",
-      "dependencyHash": "15e3f7adc4f59ad4",
+      "dependencyHash": "51b81cefbf7cc7c8",
       "dependencies": [
         "src/pnl/format.ts",
         "vitest.config.ts"
@@ -1454,7 +1454,7 @@
     {
       "id": "8c736ca50389a689",
       "bodyHash": "cd292cb23b1f6309",
-      "dependencyHash": "d858f5390d18bcc6",
+      "dependencyHash": "fe3ae67ab1884239",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts",
@@ -1538,7 +1538,7 @@
     {
       "id": "32bd9e9bc159f1bf",
       "bodyHash": "2f738daed6628313",
-      "dependencyHash": "fb81432ce09b4642",
+      "dependencyHash": "460ec152969735bd",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts",
@@ -1622,7 +1622,7 @@
     {
       "id": "ea7ee016a2c38a37",
       "bodyHash": "68ad8543578f11e2",
-      "dependencyHash": "aec2d91d6a8ee8c9",
+      "dependencyHash": "fde2b0eb3c28f8fe",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts",
@@ -1706,7 +1706,7 @@
     {
       "id": "5e13a2afe5a8d01d",
       "bodyHash": "c0dbe581a33fffa2",
-      "dependencyHash": "89cfa35ff72752b8",
+      "dependencyHash": "8d3b353a37f5a549",
       "dependencies": [
         "src/indicators/rsi.ts",
         "tests/indicators/rsi.test.ts",
@@ -1790,7 +1790,7 @@
     {
       "id": "288f119ad918c2e9",
       "bodyHash": "94bf07d9d6a14f75",
-      "dependencyHash": "9757aa147cefeab6",
+      "dependencyHash": "8b7acd5f8dffc391",
       "dependencies": [
         "src/indicators/sma.ts",
         "tests/indicators/sma.test.ts",
@@ -1874,7 +1874,7 @@
     {
       "id": "8860da104849a805",
       "bodyHash": "b733271d6d0ed64b",
-      "dependencyHash": "666bcb4b01c00e35",
+      "dependencyHash": "30a60a85b4a35d5e",
       "dependencies": [
         "src/indicators/sma.ts",
         "tests/indicators/sma.test.ts",
@@ -1958,7 +1958,7 @@
     {
       "id": "7c6c64ebaa135889",
       "bodyHash": "fb481c54bce8c709",
-      "dependencyHash": "4c93c9f4616ee67a",
+      "dependencyHash": "b4d68715ebcf7ee1",
       "dependencies": [
         "src/indicators/sma.ts",
         "tests/indicators/sma.test.ts",
@@ -2042,7 +2042,7 @@
     {
       "id": "f612d51f5b110ce9",
       "bodyHash": "dfa9c8f440924ce2",
-      "dependencyHash": "9330ea40174aab22",
+      "dependencyHash": "bff94735365cb203",
       "dependencies": [
         "src/orders/order.ts",
         "tests/orders/order.test-d.ts",
@@ -2126,7 +2126,7 @@
     {
       "id": "bb2b4407c0602dd6",
       "bodyHash": "ff3d9a9a5dc877b8",
-      "dependencyHash": "5f4c71fde42e2528",
+      "dependencyHash": "fd35761cf2c3fed5",
       "dependencies": [
         "src/orders/order.ts",
         "tests/orders/order.test-d.ts",
@@ -2210,7 +2210,7 @@
     {
       "id": "e0f8d43668329563",
       "bodyHash": "d3df05536dc2eff5",
-      "dependencyHash": "8625dc2e0bba3866",
+      "dependencyHash": "a6d156cf4aaeed5f",
       "dependencies": [
         "src/orders/order.ts",
         "tests/orders/order.test-d.ts",
@@ -2294,7 +2294,7 @@
     {
       "id": "5ada633edd92ada3",
       "bodyHash": null,
-      "dependencyHash": "ea45f37c21111645",
+      "dependencyHash": "19e655195c2f531d",
       "dependencies": [
         "tests/orders/short-selling.test.ts",
         "vitest.config.ts"
@@ -2377,7 +2377,7 @@
     {
       "id": "b435c4ea3af02d86",
       "bodyHash": null,
-      "dependencyHash": "bea5b6e9cdfaa90e",
+      "dependencyHash": "67c9435981fa4444",
       "dependencies": [
         "tests/orders/short-selling.test.ts",
         "vitest.config.ts"
@@ -2460,7 +2460,7 @@
     {
       "id": "c1a4d5ba0d0d367f",
       "bodyHash": null,
-      "dependencyHash": "068668d0cb6cb752",
+      "dependencyHash": "16e7979e19cd8857",
       "dependencies": [
         "tests/orders/short-selling.test.ts",
         "vitest.config.ts"
@@ -2543,7 +2543,7 @@
     {
       "id": "666150fc836cb82b",
       "bodyHash": "902ae6f0294a6c40",
-      "dependencyHash": "c7f8aedd149127a6",
+      "dependencyHash": "b46fce4916764061",
       "dependencies": [
         "src/orders/order.ts",
         "src/orders/validate-order.ts",
@@ -2628,7 +2628,7 @@
     {
       "id": "2c344a335b4ef778",
       "bodyHash": "773705ddac8123a4",
-      "dependencyHash": "95a2cca7228e3b4d",
+      "dependencyHash": "5f8706af166c4d07",
       "dependencies": [
         "src/orders/order.ts",
         "src/orders/validate-order.ts",
@@ -2713,7 +2713,7 @@
     {
       "id": "62ec2696d71f7e1a",
       "bodyHash": "76a3cf96dcdf6dba",
-      "dependencyHash": "64d0a631b768545b",
+      "dependencyHash": "db3c0b52bd556e7d",
       "dependencies": [
         "src/orders/order.ts",
         "src/orders/validate-order.ts",
@@ -2798,7 +2798,7 @@
     {
       "id": "622ed2a5ee95e007",
       "bodyHash": "b0c2e279eeeaa520",
-      "dependencyHash": "d83fb61b47b65797",
+      "dependencyHash": "3c6026ea5cd0a746",
       "dependencies": [
         "src/orders/order.ts",
         "src/orders/validate-order.ts",
@@ -2883,7 +2883,7 @@
     {
       "id": "87c3ecab56765249",
       "bodyHash": "9999714e07353d7f",
-      "dependencyHash": "82f18fd1a634ae02",
+      "dependencyHash": "ccfa30cdc72f677b",
       "dependencies": [
         "src/pnl/fees.ts",
         "tests/pnl/fees.test.ts",
@@ -2969,7 +2969,7 @@
     {
       "id": "9e150fb03ac49817",
       "bodyHash": "512137d4823d7f4d",
-      "dependencyHash": "d7383e5e61960007",
+      "dependencyHash": "585ad590272669c5",
       "dependencies": [
         "src/pnl/fees.ts",
         "tests/pnl/fees.test.ts",
@@ -3055,7 +3055,7 @@
     {
       "id": "6dfa8c37957529e4",
       "bodyHash": "f0da4f21cae4a607",
-      "dependencyHash": "795214488f45fa57",
+      "dependencyHash": "424520e94949fcbe",
       "dependencies": [
         "src/pnl/fees.ts",
         "tests/pnl/fees.test.ts",
@@ -3141,7 +3141,7 @@
     {
       "id": "346f07bbb28b10fc",
       "bodyHash": "f2d6b312135753cd",
-      "dependencyHash": "2091f4a61c2425f6",
+      "dependencyHash": "0d97197b28b937f7",
       "dependencies": [
         "src/pnl/fees.ts",
         "tests/pnl/fees.test.ts",
@@ -3229,7 +3229,7 @@
     {
       "id": "ae338fdae0069ebc",
       "bodyHash": "c0946f0b2a93e13f",
-      "dependencyHash": "7ef5297f9ba7e555",
+      "dependencyHash": "2160c2d570ec382e",
       "dependencies": [
         "src/pnl/pnl.ts",
         "tests/pnl/pnl.test.ts",
@@ -3313,7 +3313,7 @@
     {
       "id": "3e783e6123df29fc",
       "bodyHash": "3ee2aa0b96cce390",
-      "dependencyHash": "29f4ed5cd20f27c0",
+      "dependencyHash": "64b56071a760b044",
       "dependencies": [
         "src/pnl/pnl.ts",
         "tests/pnl/pnl.test.ts",
@@ -3397,7 +3397,7 @@
     {
       "id": "c13fe172b4586cc5",
       "bodyHash": "1764610b054d080e",
-      "dependencyHash": "89c88303640b9828",
+      "dependencyHash": "c19aa5dcdce03506",
       "dependencies": [
         "src/pnl/pnl.ts",
         "tests/pnl/pnl.test.ts",
@@ -3481,7 +3481,7 @@
     {
       "id": "bb53d5b108dbdea7",
       "bodyHash": "2b5a4f98d7d877cb",
-      "dependencyHash": "a2541bf38956c467",
+      "dependencyHash": "b35c491d41c963fc",
       "dependencies": [
         "src/pnl/pnl.ts",
         "tests/pnl/pnl.test.ts",
@@ -3565,7 +3565,7 @@
     {
       "id": "3c70a2d755873575",
       "bodyHash": "25545ac1c6ef648e",
-      "dependencyHash": "a7c7e01012877609",
+      "dependencyHash": "b2fbe9f5bde75cc7",
       "dependencies": [
         "src/pnl/pnl.ts",
         "tests/pnl/pnl.test.ts",
@@ -3649,7 +3649,7 @@
     {
       "id": "b20dcbff3a673f92",
       "bodyHash": "6a46aa0214daf7d5",
-      "dependencyHash": "5eaef66b99296768",
+      "dependencyHash": "4c535a37a3a6f600",
       "dependencies": [
         "src/risk/position-size.ts",
         "tests/risk/position-size.test.ts",
@@ -3733,7 +3733,7 @@
     {
       "id": "de14faf1c3f90a9b",
       "bodyHash": "4f5d2b21b92bb2c9",
-      "dependencyHash": "c37d1310e4f5213b",
+      "dependencyHash": "b92ead53245f2b6e",
       "dependencies": [
         "src/risk/position-size.ts",
         "tests/risk/position-size.test.ts",
@@ -3817,7 +3817,7 @@
     {
       "id": "8031fcf3b89cfaa0",
       "bodyHash": "4b10c8866981c1c1",
-      "dependencyHash": "646d1b31c9bf7611",
+      "dependencyHash": "6cf607f111d3cc16",
       "dependencies": [
         "src/risk/position-size.ts",
         "tests/risk/position-size.test.ts",
@@ -3901,7 +3901,7 @@
     {
       "id": "a9878602cb722cf0",
       "bodyHash": "26f56a5b167092b8",
-      "dependencyHash": "470c3ceef81b7e83",
+      "dependencyHash": "456607553e265019",
       "dependencies": [
         "src/risk/position-size.ts",
         "tests/risk/position-size.test.ts",
@@ -3985,7 +3985,7 @@
     {
       "id": "d6f6dd0395ed01c3",
       "bodyHash": "c82c9fca683dfe5e",
-      "dependencyHash": "70066d1a7b060105",
+      "dependencyHash": "1226348a325df70c",
       "dependencies": [
         "src/risk/position-size.ts",
         "tests/risk/position-size.test.ts",
@@ -4069,7 +4069,7 @@
     {
       "id": "1143995c7e7ce2a1",
       "bodyHash": "36aa3c3f6228bcbc",
-      "dependencyHash": "cf5ec23509b9e846",
+      "dependencyHash": "a8406357aa7b5b8e",
       "dependencies": [
         "src/risk/stop-loss.ts",
         "tests/risk/stop-loss.test.ts",
@@ -4154,7 +4154,7 @@
     {
       "id": "063d666be690b551",
       "bodyHash": "f4f01e634559a64f",
-      "dependencyHash": "c7fb4d1a7387f81c",
+      "dependencyHash": "e091eb47f69694db",
       "dependencies": [
         "src/risk/stop-loss.ts",
         "tests/risk/stop-loss.test.ts",
@@ -4239,7 +4239,7 @@
     {
       "id": "e32c84d790e8baf4",
       "bodyHash": "a186702bd2c439e7",
-      "dependencyHash": "7c1d721d218ca1cc",
+      "dependencyHash": "516e9a076ef7a61c",
       "dependencies": [
         "src/risk/stop-loss.ts",
         "tests/risk/stop-loss.test.ts",
@@ -4324,7 +4324,7 @@
     {
       "id": "2b810a2d1c28846c",
       "bodyHash": "0ab43830ddc65b54",
-      "dependencyHash": "66df9bdcfb9aa1c7",
+      "dependencyHash": "a9831bece9eea846",
       "dependencies": [
         "src/risk/stop-loss.ts",
         "tests/risk/stop-loss.test.ts",
@@ -4409,7 +4409,7 @@
     {
       "id": "47014eb32c707c5d",
       "bodyHash": "3a506d0b22d2f6f2",
-      "dependencyHash": "4f1922116b788f9b",
+      "dependencyHash": "7e0472f4a7d2d761",
       "dependencies": [
         "src/risk/stop-loss.ts",
         "tests/risk/stop-loss.test.ts",
@@ -4493,7 +4493,7 @@
     {
       "id": "2145d2afe4c63cc5",
       "bodyHash": "2b76a26de78d7bff",
-      "dependencyHash": "f4a475c2a1b90ecd",
+      "dependencyHash": "5c2dc4aaf2e713fb",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",
@@ -4579,7 +4579,7 @@
     {
       "id": "62082774e76103f3",
       "bodyHash": "cd031ce14460654e",
-      "dependencyHash": "3ec1be8c37cb164d",
+      "dependencyHash": "277a6d011c712f96",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",
@@ -4665,7 +4665,7 @@
     {
       "id": "73a7c7defd505f74",
       "bodyHash": "10d0db326b90c0d6",
-      "dependencyHash": "1a3cb92707933932",
+      "dependencyHash": "e66491b217186cfc",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",
@@ -4751,7 +4751,7 @@
     {
       "id": "221cec097cfeb947",
       "bodyHash": "4f1e44cef280dbea",
-      "dependencyHash": "997ce140c83dc873",
+      "dependencyHash": "0d758a2ea664a668",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",
@@ -4837,7 +4837,7 @@
     {
       "id": "7907355b5a987822",
       "bodyHash": "c5070c5cf6e5c726",
-      "dependencyHash": "bd7adbcf52409a8a",
+      "dependencyHash": "2270e630db806d67",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",
@@ -4923,7 +4923,7 @@
     {
       "id": "069578d639e7bef3",
       "bodyHash": "ddab5a780cfc2d7e",
-      "dependencyHash": "7f9cd6b670901e2b",
+      "dependencyHash": "67f44a9fc7933f87",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",
@@ -5015,7 +5015,7 @@
     {
       "id": "1fcd0da48a1207cd",
       "bodyHash": "6acd16ce73a0e608",
-      "dependencyHash": "4903ef3e49d8866e",
+      "dependencyHash": "9b4d0cbd56cd64fa",
       "dependencies": [
         "src/indicators/sma.ts",
         "src/market-data/client.ts",

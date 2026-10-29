@@ -270,7 +270,7 @@
     {
       "id": "047203d4d29d16d6",
       "bodyHash": "83a3ac3d958d687e",
-      "dependencyHash": "23075739778685ad",
+      "dependencyHash": "a62cbe7c1fca9fa4",
       "dependencies": [
         "packages/broker-gateway/src/rate-limiter.test.ts",
         "packages/broker-gateway/src/rate-limiter.ts",
@@ -355,7 +355,7 @@
     {
       "id": "ea6139d1991d0f87",
       "bodyHash": "3b9902a556ea1b87",
-      "dependencyHash": "a1b3a9199a113c6e",
+      "dependencyHash": "61c1278e8499fc37",
       "dependencies": [
         "packages/broker-gateway/src/rate-limiter.test.ts",
         "packages/broker-gateway/src/rate-limiter.ts",
@@ -440,7 +440,7 @@
     {
       "id": "2ec3d46885c8b3a4",
       "bodyHash": "c950dd19fc895be4",
-      "dependencyHash": "ac44b122e55c617b",
+      "dependencyHash": "39fc0826f3d23226",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
         "packages/market-data/src/quote-cache.ts",
@@ -525,7 +525,7 @@
     {
       "id": "147dc22efd2f062b",
       "bodyHash": "ada5417ab5376678",
-      "dependencyHash": "1f598f981703267a",
+      "dependencyHash": "c619086010792235",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
         "packages/market-data/src/quote-cache.ts",
@@ -610,7 +610,7 @@
     {
       "id": "267dff365856f75a",
       "bodyHash": "30c90f821cc2a9f4",
-      "dependencyHash": "79daee674a03aed6",
+      "dependencyHash": "241b94b026389fa2",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
         "packages/market-data/src/quote-cache.ts",
@@ -695,7 +695,7 @@
     {
       "id": "5ef54d96cc0d0245",
       "bodyHash": "10f801f6af5fba70",
-      "dependencyHash": "b7b682ba05778d80",
+      "dependencyHash": "8bf669755913cec9",
       "dependencies": [
         "packages/risk/src/exposure.test.ts",
         "packages/risk/src/exposure.ts",
@@ -781,7 +781,7 @@
     {
       "id": "d4469ed724b030be",
       "bodyHash": "77f5307323b21463",
-      "dependencyHash": "9045b412768a402f",
+      "dependencyHash": "e798d4f819afd088",
       "dependencies": [
         "packages/risk/src/exposure.test.ts",
         "packages/risk/src/exposure.ts",
@@ -867,7 +867,7 @@
     {
       "id": "287e1941fecee816",
       "bodyHash": null,
-      "dependencyHash": "deb58ec70bcd7887",
+      "dependencyHash": "b141bfdc9314d4ab",
       "dependencies": [
         "packages/risk/src/exposure.test.ts",
         "packages/risk/vitest.config.ts",

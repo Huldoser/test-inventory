@@ -338,6 +338,14 @@ function runsOnLoad(node: Node): boolean {
  * Whether a top-level or describe statement runs when the file or describe does. An import that names nothing is there
  * for what its module does when loaded, so it is code of the file, also for a package.
  */
+/** An import that loads its module when the file runs: not a type-only one. */
+function isRuntimeImport(statement: Node): boolean {
+  return (
+    (statement.type === 'ImportDeclaration' || statement.type === 'TSImportEqualsDeclaration') &&
+    statement.importKind !== 'type'
+  );
+}
+
 function isLoadCode(statement: Node): boolean {
   // `import '@testing-library/jest-dom'` runs a module for what it does; a named import is followed through its names.
   if (statement.type === 'ImportDeclaration')
@@ -352,6 +360,7 @@ function isLoadCode(statement: Node): boolean {
 export class DependencyGraph {
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
+  private readonly imports = new WeakMap<Node, Unit>();
   private readonly testObjects: [WeakMap<Node, Unit | null>, WeakMap<Node, Unit | null>] = [
     new WeakMap(),
     new WeakMap(),
@@ -384,15 +393,17 @@ export class DependencyGraph {
   }
 
   /** The code a file runs when it is loaded, leaving out the tests and describes at `cut`. */
-  loadUnit(module: Module, types: boolean, cut: Span[] = []): Unit {
+  loadUnit(module: Module, types: boolean, cut: Span[] = [], allImports = false): Unit {
     const index = Number(types);
     const cached = module.load[index];
     if (cached) return cached;
     const program = (module.parsed as ParsedFile).program;
     const unit = this.newUnit(module, [], new Map(cut.map((span) => [span.start, span.end])), types);
     // Read once the walk reaches it, as telling a test object apart may need this module's load code in turn.
+    // A test file's every import is its own code; another module's are followed through the names a test uses.
+    const isCode = (statement: Node) => isLoadCode(statement) || (allImports && isRuntimeImport(statement));
     unit.prepare = () => {
-      for (const statement of program.body.filter(isLoadCode)) {
+      for (const statement of program.body.filter(isCode)) {
         const declaration = declared(statement);
         if (declaration.type !== 'VariableDeclaration') {
           unit.roots.push({ node: statement, scopes: [program] });
@@ -641,6 +652,18 @@ export class DependencyGraph {
     return unit;
   }
 
+  /** An import of a name a test uses: the module it names and how, as `import { round } from 'lodash'`. */
+  private importUnit(module: Module, statement: Extract<Node, { type: 'ImportDeclaration' }>, specifier: Node): Unit {
+    let unit = this.imports.get(specifier);
+    if (!unit) {
+      const roots = [statement.source, specifier].map((node) => ({ node, scopes: [] }));
+      unit = this.newUnit(module, roots, new Map(), false);
+      unit.edges = new Set();
+      this.imports.set(specifier, unit);
+    }
+    return unit;
+  }
+
   /** A place in a module the scan can't follow, as a unit that marks the tests that reach it. */
   private placeUnit(module: Module, at: Span, message: string, isQuiet = false): Unit {
     const { source } = module.parsed as ParsedFile;
@@ -842,7 +865,11 @@ export class DependencyGraph {
             : declaration.type === 'ImportDefaultSpecifier'
               ? 'default'
               : (member ?? '*');
-        return this.imported(module, statement.source.value, imported, types, statement);
+        // Which module a name comes from is code too, also a package that isn't followed.
+        return [
+          ...this.imported(module, statement.source.value, imported, types, statement),
+          this.importUnit(module, statement, declaration),
+        ];
       }
       case 'TSImportEqualsDeclaration': {
         const reference = declaration.moduleReference;
@@ -944,19 +971,27 @@ export class DependencyGraph {
    * The framework of a test object: its own `test`, `mergeTests()` of test objects, or one built on them with
    * `extend()`, followed through imports; null for an expression that isn't one.
    */
-  private frameworkOf(module: Module, expression: Node, scopes: readonly Node[], types: boolean): Framework | null {
+  private frameworkOf(
+    module: Module,
+    expression: Node,
+    scopes: readonly Node[],
+    types: boolean,
+    seen = new Set<Node>(),
+  ): Framework | null {
     const node = unwrap(expression as Expression);
     if (node.type === 'CallExpression') {
       const { callee } = node;
       if (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'extend') {
-        return this.frameworkOf(module, callee.object, scopes, types);
+        return this.frameworkOf(module, callee.object, scopes, types, seen);
       }
       // `mergeTests(a, b)`.
-      return this.frameworkOf(module, callee, scopes, types);
+      return this.frameworkOf(module, callee, scopes, types, seen);
     }
     if (node.type !== 'Identifier') return null;
     const declaration = module.values.declarationOf(node.name, scopes);
-    if (declaration === null) return null;
+    // Values built from each other, as `const poll = () => retry()` and `const retry = () => poll()`, end here.
+    if (declaration === null || seen.has(declaration)) return null;
+    seen.add(declaration);
     if (declaration.type === 'ImportSpecifier') {
       const source = this.importOf(module, declaration).source.value;
       // `expect` has an extend() too, for matchers.
@@ -973,7 +1008,7 @@ export class DependencyGraph {
       const root = unit.roots.at(0)?.node;
       if (root?.type !== 'VariableDeclarator' || root.init === null) continue;
       const at = root === declaration ? scopes : scopesAt((unit.module.parsed as ParsedFile).program, root);
-      const framework = this.frameworkOf(unit.module, root.init, at, types);
+      const framework = this.frameworkOf(unit.module, root.init, at, types, seen);
       if (framework) return framework;
     }
     return null;
@@ -1330,10 +1365,12 @@ export function fileDependencies(
   // in the file or a describe runs.
   const items = [...extraction.tests, ...extraction.suites];
   const registered = items.flatMap((item) => (item.registeredBy ? [item.registeredBy] : []));
-  const load = graph.loadUnit(mainModule, types, [
-    ...items.flatMap((item) => (item.frame === main ? [item.call] : [])),
-    ...registered,
-  ]);
+  const load = graph.loadUnit(
+    mainModule,
+    types,
+    [...items.flatMap((item) => (item.frame === main ? [item.call] : [])), ...registered],
+    true,
+  );
   const registering = (call: Node | null) => (call ? [graph.unit(mainModule, [call], [], types)] : []);
   const suiteUnits = new Map<PendingSuite, Unit[]>();
   const suiteUnit = (suite: PendingSuite): Unit[] => {

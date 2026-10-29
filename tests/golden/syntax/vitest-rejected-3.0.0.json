@@ -304,7 +304,7 @@
     {
       "id": "dea5755edf440d6e",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "d40f3db338b793ac",
+      "dependencyHash": "6b96ce7a284e14f6",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -384,7 +384,7 @@
     {
       "id": "172e2c49ca8c3ed4",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "671c1e727903a60e",
+      "dependencyHash": "83c56653dd2ebe7c",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -464,7 +464,7 @@
     {
       "id": "ab260d07928421a8",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "8226ecd28ea6e47a",
+      "dependencyHash": "819933d9c01504c4",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -544,7 +544,7 @@
     {
       "id": "6e33c04b9497a7d4",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "140ae92ea2faf91b",
+      "dependencyHash": "9d99f53164b44639",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],
@@ -624,7 +624,7 @@
     {
       "id": "5224378a87d61aea",
       "bodyHash": "6252cb86f167c584",
-      "dependencyHash": "d303242b14c8a5cd",
+      "dependencyHash": "8b4a9cd1542556f3",
       "dependencies": [
         "tests/vitest-rejected.test.ts"
       ],

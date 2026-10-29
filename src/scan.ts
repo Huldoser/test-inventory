@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { escapePath } from 'tinyglobby';
 import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
@@ -152,7 +153,10 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       names.push(...project.about.dependencies);
     }
   }
-  const setupPatterns = [...setupDirs].map((folder) => (folder === '' ? SCRIPT_FILES : `${folder}/${SCRIPT_FILES}`));
+  // A folder named like `(auth)` would be read as a glob.
+  const setupPatterns = [...setupDirs].map((folder) =>
+    folder === '' ? SCRIPT_FILES : `${escapePath(folder)}/${SCRIPT_FILES}`,
+  );
   const candidates = setupPatterns.length ? (await findFiles(root, setupPatterns, [], framework)).files : [];
   const configDependencies = new ConfigDependencies(
     framework,

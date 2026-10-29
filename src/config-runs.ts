@@ -63,6 +63,8 @@ export interface ProjectAbout {
   root: string;
   /** For a Vitest project from a config another config lists, the outermost one, whose global setup runs too. */
   container: ConfigFile | null;
+  /** The config the project is written in. */
+  config: ConfigFile;
   grep: ((title: string) => boolean) | null;
   grepRoot: string;
   defaults: ProjectDefaults;
@@ -289,6 +291,7 @@ export class ConfigRuns {
       settings: setting,
       root: path.dirname(config.file),
       container: null,
+      config,
       grep: null,
       grepRoot: '',
       defaults: NO_DEFAULTS,
@@ -364,6 +367,7 @@ export class ConfigRuns {
       settings: config.settings,
       root: folder,
       container: null,
+      config,
       grep:
         grep || grepInvert
           ? (title) => (grep === null || isGrepped(title)) && !(grepInvert && isInverted(title))
@@ -606,6 +610,7 @@ export class ConfigRuns {
       settings,
       root,
       container: null,
+      config,
       grep: null,
       grepRoot: base,
       defaults: {
