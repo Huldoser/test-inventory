@@ -1,5 +1,31 @@
 # test-inventory
 
+## 0.6.0
+
+### Minor Changes
+
+- [#61](https://github.com/Huldoser/test-inventory/pull/61) [`926352f`](https://github.com/Huldoser/test-inventory/commit/926352fd67caf8d26e17e346b9e916400e28a4e3) - Each test now has a `dependencyHash` of everything it runs in the project, beside the unchanged `bodyHash`: its own call
+  with its options, the hooks, `test.use()` and options of its file and of every describe around it, the fixtures it,
+  those hooks, conditions and `test.use()` values ask for, with the fixtures those ask for, `auto` ones and overrides of
+  Playwright's own, through every `extend()` and `mergeTests()`, the file's other top-level code, the config and the
+  configs it builds on, setup files, global setup and teardown, the Playwright setup projects the test runs after, and the
+  snapshot files and screenshots it compares against, and the functions, classes, constants and modules all of these use,
+  followed by scope and through imports, re-exports, barrels, `require()`, `import()` and Vitest's `vi.mock()` with a
+  fixed path, with the code each module runs when it loads. A helper that declares the test is in it with the arguments of
+  the call that declares it, so two calls give two hashes. Formatting and comments don't change it, nor does moving the
+  test. Installed packages are left out, and types too, except for type tests.
+
+  `dependencies` lists the files that went into the hash. When the test reaches something the scan can't follow, a local
+  file that is missing or doesn't parse, an import with a path worked out at run time or a pattern, a value only a
+  declaration file describes, or a setup file the config names in a way the scan can't work out,
+  `hasUnfollowedDependencies` is `true` and the new `dependency-not-followed` warning says where, once per place.
+
+- [#65](https://github.com/Huldoser/test-inventory/pull/65) [`31a9bee`](https://github.com/Huldoser/test-inventory/commit/31a9beef6f2912a03c4ae70ccd797b9b40cfe3e8) - `--related <file>` and the `related` filter of `filterInventory()` keep the tests a change to a file can affect: those
+  whose `dependencies` include it, and those that reach code the scan can't follow, which a change may affect unseen.
+  `--related -` reads the files from standard input, one per line, so `git diff --name-only origin/main... | npx
+test-inventory --framework playwright --related -` lists the tests a pull request can affect. Paths are taken from the
+  current folder, as git writes them, also when `--root` is a folder in the repository.
+
 ## 0.5.0
 
 ### Minor Changes
