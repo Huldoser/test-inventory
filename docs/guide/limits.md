@@ -207,7 +207,9 @@ something included. Some of what a test runs is out of its reach:
   gets `hasUnfollowedDependencies`, with a `dependency-not-followed` warning.
 - Vitest's automatic mocks in `__mocks__` folders. A module `vi.mock()` names is in the hash, though its mock may
   replace it.
-- Config files, setup files and global setup.
+- Playwright's `webServer`, which is a command, and a config given to the runner with `--config`. Setup files a config
+  names in a way the scan can't work out, as in `setupFiles: process.env.SETUP`, get a `dependency-not-followed` warning.
+- Snapshot files, such as Vitest's `__snapshots__` and Playwright's screenshots.
 - Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
 - What a single-file component (`.vue`, `.svelte`) imports. A file that isn't JavaScript or TypeScript, such as a
   component or JSON, is taken by its text.

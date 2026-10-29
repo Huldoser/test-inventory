@@ -251,6 +251,16 @@ export class ConfigRuns {
     }));
   }
 
+  /**
+   * The files among `candidates` that a config's project, named as the runner names it, runs; null when the config has
+   * no such project or the scan can't tell which files it runs.
+   */
+  filesOfProject(config: ConfigFile, name: string, candidates: readonly string[]): string[] | null {
+    const project = this.projectsOf(config).find((item) => item.about.name === name);
+    const runs = project?.runs;
+    return runs ? candidates.filter((file) => runs(file)) : null;
+  }
+
   private projectsOf(config: ConfigFile): Project[] {
     let projects = this.projects.get(config);
     if (!projects) {

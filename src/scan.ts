@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
@@ -137,6 +138,18 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
   const files = patterns ? found.files : found.files.filter((file) => placements.get(file.absolutePath)?.runs);
+  // A setup project's files may be outside the patterns, so they are looked for among all script files.
+  const hasSetupProjects = [...placements.values()].some((item) =>
+    item.projects?.some((project) => project.dependencies.length > 0),
+  );
+  const candidates =
+    patterns && hasSetupProjects ? (await findFiles(root, [SCRIPT_FILES], ignore, framework)).files : found.files;
+  const configDependencies = new ConfigDependencies(
+    framework,
+    runs,
+    readerFor,
+    candidates.map((file) => file.absolutePath),
+  );
   const notRun: Diagnostic[] = [];
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
@@ -167,6 +180,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
       graph,
+      runsWith: configDependencies.of(placement),
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.

@@ -1463,9 +1463,9 @@ describe('scan checks that Vitest globals are turned on', () => {
       'tests/a.test.ts': GLOBAL_TEST,
     });
     const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
-    expect(inventory.diagnostics.map((diagnostic) => diagnostic.source)).toEqual(
-      unknownSource === null ? [] : [unknownSource],
-    );
+    // The config's own imports that can't be read are also dependencyHash warnings, tested with it.
+    const read = inventory.diagnostics.filter((diagnostic) => diagnostic.code !== 'dependency-not-followed');
+    expect(read.map((diagnostic) => diagnostic.source)).toEqual(unknownSource === null ? [] : [unknownSource]);
   });
 
   it.each([
@@ -1561,7 +1561,10 @@ describe('scan checks that Vitest globals are turned on', () => {
     });
     const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
     expect(
-      inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.relativeFilePath, diagnostic.source]),
+      inventory.diagnostics
+        // The config's own imports that can't be read are also dependencyHash warnings, tested with it.
+        .filter((diagnostic) => diagnostic.code !== 'dependency-not-followed')
+        .map((diagnostic) => [diagnostic.code, diagnostic.relativeFilePath, diagnostic.source]),
     ).toEqual([['config-value-unknown', 'vitest.config.ts', 'sharedConfig']]);
   });
 

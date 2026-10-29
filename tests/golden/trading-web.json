@@ -843,12 +843,13 @@
     {
       "id": "006bcf2289191aef",
       "bodyHash": "59438661c8c3f654",
-      "dependencyHash": "632970a01b4a06c6",
+      "dependencyHash": "0f145af2ced9f892",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/alerts-page.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "test-data/market-hours.ts",
         "tests/alerts.spec.ts"
@@ -934,12 +935,13 @@
     {
       "id": "4ef5fcb2d36793f3",
       "bodyHash": "07826f998240c37b",
-      "dependencyHash": "5bd1ac4d0ad58d45",
+      "dependencyHash": "a134c3d61c75cea0",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/alerts-page.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "test-data/market-hours.ts",
         "tests/alerts.spec.ts"
@@ -1025,12 +1027,13 @@
     {
       "id": "1168c683916c057d",
       "bodyHash": "028a38797f3a6de0",
-      "dependencyHash": "1bc4a1c8d62fe2ff",
+      "dependencyHash": "12f336845227a405",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/alerts-page.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "test-data/market-hours.ts",
         "tests/alerts.spec.ts"
@@ -1116,12 +1119,13 @@
     {
       "id": "b7c9430311aa4b77",
       "bodyHash": "fc2f355e115db06e",
-      "dependencyHash": "348e7e42edcf48cd",
+      "dependencyHash": "53eadaefb8aa2a5f",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/backtest-page.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/backtest.spec.ts"
       ],
@@ -1208,12 +1212,13 @@
     {
       "id": "ff957972a74e13e4",
       "bodyHash": "ef5682ab7a165259",
-      "dependencyHash": "85d764513bb2e306",
+      "dependencyHash": "63c001195fe881b3",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/backtest-page.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/backtest.spec.ts"
       ],
@@ -1300,12 +1305,13 @@
     {
       "id": "228b371fb6239871",
       "bodyHash": "94573e4cc4645fdb",
-      "dependencyHash": "9c4ab2ceb09241c5",
+      "dependencyHash": "0adc5f760f74cf87",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/backtest-page.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/backtest.spec.ts"
       ],
@@ -1398,10 +1404,12 @@
     {
       "id": "c5e380de5d1489e7",
       "bodyHash": "7e88c071a1b22e35",
-      "dependencyHash": "b00093af61e97a0e",
+      "dependencyHash": "ea613fdce3d52f50",
       "dependencies": [
+        "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1489,10 +1497,12 @@
     {
       "id": "a52668cce1b6dfe7",
       "bodyHash": "f5cbeeb3d655953f",
-      "dependencyHash": "1522e081bac5a61a",
+      "dependencyHash": "40c5777186a43a89",
       "dependencies": [
+        "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1579,10 +1589,12 @@
     {
       "id": "f003008cc3991e32",
       "bodyHash": "72b7c07d73a18c68",
-      "dependencyHash": "a8759c04a0ebe3b3",
+      "dependencyHash": "cd6559f1b8f2cbb7",
       "dependencies": [
+        "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1675,10 +1687,12 @@
     {
       "id": "dbb8916ae393be67",
       "bodyHash": "3bd267efc7ff4ded",
-      "dependencyHash": "23cf4e06f51ac3be",
+      "dependencyHash": "1930a53f4b23807b",
       "dependencies": [
+        "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/login.spec.ts"
       ],
@@ -1768,13 +1782,14 @@
     {
       "id": "b19ccff56f21de38",
       "bodyHash": "1002e94a52a56d2f",
-      "dependencyHash": "b71d86ac0e165697",
+      "dependencyHash": "84bff04139efb6da",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/portfolio-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/buying-power.spec.ts"
       ],
@@ -1863,13 +1878,14 @@
     {
       "id": "4da7984cdc6987dd",
       "bodyHash": "abe023bbfb8c2368",
-      "dependencyHash": "3b64e97ef1e4a862",
+      "dependencyHash": "7db464277a1b202d",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/portfolio-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/buying-power.spec.ts"
       ],
@@ -1958,13 +1974,14 @@
     {
       "id": "fca65859363f6383",
       "bodyHash": "c5253d69a305868c",
-      "dependencyHash": "e4066ab24b287326",
+      "dependencyHash": "8e2a3e25f754cefc",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/limit-orders.spec.ts"
       ],
@@ -2054,13 +2071,14 @@
     {
       "id": "74099e2f6d05b9ee",
       "bodyHash": "fecbf7b60ca6ad7d",
-      "dependencyHash": "14d39423aea1fc5f",
+      "dependencyHash": "36dcab81b6a00f83",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "test-data/tags.ts",
         "tests/orders/limit-orders.spec.ts"
@@ -2150,12 +2168,13 @@
     {
       "id": "da2f5749ba9ab068",
       "bodyHash": "70f928ee03102484",
-      "dependencyHash": "8ced64d259092a3b",
+      "dependencyHash": "428cd6657011d7c9",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/limit-orders.spec.ts"
       ],
@@ -2252,13 +2271,14 @@
     {
       "id": "b41aa3c939163d5f",
       "bodyHash": "82a3a523b24b312e",
-      "dependencyHash": "1fac8dba01ee60b4",
+      "dependencyHash": "f55b62b69d0d254b",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/market-orders.spec.ts"
       ],
@@ -2347,13 +2367,14 @@
     {
       "id": "edfbf522f166bdee",
       "bodyHash": "48d034318e843972",
-      "dependencyHash": "a03dafb052f2f033",
+      "dependencyHash": "8b3a8ab12e954d74",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/market-orders.spec.ts"
       ],
@@ -2442,12 +2463,13 @@
     {
       "id": "b56da584c703ffdc",
       "bodyHash": "71f86a4682faff3a",
-      "dependencyHash": "c0644a8be262a841",
+      "dependencyHash": "c86a54f95fd6d7ae",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/market-orders.spec.ts"
       ],
@@ -2535,13 +2557,14 @@
     {
       "id": "8406a54addb070ac",
       "bodyHash": "aa358180c53039eb",
-      "dependencyHash": "ecfa5dbc97c9aa75",
+      "dependencyHash": "5ee537d1f0309771",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/order-ticket.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/order-lifecycle.spec.ts"
       ],
@@ -2644,12 +2667,13 @@
     {
       "id": "ce346850c3d0273c",
       "bodyHash": "54a09037d3b79269",
-      "dependencyHash": "1f08b25681c14f0d",
+      "dependencyHash": "cf718b321dc762f5",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/order-lifecycle.spec.ts"
       ],
@@ -2736,12 +2760,13 @@
     {
       "id": "52188b0b10d20152",
       "bodyHash": "b6d8ebafda8e61fa",
-      "dependencyHash": "06d0be991a95358f",
+      "dependencyHash": "757bf5efa4298fe3",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/orders-blotter.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/orders/order-lifecycle.spec.ts"
       ],
@@ -2828,12 +2853,13 @@
     {
       "id": "61fb14fe198cbe40",
       "bodyHash": "6b5ebc48dd2373c9",
-      "dependencyHash": "93130c1685994e8e",
+      "dependencyHash": "01a3b49929433fc6",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/portfolio-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/portfolio.spec.ts"
       ],
@@ -2920,12 +2946,13 @@
     {
       "id": "18c858ad1ec41ac8",
       "bodyHash": "a3490bae58ac8d0a",
-      "dependencyHash": "faf2ac25805b047d",
+      "dependencyHash": "6d4c8fe165c00081",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/portfolio-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/portfolio.spec.ts"
       ],
@@ -3010,13 +3037,14 @@
     {
       "id": "170a00cb7431053c",
       "bodyHash": "f1f99ff5e7b7cea5",
-      "dependencyHash": "bc198b250be5c6b3",
+      "dependencyHash": "cd3545b62d236cef",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/orders-blotter.ts",
         "pages/portfolio-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/portfolio.spec.ts"
       ],
@@ -3104,12 +3132,13 @@
     {
       "id": "fc18629952dc377c",
       "bodyHash": "a8ceae1fa36e3eee",
-      "dependencyHash": "27d71b15cbd9616d",
+      "dependencyHash": "65af8cd5cd7eefdb",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/price-stream.spec.ts"
       ],
@@ -3194,12 +3223,13 @@
     {
       "id": "d1ce5bbb95b4d5d0",
       "bodyHash": "1dff3539c9dbf9b5",
-      "dependencyHash": "e5a68f8dd297115e",
+      "dependencyHash": "3536d11e12badb7c",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/price-stream.spec.ts"
       ],
@@ -3285,12 +3315,13 @@
     {
       "id": "8be9925edcd4647c",
       "bodyHash": "feaa6dd90440b8fb",
-      "dependencyHash": "06d73422ff76109c",
+      "dependencyHash": "64b9ae306d736acc",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "test-data/symbols.ts",
         "tests/quotes.spec.ts"
@@ -3376,12 +3407,13 @@
     {
       "id": "8e9e5ff3ce131b80",
       "bodyHash": "9fca7078043fcfe6",
-      "dependencyHash": "4a3d1032fe34692a",
+      "dependencyHash": "2e78de0a9c5eff22",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
       ],
@@ -3468,12 +3500,13 @@
     {
       "id": "d69e0782fe73f7eb",
       "bodyHash": "e6bddac61137812d",
-      "dependencyHash": "32ed548c58a4c05a",
+      "dependencyHash": "49d398cd6e91fd38",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
       ],
@@ -3558,12 +3591,13 @@
     {
       "id": "fbc2f79ddf4c0c96",
       "bodyHash": "72a9522ad4269070",
-      "dependencyHash": "864c146d8c23092c",
+      "dependencyHash": "007ef25efbf2feb8",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
       ],
@@ -3648,12 +3682,13 @@
     {
       "id": "cdf020eea033f19c",
       "bodyHash": "24eef83ccd18d9d6",
-      "dependencyHash": "b6c31ecdfe553a28",
+      "dependencyHash": "bd95c9f2d18b43ab",
       "dependencies": [
         "fixtures/auth.ts",
         "fixtures/index.ts",
         "pages/login-page.ts",
         "pages/watchlist-page.ts",
+        "playwright.config.ts",
         "test-data/accounts.ts",
         "tests/watchlist.spec.ts"
       ],

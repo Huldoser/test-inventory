@@ -8,6 +8,7 @@ import {
   type VariableDeclarator,
 } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, unwrap, type FunctionNode } from './ast.ts';
+import type { ConfigGap, RunsWith } from './config-dependencies.ts';
 import type { Extraction, Frame, PendingSuite, PendingTest, Scope } from './extract.ts';
 import { exportName, parseModule } from './frameworks/bindings.ts';
 import { destructuredNames, problem, takesWhole } from './frameworks/common.ts';
@@ -152,6 +153,14 @@ const RUNS = new Set([
   'ImportExpression',
   'Decorator',
   'StaticBlock',
+]);
+
+/** The nodes an import binds a name with. */
+const IMPORT_BINDINGS = new Set([
+  'ImportSpecifier',
+  'ImportDefaultSpecifier',
+  'ImportNamespaceSpecifier',
+  'TSImportEqualsDeclaration',
 ]);
 
 /** Keys that hold types, which don't run. */
@@ -325,9 +334,15 @@ function runsOnLoad(node: Node): boolean {
   return childNodes(node).some(runsOnLoad);
 }
 
-/** Whether a top-level or describe statement runs when the file or describe does. */
+/**
+ * Whether a top-level or describe statement runs when the file or describe does. An import loads its module then, so
+ * which modules a file imports is part of its code, also a package's; a type-only one loads nothing.
+ */
 function isLoadCode(statement: Node): boolean {
-  return !DECLARATIONS.has(statement.type) || (statement.type !== 'ImportDeclaration' && runsOnLoad(statement));
+  if (statement.type === 'ImportDeclaration' || statement.type === 'TSImportEqualsDeclaration') {
+    return statement.importKind !== 'type';
+  }
+  return !DECLARATIONS.has(statement.type) || runsOnLoad(statement);
 }
 
 /**
@@ -628,14 +643,48 @@ export class DependencyGraph {
 
   /** A place in a module the scan can't follow, as a unit that marks the tests that reach it. */
   private placeUnit(module: Module, at: Span, message: string, isQuiet = false): Unit {
-    const parsed = module.parsed as ParsedFile;
+    const { source } = module.parsed as ParsedFile;
     const unit = this.newUnit(module, [], new Map(), false);
     unit.edges = new Set();
+    const text = snippet(source.slice(at.start, at.end)) || null;
     unit.place = {
       relativeFilePath: module.relativeFilePath,
-      source: parsed.source,
-      problem: problem('dependency-not-followed', at, message, snippet(parsed.source.slice(at.start, at.end))),
+      source,
+      problem: problem('dependency-not-followed', at, message, text),
       isQuiet,
+    };
+    return unit;
+  }
+
+  /**
+   * A module the config runs each test with, taken whole: the config itself, a setup file, or a file of a setup
+   * project.
+   */
+  runUnit(source: ModuleSource, isConfig: boolean): Unit {
+    const module = this.moduleOf(source);
+    if (module.parsed === null) return this.textUnit(module);
+    const { error } = module.parsed;
+    if (error) {
+      // A config that doesn't parse is reported when the scan reads it.
+      const message = "The file could not be parsed, so dependencyHash doesn't cover it.";
+      return this.placeUnit(module, error, message, isConfig);
+    }
+    return this.wholeUnit(module, false);
+  }
+
+  /** Something in a config the scan can't follow, as a unit that marks the tests whose config it is. */
+  gapUnit(gap: ConfigGap): Unit {
+    if ('module' in gap)
+      return this.placeUnit(this.moduleOf(gap.module), { start: 0, end: 0 }, gap.message, gap.isQuiet);
+    const module = this.newModule(gap.relativeFilePath, null, null, new Values(), null);
+    const unit = this.newUnit(module, [], new Map(), false);
+    unit.edges = new Set();
+    const text = snippet(gap.source.slice(gap.span.start, gap.span.end));
+    unit.place = {
+      relativeFilePath: gap.relativeFilePath,
+      source: gap.source,
+      problem: problem('dependency-not-followed', gap.span, gap.message, text),
+      isQuiet: gap.isQuiet,
     };
     return unit;
   }
@@ -1029,7 +1078,8 @@ export class DependencyGraph {
     };
     const follow = (name: string, scopes: readonly Node[], member: string | null) => {
       const declaration = module.values.declarationOf(name, scopes) ?? otherDeclaration(name, scopes, types);
-      if (declaration === null || isOwn(declaration)) return;
+      // An import in the unit's own code still names code elsewhere.
+      if (declaration === null || (isOwn(declaration) && !IMPORT_BINDINGS.has(declaration.type))) return;
       add(this.toDeclaration(module, declaration, name, member, types));
     };
     /** A module loaded by the path in `argument`, or a place when the path is worked out at run time. */
@@ -1252,6 +1302,7 @@ export function fileDependencies(
   extraction: Extraction,
   types: boolean,
   report: (place: Place) => void,
+  runsWith: RunsWith = { config: null, modules: [], gaps: [] },
 ): (test: PendingTest) => Dependencies {
   const moduleOf = (frame: Frame) => graph.module(frame.parsed, frame.relativeFilePath, frame.values, frame.readModule);
   const mainModule = moduleOf(main);
@@ -1285,7 +1336,12 @@ export function fileDependencies(
     return units;
   };
   // What the file runs when it loads is the same for each of its tests, and often most of what they run.
-  const base = graph.reach([load]);
+  const config = [
+    ...(runsWith.config ? [graph.runUnit(runsWith.config, true)] : []),
+    ...runsWith.modules.map((module) => graph.runUnit(module, false)),
+    ...runsWith.gaps.map((gap) => graph.gapUnit(gap)),
+  ];
+  const base = graph.reach([load, ...config]);
   return (test) => {
     const roots = [graph.unit(moduleOf(test.frame), [test.call], [], types), ...registering(test.registeredBy)];
     for (let scope: Scope | null = test.scope; scope; scope = scope.parent) {

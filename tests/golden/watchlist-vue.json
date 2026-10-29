@@ -232,10 +232,11 @@
     {
       "id": "98607d9cf951d0ad",
       "bodyHash": "fbadd2a5048288d9",
-      "dependencyHash": "bb2a1f9ef6dd3745",
+      "dependencyHash": "52045d896b56d2ce",
       "dependencies": [
         "src/components/Watchlist.vue",
-        "tests/unit/Watchlist.spec.ts"
+        "tests/unit/Watchlist.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "8a1d941793e3b82a",
@@ -315,10 +316,11 @@
     {
       "id": "b832207595d60b5a",
       "bodyHash": "26e2eda06a90ad63",
-      "dependencyHash": "ef63ce7ad7e9ada8",
+      "dependencyHash": "e79c6ec836e1dc37",
       "dependencies": [
         "src/components/Watchlist.vue",
-        "tests/unit/Watchlist.spec.ts"
+        "tests/unit/Watchlist.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "8a1d941793e3b82a",
@@ -398,10 +400,11 @@
     {
       "id": "6845b18187057e8e",
       "bodyHash": "2aa2740813832353",
-      "dependencyHash": "97b053c306577dae",
+      "dependencyHash": "ccc298b882638a5d",
       "dependencies": [
         "src/components/Watchlist.vue",
-        "tests/unit/Watchlist.spec.ts"
+        "tests/unit/Watchlist.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "8a1d941793e3b82a",
@@ -481,10 +484,11 @@
     {
       "id": "486cbcddd832451d",
       "bodyHash": "f9623531b0e1a41a",
-      "dependencyHash": "4233656044867e32",
+      "dependencyHash": "e68c6933f31bfde2",
       "dependencies": [
         "src/components/Watchlist.vue",
-        "tests/unit/Watchlist.spec.ts"
+        "tests/unit/Watchlist.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "121529dd2f0327ad",
@@ -565,10 +569,11 @@
     {
       "id": "3f34fd72c582871d",
       "bodyHash": null,
-      "dependencyHash": "7cd441c8f89039ec",
+      "dependencyHash": "42ee9d08c900903b",
       "dependencies": [
         "src/components/Watchlist.vue",
-        "tests/unit/Watchlist.spec.ts"
+        "tests/unit/Watchlist.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "121529dd2f0327ad",
@@ -649,10 +654,11 @@
     {
       "id": "eff7c3afdf4a6ff1",
       "bodyHash": "6036d9e59ea4e389",
-      "dependencyHash": "b82365d7e9a20ecb",
+      "dependencyHash": "acce34d024e0f921",
       "dependencies": [
         "src/components/WatchlistRow.vue",
-        "tests/unit/WatchlistRow.spec.ts"
+        "tests/unit/WatchlistRow.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "6d95fa148a73003b",
@@ -732,10 +738,11 @@
     {
       "id": "c7556fc853f29e94",
       "bodyHash": "5cf800ef909e39b3",
-      "dependencyHash": "6b1174ba01b036c3",
+      "dependencyHash": "8e59e520cc1ff86d",
       "dependencies": [
         "src/components/WatchlistRow.vue",
-        "tests/unit/WatchlistRow.spec.ts"
+        "tests/unit/WatchlistRow.spec.ts",
+        "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "6d95fa148a73003b",

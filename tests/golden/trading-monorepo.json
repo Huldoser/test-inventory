@@ -270,10 +270,11 @@
     {
       "id": "047203d4d29d16d6",
       "bodyHash": "83a3ac3d958d687e",
-      "dependencyHash": "11cdae229245b976",
+      "dependencyHash": "b95e22f86dfd3541",
       "dependencies": [
         "packages/broker-gateway/src/rate-limiter.test.ts",
-        "packages/broker-gateway/src/rate-limiter.ts"
+        "packages/broker-gateway/src/rate-limiter.ts",
+        "packages/broker-gateway/vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "7524dbe5724cedfc",
@@ -353,10 +354,11 @@
     {
       "id": "ea6139d1991d0f87",
       "bodyHash": "3b9902a556ea1b87",
-      "dependencyHash": "cb45511b6fdc460c",
+      "dependencyHash": "c451f94628658367",
       "dependencies": [
         "packages/broker-gateway/src/rate-limiter.test.ts",
-        "packages/broker-gateway/src/rate-limiter.ts"
+        "packages/broker-gateway/src/rate-limiter.ts",
+        "packages/broker-gateway/vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "7524dbe5724cedfc",
@@ -436,10 +438,11 @@
     {
       "id": "2ec3d46885c8b3a4",
       "bodyHash": "c950dd19fc895be4",
-      "dependencyHash": "4107945aab723771",
+      "dependencyHash": "b7f79d584f05da6c",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
-        "packages/market-data/src/quote-cache.ts"
+        "packages/market-data/src/quote-cache.ts",
+        "packages/market-data/vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "693edd5e37bc0188",
@@ -519,10 +522,11 @@
     {
       "id": "147dc22efd2f062b",
       "bodyHash": "ada5417ab5376678",
-      "dependencyHash": "d14714a8227c3ab8",
+      "dependencyHash": "0921dc33cfccbe07",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
-        "packages/market-data/src/quote-cache.ts"
+        "packages/market-data/src/quote-cache.ts",
+        "packages/market-data/vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "693edd5e37bc0188",
@@ -602,10 +606,11 @@
     {
       "id": "267dff365856f75a",
       "bodyHash": "30c90f821cc2a9f4",
-      "dependencyHash": "d8ab80d81f811de4",
+      "dependencyHash": "f70ed7aa8dcd1b7f",
       "dependencies": [
         "packages/market-data/src/quote-cache.test.ts",
-        "packages/market-data/src/quote-cache.ts"
+        "packages/market-data/src/quote-cache.ts",
+        "packages/market-data/vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "693edd5e37bc0188",
@@ -685,10 +690,12 @@
     {
       "id": "5ef54d96cc0d0245",
       "bodyHash": "10f801f6af5fba70",
-      "dependencyHash": "ecf6ed530d17a6f6",
+      "dependencyHash": "d24cbaaf739ff014",
       "dependencies": [
         "packages/risk/src/exposure.test.ts",
-        "packages/risk/src/exposure.ts"
+        "packages/risk/src/exposure.ts",
+        "packages/risk/vitest.config.ts",
+        "vitest.shared.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "e16b86adbe79d8b6",
@@ -768,10 +775,12 @@
     {
       "id": "d4469ed724b030be",
       "bodyHash": "77f5307323b21463",
-      "dependencyHash": "678629d7b8c9308f",
+      "dependencyHash": "c2358495ec57efb5",
       "dependencies": [
         "packages/risk/src/exposure.test.ts",
-        "packages/risk/src/exposure.ts"
+        "packages/risk/src/exposure.ts",
+        "packages/risk/vitest.config.ts",
+        "vitest.shared.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "e16b86adbe79d8b6",
@@ -851,9 +860,11 @@
     {
       "id": "287e1941fecee816",
       "bodyHash": null,
-      "dependencyHash": "be27aa932a19965d",
+      "dependencyHash": "2614d5f12efd34c6",
       "dependencies": [
-        "packages/risk/src/exposure.test.ts"
+        "packages/risk/src/exposure.test.ts",
+        "packages/risk/vitest.config.ts",
+        "vitest.shared.ts"
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "e16b86adbe79d8b6",

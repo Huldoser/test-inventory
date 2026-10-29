@@ -1,3 +1,4 @@
+import type { RunsWith } from './config-dependencies.ts';
 import { DependencyGraph, fileDependencies, type Place } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
@@ -26,6 +27,8 @@ export interface FileSettings {
   config?: FileConfig | null;
   /** Shared by the files of one scan, so that code many tests reach is read once. */
   graph?: DependencyGraph;
+  /** What the file's config runs with each of its tests: the config, setup files and setup projects. */
+  runsWith?: RunsWith;
 }
 
 export interface FileResult extends FileRecords {
@@ -90,6 +93,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       extraction,
       isTypeTest,
       (place) => unfollowed.push(place),
+      settings.runsWith,
     );
     const records = buildRecords(extraction, parsed, {
       relativeFilePath,
