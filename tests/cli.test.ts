@@ -282,6 +282,31 @@ describe('the built binary', () => {
     const { stdout } = await exec(process.execPath, [bin, '--framework', 'playwright'], { cwd: root });
     expect((JSON.parse(stdout) as Inventory).tests.map((test) => test.fullName)).toEqual(['places a market order']);
   });
+
+  // Nested this deep, oxc-parser overflows the native stack and the process dies with SIGSEGV, past any catch.
+  it('reports a file nested too deeply to parse and still scans the other files', async () => {
+    const levels = 10_000;
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/order-book.spec.ts': `import { test } from '@playwright/test';\nconst depth = ${'['.repeat(levels)}101.5${']'.repeat(levels)};\ntest('reads every price level', async () => {});\n`,
+      'tests/orders.spec.ts': SPEC,
+    });
+    const { stdout } = await exec(process.execPath, [bin, 'tests/*.spec.ts', '--framework', 'playwright'], {
+      cwd: root,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const inventory = JSON.parse(stdout) as Inventory;
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(['orders > fills']);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'parse-error',
+        relativeFilePath: 'tests/order-book.spec.ts',
+        message: 'The file could not be parsed: Brackets are nested more than 500 deep, too deep to parse safely',
+        lineStart: 2,
+        columnStart: 515,
+      },
+    ]);
+  });
 });
 
 describe('run with a slow reader', () => {
