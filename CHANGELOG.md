@@ -1,5 +1,82 @@
 # test-inventory
 
+## 0.6.1
+
+### Patch Changes
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - An import that matches a tsconfig `paths` pattern but none of its files, as an installed package does with
+  `"paths": { "*": ["./src/types/*"] }`, now goes on to the usual lookup, as TypeScript does. Such imports were reported
+  as unreadable, so every test that used a package or a built-in module such as `node:fs` got
+  `hasUnfollowedDependencies`. An `@/` or `~/` alias whose files are missing is still reported.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - A file that only passes names on, as a barrel `index.ts` with `export * from './fees'` or
+  `export { OrderTicket } from './order-ticket'` does, is now in the `dependencies` of the tests that import through it,
+  so `--related` keeps them when the file changes. Which module a re-export points at is now part of `dependencyHash`, as
+  an import's already was, so the hash of a test that imports through a re-export changes once.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - An imported file that isn't text, such as `import logo from './logo.png'`, is now taken by its bytes in
+  `dependencyHash`. It was read as text, where every byte that isn't UTF-8 reads the same, so two different images could
+  give the same hash.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - A `<script>` block in a Vue or Svelte component whose `type` isn't JavaScript, such as
+  `<script type="application/ld+json">` in `<svelte:head>`, is no longer read as the component's code. It made the
+  component unreadable, so the modules its real script imports were missing from `dependencies`.
+
+- [#68](https://github.com/Huldoser/test-inventory/pull/68) [`fa9b97a`](https://github.com/Huldoser/test-inventory/commit/fa9b97affd5d8598dcb91f11c7fc2c5343ec5b87) - `dependencyHash` now follows what a Vue or Svelte single-file component imports, also the components and helpers only
+  its template uses, so a change to a child component changes the hash of the tests that mount its parent. A component
+  whose script doesn't parse is still taken by its text, and its tests get `hasUnfollowedDependencies`.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - A file with brackets nested more than 500 deep, such as a generated fixture, now gets a `parse-error` instead of
+  crashing the scan. oxc-parser overflows the native stack on such a file, about 5,000 deep, and the process dies with a
+  segmentation fault that no error handling can catch, so no inventory was written.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - `expectCount` now counts `expect.element()`, the assertion of Vitest browser mode, so a browser test that checks the
+  page only with `await expect.element(locator).toBeVisible()` no longer looks like a test without assertions.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - An import written with a `.jsx` extension now finds the `.tsx` file it refers to, as `.js` already found `.ts`, so
+  `import { OrderHeader } from './OrderHeader.jsx'` is followed instead of marking the test with
+  `hasUnfollowedDependencies`.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - From Playwright 1.57, the config's `tag` is now read: every test gets it first in its `tags`, and a project's `grep` or
+  `grepInvert` matches it, so a project with `grepInvert: /@nightly/` in a config with `tag: '@nightly'` no longer runs
+  the tests. When the scan can't work out the `tag`, as for `process.env.CI_ENVIRONMENT_NAME`, it gets a
+  `config-value-unknown` warning, and the tests of a project with a `grep` get `projects: null`.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - From Playwright 1.64, a project with `default: false` is no longer listed in a test's `projects`, as Playwright runs it
+  only with `--project`, unless a project that runs lists it in `dependencies` or `teardown`. A `default` the scan can't
+  work out gets a `config-value-unknown` warning, and the tests it may run get `projects: null`.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - Playwright's `defineConfig(base, config)` is now merged as Playwright merges it: a project of `config` merges into the
+  project of `base` with the same name instead of replacing all of `base`'s projects, and `expect`, `use` and `build`
+  merge key by key. A setup project from a base config is no longer lost, and an `expect.toHaveScreenshot.pathTemplate`
+  from the base still marks the tests that compare screenshots with `hasUnfollowedDependencies`.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - A Vitest `retry` object in a test's or describe's options before Vitest 4.1 now gets an `unresolved-option` warning
+  and `retries: null`. Vitest 4.0 and 3.2 never run such a test; the scan used to ignore the object and give the
+  config's retry count instead.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - A Vitest test's own `skip`, `only`, `todo` or `fails` option now replaces the one its tags set, as Vitest does, so
+  `test('title', { tags: ['flaky'], skip: false }, fn)` is active instead of skipped, and a conditional `skip` replaces
+  the tag's unconditional one.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - An import that starts with `@/` or `~/`, as a Vite `resolve.alias` allows, now gives the test
+  `hasUnfollowedDependencies` and a `dependency-not-followed` warning when no tsconfig `paths` define it. It was taken for
+  an installed package, so the aliased file was missing from `dependencies` without a sign, and `--related` left the test
+  out when that file changed.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - Vitest 5 tests follow the option rules of Vitest 5.0.5: the last of `.skip`, `skipIf()` and `runIf()` on a test
+  decides its skip, so `test.skip.skipIf(false)` is active, and a `skipIf()` or `runIf()` replaces the skip of a tag or of
+  the options a describe passes down. An option set to `undefined`, as in `test.skip('title', { skip: undefined }, fn)`,
+  no longer undoes the chain or a tag.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - In Vitest 5, the projects of a config that another config lists in `projects` are named inside that config's name, as
+  Vitest names them: the `unit` project of `apps/web/vitest.config.ts`, named `web`, is `web (unit)`.
+
+- [#69](https://github.com/Huldoser/test-inventory/pull/69) [`41ce74d`](https://github.com/Huldoser/test-inventory/commit/41ce74d6dc5fb413ffcfa789442754a445f5572c) - A Vitest project without a `test.name` now has the name Vitest gives it, in `projects` and in `configs`: the `name` in
+  the package.json of its folder, else the folder's name, so `projects: ['packages/*']` names its projects
+  `@trading/pricing` or `ledger` instead of `""`. An inline project without a name is named after its place among the
+  inline projects, as `0`, and in Vitest 5 no longer takes the name of the config it extends.
+
 ## 0.6.0
 
 ### Minor Changes
