@@ -148,8 +148,8 @@ one without a priority loses to every one with one. Vitest merges the tags' opti
 describe passes down, such as `describe('title', { skip: true }, fn)`, and then takes `only` over `skip` over `todo`:
 a tag's `only` runs a `test.skip()`, and a tag's `skip` skips a test with `todo: true`. A state that comes from a tag
 has `stateSource: "config"`. A describe's own mode, as in `describe.skip()`, applies to its tests only when they get
-no state of their own, so a tag's `todo` in it stays `todo`. A test's own option set to `false`, as `skip: false`,
-doesn't undo its tag's, though Vitest lets it.
+no state of their own, so a tag's `todo` in it stays `todo`. A test's own `skip`, `only`, `todo` or `fails` option
+replaces its tag's, also when set to `false`: `test('title', { tags: ['flaky'], skip: false }, fn)` runs.
 
 For `concurrent`, `timeout`, `retry`, `repeats` and `meta`, the test's own options win over its tags. From Vitest 5
 the tags win over the options a describe passes down; in Vitest 4.1 the describe's win, and so does the config's

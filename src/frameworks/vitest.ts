@@ -26,6 +26,7 @@ import type {
   ModuleReader,
   Problem,
   Span,
+  StateOption,
   StateSetting,
 } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
@@ -113,6 +114,7 @@ const MODIFIERS: Record<Kind, Set<string>> = {
 };
 const TABLES = new Set(['each', 'for']);
 const CONDITIONS = new Set(['skipIf', 'runIf']);
+const STATE_FLAGS: StateOption[] = ['only', 'todo', 'fails'];
 const DERIVATIONS = new Set(['extend', 'override', 'scoped']);
 /** Hooks, with the position of the test context among their callback's parameters. */
 const HOOKS = new Map<keyof HookCounts, number | null>([
@@ -862,6 +864,10 @@ export class VitestAdapter implements Adapter {
         fixtures: fixturesOf(base.hashed, index, this.file.version),
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
+        ownStateOptions: [
+          ...(read.skip ? ['skip' as const] : []),
+          ...STATE_FLAGS.filter((flag) => read.flags.has(flag)),
+        ],
       };
     }
     return refusal ? refused(call, refusal, context, () => declared) : declared;

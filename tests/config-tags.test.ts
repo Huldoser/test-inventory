@@ -253,6 +253,38 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
     expect(codes(inventory)).toEqual([]);
   });
 
+  it("lets a test's own option set to false undo its tag's, in Vitest 4.1 and 5", async () => {
+    const config = TAGS.replace(
+      "      { name: 'wip'",
+      "      { name: 'known-bug', fails: true },\n      { name: 'wip'",
+    );
+    const files = {
+      'tests/orders.test.ts': [
+        "import { test } from 'vitest';",
+        "test('settles a trade', { tags: ['flaky'], skip: false }, () => {});",
+        "test('nets positions', { tags: ['wip'], todo: false }, () => {});",
+        "test('rejects a short sale', { tags: ['known-bug'], fails: false }, () => {});",
+        "test('amends an order', { tags: ['focus'], only: false }, () => {});",
+        "test('reprices an order', { tags: ['flaky'], skip: process.env.FEED === 'delayed' }, () => {});",
+        "test('cancels an order', { tags: ['flaky'] }, () => {});",
+        '',
+      ].join('\n'),
+    };
+    const expected = [
+      ['settles a trade', 'active', false, null],
+      ['nets positions', 'active', false, null],
+      ['rejects a short sale', 'active', false, null],
+      ['amends an order', 'active', false, null],
+      ['reprices an order', 'skip', false, 'test'],
+      ['cancels an order', 'skip', false, 'config'],
+    ];
+    for (const version of ['5.0.5', '4.1.12']) {
+      const inventory = await scanned(config, files, version);
+      expect(states(inventory)).toEqual(expected);
+      expect(testNamed(inventory, 'reprices an order').condition).toBe("process.env.FEED === 'delayed'");
+    }
+  });
+
   it("leaves a describe's chain mode to the tests a tag gives no state, in Vitest 4.1 and 5", async () => {
     const files = {
       'tests/orders.test.ts': [

@@ -4,6 +4,9 @@ import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
 
+/** The Vitest options that set a test's state. */
+export type StateOption = 'skip' | 'only' | 'todo' | 'fails';
+
 export type Mode = 'parallel' | 'serial' | 'default';
 
 /** A state set by a declaration, a describe or a call such as `test.skip(condition)`. */
@@ -94,6 +97,8 @@ export interface TestDeclaration extends Declaration {
   takesAllFixtures: boolean;
   /** Uses Vitest 5's `bench` fixture. */
   usesBench: boolean;
+  /** Vitest: the state options the test sets itself, to `false` too, which replace those of its tags. */
+  ownStateOptions?: StateOption[];
 }
 
 export interface SuiteDeclaration extends Declaration {

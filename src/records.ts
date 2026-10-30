@@ -14,7 +14,7 @@ import {
 import { problem } from './frameworks/common.ts';
 import type { Dependencies } from './dependency-hash.ts';
 import { hashNodes, shortHash } from './hash.ts';
-import type { Mode, Problem, RunSettings, Span, State, StateSetting, TestDeclaration } from './model.ts';
+import type { Mode, Problem, RunSettings, Span, State, StateOption, StateSetting, TestDeclaration } from './model.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
 import type {
@@ -472,7 +472,7 @@ class RecordBuilder {
   }
 
   /** What the config's Vitest tags set on a test with `tags`, merged as Vitest merges them; null when none applies. */
-  private tagOptions(tags: string[]): TagOptions | null {
+  private tagOptions(tags: string[], ownStateOptions: StateOption[]): TagOptions | null {
     const definitions = this.options.config?.tags?.definitions ?? [];
     const applied = tags.flatMap((name) => definitions.filter((definition) => definition.name === name));
     if (applied.length === 0) return null;
@@ -486,6 +486,8 @@ class RecordBuilder {
       Object.assign(merged.run, run);
       if (meta) merged.meta = { ...merged.meta, ...meta };
     }
+    // Vitest merges the test's own options over its tags', so `skip: false` runs a test whose tag skips it.
+    for (const option of ownStateOptions) merged[option] = undefined;
     return merged;
   }
 
@@ -504,7 +506,7 @@ class RecordBuilder {
       ...describes.flatMap((scope) => scope.details.tags),
       ...declaration.details.tags,
     ]);
-    const fromTags = this.tagOptions(tags);
+    const fromTags = this.tagOptions(tags, declaration.ownStateOptions ?? []);
     // In Vitest 5 the options of a test's tags win over those the describes pass down; before, the describes' win.
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
