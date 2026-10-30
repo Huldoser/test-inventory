@@ -357,7 +357,8 @@ its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a con
 those.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
-`defineProject()`, `mergeConfig()`, spreads, also those a condition picks, constants, a function that returns the
+`defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
+`use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
 config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
 `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`.
 

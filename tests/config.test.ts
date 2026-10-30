@@ -2,7 +2,7 @@ import { symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { Configs, settingAt, type Setting } from '../src/config.ts';
-import { scan, scanSource } from '../src/index.ts';
+import { scan, scanSource, type Framework } from '../src/index.ts';
 import { moduleResolver } from '../src/resolve.ts';
 import { Values } from '../src/values.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
@@ -114,6 +114,63 @@ describe('configs', () => {
       },
     ]);
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it("merges a Playwright base config's projects by name, and its expect and use key by key, as defineConfig does", async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'base.config.ts': [
+        "import { defineConfig, devices } from '@playwright/test';",
+        '',
+        'export default defineConfig({',
+        "  testDir: './e2e',",
+        "  expect: { timeout: 5_000, toHaveScreenshot: { pathTemplate: '{testDir}/__screenshots__/{arg}{ext}' } },",
+        "  use: { baseURL: 'http://localhost:3000', trace: 'on-first-retry' },",
+        '  projects: [',
+        "    { name: 'setup', testMatch: /.*\\.setup\\.ts/ },",
+        "    { name: 'chromium', dependencies: ['setup'], use: { ...devices['Desktop Chrome'], locale: 'en-US' } },",
+        '  ],',
+        '});',
+        '',
+      ].join('\n'),
+      'playwright.config.ts': [
+        "import { defineConfig } from '@playwright/test';",
+        "import base from './base.config';",
+        '',
+        'export default defineConfig(base, {',
+        '  retries: 2,',
+        '  expect: { timeout: 10_000 },',
+        "  use: { trace: 'retain-on-failure' },",
+        '  projects: [',
+        "    { name: 'chromium', grep: /@smoke/, use: { locale: 'de-DE' } },",
+        "    { name: 'api', testMatch: /.*\\.api\\.ts/ },",
+        '  ],',
+        '});',
+        '',
+      ].join('\n'),
+      'e2e/auth.setup.ts': [
+        "import { test as setup } from '@playwright/test';",
+        "setup('signs in as a trader', async ({ page }) => { await page.goto('/login'); });",
+        '',
+      ].join('\n'),
+      'e2e/orders.spec.ts': [
+        "import { expect, test } from '@playwright/test';",
+        "test('places a limit order @smoke', async ({ page }) => { await expect(page).toHaveScreenshot('ticket.png'); });",
+        "test('cancels an order', async ({ page }) => { await page.goto('/orders'); });",
+        '',
+      ].join('\n'),
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.configs[0].projects).toEqual([
+      { name: 'setup', testDir: 'e2e', dependencies: [] },
+      { name: 'chromium', testDir: 'e2e', dependencies: ['setup'] },
+      { name: 'api', testDir: 'e2e', dependencies: [] },
+    ]);
+    expect(inventory.tests.map((test) => [test.title, test.projects, test.hasUnfollowedDependencies])).toEqual([
+      ['signs in as a trader', ['setup'], false],
+      ['places a limit order @smoke', ['chromium'], true],
+      ['cancels an order', [], false],
+    ]);
   });
 
   it('warns about a config it cannot parse or find the default export of, and still lists it', async () => {
@@ -256,10 +313,10 @@ function plain(setting: Setting | null): unknown {
   return Object.fromEntries([...setting.keys].map(([key, value]) => [key, plain(value)]));
 }
 
-/** The settings of a Vitest config written at the root, as the scan reads them for a test file next to it. */
-function settingsOf(code: string): Setting {
-  const root = project({ 'vitest.config.ts': code });
-  const config = new Configs(root, 'vitest', moduleResolver(root), null).inFolder(root);
+/** The settings of a config written at the root, as the scan reads them for a test file next to it. */
+function settingsOf(code: string, framework: Framework = 'vitest'): Setting {
+  const root = project({ [`${framework}.config.ts`]: code });
+  const config = new Configs(root, framework, moduleResolver(root), null).inFolder(root);
   return (config as NonNullable<typeof config>).settings;
 }
 
@@ -279,6 +336,49 @@ describe('the config reader', () => {
       environment: 'node',
       globals: true,
     });
+  });
+
+  it('merges like Playwright: projects by name, the last of each name, and use, expect and build key by key', () => {
+    const settings = settingsOf(
+      [
+        "import { defineConfig } from '@playwright/test';",
+        'export default defineConfig(',
+        "  { testDir: './e2e', use: { locale: 'en-US' }, build: { external: ['**/fixtures/**'] } },",
+        "  { projects: [{ testDir: './e2e/desk', use: { trace: 'on' } }, { testDir: './e2e/blotter' }] },",
+        "  { projects: [{ name: 'mobile' }, { name: undefined, use: { locale: 'de-DE' } }], build: { external: [] } },",
+        '  { expect: { timeout: 10_000 }, workers: 2 },',
+        ');',
+        '',
+      ].join('\n'),
+      'playwright',
+    );
+    expect(plain(settings)).toEqual({
+      testDir: './e2e',
+      use: { locale: 'en-US' },
+      build: { external: [] },
+      projects: [{ testDir: './e2e/blotter', name: undefined, use: { locale: 'de-DE' } }, { name: 'mobile' }],
+      expect: { timeout: 10_000 },
+      workers: 2,
+    });
+  });
+
+  it.each([
+    ["{ projects: [{ name: 'chromium' }] }, { projects: [{ name: process.env.BROWSER }] }", '<unknown>'],
+    ["{ projects: [{ name: process.env.BROWSER }] }, { projects: [{ name: 'chromium' }] }", '<unknown>'],
+    ["{ projects: process.env.CI ? [] : [{ name: 'chromium' }] }, { projects: [{ name: 'chromium' }] }", '<unknown>'],
+    ["{ projects: [{ name: 'chromium' }] }, { projects: process.env.CI ? [] : [{ name: 'webkit' }] }", '<unknown>'],
+    ["{ projects: [{ name: 'chromium' }] }, { projects: undefined }", undefined],
+    ["{ projects: [{ name: 'chromium' }] }, { retries: 2 }", [{ name: 'chromium' }]],
+    ["{ projects: null }, { projects: [{ name: 'chromium' }] }", [{ name: 'chromium' }]],
+    ["{ retries: 2 }, { projects: [{ name: 'chromium' }] }", [{ name: 'chromium' }]],
+    ["{ projects: [{ name: 'chromium' }] }, { ...process.env.OVERRIDES }", '<unknown>'],
+    ["{ projects: [{ name: 'chromium' }] }, process.env.CI ? { retries: 2 } : {}", '<unknown>'],
+  ])("merges Playwright's projects of defineConfig(%s) as %j", (configs, expected) => {
+    const settings = settingsOf(
+      `import { defineConfig } from '@playwright/test';\nexport default defineConfig(${configs});\n`,
+      'playwright',
+    );
+    expect(plain(settingAt(settings, ['projects']))).toEqual(expected);
   });
 
   it("knows only the file settings of Vitest's configDefaults", () => {
