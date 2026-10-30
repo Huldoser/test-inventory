@@ -53,6 +53,8 @@ const Char = {
   CloseParen: 41,
   Star: 42,
   Slash: 47,
+  LessThan: 60,
+  GreaterThan: 62,
   OpenBracket: 91,
   Backslash: 92,
   CloseBracket: 93,
@@ -80,6 +82,18 @@ function afterKeyword(text: string, end: number): boolean {
   let wordStart = wordEnd;
   while (wordStart > 0 && isWordChar(text.charCodeAt(wordStart - 1))) wordStart--;
   return BEFORE_REGEX.has(text.slice(wordStart, wordEnd));
+}
+
+/**
+ * Whether the slash at `at` ends a JSX tag, as in `</ul>` or `<OrderLeg leg={leg} />`, where a regular expression
+ * could otherwise start and run on over the brackets after it.
+ */
+function endsJsxTag(text: string, at: number): boolean {
+  if (text.charCodeAt(at - 1) === Char.LessThan) return true;
+  if (text.charCodeAt(at + 1) !== Char.GreaterThan) return false;
+  let before = at - 1;
+  while (before > 0 && /\s/.test(text[before])) before--;
+  return text.charCodeAt(before) === Char.CloseBrace;
 }
 
 /**
@@ -143,7 +157,7 @@ export function tooDeeplyNested(text: string, limit: number): number | null {
     } else if (
       code === Char.SingleQuote ||
       code === Char.DoubleQuote ||
-      (code === Char.Slash && (regexAllowed || afterKeyword(text, start)))
+      (code === Char.Slash && (regexAllowed || afterKeyword(text, start)) && !endsJsxTag(text, start))
     ) {
       index++;
       literal(code);

@@ -84,6 +84,14 @@ describe('tooDeeplyNested', () => {
     expect(tooDeeplyNested('const mid = (ask + bid) / 2 + ((fee));', 1)).toBe(31);
   });
 
+  it('reads the slash that ends a JSX tag as markup, not as a regular expression', () => {
+    const legs = (index: number) =>
+      `function OrderLegs${index}({ legs }) {\n  return <ul>{legs.map((leg) => <OrderLeg key={leg.id} leg={leg} />)}</ul>;\n}\n`;
+    const components = Array.from({ length: 600 }, (_, index) => legs(index)).join('');
+    expect(tooDeeplyNested(components, 4)).toBeNull();
+    expect(tooDeeplyNested('const parts = quote.split(/>/); ((fee));', 1)).toBe(33);
+  });
+
   it('closes up to the matching bracket, so stray or unclosed brackets do not add up', () => {
     expect(tooDeeplyNested('submit() ) ] } submit()', 1)).toBeNull();
     expect(tooDeeplyNested('{ total(fills[0 } { total(fills[0 } { (', 3)).toBeNull();
