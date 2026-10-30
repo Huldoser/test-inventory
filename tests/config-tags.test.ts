@@ -253,6 +253,28 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
     expect(codes(inventory)).toEqual([]);
   });
 
+  it("lets skipIf and runIf replace a tag's skip from Vitest 5, and an option set to undefined leave it", async () => {
+    const files = {
+      'tests/orders.test.ts': [
+        "import { test } from 'vitest';",
+        "test.skipIf(false)('settles a trade', { tags: ['flaky'] }, () => {});",
+        "test.runIf(process.env.FEED === 'live')('nets positions', { tags: ['flaky'] }, () => {});",
+        "test('cancels an order', { tags: ['flaky'], skip: undefined }, () => {});",
+        '',
+      ].join('\n'),
+    };
+    expect(states(await scanned(TAGS, files, '5.0.5'))).toEqual([
+      ['settles a trade', 'active', false, null],
+      ['nets positions', 'skip', false, 'test'],
+      ['cancels an order', 'skip', false, 'config'],
+    ]);
+    expect(states(await scanned(TAGS, files, '4.1.12'))).toEqual([
+      ['settles a trade', 'skip', false, 'config'],
+      ['nets positions', 'skip', false, 'config'],
+      ['cancels an order', 'active', false, null],
+    ]);
+  });
+
   it("lets a test's own option set to false undo its tag's, in Vitest 4.1 and 5", async () => {
     const config = TAGS.replace(
       "      { name: 'wip'",

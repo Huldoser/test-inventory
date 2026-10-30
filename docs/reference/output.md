@@ -142,6 +142,11 @@ over its options, and so does a test's for its mode. A describe passes its `skip
 describes inside, where it wins over todo: `test.todo()` in `describe('title', { skip: true }, fn)` is skipped. It does
 so also when the describe's own `.only` keeps the describe from being skipped.
 
+From Vitest 5.0.5 a test's `.skip`, `skipIf()` and `runIf()` each set its `skip`, so the last of them decides:
+`test.skip.skipIf(false)` runs, and a `skipIf()` or `runIf()` replaces a tag's skip. An option set to `undefined`
+changes nothing there, so `test.skip('title', { skip: undefined }, fn)` stays skipped. The scan applies both to all of
+Vitest 5.
+
 A Vitest tag the config defines in `test.tags` sets its options on every test that carries it, also through a
 describe or a `@module-tag` comment. When two tags set the same option, the one with the lowest `priority` wins, and
 one without a priority loses to every one with one. Vitest merges the tags' options with the test's own and those a

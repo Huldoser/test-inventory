@@ -799,6 +799,16 @@ export class VitestAdapter implements Adapter {
     const chain = new Set(links.filter((link) => MODIFIERS[kind].has(link.name)).map((link) => link.name));
     const flags = new Set(chain);
     let conditions = links.filter((link) => CONDITIONS.has(link.name)).map((link) => this.linkCondition(link, context));
+    // From Vitest 5.0.5 a test's `skip`, `skipIf` and `runIf` each set its `skip`, so the last of them decides, and a
+    // `skipIf` or `runIf` replaces a tag's skip. The scan applies that to all of Vitest 5.
+    const lastSkip = links.filter((link) => link.name === 'skip' || CONDITIONS.has(link.name)).at(-1);
+    const skipsByChain = kind === 'test' && lastSkip !== undefined && atLeast(this.file.version, 5, 0);
+    const conditionSetsSkip = skipsByChain && CONDITIONS.has(lastSkip.name);
+    if (skipsByChain) {
+      flags.delete('skip');
+      conditions = conditionSetsSkip ? [this.linkCondition(lastSkip, context)] : [];
+      if (!conditionSetsSkip) flags.add('skip');
+    }
     // A test's own options win over its chain, so `test.skip('title', { skip: false }, fn)` runs. The chain wins for a
     // test's mode, and for everything on a describe.
     for (const [flag, value] of read.flags) {
@@ -865,7 +875,7 @@ export class VitestAdapter implements Adapter {
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
         ownStateOptions: [
-          ...(read.skip ? ['skip' as const] : []),
+          ...(read.skip || conditionSetsSkip ? ['skip' as const] : []),
           ...STATE_FLAGS.filter((flag) => read.flags.has(flag)),
         ],
       };
@@ -927,8 +937,14 @@ export class VitestAdapter implements Adapter {
     if (!node) return result;
     const options = readOptions(this.file, context.scopes, node);
     problems.push(...unresolvedOptions(this.file, options, 'its flags, tags and meta are missing'));
+    // From Vitest 5.0.5 an option set to `undefined` replaces nothing; the scan applies that to all of Vitest 5.
+    const given = (key: string) => {
+      const option = options.values.get(key);
+      const isUndefined = option?.resolved.ok === true && option.resolved.value === undefined;
+      return isUndefined && atLeast(this.file.version, 5, 0) ? undefined : option;
+    };
     for (const flag of ['only', 'todo', 'fails', 'concurrent', 'sequential', 'shuffle']) {
-      const option = options.values.get(flag);
+      const option = given(flag);
       if (option && !option.resolved.ok) {
         const { importedFrom } = option.resolved;
         problems.push(unresolvedOption(this.file, flag, option.node, importedFrom, 'it is not applied'));
@@ -938,7 +954,7 @@ export class VitestAdapter implements Adapter {
         result.flags.set(flag, Boolean(option.resolved.value));
       }
     }
-    const skip = options.values.get('skip');
+    const skip = given('skip');
     if (skip) {
       result.skip = skip.resolved.ok
         ? { applies: skip.resolved.value ? 'always' : 'never', text: null }
