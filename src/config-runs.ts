@@ -102,6 +102,8 @@ export interface Placement {
   runs: Run | false | null;
   /** The projects of the config that run the file, which a Playwright `grep` may narrow per test; null when unknown. */
   projects: ProjectAbout[] | null;
+  /** The tags Playwright's config `tag` gives every test; null when the scan can't work them out. */
+  tags: string[] | null;
 }
 
 const ASSUMED = 'the scan takes its files to be run';
@@ -224,6 +226,11 @@ export class ConfigRuns {
    * nearest config.
    */
   placementOf(file: string): Placement {
+    const placement = this.place(file);
+    return { ...placement, tags: this.configTags(placement.config) };
+  }
+
+  private place(file: string): Omit<Placement, 'tags'> {
     const around = this.configs.around(file);
     for (const config of around) {
       const running = this.projectsOf(config).flatMap((project) => {
@@ -248,6 +255,28 @@ export class ConfigRuns {
       runs: nearest ? false : null,
       projects: nearest ? [] : null,
     };
+  }
+
+  /**
+   * Playwright's config `tag`, from 1.57, which it gives every test before its own tags; null when the scan can't work
+   * it out. That is reported where the config writes `tag`; a config whose settings come from code the scan can't
+   * follow is reported there already, as its projects can't be worked out either.
+   */
+  private configTags(config: ConfigFile | null): string[] | null {
+    if (config === null || this.framework !== 'playwright' || !atLeast(this.version, 1, 57)) return [];
+    const setting = settingAt(config.settings, ['tag']);
+    if (setting === null || isUnset(setting)) return [];
+    const tags: string[] = [];
+    for (const item of setting.kind === 'list' ? setting.items : [setting]) {
+      if (item.kind !== 'value' || typeof item.value !== 'string') {
+        if (config.settings.kind === 'object' && config.settings.keys.has('tag')) {
+          this.configs.reportUnknown(unknownAt(item), 'tag', "the tests' tags leave it out");
+        }
+        return null;
+      }
+      tags.push(item.value);
+    }
+    return tags;
   }
 
   /** The projects of a config the output lists; null when the scan can't work them out. */
@@ -826,17 +855,21 @@ function projectsRunning(
   test: TestRecord,
   suites: SuiteRecord[],
   file: string,
+  configTags: string[] | null,
 ): ProjectAbout[] | null {
   const titles = [...test.suitePath, test.title];
   const isDynamic =
-    test.hasDynamicTitle || suites.some((suite) => suite.hasDynamicTitle && test.suitePath.includes(suite.title));
-  // Tags written into a title are in its text already; Playwright adds the others after it.
-  const tags = test.tags.filter((tag) => !titles.some((title) => title.includes(tag)));
+    test.hasDynamicTitle ||
+    configTags === null ||
+    suites.some((suite) => suite.hasDynamicTitle && test.suitePath.includes(suite.title));
+  // Tags written into a title are in its text already; Playwright adds the config's after the file, the others after it.
+  const tags = test.tags.filter((tag) => !configTags?.includes(tag) && !titles.some((title) => title.includes(tag)));
   const running: ProjectAbout[] = [];
   for (const project of projects) {
     const { name, grep, grepRoot } = project;
     if (grep && isDynamic) return null;
-    if (grep && !grep([name, path.relative(grepRoot, file), ...titles, ...tags].join(' '))) continue;
+    const text = [name, path.relative(grepRoot, file), ...(configTags ?? []), ...titles, ...tags].join(' ');
+    if (grep && !grep(text)) continue;
     if (project.runsByDefault === null) return null;
     running.push(project);
   }
@@ -1006,7 +1039,7 @@ export function fileConfig(
   if (config === null) {
     // Without a config, Vitest defines no tags and keeps strictTags on.
     const tags = vitestTags(null, null, null, atLeast(version, 5, 0));
-    return framework === 'vitest' ? { forbidOnly: false, forTest: () => NO_CONFIG, tags } : null;
+    return framework === 'vitest' ? { forbidOnly: false, forTest: () => NO_CONFIG, tags, configTags: [] } : null;
   }
   const forbidOnly = framework === 'playwright' ? settingAt(config.settings, ['forbidOnly']) : null;
   return {
@@ -1016,11 +1049,12 @@ export function fileConfig(
         : forbidOnly?.kind === 'value' && forbidOnly.value === true,
     forTest(test, suites) {
       if (projects === null) return { projects: null, defaults: UNKNOWN_DEFAULTS };
-      const running = projectsRunning(projects, test, suites, file);
+      const running = projectsRunning(projects, test, suites, file, placement.tags);
       // A grep the scan can't match leaves the projects that run the file, which may still agree.
       return { projects: running?.map(({ name }) => name) ?? null, defaults: configDefaults(running ?? projects) };
     },
     tags: agreedTags(projects),
+    configTags: placement.tags ?? [],
   };
 }
 

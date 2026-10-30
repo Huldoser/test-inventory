@@ -58,6 +58,69 @@ describe('which projects run each test', () => {
   });
 
   it.each([
+    ['1.56.0', { tags: [[], ['@ui', '@fast']], projects: [['api'], ['no-api']] }],
+    ['1.57.0', { tags: [['@nightly'], ['@nightly', '@ui', '@fast']], projects: [['api'], ['nightly-only']] }],
+  ])("gives every test the Playwright %s config's tag, first, also for grep: %j", async (version, expected) => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': version } }),
+        'playwright.config.ts': [
+          "import { defineConfig } from '@playwright/test';",
+          '',
+          'export default defineConfig({',
+          "  testDir: 'tests',",
+          "  tag: '@nightly',",
+          '  projects: [',
+          "    { name: 'api', testMatch: 'api/*.spec.ts' },",
+          "    { name: 'no-api', testIgnore: /api/, grepInvert: /@nightly/ },",
+          "    { name: 'nightly-only', testIgnore: /api/, grep: /^nightly-only watchlist\\.spec\\.ts @nightly watchlist/ },",
+          '  ],',
+          '});',
+          '',
+        ].join('\n'),
+        'tests/api/quotes.spec.ts':
+          "import { test } from '@playwright/test';\ntest('returns a quote for AAPL', async () => {});\n",
+        'tests/watchlist.spec.ts': [
+          "import { test } from '@playwright/test';",
+          "test.describe('watchlist @ui', () => {",
+          "  test('adds NVDA to the watchlist', { tag: '@fast' }, async () => {});",
+          '});',
+          '',
+        ].join('\n'),
+      },
+      'playwright',
+      ['tests/**/*.spec.ts'],
+    );
+    expect({
+      tags: inventory.tests.map((test) => test.tags),
+      projects: inventory.tests.map((test) => test.projects),
+    }).toEqual(expected);
+  });
+
+  it("can't tell the projects with a grep when the Playwright config's tag can't be worked out", async () => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.0' } }),
+        'playwright.config.ts': [
+          'export default {',
+          "  tag: ['@regression', process.env.CI_ENVIRONMENT_NAME],",
+          "  projects: [{ name: 'chromium' }, { name: 'staging', grep: /@staging/ }],",
+          '};',
+          '',
+        ].join('\n'),
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order', { tag: '@smoke' }, async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(inventory.tests.map((test) => [test.tags, test.projects])).toEqual([[['@smoke'], null]]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's tag could not be worked out without running the config, so the tests' tags leave it out.",
+    ]);
+  });
+
+  it.each([
     ['1.63.0', ['slow']],
     ['1.64.0', []],
   ])(

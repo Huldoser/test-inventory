@@ -92,6 +92,8 @@ export interface FileConfig {
   forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
   /** Vitest's tags; null when the scan can't work them out, or the projects that run the file define different ones. */
   tags: VitestTags | null;
+  /** The tags Playwright's config `tag` gives every test, before the test's own. */
+  configTags: string[];
 }
 
 interface RecordOptions {
@@ -502,6 +504,7 @@ class RecordBuilder {
     const id = this.id([this.describeTitles(describes), title.withoutTags]);
     const fileScope = scopes[scopes.length - 1];
     const tags = unique([
+      ...(this.options.config?.configTags ?? []),
       ...fileScope.details.tags,
       ...describes.flatMap((scope) => scope.details.tags),
       ...declaration.details.tags,
