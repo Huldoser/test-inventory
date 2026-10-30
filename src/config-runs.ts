@@ -352,10 +352,23 @@ export class ConfigRuns {
       if (current === true || current === value) return;
       runs.set(project, value);
       const teardown = settingAt(project, ['teardown']);
-      const needed = strings(settingAt(project, ['dependencies']));
+      const dependencies = settingAt(project, ['dependencies']);
+      const needed = strings(dependencies);
       if (teardown?.kind === 'value' && typeof teardown.value === 'string') needed.push(teardown.value);
+      // A list the scan can't work out may name any project, which then may run.
+      const unknowns = [teardown, dependencies, ...(dependencies?.kind === 'list' ? dependencies.items : [])].filter(
+        (setting) => setting?.kind === 'unknown',
+      );
+      for (const unknown of unknowns) {
+        this.configs.reportUnknown(
+          unknown,
+          'projects dependencies',
+          "the scan can't tell which projects run the tests",
+        );
+      }
       for (const [index, other] of projects.entries()) {
         if (needed.includes(names[index])) visit(other, value);
+        else if (unknowns.length > 0) visit(other, null);
       }
     };
     // The projects that surely run go first, so that what they pull in is sure to run too.

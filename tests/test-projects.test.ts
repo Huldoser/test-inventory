@@ -190,6 +190,33 @@ describe('which projects run each test', () => {
     ]);
   });
 
+  it("can't tell whether a Playwright project with default: false runs when a running one may depend on it", async () => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.1' } }),
+        'playwright.config.ts': [
+          'export default {',
+          '  projects: [',
+          "    { name: 'setup', testMatch: /auth\\.setup\\.ts/, default: false },",
+          "    { name: 'chromium', testIgnore: /setup/, dependencies: process.env.CI ? ['setup'] : [] },",
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/auth.setup.ts':
+          "import { test as setup } from '@playwright/test';\nsetup('signs in as a trader', async () => {});\n",
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order', async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.ts'],
+    );
+    expect(projectsOf(inventory)).toEqual({ 'signs in as a trader': null, 'places a limit order': ['chromium'] });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's projects dependencies could not be worked out without running the config, so the scan can't tell which projects run the tests.",
+    ]);
+  });
+
   it("names a Playwright config without projects after its name, and can't tell for a dynamic title under grep", async () => {
     const plain = await scanned(
       {
