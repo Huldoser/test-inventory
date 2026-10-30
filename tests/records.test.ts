@@ -852,6 +852,18 @@ test('rejects a bracket order without a stop', () => {});
     ]);
   });
 
+  it('counts expect.element() of Vitest browser mode as an expect call', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { page } from 'vitest/browser';
+test('shows the fill price in the order ticket', async () => {
+  await page.getByRole('button', { name: 'Buy AAPL' }).click();
+  await expect.element(page.getByRole('status')).toHaveTextContent('Filled at 187.12');
+  await expect.element(page.getByRole('dialog'), { timeout: 2_000 }).not.toBeInTheDocument();
+});
+`);
+    expect(onlyTest(inventory).expectCount).toBe(2);
+  });
+
   it('reads a test function passed by name like one written in place', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 const fillsOrder = async ({ orderTicket }) => {

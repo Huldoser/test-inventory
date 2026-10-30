@@ -357,7 +357,7 @@
       "retriesConfigText": null,
       "repeatsConfigText": null,
       "fixtures": [],
-      "expectCount": 0,
+      "expectCount": 1,
       "expectedAssertions": null,
       "expectsAssertions": false,
       "hasEmptyBody": false,
