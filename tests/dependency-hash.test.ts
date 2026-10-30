@@ -1,4 +1,4 @@
-import { symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { scan, type Inventory, type TestRecord } from '../src/index.ts';
@@ -394,6 +394,31 @@ test('shows the buy side and the equity fee', () => {
       const after = await hashesAfter(files, ['tests/order-ticket.test.tsx', code], 'vitest');
       expect(after, to).not.toEqual(before);
     }
+  });
+
+  it('takes an imported file that is not text by its bytes, so a different image changes the hash', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'tests/broker-logo.test.ts': `import { expect, test } from 'vitest';
+import logo from '../assets/broker-logo.png';
+
+test('shows the broker logo in the header', () => {
+  expect(logo).toMatch(/broker-logo/);
+});
+`,
+    };
+    const header = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const hashWith = async (bytes: number[]) => {
+      const root = project(files);
+      mkdirSync(path.join(root, 'assets'));
+      writeFileSync(path.join(root, 'assets/broker-logo.png'), Uint8Array.from([...header, ...bytes]));
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0].dependencies).toEqual(['assets/broker-logo.png', 'tests/broker-logo.test.ts']);
+      return inventory.tests[0].dependencyHash;
+    };
+    const hashes = [await hashWith([0xff, 0x01]), await hashWith([0xfe, 0x01]), await hashWith([0x0d, 0x0a, 0xff])];
+    expect(new Set(hashes).size).toBe(3);
+    expect(await hashWith([0x0a, 0xff])).not.toBe(hashes[2]);
   });
 
   it('takes the code a module runs when it loads, and a whole module loaded by path at run time', async () => {

@@ -25,8 +25,11 @@ interface Module {
   relativeFilePath: string;
   /** Null for a file that isn't JavaScript or TypeScript, which is taken by its text; for a component, its scripts. */
   parsed: ParsedFile | null;
-  /** The file's text with line endings read as `\n`, for a file that isn't code or a component. */
-  text: string | null;
+  /**
+   * The file's text with line endings read as `\n`, for a file that isn't code or a component; its bytes when it isn't
+   * UTF-8 text, such as an image.
+   */
+  text: string | Uint8Array | null;
   values: Values;
   readModule: ModuleReader | null;
   /** Its top-level code that runs when it is imported, and the modules it imports, which run then too. */
@@ -648,7 +651,7 @@ export class DependencyGraph {
   private newModule(
     relativeFilePath: string,
     parsed: ParsedFile | null,
-    text: string | null,
+    text: string | Uint8Array | null,
     values: Values,
     readModule: ModuleReader | null,
   ): Module {
@@ -709,7 +712,7 @@ export class DependencyGraph {
           this.newModule(source.relativeFilePath, parsed, null, new Values(), source.readModule);
         this.modules.set(parsed, module);
       } else {
-        const text = source.code.replace(/\r\n?/g, '\n');
+        const text = source.bytes ?? source.code.replace(/\r\n?/g, '\n');
         // A component's markup and styles shape what it renders, so it is taken by its text, and its scripts are
         // followed for the modules they import.
         const script = COMPONENT_FILE.test(source.relativeFilePath) ? componentScript(source.code) : null;

@@ -218,7 +218,7 @@ something included. Some of what a test runs is out of its reach:
   linked into a snapshots folder aren't followed; linked files are.
 - Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
 - A Vue component's script loaded with `src`, as in `<script src="./watchlist.ts">`. A file that isn't JavaScript or
-  TypeScript, such as JSON, is taken by its text.
+  TypeScript, such as JSON, is taken by its text, and one that isn't text, such as an image, by its bytes.
 
 Some of what the hash takes is more than the test needs, so a change can change the hash of a test it doesn't affect:
 

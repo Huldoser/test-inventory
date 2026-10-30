@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { globSync } from 'tinyglobby';
@@ -49,6 +50,16 @@ function record(value: unknown): Record<string, unknown> | null {
 function readText(file: string): string | null {
   try {
     return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** A file's text, with its bytes too when it isn't UTF-8 text, as an image isn't; null when it can't be read. */
+function readContent(file: string): { code: string; bytes?: Uint8Array } | null {
+  try {
+    const bytes = readFileSync(file);
+    return isUtf8(bytes) ? { code: bytes.toString('utf8') } : { code: bytes.toString('utf8'), bytes };
   } catch {
     return null;
   }
@@ -407,12 +418,14 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
       const found = candidates.map(findFile).find((file) => file !== null);
       if (!found) return { reason: 'could not be read' };
       if (!modules.has(found)) {
-        const code = readText(found);
+        const content = readContent(found);
         modules.set(
           found,
-          code === null
-            ? null
-            : { code, relativeFilePath: path.relative(root, found).replaceAll('\\', '/'), readModule: reader(found) },
+          content && {
+            ...content,
+            relativeFilePath: path.relative(root, found).replaceAll('\\', '/'),
+            readModule: reader(found),
+          },
         );
       }
       return modules.get(found) ?? { reason: 'could not be read' };

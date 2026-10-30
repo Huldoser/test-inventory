@@ -186,6 +186,8 @@ export interface Returns {
 /** A module read to see whether it exports a custom `test` object. */
 export interface ModuleSource {
   code: string;
+  /** The file's bytes when it isn't UTF-8 text, such as an image. */
+  bytes?: Uint8Array;
   relativeFilePath: string;
   /** Reads the modules this module imports in turn. */
   readModule: ModuleReader;
