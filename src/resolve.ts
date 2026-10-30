@@ -413,9 +413,11 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
           const workspace = fromBaseUrl ? null : workspaceSource(specifier, directory, packagesOf);
           if (workspace && 'reason' in workspace) return workspace;
           const file = fromBaseUrl ?? workspace?.file;
-          if (!file && targets) return { reason: 'could not be read' };
-          // No package name starts with `@/` or `~/`, so these are aliases, as Vite's `resolve.alias` sets them.
-          if (!file && /^[@~]\//.test(specifier)) return { reason: 'is a path alias that no tsconfig paths define' };
+          // No package name starts with `@/` or `~/`, so these are aliases, as Vite's `resolve.alias` sets them; any
+          // other name with no file may still be a package or a built-in module, as TypeScript takes it to be.
+          if (!file && /^[@~]\//.test(specifier)) {
+            return { reason: targets ? 'could not be read' : 'is a path alias that no tsconfig paths define' };
+          }
           if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
           candidates = [file];
         }

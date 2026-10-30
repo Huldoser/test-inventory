@@ -64,7 +64,7 @@ describe('a custom test object imported through a tsconfig path alias', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
-  it('falls back to installed packages when no file of a matching alias exists, as TypeScript does', async () => {
+  it('falls back to packages and built-in modules when no file of a matching alias exists, as TypeScript does', async () => {
     const inventory = await scanSpec(
       {
         'package.json': VITEST_PACKAGE,
@@ -72,8 +72,11 @@ describe('a custom test object imported through a tsconfig path alias', () => {
         'node_modules/decimal.js/package.json': '{ "name": "decimal.js" }',
         'tsconfig.json': '{ "compilerOptions": { "paths": { "*": ["./src/types/*"] } } }',
         'src/types/money.ts': "export const CURRENCY = 'USD';\n",
-        'tests/fees.test.ts': `import { expect, test } from 'vitest';
+        'tests/fees.test.ts': `import { readFileSync } from 'node:fs';
+import path from 'path';
+import { expect, test } from 'vitest';
 import Decimal from 'decimal.js';
+import { addBusinessDays } from 'date-fns';
 import { CURRENCY } from 'money';
 
 test('charges the commission in the account currency', () => {
