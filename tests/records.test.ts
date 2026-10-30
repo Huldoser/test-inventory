@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { format } from 'prettier';
 import { describe, expect, it } from 'vitest';
-import { scan, type SuiteRecord, type TestRecord } from '../src/index.ts';
+import { scan, type Inventory, type SuiteRecord, type TestRecord } from '../src/index.ts';
 import { duplicateIdDiagnostics } from '../src/records.ts';
 import { codes, onlyTest, PLAYWRIGHT_IMPORT, scanPlaywright, scanVitest, testNamed, VITEST_IMPORT } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
@@ -761,10 +761,40 @@ test('reconnects after a restart', { retry: { delay: 250 } }, () => {});
     ]);
   });
 
-  it('ignores the Vitest retry object before 4.1, where the runner does not retry with it', () => {
-    const code = `${VITEST_IMPORT}\ntest('reconnects after a drop', { retry: { count: 3 } }, () => {});`;
-    expect(onlyTest(scanVitest(code, { frameworkVersion: '4.0.0' })).retries).toBeNull();
-    expect(onlyTest(scanVitest(code, { frameworkVersion: '4.1.0' })).retries).toBe(3);
+  it('warns about a Vitest retry object before 4.1, where the runner never runs the test, and leaves retries null', () => {
+    const code = `${VITEST_IMPORT}
+test('reconnects after a drop', { retry: { count: 3 } }, () => {});
+describe('quote feed', { retry: { count: 1 } }, () => {
+  test('drops a crossed quote', () => {});
+});
+`;
+    const retries = (inventory: Inventory) =>
+      inventory.tests.map((test) => [test.title, test.retries, test.retriesSource]);
+    const before = scanVitest(code, { frameworkVersion: '4.0.18' });
+    expect(retries(before)).toEqual([
+      ['reconnects after a drop', null, 'test'],
+      ['drops a crossed quote', null, 'suite'],
+    ]);
+    expect(before.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart, diagnostic.message])).toEqual(
+      [
+        [
+          'unresolved-option',
+          2,
+          'Option retry: { count: 3 } is an object, which Vitest reads from 4.1; before, it never runs the test.',
+        ],
+        [
+          'unresolved-option',
+          3,
+          'Option retry: { count: 1 } is an object, which Vitest reads from 4.1; before, it never runs the test.',
+        ],
+      ],
+    );
+    const after = scanVitest(code, { frameworkVersion: '4.1.0' });
+    expect(retries(after)).toEqual([
+      ['reconnects after a drop', 3, 'test'],
+      ['drops a crossed quote', 1, 'suite'],
+    ]);
+    expect(after.diagnostics).toEqual([]);
   });
 });
 

@@ -157,6 +157,23 @@ describe('run settings from the config', () => {
     expect(sources(inventory.tests[0]).retries).toEqual([null, 'config']);
   });
 
+  it("keeps a test's own retry object before Vitest 4.1 over the config's count, as it replaces the count", async () => {
+    const inventory = await scan({
+      root: project({
+        'package.json': JSON.stringify({ devDependencies: { vitest: '4.0.18' } }),
+        'vitest.config.ts': 'export default { test: { retry: 3 } };\n',
+        'tests/quotes.test.ts': [
+          "import { test } from 'vitest';",
+          "test('reprices a stale quote', { retry: { count: 1 } }, () => {});",
+          '',
+        ].join('\n'),
+      }),
+      patterns: ['tests/*.test.ts'],
+      framework: 'vitest',
+    });
+    expect(sources(inventory.tests[0]).retries).toEqual([null, 'test']);
+  });
+
   it("takes Vitest's repeats from the config from Vitest 5, which added it", async () => {
     const files = {
       'vitest.config.ts': 'export default { test: { repeats: 2 } };\n',

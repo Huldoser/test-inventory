@@ -62,8 +62,11 @@ export interface Details {
 /** Run settings written in one place; a key that is missing is not set there. */
 export interface RunSettings {
   timeout?: number;
-  /** A retry setting replaces the whole `retry` of the describes around, delay and condition included. */
-  retry?: { count: number; delay: number | null; condition: string | null };
+  /**
+   * A retry setting replaces the whole `retry` of the describes around, delay and condition included; null when it is
+   * set to a value the runner can't use.
+   */
+  retry?: { count: number; delay: number | null; condition: string | null } | null;
   repeats?: number;
   /** Playwright `test.slow()`: the conditions of the calls, any of which makes the test slow; null when one always does. */
   slow?: { conditions: string[] | null };

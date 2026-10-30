@@ -973,7 +973,7 @@ export class VitestAdapter implements Adapter {
     return result;
   }
 
-  /** `retry` as a number, or since Vitest 4.1 as `{ count, delay, condition }`; the runner ignores an object before. */
+  /** `retry` as a number, or since Vitest 4.1 as `{ count, delay, condition }`. */
   private retry(option: OptionValue, details: Details, context: CallContext, problems: Problem[]): void {
     const node = unwrap(option.node);
     if (node.type !== 'ObjectExpression') {
@@ -981,7 +981,14 @@ export class VitestAdapter implements Adapter {
       if (count !== null) details.run.retry = { count, delay: null, condition: null };
       return;
     }
-    if (!atLeast(this.file.version, 4, 1)) return;
+    if (!atLeast(this.file.version, 4, 1)) {
+      // Before 4.1 the runner compares the attempt number with the object, so it never runs the test.
+      const source = snippet(text(this.file, node));
+      const message = `Option retry: ${source} is an object, which Vitest reads from 4.1; before, it never runs the test.`;
+      problems.push(problem('unresolved-option', node, message, source));
+      details.run.retry = null;
+      return;
+    }
     const values = readOptions(this.file, context.scopes, node);
     problems.push(...unresolvedOptions(this.file, values, 'the retry is not applied'));
     const read = (key: string) => {
