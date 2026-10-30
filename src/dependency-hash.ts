@@ -352,6 +352,16 @@ const COMPONENT_FILE = /\.(?:vue|svelte)$/;
 const COMPONENT_BLOCK =
   /<!--[\s\S]*?--!?>|<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script(?:[\s/][^>]*)?>/gi;
 
+/**
+ * A file's bytes with line endings as `\n`, as git may check out a text file with either; one git takes for binary, with
+ * a NUL byte in its first 8,000, stays as it is.
+ */
+function withLineFeeds(bytes: Uint8Array): Uint8Array {
+  if (bytes.subarray(0, 8000).includes(0)) return bytes;
+  // Latin-1 maps each byte to one character and back, so only the line endings change.
+  return Buffer.from(Buffer.from(bytes).toString('latin1').replace(/\r\n?/g, '\n'), 'latin1');
+}
+
 /** Whether a script block holds code: one with a `type` other than a JavaScript one, as JSON-LD, holds data. */
 function isScriptCode(attributes: string): boolean {
   const type = /(?:^|\s)type\s*=\s*["']?([^"'\s>]*)/i.exec(attributes)?.[1] ?? '';
@@ -719,7 +729,7 @@ export class DependencyGraph {
           this.newModule(source.relativeFilePath, parsed, null, new Values(), source.readModule);
         this.modules.set(parsed, module);
       } else {
-        const text = source.bytes ?? source.code.replace(/\r\n?/g, '\n');
+        const text = source.bytes ? withLineFeeds(source.bytes) : source.code.replace(/\r\n?/g, '\n');
         // A component's markup and styles shape what it renders, so it is taken by its text, and its scripts are
         // followed for the modules they import.
         const script = COMPONENT_FILE.test(source.relativeFilePath) ? componentScript(source.code) : null;

@@ -455,29 +455,45 @@ test('shows the commission in the order header', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
-  it('takes an imported file that is not text by its bytes, so a different image changes the hash', async () => {
+  it('takes an imported file that is not UTF-8 by its bytes, with line endings as git checks them out', async () => {
     const files = {
       'package.json': VITEST_PACKAGE,
       'tests/broker-logo.test.ts': `import { expect, test } from 'vitest';
 import logo from '../assets/broker-logo.png';
+import fees from '../assets/fees-latin1.csv?raw';
 
-test('shows the broker logo in the header', () => {
-  expect(logo).toMatch(/broker-logo/);
+test('shows the broker logo above the fee table', () => {
+  expect([logo, fees]).toHaveLength(2);
 });
 `,
     };
-    const header = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-    const hashWith = async (bytes: number[]) => {
+    // A PNG signature and the length of its first chunk, whose NUL bytes make git take the file as binary.
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d];
+    // "Börse;0,5" in Latin-1, which isn't UTF-8.
+    const csv = [0x42, 0xf6, 0x72, 0x73, 0x65, 0x3b, 0x30, 0x2c, 0x35];
+    const hashWith = async (logo: number[], fees: number[]) => {
       const root = project(files);
       mkdirSync(path.join(root, 'assets'));
-      writeFileSync(path.join(root, 'assets/broker-logo.png'), Uint8Array.from([...header, ...bytes]));
+      writeFileSync(path.join(root, 'assets/broker-logo.png'), Uint8Array.from(logo));
+      writeFileSync(path.join(root, 'assets/fees-latin1.csv'), Uint8Array.from(fees));
       const inventory = await scanProject(root, 'vitest');
-      expect(inventory.tests[0].dependencies).toEqual(['assets/broker-logo.png', 'tests/broker-logo.test.ts']);
+      expect(inventory.tests[0].dependencies).toEqual([
+        'assets/broker-logo.png',
+        'assets/fees-latin1.csv',
+        'tests/broker-logo.test.ts',
+      ]);
       return inventory.tests[0].dependencyHash;
     };
-    const hashes = [await hashWith([0xff, 0x01]), await hashWith([0xfe, 0x01]), await hashWith([0x0d, 0x0a, 0xff])];
-    expect(new Set(hashes).size).toBe(3);
-    expect(await hashWith([0x0a, 0xff])).not.toBe(hashes[2]);
+    const lf = [...csv, 0x0a, ...csv];
+    const hashes = [
+      await hashWith([...png, 0xff, 0x01], lf),
+      await hashWith([...png, 0xfe, 0x01], lf),
+      await hashWith([...png, 0x0d, 0x0a, 0xff], lf),
+      await hashWith([...png, 0x0a, 0xff], lf),
+      await hashWith([...png, 0xff, 0x01], [...csv, 0x0a, ...csv.slice(0, -1), 0x36]),
+    ];
+    expect(new Set(hashes).size).toBe(5);
+    expect(await hashWith([...png, 0xff, 0x01], [...csv, 0x0d, 0x0a, ...csv])).toBe(hashes[0]);
   });
 
   it('takes the code a module runs when it loads, and a whole module loaded by path at run time', async () => {
