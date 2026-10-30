@@ -67,6 +67,8 @@ export interface ProjectAbout {
   config: ConfigFile;
   grep: ((title: string) => boolean) | null;
   grepRoot: string;
+  /** Whether the runner runs the project without `--project`, as Playwright's `default` decides; null when unknown. */
+  runsByDefault: boolean | null;
   defaults: ProjectDefaults;
 }
 
@@ -294,6 +296,7 @@ export class ConfigRuns {
       config,
       grep: null,
       grepRoot: '',
+      runsByDefault: true,
       defaults: NO_DEFAULTS,
     };
     return { config, settings: setting, about, runs: null, unknown: { setting, key } };
@@ -303,11 +306,50 @@ export class ConfigRuns {
     const list = settingAt(config.settings, ['projects']);
     if (list?.kind === 'unknown') return [this.unknownProject(config, list, 'projects')];
     const items = list?.kind === 'list' ? list.items : [emptySettings()];
-    return items.map((project) => this.playwrightProject(config, project));
+    const running = this.runsByDefault(config, items);
+    return items.map((project) => this.playwrightProject(config, project, running.get(project) as boolean | null));
+  }
+
+  /**
+   * Whether Playwright runs each project without `--project`: from 1.64, not with `default: false`, unless a project it
+   * runs lists it in `dependencies` or `teardown`, directly or through others. Null when the scan can't tell.
+   */
+  private runsByDefault(config: ConfigFile, projects: Setting[]): Map<Setting, boolean | null> {
+    const isRead = atLeast(this.version, 1, 64);
+    const runs = new Map<Setting, boolean | null>(projects.map((project) => [project, !isRead]));
+    const names = projects.map((project) => playwrightName(config, project));
+    const visit = (project: Setting, value: true | null) => {
+      const current = runs.get(project);
+      if (current === true || current === value) return;
+      runs.set(project, value);
+      const teardown = settingAt(project, ['teardown']);
+      const needed = strings(settingAt(project, ['dependencies']));
+      if (teardown?.kind === 'value' && typeof teardown.value === 'string') needed.push(teardown.value);
+      for (const [index, other] of projects.entries()) {
+        if (needed.includes(names[index])) visit(other, value);
+      }
+    };
+    // The projects that surely run go first, so that what they pull in is sure to run too.
+    for (const value of isRead ? ([true, null] as const) : []) {
+      for (const project of projects) {
+        const setting = settingAt(project, ['default']);
+        const seed = setting?.kind === 'unknown' ? null : !(setting?.kind === 'value' && setting.value === false);
+        if (seed !== value) continue;
+        if (seed === null && project.kind !== 'unknown') {
+          this.configs.reportUnknown(
+            setting as Unknown,
+            'projects default',
+            "the scan can't tell which projects run the tests",
+          );
+        }
+        visit(project, value);
+      }
+    }
+    return runs;
   }
 
   /** A Playwright project: its own settings, else the config's, else Playwright's defaults. */
-  private playwrightProject(config: ConfigFile, project: Setting): Project {
+  private playwrightProject(config: ConfigFile, project: Setting, runsByDefault: boolean | null): Project {
     if (project.kind === 'unknown') return this.unknownProject(config, project, 'projects');
     const take = (key: string): Taken | null => {
       for (const [setting, name] of [
@@ -356,12 +398,11 @@ export class ConfigRuns {
       greps.push((title) => (expressions as RegExp[]).some((expression) => matches(expression, title)));
     }
     const [isGrepped, isInverted] = greps;
-    const name = take('name');
     const dependencies = settingAt(project, ['dependencies']);
     // Playwright's root folder: the config's testDir, the start of each test's grep title.
     const configDir = settingAt(config.settings, ['testDir']);
     const about: ProjectAbout = {
-      name: name?.setting.kind === 'value' && typeof name.setting.value === 'string' ? name.setting.value : '',
+      name: playwrightName(config, project),
       testDir: root,
       dependencies: strings(dependencies),
       // A project's own keys, as `snapshotPathTemplate`; the config's apply to every project, and are read there.
@@ -377,6 +418,7 @@ export class ConfigRuns {
         configDir?.kind === 'value' && typeof configDir.value === 'string'
           ? path.resolve(folder, configDir.value)
           : folder,
+      runsByDefault,
       defaults: {
         timeout: take('timeout')?.setting ?? null,
         retry: take('retries')?.setting ?? null,
@@ -392,7 +434,7 @@ export class ConfigRuns {
       about,
       unknown: null,
       runs: (file) => {
-        if (!isInside(root, file)) return false;
+        if (runsByDefault === false || !isInside(root, file)) return false;
         if (isIgnored(file) || !isMatch(file)) return false;
         return gitIgnore && this.isGitIgnored(root, file) ? false : 'test';
       },
@@ -649,6 +691,7 @@ export class ConfigRuns {
       config,
       grep: null,
       grepRoot: base,
+      runsByDefault: true,
       defaults: {
         timeout: settingAt(settings, ['test', 'testTimeout']),
         retry: this.vitestRetry(settingAt(settings, ['test', 'retry'])),
@@ -686,6 +729,16 @@ export class ConfigRuns {
 function matches(expression: RegExp, text: string): boolean {
   expression.lastIndex = 0;
   return expression.test(text);
+}
+
+/** A Playwright project's name: its own, else the config's, else empty. */
+function playwrightName(config: ConfigFile, project: Setting): string {
+  for (const setting of [settingAt(project, ['name']), settingAt(config.settings, ['name'])]) {
+    if (setting && !isUnset(setting)) {
+      return setting.kind === 'value' && typeof setting.value === 'string' ? setting.value : '';
+    }
+  }
+  return '';
 }
 
 /** The strings of a list setting, such as Playwright's `dependencies`; none for anything else. */
@@ -766,7 +819,7 @@ function folders(relative: string): string[] {
  * The projects that run a test: those that run its file, less those whose Playwright `grep` or `grepInvert` leaves its
  * title out, matched as Playwright matches it, against the project's name, the file's path from the config's root
  * folder, the titles of the describes and the test and their tags. Null when a `grep` meets a title the scan can't work
- * out.
+ * out, or the test is in a project the scan can't tell runs.
  */
 function projectsRunning(
   projects: ProjectAbout[],
@@ -783,7 +836,9 @@ function projectsRunning(
   for (const project of projects) {
     const { name, grep, grepRoot } = project;
     if (grep && isDynamic) return null;
-    if (!grep || grep([name, path.relative(grepRoot, file), ...titles, ...tags].join(' '))) running.push(project);
+    if (grep && !grep([name, path.relative(grepRoot, file), ...titles, ...tags].join(' '))) continue;
+    if (project.runsByDefault === null) return null;
+    running.push(project);
   }
   return running;
 }

@@ -57,6 +57,76 @@ describe('which projects run each test', () => {
     ]);
   });
 
+  it.each([
+    ['1.63.0', ['slow']],
+    ['1.64.0', []],
+  ])(
+    'leaves out a Playwright %s project with default: false unless a running project depends on it',
+    async (version, slow) => {
+      const root = project({
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': version } }),
+        'playwright.config.ts': [
+          "import { defineConfig } from '@playwright/test';",
+          '',
+          'export default defineConfig({',
+          "  testDir: './e2e',",
+          '  projects: [',
+          "    { name: 'setup', testMatch: /global\\.setup\\.ts/, teardown: 'cleanup', default: false },",
+          "    { name: 'cleanup', testMatch: /global\\.teardown\\.ts/, default: false },",
+          "    { name: 'chromium', testIgnore: /slow|global/, dependencies: ['setup'] },",
+          "    { name: 'slow', testDir: './e2e/slow', default: false },",
+          '  ],',
+          '});',
+          '',
+        ].join('\n'),
+        'e2e/global.setup.ts':
+          "import { test as setup } from '@playwright/test';\nsetup('signs in as a trader', async () => {});\n",
+        'e2e/global.teardown.ts':
+          "import { test as teardown } from '@playwright/test';\nteardown('closes the open orders', async () => {});\n",
+        'e2e/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order', async () => {});\n",
+        'e2e/slow/replay.spec.ts':
+          "import { test } from '@playwright/test';\ntest('replays a day of quotes', async () => {});\n",
+      });
+      const inventory = await scan({ root, patterns: ['e2e/**/*.ts'], framework: 'playwright' });
+      expect(projectsOf(inventory)).toEqual({
+        'signs in as a trader': ['setup'],
+        'closes the open orders': ['cleanup'],
+        'places a limit order': ['chromium'],
+        'replays a day of quotes': slow,
+      });
+      expect(inventory.configs[0].projects?.map((item) => item.name)).toEqual(['setup', 'cleanup', 'chromium', 'slow']);
+    },
+  );
+
+  it("can't tell which Playwright projects run a test when a project's default can't be worked out", async () => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.0' } }),
+        'playwright.config.ts': [
+          'export default {',
+          '  projects: [',
+          "    { name: 'chromium', grep: /@smoke/ },",
+          "    { name: 'seed', testMatch: /seed\\.setup\\.ts/, default: false },",
+          "    { name: 'nightly', dependencies: ['seed'], default: !!process.env.NIGHTLY },",
+          "    { name: 'nightly-webkit', dependencies: ['seed'], default: !!process.env.NIGHTLY },",
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order @smoke', async () => {});\ntest('cancels an order', async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(projectsOf(inventory)).toEqual({ 'places a limit order @smoke': null, 'cancels an order': null });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's projects default could not be worked out without running the config, so the scan can't tell which projects run the tests.",
+      "The config's projects default could not be worked out without running the config, so the scan can't tell which projects run the tests.",
+    ]);
+  });
+
   it("names a Playwright config without projects after its name, and can't tell for a dynamic title under grep", async () => {
     const plain = await scanned(
       {
