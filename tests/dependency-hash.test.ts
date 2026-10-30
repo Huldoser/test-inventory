@@ -396,6 +396,30 @@ test('shows the buy side and the equity fee', () => {
     }
   });
 
+  it('finds the TypeScript source of an import written with a JavaScript extension, as TypeScript does', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'src/OrderHeader.tsx': 'export const OrderHeader = () => null;\n',
+      'src/format.ts': 'export const price = (value: number) => value.toFixed(2);\n',
+      'src/fees.mts': 'export const COMMISSION = 1.5;\n',
+      'tests/order-header.test.tsx': `import { expect, test } from 'vitest';
+import { OrderHeader } from '../src/OrderHeader.jsx';
+import { price } from '../src/format.js';
+import { COMMISSION } from '../src/fees.mjs';
+
+test('shows the commission in the order header', () => {
+  expect([OrderHeader, price(COMMISSION)]).toHaveLength(2);
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/OrderHeader.tsx', 'src/fees.mts', 'src/format.ts', 'tests/order-header.test.tsx'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('takes an imported file that is not text by its bytes, so a different image changes the hash', async () => {
     const files = {
       'package.json': VITEST_PACKAGE,

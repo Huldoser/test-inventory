@@ -13,7 +13,7 @@ function isFile(file: string): boolean {
 
 /** The file a path refers to, found the way TypeScript and Node do: as is, with an extension, or a folder's index. */
 function findFile(base: string): string | null {
-  const stripped = base.replace(/\.[cm]?js$/, '');
+  const stripped = base.replace(/\.(?:[cm]?js|jsx)$/, '');
   const candidates = [
     base,
     ...EXTENSIONS.map((extension) => stripped + extension),
