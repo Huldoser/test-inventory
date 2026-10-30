@@ -398,6 +398,39 @@ test('shows the buy side and the equity fee', () => {
     }
   });
 
+  it('marks a test that imports through a path alias no tsconfig defines, as one set in a Vite config', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': `import path from 'node:path';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({ resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } } });
+`,
+      'src/pricing.ts': 'export const mid = (bid: number, ask: number) => (bid + ask) / 2;\n',
+      'src/format.ts': 'export const price = (value: number) => value.toFixed(2);\n',
+      'tests/pricing.test.ts': `import { expect, test } from 'vitest';
+import { mid } from '@/pricing';
+import { price } from '~/format';
+
+test('quotes the mid price of AAPL', () => {
+  expect(price(mid(187.25, 187.75))).toBe('187.50');
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0].hasUnfollowedDependencies).toBe(true);
+    expect(inventory.diagnostics.map(({ code, message }) => [code, message])).toEqual([
+      [
+        'dependency-not-followed',
+        "'@/pricing' is a path alias that no tsconfig paths define, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        "'~/format' is a path alias that no tsconfig paths define, so dependencyHash doesn't cover it.",
+      ],
+    ]);
+  });
+
   it('finds the TypeScript source of an import written with a JavaScript extension, as TypeScript does', async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,

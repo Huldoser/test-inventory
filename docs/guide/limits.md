@@ -201,6 +201,10 @@ something included. Some of what a test runs is out of its reach:
 
 - Installed packages, such as `@playwright/test` or a library from `node_modules`. An upgrade shows in the lockfile,
   not in the hash.
+- Path aliases set only in a bundler config, such as Vite's `resolve.alias`; the scan reads aliases from tsconfig
+  `paths`. An import that starts with `@/` or `~/`, which no package name can, gives the test
+  `hasUnfollowedDependencies`, with a `dependency-not-followed` warning. Other aliases, such as `@app/pricing`, read as
+  installed packages.
 - Files the code reads while it runs, with `fs` or `fetch`, environment variables, and the clock.
 - Modules loaded by a path worked out at run time, as in ``import(`./venues/${venue}`)``, or by a pattern, as with
   `import.meta.glob()`, and a value imported from a module that only a declaration file (`.d.ts`) describes. The test

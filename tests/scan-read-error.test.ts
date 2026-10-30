@@ -114,7 +114,7 @@ describe('scan', () => {
       ],
       [
         'unresolved-test-import',
-        "'test' is imported from '@/fixtures', which is not a local file, a path alias or a workspace package; tests that use it are missing.",
+        "'test' is imported from '@/fixtures', which is a path alias that no tsconfig paths define; tests that use it are missing.",
       ],
     ]);
   });

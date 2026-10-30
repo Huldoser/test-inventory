@@ -119,9 +119,10 @@ test('charges the commission in the account currency', () => {
       'a tsconfig that is not JSON',
       { 'tsconfig.json': '{ "compilerOptions": ' },
       '@/fixtures',
-      'is not a local file, a path alias or a workspace package',
+      'is a path alias that no tsconfig paths define',
     ],
-    ['no tsconfig', {}, '@/fixtures', 'is not a local file, a path alias or a workspace package'],
+    ['no tsconfig', {}, '@/fixtures', 'is a path alias that no tsconfig paths define'],
+    ['no tsconfig, for a name no package can have', {}, '~/fixtures', 'is a path alias that no tsconfig paths define'],
   ])('is reported with %s', async (_, files, from, reason) => {
     const inventory = await scanSpec({
       'package.json': PLAYWRIGHT_PACKAGE,

@@ -414,6 +414,8 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
           if (workspace && 'reason' in workspace) return workspace;
           const file = fromBaseUrl ?? workspace?.file;
           if (!file && targets) return { reason: 'could not be read' };
+          // No package name starts with `@/` or `~/`, so these are aliases, as Vite's `resolve.alias` sets them.
+          if (!file && /^[@~]\//.test(specifier)) return { reason: 'is a path alias that no tsconfig paths define' };
           if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
           candidates = [file];
         }
