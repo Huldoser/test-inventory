@@ -402,15 +402,18 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
         if (candidates.length === 0) return { reason: 'is not in the imports of package.json' };
       } else {
         const options = optionsFor(directory);
-        const aliased = options ? aliasFiles(specifier, options) : null;
+        const targets = options ? aliasFiles(specifier, options) : null;
+        const aliased = targets?.find((file) => findFile(file) !== null);
         if (aliased) {
-          candidates = aliased;
+          candidates = [aliased];
         } else {
-          // `baseUrl` turns any name into a path, so a name not found there may still be a workspace package.
+          // TypeScript goes on to the usual lookup when no file of a matching alias exists. `baseUrl` turns any name
+          // into a path, so a name not found there may still be a workspace package.
           const fromBaseUrl = options?.baseUrl ? findFile(path.resolve(options.baseUrl, specifier)) : null;
           const workspace = fromBaseUrl ? null : workspaceSource(specifier, directory, packagesOf);
           if (workspace && 'reason' in workspace) return workspace;
           const file = fromBaseUrl ?? workspace?.file;
+          if (!file && targets) return { reason: 'could not be read' };
           if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
           candidates = [file];
         }
