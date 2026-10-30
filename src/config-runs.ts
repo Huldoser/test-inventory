@@ -206,8 +206,8 @@ export class ConfigRuns {
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
-  /** The Vitest configs whose projects are being found, to stop at one whose projects name itself. */
-  private readonly expanding = new Set<ConfigFile>();
+  /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
+  private readonly expanding = new Map<ConfigFile, string>();
 
   constructor(configs: Configs, framework: Framework, version: [number, number] | null, findsFiles: boolean) {
     this.configs = configs;
@@ -453,7 +453,11 @@ export class ConfigRuns {
     return rules;
   }
 
-  private vitestProjects(config: ConfigFile): Project[] {
+  /**
+   * The projects of a Vitest config, the one the runner starts with or, in Vitest 5, a config another lists, whose name
+   * then goes around the names of its projects.
+   */
+  private vitestProjects(config: ConfigFile, container: string | null = null): Project[] {
     const folder = path.dirname(config.file);
     const list = settingAt(config.settings, ['test', 'projects']);
     const isVitest3 = this.version !== null && this.version[0] < 4;
@@ -463,20 +467,23 @@ export class ConfigRuns {
       // Vitest 3 takes its projects from a workspace file, which the scan doesn't read.
       return [this.unknownProject(config, { kind: 'unknown', where: null }, 'test.projects')];
     }
-    if (list === null) return this.vitestProject(config, config.settings, folder, null);
+    const name = container ?? vitestName(config.settings, '', null);
+    if (list === null) return this.vitestProject(config, config.settings, folder, null, name);
     if (list.kind !== 'list') return [this.unknownProject(config, unknownAt(list), 'test.projects')];
-    this.expanding.add(config);
+    this.expanding.set(config, name);
     const globs: string[] = [];
+    // Vitest names an inline project without a name after its place among the entries that aren't paths.
+    let index = 0;
     const projects = list.items.flatMap((item) => {
       if (item.kind === 'value' && typeof item.value === 'string') {
         // `<rootDir>` is the config's folder, written with / as globs are.
         const pattern = item.value.replace('<rootDir>', posix(folder));
         // Vitest globs every pattern and negation together, and reads a plain path as it is.
         if (pattern.startsWith('!') || picomatch.scan(pattern).isGlob) globs.push(pattern);
-        else return this.vitestPath(config, path.resolve(folder, pattern));
+        else return this.vitestPath(config, path.resolve(folder, pattern), container);
         return [];
       }
-      return this.vitestEntry(config, item, folder);
+      return this.vitestEntry(config, item, folder, String(index++), container);
     });
     const matches = globs.length
       ? globSync(globs, {
@@ -488,13 +495,22 @@ export class ConfigRuns {
           ignore: ['**/node_modules/**'],
         })
       : [];
-    projects.push(...matches.flatMap((match) => this.vitestPath(config, path.resolve(match))));
+    projects.push(...matches.flatMap((match) => this.vitestPath(config, path.resolve(match), container)));
     this.expanding.delete(config);
     return projects;
   }
 
-  /** A project written in `test.projects`, which inherits the root config as each version of Vitest decides. */
-  private vitestEntry(config: ConfigFile, entry: Setting, folder: string): Project[] {
+  /**
+   * A project written in `test.projects`, which inherits the root config as each version of Vitest decides, named
+   * after `index` when it has no name of its own.
+   */
+  private vitestEntry(
+    config: ConfigFile,
+    entry: Setting,
+    folder: string,
+    index: string,
+    container: string | null,
+  ): Project[] {
     if (entry.kind !== 'object') {
       // A function or a promise, read by running the config, or a setting of the wrong type.
       return [this.unknownProject(config, unknownAt(entry), 'test.projects')];
@@ -506,33 +522,48 @@ export class ConfigRuns {
     } else if (extended?.kind === 'value' ? extended.value === true : this.version === null || this.version[0] >= 5) {
       base = withoutProjects(config.settings);
     }
-    // Vitest 5 takes a project's own tags in place of those it extends.
-    const ownTags = atLeast(this.version, 5, 0) ? settingAt(entry, ['test', 'tags']) : null;
-    return this.vitestProject(config, mergeDeep(base, entry), folder, ownTags);
+    const isVitest5 = atLeast(this.version, 5, 0);
+    // Vitest 5 takes a project's own tags in place of those it extends, and doesn't pass on the name.
+    const ownTags = isVitest5 ? settingAt(entry, ['test', 'tags']) : null;
+    const settings = mergeDeep(base, entry);
+    const name = vitestName(isVitest5 ? entry : settings, index, container);
+    return this.vitestProject(config, settings, folder, ownTags, name);
   }
 
   /**
    * The projects of a config file or folder `test.projects` names: the config's own, also the projects it lists in
-   * Vitest 5, or a project with Vitest's defaults for a folder without a config.
+   * Vitest 5, or a project with Vitest's defaults for a folder without a config. Without a name, a project is named
+   * after the package.json in its folder, else the folder.
    */
-  private vitestPath(config: ConfigFile, target: string): Project[] {
+  private vitestPath(config: ConfigFile, target: string, container: string | null): Project[] {
     const nested = VITEST_CONFIG.test(path.basename(target)) ? this.configs.at(target) : this.configs.inFolder(target);
-    if (!nested) return this.vitestProject(config, emptySettings(), target, null);
-    const isContainer = (this.version === null || this.version[0] >= 5) && !this.expanding.has(nested);
+    const folder = nested ? path.dirname(nested.file) : target;
+    // A config that lists itself also runs as a project, under its own name.
+    const listing = nested && this.expanding.get(nested);
+    const fallback = packageName(folder) ?? path.basename(folder);
+    const name = listing ?? vitestName(nested?.settings ?? emptySettings(), fallback, container);
+    if (!nested) return this.vitestProject(config, emptySettings(), target, null, name);
+    const isContainer = (this.version === null || this.version[0] >= 5) && listing === undefined;
     const projects =
       isContainer && settingAt(nested.settings, ['test', 'projects'])
-        ? this.vitestProjects(nested)
-        : this.vitestProject(nested, nested.settings, path.dirname(nested.file), null);
+        ? this.vitestProjects(nested, name)
+        : this.vitestProject(nested, nested.settings, folder, null, name);
     // The outermost config lists the others, so it is set last.
     return projects.map((project) => ({ ...project, about: { ...project.about, container: config } }));
   }
 
   /**
-   * A Vitest project: its files are found from `test.dir`, else `test.root` or `root`, else its folder. With browser
-   * mode on, each of `browser.instances` is a project of its own, named as Vitest names it.
+   * A Vitest project, with the name Vitest gives it: its files are found from `test.dir`, else `test.root` or `root`,
+   * else its folder. With browser mode on, each of `browser.instances` is a project of its own, named as Vitest names it.
    */
-  private vitestProject(config: ConfigFile, settings: Setting, folder: string, ownTags: Setting | null): Project[] {
-    const project = this.vitestFiles(config, settings, folder, ownTags);
+  private vitestProject(
+    config: ConfigFile,
+    settings: Setting,
+    folder: string,
+    ownTags: Setting | null,
+    name: string,
+  ): Project[] {
+    const project = this.vitestFiles(config, settings, folder, ownTags, name);
     if (project.unknown) return [project];
     const enabled = settingAt(settings, ['test', 'browser', 'enabled']);
     if (enabled?.kind === 'unknown') return [this.unknownProject(config, enabled, 'test.browser.enabled')];
@@ -553,7 +584,13 @@ export class ConfigRuns {
   }
 
   /** The files a Vitest project runs and its settings; `ownTags`, when set, in place of the tags in `settings`. */
-  private vitestFiles(config: ConfigFile, settings: Setting, folder: string, ownTags: Setting | null): Project {
+  private vitestFiles(
+    config: ConfigFile,
+    settings: Setting,
+    folder: string,
+    ownTags: Setting | null,
+    name: string,
+  ): Project {
     let root = folder;
     let dir: string | null = null;
     let hasTestRoot = false;
@@ -602,10 +639,8 @@ export class ConfigRuns {
       flags.push(setting?.kind === 'value' && setting.value === true);
     }
     const [checksTypes, onlyTypes] = flags;
-    const name = settingAt(settings, ['test', 'name']);
-    const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
     const about: ProjectAbout = {
-      name: label?.kind === 'value' && typeof label.value === 'string' ? label.value : '',
+      name,
       testDir: base,
       dependencies: [],
       settings,
@@ -657,6 +692,27 @@ function matches(expression: RegExp, text: string): boolean {
 function strings(setting: Setting | null): string[] {
   if (setting?.kind !== 'list') return [];
   return setting.items.flatMap((item) => (item.kind === 'value' && typeof item.value === 'string' ? [item.value] : []));
+}
+
+/**
+ * A Vitest project's name: its `test.name`, or the name's `label`, else `fallback`; in Vitest 5, inside the name of the
+ * config that lists it, as `web (unit)`.
+ */
+function vitestName(settings: Setting, fallback: string, container: string | null): string {
+  const name = settingAt(settings, ['test', 'name']);
+  const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
+  const own = (label?.kind === 'value' && typeof label.value === 'string' && label.value) || fallback;
+  return container === null ? own : `${container} (${own})`;
+}
+
+/** The `name` of the package.json in a folder; null without one, or when it has none. */
+function packageName(folder: string): string | null {
+  try {
+    const { name } = JSON.parse(readFileSync(path.join(folder, 'package.json'), 'utf8')) as { name?: unknown };
+    return typeof name === 'string' && name !== '' ? name : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A setting written as `undefined`, which the runners take as not set. */

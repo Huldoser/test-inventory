@@ -108,18 +108,150 @@ describe('which projects run each test', () => {
       ['**/*.{test,node,e2e}.ts'],
     );
     expect(projectsOf(inventory)).toEqual({
-      'caches a quote': [''],
+      'caches a quote': ['quotes'],
       'charges the minimum fee': ['unit', 'node', 'browser (chromium)', 'safari'],
       'reads the feed': ['node'],
-      'signs in': ['firefox'],
+      'signs in': ['3 (firefox)'],
     });
     expect(
       inventory.configs.map((config) => [config.relativeFilePath, config.projects?.map((item) => item.name)]),
     ).toEqual([
       ['packages/quotes/vitest.config.ts', ['']],
-      ['vitest.config.ts', ['unit', 'node', 'browser (chromium)', 'safari', 'firefox', '']],
+      ['vitest.config.ts', ['unit', 'node', 'browser (chromium)', 'safari', '3 (firefox)', 'quotes']],
     ]);
   });
+
+  it.each(['3.2.0', '4.1.0', '5.0.3'])(
+    'names an unnamed Vitest %s project after its package.json name, else its folder, or an inline one after its index',
+    async (version) => {
+      const root = project({
+        'package.json': JSON.stringify({ name: 'trading', devDependencies: { vitest: version } }),
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          '    projects: [',
+          "      'packages/*',",
+          "      { test: { include: ['tests/**/*.test.ts'] } },",
+          "      { test: { name: 'node', include: ['tests/**/*.test.ts'] } },",
+          "      { test: { name: { label: '' }, include: ['tests/**/*.test.ts'] } },",
+          '    ],',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
+        'packages/pricing/package.json': JSON.stringify({ name: '@trading/pricing' }),
+        'packages/pricing/src/spread.test.ts': "import { test } from 'vitest';\ntest('quotes the spread', () => {});\n",
+        'packages/risk/package.json': JSON.stringify({ name: '@trading/risk' }),
+        'packages/risk/vitest.config.ts': "export default { test: { include: ['test/**/*.test.ts'] } };\n",
+        'packages/risk/test/limits.test.ts':
+          "import { test } from 'vitest';\ntest('blocks an order over the limit', () => {});\n",
+        'packages/ledger/package.json': JSON.stringify({ private: true }),
+        'packages/ledger/src/balance.test.ts': "import { test } from 'vitest';\ntest('settles a trade', () => {});\n",
+        'packages/quotes/src/cache.test.ts': "import { test } from 'vitest';\ntest('caches a quote', () => {});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(projectsOf(inventory)).toEqual({
+        'charges the minimum fee': ['0', 'node', '2'],
+        'quotes the spread': ['@trading/pricing'],
+        'blocks an order over the limit': ['@trading/risk'],
+        'settles a trade': ['ledger'],
+        'caches a quote': ['quotes'],
+      });
+    },
+  );
+
+  it.each([
+    ['4.1.0', ['desk', 'shared']],
+    ['5.0.3', ['0', '1']],
+  ])(
+    'names an inline Vitest %s project that extends a named config %j, as only Vitest 5 drops the name',
+    async (version, expected) => {
+      const root = project({
+        'package.json': JSON.stringify({ name: 'trading', devDependencies: { vitest: version } }),
+        'vitest.shared.ts': "export default { test: { name: 'shared' } };\n",
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    name: 'desk',",
+          '    projects: [',
+          "      { extends: true, test: { include: ['tests/**/*.test.ts'] } },",
+          "      { extends: './vitest.shared.ts', test: { include: ['tests/**/*.test.ts'] } },",
+          '    ],',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/book.test.ts': "import { test } from 'vitest';\ntest('books a trade', () => {});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(projectsOf(inventory)).toEqual({ 'books a trade': expected });
+    },
+  );
+
+  it.each([
+    [
+      '4.1.0',
+      {
+        'books a trade': ['@trading/desk'],
+        'reconciles the desk': ['0'],
+        'renders the blotter': ['web'],
+        'clicks buy': ['web'],
+        'opens the order ticket': ['web'],
+      },
+    ],
+    [
+      '5.0.3',
+      {
+        'books a trade': ['@trading/desk', '@trading/desk (0)'],
+        'reconciles the desk': ['@trading/desk (0)'],
+        'renders the blotter': ['web (unit)'],
+        'clicks buy': ['web (1)'],
+        'opens the order ticket': ['web (e2e) (smoke)'],
+      },
+    ],
+  ])(
+    'names the projects of a config another lists after that config in Vitest 5 only: %s',
+    async (version, expected) => {
+      const unit = (title: string) => `import { test } from 'vitest';\ntest('${title}', () => {});\n`;
+      const root = project({
+        'package.json': JSON.stringify({ name: 'trading', devDependencies: { vitest: version } }),
+        'vitest.config.ts': "export default { test: { projects: ['apps/*'] } };\n",
+        'apps/web/vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    name: 'web',",
+          '    projects: [',
+          "      { test: { name: 'unit', include: ['src/**/*.unit.test.ts'] } },",
+          "      { test: { include: ['src/**/*.dom.test.ts'] } },",
+          "      'e2e',",
+          '    ],',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'apps/web/e2e/vitest.config.ts':
+          "export default { test: { projects: [{ test: { name: 'smoke', include: ['specs/**/*.test.ts'] } }] } };\n",
+        'apps/web/src/blotter.unit.test.ts': unit('renders the blotter'),
+        'apps/web/src/ticket.dom.test.ts': unit('clicks buy'),
+        'apps/web/e2e/specs/ticket.test.ts': unit('opens the order ticket'),
+        'apps/desk/package.json': JSON.stringify({ name: '@trading/desk' }),
+        'apps/desk/vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    include: ['src/**/*.test.ts'],",
+          "    projects: ['./vitest.config.ts', { test: { include: ['test/**/*.test.ts'] } }],",
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'apps/desk/src/book.test.ts': unit('books a trade'),
+        'apps/desk/test/recon.test.ts': unit('reconciles the desk'),
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(projectsOf(inventory)).toEqual(expected);
+    },
+  );
 
   it('has no projects without a config, none when no project runs the test, and null when it cannot tell', async () => {
     const none = await scanned(

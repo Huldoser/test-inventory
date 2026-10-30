@@ -33,7 +33,7 @@ describe('configs', () => {
         extends: [],
         projects: [
           { name: 'orders', testDir: 'packages/orders', dependencies: [] },
-          { name: '', testDir: 'packages/quotes', dependencies: [] },
+          { name: 'quotes', testDir: 'packages/quotes', dependencies: [] },
           { name: 'risk', testDir: 'packages/risk', dependencies: [] },
         ],
       },
