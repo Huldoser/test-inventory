@@ -351,6 +351,12 @@ const COMPONENT_FILE = /\.(?:vue|svelte)$/;
 const COMPONENT_BLOCK =
   /<!--[\s\S]*?--!?>|<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script(?:[\s/][^>]*)?>/gi;
 
+/** Whether a script block holds code: one with a `type` other than a JavaScript one, as JSON-LD, holds data. */
+function isScriptCode(attributes: string): boolean {
+  const type = /(?:^|\s)type\s*=\s*["']?([^"'\s>]*)/i.exec(attributes)?.[1] ?? '';
+  return /^(?:module|(?:text|application)\/(?:java|ecma)script)?$/i.test(type);
+}
+
 /**
  * A component's script blocks as one module, the rest of the file blanked so that offsets stay those of the file, and
  * a file name for the language they are in: `lang="ts"` is TypeScript, no `lang` JavaScript.
@@ -363,7 +369,7 @@ function componentScript(code: string): { fileName: string; code: string } {
   let lang = 'js';
   for (const match of code.matchAll(COMPONENT_BLOCK)) {
     const [whole, attributes, body] = match;
-    if (whole.startsWith('<!--')) continue;
+    if (whole.startsWith('<!--') || !isScriptCode(attributes)) continue;
     const start = match.index + '<script'.length + attributes.length + 1;
     script += blank(code.slice(end, start)) + body;
     end = start + body.length;

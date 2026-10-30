@@ -2438,6 +2438,39 @@ import WatchlistRow from './WatchlistRow.vue';
       });
     });
 
+    it('leaves out a script block that is data, as JSON-LD in svelte:head is', async () => {
+      const root = project({
+        'package.json': VITEST_PACKAGE,
+        'src/lib/QuoteCard.svelte': `<script lang="ts">
+  import { spread } from './spread';
+  let { bid, ask }: { bid: number; ask: number } = $props();
+</script>
+
+<svelte:head>
+  <script type="application/ld+json">
+    { "@context": "https://schema.org", "@type": "FinancialProduct", "name": "AAPL" }
+  </script>
+</svelte:head>
+
+<p>{spread(bid, ask)}</p>
+`,
+        'src/lib/spread.ts': 'export const spread = (bid: number, ask: number) => ask - bid;\n',
+        'tests/quote-card.test.ts': `import { expect, test } from 'vitest';
+import QuoteCard from '../src/lib/QuoteCard.svelte';
+
+test('shows the spread of AAPL', () => {
+  expect(QuoteCard).toBeDefined();
+});
+`,
+      });
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: ['src/lib/QuoteCard.svelte', 'src/lib/spread.ts', 'tests/quote-card.test.ts'],
+        hasUnfollowedDependencies: false,
+      });
+      expect(inventory.diagnostics).toEqual([]);
+    });
+
     it('follows what both scripts of a Svelte component import', async () => {
       const root = project({
         'package.json': VITEST_PACKAGE,
