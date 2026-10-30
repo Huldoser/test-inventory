@@ -321,6 +321,28 @@ describe('which projects run each test', () => {
     },
   );
 
+  it("warns that a Vitest project's name can't be worked out, and names it after its place", async () => {
+    const inventory = await scanned(
+      {
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    projects: [{ test: { name: process.env.DESK, include: ['tests/**/*.test.ts'] } }],",
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
+      },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(projectsOf(inventory)).toEqual({ 'charges the minimum fee': ['0'] });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's test.name could not be worked out without running the config, so the project is named after its folder or its place in the list.",
+    ]);
+  });
+
   it.each([
     ['4.1.0', ['desk', 'shared']],
     ['5.0.3', ['0', '1']],

@@ -390,6 +390,19 @@ export class ConfigRuns {
     return runs;
   }
 
+  /** The name of a project a Vitest config lists, with a warning when its `test.name` can't be worked out. */
+  private listedName(settings: Setting, fallback: string, container: string | null): string {
+    const name = settingAt(settings, ['test', 'name']);
+    const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
+    // Only a name written in a config the scan reads; a config it can't read is reported as a whole.
+    const holder = name?.kind === 'object' ? name : settingAt(settings, ['test']);
+    const isWritten = holder?.kind === 'object' && [...holder.keys.values()].includes(label as Setting);
+    if (label?.kind === 'unknown' && isWritten) {
+      this.configs.reportUnknown(label, 'test.name', 'the project is named after its folder or its place in the list');
+    }
+    return vitestName(settings, fallback, container);
+  }
+
   /** A Playwright project: its own settings, else the config's, else Playwright's defaults. */
   private playwrightProject(config: ConfigFile, project: Setting, runsByDefault: boolean | null): Project {
     if (project.kind === 'unknown') return this.unknownProject(config, project, 'projects');
@@ -610,7 +623,7 @@ export class ConfigRuns {
     // Vitest 5 takes a project's own tags in place of those it extends, and doesn't pass on the name.
     const ownTags = isVitest5 ? settingAt(entry, ['test', 'tags']) : null;
     const settings = mergeDeep(base, entry);
-    const name = vitestName(isVitest5 ? entry : settings, index, container);
+    const name = this.listedName(isVitest5 ? entry : settings, index, container);
     return this.vitestProject(config, settings, folder, ownTags, name);
   }
 
@@ -625,7 +638,7 @@ export class ConfigRuns {
     // A config that lists itself also runs as a project, under its own name.
     const listing = nested && this.expanding.get(nested);
     const fallback = packageName(folder) ?? path.basename(folder);
-    const name = listing ?? vitestName(nested?.settings ?? emptySettings(), fallback, container);
+    const name = listing ?? this.listedName(nested?.settings ?? emptySettings(), fallback, container);
     if (!nested) return this.vitestProject(config, emptySettings(), target, null, name);
     const isContainer = (this.version === null || this.version[0] >= 5) && listing === undefined;
     const projects =
@@ -784,11 +797,6 @@ function playwrightName(config: ConfigFile, project: Setting): string {
 }
 
 /** The strings of a list setting, such as Playwright's `dependencies`; none for anything else. */
-function strings(setting: Setting | null): string[] {
-  if (setting?.kind !== 'list') return [];
-  return setting.items.flatMap((item) => (item.kind === 'value' && typeof item.value === 'string' ? [item.value] : []));
-}
-
 /**
  * A Vitest project's name: its `test.name`, or the name's `label`, else `fallback`; in Vitest 5, inside the name of the
  * config that lists it, as `web (unit)`.
@@ -798,6 +806,11 @@ function vitestName(settings: Setting, fallback: string, container: string | nul
   const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
   const own = (label?.kind === 'value' && typeof label.value === 'string' && label.value) || fallback;
   return container === null ? own : `${container} (${own})`;
+}
+
+function strings(setting: Setting | null): string[] {
+  if (setting?.kind !== 'list') return [];
+  return setting.items.flatMap((item) => (item.kind === 'value' && typeof item.value === 'string' ? [item.value] : []));
 }
 
 /** The `name` of the package.json in a folder; null without one, or when it has none. */
