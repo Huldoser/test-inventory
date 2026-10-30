@@ -320,6 +320,24 @@ test.skipIf(isWeekend()).runIf(hasApiKey)('hedges a basket', () => {});
     ]);
   });
 
+  it("lets skipIf and runIf replace the skip a describe passes down from Vitest 5, as a test's own option does", () => {
+    const code = `${VITEST_IMPORT}
+describe.only('order book', { skip: true }, () => {
+  test.runIf(true)('fills a market order', () => {});
+  test('fills a limit order', () => {});
+});
+`;
+    const states = (inventory: Inventory) => inventory.tests.map((test) => [test.title, test.state]);
+    expect(states(scanVitest(code, { frameworkVersion: '5.0.5' }))).toEqual([
+      ['fills a market order', 'active'],
+      ['fills a limit order', 'skip'],
+    ]);
+    expect(states(scanVitest(code, { frameworkVersion: '4.1.12' }))).toEqual([
+      ['fills a market order', 'skip'],
+      ['fills a limit order', 'skip'],
+    ]);
+  });
+
   it('leaves out an option set to undefined from Vitest 5, so the chain keeps its state; before, it undoes it', () => {
     const code = `${VITEST_IMPORT}
 const UNSET = undefined;

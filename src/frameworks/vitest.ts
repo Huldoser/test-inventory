@@ -800,7 +800,7 @@ export class VitestAdapter implements Adapter {
     const flags = new Set(chain);
     let conditions = links.filter((link) => CONDITIONS.has(link.name)).map((link) => this.linkCondition(link, context));
     // From Vitest 5.0.5 a test's `skip`, `skipIf` and `runIf` each set its `skip`, so the last of them decides, and a
-    // `skipIf` or `runIf` replaces a tag's skip. The scan applies that to all of Vitest 5.
+    // `skipIf` or `runIf` replaces the skip of a tag or of a describe around. The scan applies that to all of Vitest 5.
     const lastSkip = links.filter((link) => link.name === 'skip' || CONDITIONS.has(link.name)).at(-1);
     const skipsByChain = kind === 'test' && lastSkip !== undefined && atLeast(this.file.version, 5, 0);
     const conditionSetsSkip = skipsByChain && CONDITIONS.has(lastSkip.name);
@@ -825,7 +825,7 @@ export class VitestAdapter implements Adapter {
     // win. A `skip` passed down skips them, and turns todo into skip, as skip goes before todo.
     const line = this.file.source.line(call.start);
     const around = context.passedDown as PassedSkip | null;
-    const passed = read.skip ? null : around;
+    const passed = read.skip || conditionSetsSkip ? null : around;
     const skips = passed?.condition.applies === 'always' && !flags.has('only');
     const table = links.find((link) => TABLES.has(link.name)) ?? null;
     const isTodo = flags.has('todo') || body === undefined;
