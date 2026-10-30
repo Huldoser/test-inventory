@@ -1,7 +1,7 @@
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { scan, type Inventory, type TestRecord } from '../src/index.ts';
+import { filterInventory, scan, type Inventory, type TestRecord } from '../src/index.ts';
 import { expectValidInventory, scanPlaywright, scanVitest } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
 
@@ -336,10 +336,12 @@ test('routes a paper order to NASDAQ', async ({ page }) => {
     const inventory = await scanProject(root);
     expect(inventory.tests[0].dependencies).toEqual([
       'test-data/accounts.ts',
+      'test-data/index.ts',
       'test-data/markets.ts',
       'test-data/venue.ts',
       'tests/routing.spec.ts',
     ]);
+    expect(filterInventory(inventory, { related: ['test-data/index.ts'] }).tests).toHaveLength(1);
     // Loading the barrel runs the module that doesn't parse; a type-only re-export runs nothing.
     expect(inventory.diagnostics.map(({ relativeFilePath, message }) => [relativeFilePath, message])).toEqual([
       ['test-data/index.ts', "'./legacy-accounts' could not be parsed, so dependencyHash doesn't cover it."],
@@ -936,10 +938,10 @@ test('quotes MSFT on NASDAQ', () => {
 `,
     };
     const inventory = await scanProject(project(files), 'vitest');
-    // Files that only re-export have no code of their own to list.
+    // Files that only re-export decide which module a name comes from, so a change to them affects the test.
     expect(inventory.tests.map((test) => test.dependencies)).toEqual([
-      ['lib/nasdaq.ts', 'tests/barrel.test.ts'],
-      ['lib/nasdaq.ts', 'tests/quote.test.ts'],
+      ['lib/barrel.ts', 'lib/nasdaq.ts', 'lib/quotes.ts', 'tests/barrel.test.ts'],
+      ['lib/barrel.ts', 'lib/nasdaq.ts', 'lib/quotes.ts', 'tests/quote.test.ts'],
     ]);
   });
 

@@ -6,6 +6,7 @@ import {
   type Node,
   type Program,
   type ObjectProperty,
+  type StringLiteral,
   type VariableDeclarator,
 } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, unwrap, type FunctionNode } from './ast.ts';
@@ -822,10 +823,10 @@ export class DependencyGraph {
   }
 
   /** An import of a name a test uses: the module it names and how, as `import { round } from 'lodash'`. */
-  private importUnit(module: Module, statement: Extract<Node, { type: 'ImportDeclaration' }>, specifier: Node): Unit {
+  private importUnit(module: Module, statement: { source: Node }, specifier: Node): Unit {
     let unit = this.imports.get(specifier);
     if (!unit) {
-      const roots = [statement.source, specifier].map((node) => ({ node, scopes: [] }));
+      const roots = [...new Set([statement.source, specifier])].map((node) => ({ node, scopes: [] }));
       unit = this.newUnit(module, roots, new Map(), false);
       unit.edges = new Set();
       this.imports.set(specifier, unit);
@@ -970,7 +971,7 @@ export class DependencyGraph {
           : [this.declarationUnit(module, declaration, types)];
       }
       if (statement.type === 'ExportAllDeclaration' && statement.exported && exportName(statement.exported) === name) {
-        return this.imported(module, statement.source.value, '*', types, statement);
+        return this.passedOn(module, statement, statement.source, statement.exported, '*', types);
       }
       if (statement.type !== 'ExportNamedDeclaration') continue;
       if (statement.exportKind === 'type' && !types) continue;
@@ -989,7 +990,7 @@ export class DependencyGraph {
       if (!specifier) continue;
       const localName = exportName(specifier.local);
       return statement.source
-        ? this.imported(module, statement.source.value, localName, types, statement)
+        ? this.passedOn(module, statement, statement.source, specifier, localName, types)
         : local(localName);
     }
     // `export *` passes on every name but `default`, and only when the module doesn't export the name itself.
@@ -997,10 +998,26 @@ export class DependencyGraph {
       for (const statement of program.body) {
         if (statement.type !== 'ExportAllDeclaration' || statement.exported) continue;
         const found = this.reexported(module, statement.source.value, name, types, searched);
-        if (found) return found;
+        if (found) return [...found, this.importUnit(module, statement, statement.source)];
       }
     }
     return [this.wholeUnit(module, types)];
+  }
+
+  /**
+   * A name a module passes on from another, as `export { quote } from './nasdaq'` does, with the re-export itself: which
+   * module the name comes from is code too, so the barrel is among the files a change to which affects the test.
+   */
+  private passedOn(
+    module: Module,
+    statement: Span,
+    source: StringLiteral,
+    specifier: Node,
+    name: string,
+    types: boolean,
+  ): Unit[] {
+    const units = this.imported(module, source.value, name, types, statement);
+    return units === IN_PROGRESS ? units : [...units, this.importUnit(module, { source }, specifier)];
   }
 
   /** What `export * from source` gives for a name; null when the module behind it doesn't export it. */
