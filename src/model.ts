@@ -4,6 +4,9 @@ import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
 
+/** The Vitest options that set a test's state. */
+export type StateOption = 'skip' | 'only' | 'todo' | 'fails';
+
 export type Mode = 'parallel' | 'serial' | 'default';
 
 /** A state set by a declaration, a describe or a call such as `test.skip(condition)`. */
@@ -59,8 +62,11 @@ export interface Details {
 /** Run settings written in one place; a key that is missing is not set there. */
 export interface RunSettings {
   timeout?: number;
-  /** A retry setting replaces the whole `retry` of the describes around, delay and condition included. */
-  retry?: { count: number; delay: number | null; condition: string | null };
+  /**
+   * A retry setting replaces the whole `retry` of the describes around, delay and condition included; null when it is
+   * set to a value the runner can't use.
+   */
+  retry?: { count: number; delay: number | null; condition: string | null } | null;
   repeats?: number;
   /** Playwright `test.slow()`: the conditions of the calls, any of which makes the test slow; null when one always does. */
   slow?: { conditions: string[] | null };
@@ -94,6 +100,8 @@ export interface TestDeclaration extends Declaration {
   takesAllFixtures: boolean;
   /** Uses Vitest 5's `bench` fixture. */
   usesBench: boolean;
+  /** Vitest: the state options the test sets itself, to `false` too, which replace those of its tags. */
+  ownStateOptions?: StateOption[];
 }
 
 export interface SuiteDeclaration extends Declaration {
@@ -178,6 +186,8 @@ export interface Returns {
 /** A module read to see whether it exports a custom `test` object. */
 export interface ModuleSource {
   code: string;
+  /** The file's bytes when it isn't UTF-8 text, such as an image. */
+  bytes?: Uint8Array;
   relativeFilePath: string;
   /** Reads the modules this module imports in turn. */
   readModule: ModuleReader;

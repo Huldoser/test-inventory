@@ -57,6 +57,166 @@ describe('which projects run each test', () => {
     ]);
   });
 
+  it.each([
+    ['1.56.0', { tags: [[], ['@ui', '@fast']], projects: [['api'], ['no-api']] }],
+    ['1.57.0', { tags: [['@nightly'], ['@nightly', '@ui', '@fast']], projects: [['api'], ['nightly-only']] }],
+  ])("gives every test the Playwright %s config's tag, first, also for grep: %j", async (version, expected) => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': version } }),
+        'playwright.config.ts': [
+          "import { defineConfig } from '@playwright/test';",
+          '',
+          'export default defineConfig({',
+          "  testDir: 'tests',",
+          "  tag: '@nightly',",
+          '  projects: [',
+          "    { name: 'api', testMatch: 'api/*.spec.ts' },",
+          "    { name: 'no-api', testIgnore: /api/, grepInvert: /@nightly/ },",
+          "    { name: 'nightly-only', testIgnore: /api/, grep: /^nightly-only watchlist\\.spec\\.ts @nightly watchlist/ },",
+          '  ],',
+          '});',
+          '',
+        ].join('\n'),
+        'tests/api/quotes.spec.ts':
+          "import { test } from '@playwright/test';\ntest('returns a quote for AAPL', async () => {});\n",
+        'tests/watchlist.spec.ts': [
+          "import { test } from '@playwright/test';",
+          "test.describe('watchlist @ui', () => {",
+          "  test('adds NVDA to the watchlist', { tag: '@fast' }, async () => {});",
+          '});',
+          '',
+        ].join('\n'),
+      },
+      'playwright',
+      ['tests/**/*.spec.ts'],
+    );
+    expect({
+      tags: inventory.tests.map((test) => test.tags),
+      projects: inventory.tests.map((test) => test.projects),
+    }).toEqual(expected);
+  });
+
+  it("can't tell the projects with a grep when the Playwright config's tag can't be worked out", async () => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.0' } }),
+        'playwright.config.ts': [
+          'export default {',
+          "  tag: ['@regression', process.env.CI_ENVIRONMENT_NAME],",
+          "  projects: [{ name: 'chromium' }, { name: 'staging', grep: /@staging/ }],",
+          '};',
+          '',
+        ].join('\n'),
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order', { tag: '@smoke' }, async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(inventory.tests.map((test) => [test.tags, test.projects])).toEqual([[['@smoke'], null]]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's tag could not be worked out without running the config, so the tests' tags leave it out.",
+    ]);
+  });
+
+  it.each([
+    ['1.63.0', ['slow']],
+    ['1.64.0', []],
+  ])(
+    'leaves out a Playwright %s project with default: false unless a running project depends on it',
+    async (version, slow) => {
+      const root = project({
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': version } }),
+        'playwright.config.ts': [
+          "import { defineConfig } from '@playwright/test';",
+          '',
+          'export default defineConfig({',
+          "  testDir: './e2e',",
+          '  projects: [',
+          "    { name: 'setup', testMatch: /global\\.setup\\.ts/, teardown: 'cleanup', default: false },",
+          "    { name: 'cleanup', testMatch: /global\\.teardown\\.ts/, default: false },",
+          "    { name: 'chromium', testIgnore: /slow|global/, dependencies: ['setup'] },",
+          "    { name: 'slow', testDir: './e2e/slow', default: false },",
+          '  ],',
+          '});',
+          '',
+        ].join('\n'),
+        'e2e/global.setup.ts':
+          "import { test as setup } from '@playwright/test';\nsetup('signs in as a trader', async () => {});\n",
+        'e2e/global.teardown.ts':
+          "import { test as teardown } from '@playwright/test';\nteardown('closes the open orders', async () => {});\n",
+        'e2e/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order', async () => {});\n",
+        'e2e/slow/replay.spec.ts':
+          "import { test } from '@playwright/test';\ntest('replays a day of quotes', async () => {});\n",
+      });
+      const inventory = await scan({ root, patterns: ['e2e/**/*.ts'], framework: 'playwright' });
+      expect(projectsOf(inventory)).toEqual({
+        'signs in as a trader': ['setup'],
+        'closes the open orders': ['cleanup'],
+        'places a limit order': ['chromium'],
+        'replays a day of quotes': slow,
+      });
+      expect(inventory.configs[0].projects?.map((item) => item.name)).toEqual(['setup', 'cleanup', 'chromium', 'slow']);
+    },
+  );
+
+  it("can't tell which Playwright projects run a test when a project's default can't be worked out", async () => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.0' } }),
+        'playwright.config.ts': [
+          'export default {',
+          '  projects: [',
+          "    { name: 'chromium', grep: /@smoke/ },",
+          "    { name: 'seed', testMatch: /seed\\.setup\\.ts/, default: false },",
+          "    { name: 'nightly', dependencies: ['seed'], default: !!process.env.NIGHTLY },",
+          "    { name: 'nightly-webkit', dependencies: ['seed'], default: !!process.env.NIGHTLY },",
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order @smoke', async () => {});\ntest('cancels an order', async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.spec.ts'],
+    );
+    expect(projectsOf(inventory)).toEqual({ 'places a limit order @smoke': null, 'cancels an order': null });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's projects default could not be worked out without running the config, so the scan can't tell which projects run the tests.",
+      "The config's projects default could not be worked out without running the config, so the scan can't tell which projects run the tests.",
+    ]);
+  });
+
+  it("can't tell whether a Playwright project with default: false runs when a running one may depend on it", async () => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.1' } }),
+        'playwright.config.ts': [
+          'export default {',
+          '  projects: [',
+          "    { name: 'setup', testMatch: /auth\\.setup\\.ts/, default: false },",
+          "    { name: 'chromium', testIgnore: /setup/, dependencies: process.env.CI ? ['setup'] : [] },",
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/auth.setup.ts':
+          "import { test as setup } from '@playwright/test';\nsetup('signs in as a trader', async () => {});\n",
+        'tests/orders.spec.ts':
+          "import { test } from '@playwright/test';\ntest('places a limit order', async () => {});\n",
+      },
+      'playwright',
+      ['tests/*.ts'],
+    );
+    expect(projectsOf(inventory)).toEqual({ 'signs in as a trader': null, 'places a limit order': ['chromium'] });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's projects dependencies could not be worked out without running the config, so the scan can't tell which projects run the tests.",
+    ]);
+  });
+
   it("names a Playwright config without projects after its name, and can't tell for a dynamic title under grep", async () => {
     const plain = await scanned(
       {
@@ -108,18 +268,172 @@ describe('which projects run each test', () => {
       ['**/*.{test,node,e2e}.ts'],
     );
     expect(projectsOf(inventory)).toEqual({
-      'caches a quote': [''],
+      'caches a quote': ['quotes'],
       'charges the minimum fee': ['unit', 'node', 'browser (chromium)', 'safari'],
       'reads the feed': ['node'],
-      'signs in': ['firefox'],
+      'signs in': ['3 (firefox)'],
     });
     expect(
       inventory.configs.map((config) => [config.relativeFilePath, config.projects?.map((item) => item.name)]),
     ).toEqual([
       ['packages/quotes/vitest.config.ts', ['']],
-      ['vitest.config.ts', ['unit', 'node', 'browser (chromium)', 'safari', 'firefox', '']],
+      ['vitest.config.ts', ['unit', 'node', 'browser (chromium)', 'safari', '3 (firefox)', 'quotes']],
     ]);
   });
+
+  it.each(['3.2.0', '4.1.0', '5.0.3'])(
+    'names an unnamed Vitest %s project after its package.json name, else its folder, or an inline one after its index',
+    async (version) => {
+      const root = project({
+        'package.json': JSON.stringify({ name: 'trading', devDependencies: { vitest: version } }),
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          '    projects: [',
+          "      'packages/*',",
+          "      { test: { include: ['tests/**/*.test.ts'] } },",
+          "      { test: { name: 'node', include: ['tests/**/*.test.ts'] } },",
+          "      { test: { name: { label: '' }, include: ['tests/**/*.test.ts'] } },",
+          '    ],',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
+        'packages/pricing/package.json': JSON.stringify({ name: '@trading/pricing' }),
+        'packages/pricing/src/spread.test.ts': "import { test } from 'vitest';\ntest('quotes the spread', () => {});\n",
+        'packages/risk/package.json': JSON.stringify({ name: '@trading/risk' }),
+        'packages/risk/vitest.config.ts': "export default { test: { include: ['test/**/*.test.ts'] } };\n",
+        'packages/risk/test/limits.test.ts':
+          "import { test } from 'vitest';\ntest('blocks an order over the limit', () => {});\n",
+        'packages/ledger/package.json': JSON.stringify({ private: true }),
+        'packages/ledger/src/balance.test.ts': "import { test } from 'vitest';\ntest('settles a trade', () => {});\n",
+        'packages/quotes/src/cache.test.ts': "import { test } from 'vitest';\ntest('caches a quote', () => {});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(projectsOf(inventory)).toEqual({
+        'charges the minimum fee': ['0', 'node', '2'],
+        'quotes the spread': ['@trading/pricing'],
+        'blocks an order over the limit': ['@trading/risk'],
+        'settles a trade': ['ledger'],
+        'caches a quote': ['quotes'],
+      });
+    },
+  );
+
+  it("warns that a Vitest project's name can't be worked out, and names it after its place", async () => {
+    const inventory = await scanned(
+      {
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    projects: [{ test: { name: process.env.DESK, include: ['tests/**/*.test.ts'] } }],",
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
+      },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(projectsOf(inventory)).toEqual({ 'charges the minimum fee': ['0'] });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      "The config's test.name could not be worked out without running the config, so the project is named after its folder or its place in the list.",
+    ]);
+  });
+
+  it.each([
+    ['4.1.0', ['desk', 'shared']],
+    ['5.0.3', ['0', '1']],
+  ])(
+    'names an inline Vitest %s project that extends a named config %j, as only Vitest 5 drops the name',
+    async (version, expected) => {
+      const root = project({
+        'package.json': JSON.stringify({ name: 'trading', devDependencies: { vitest: version } }),
+        'vitest.shared.ts': "export default { test: { name: 'shared' } };\n",
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    name: 'desk',",
+          '    projects: [',
+          "      { extends: true, test: { include: ['tests/**/*.test.ts'] } },",
+          "      { extends: './vitest.shared.ts', test: { include: ['tests/**/*.test.ts'] } },",
+          '    ],',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'tests/book.test.ts': "import { test } from 'vitest';\ntest('books a trade', () => {});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(projectsOf(inventory)).toEqual({ 'books a trade': expected });
+    },
+  );
+
+  it.each([
+    [
+      '4.1.0',
+      {
+        'books a trade': ['@trading/desk'],
+        'reconciles the desk': ['0'],
+        'renders the blotter': ['web'],
+        'clicks buy': ['web'],
+        'opens the order ticket': ['web'],
+      },
+    ],
+    [
+      '5.0.3',
+      {
+        'books a trade': ['@trading/desk', '@trading/desk (0)'],
+        'reconciles the desk': ['@trading/desk (0)'],
+        'renders the blotter': ['web (unit)'],
+        'clicks buy': ['web (1)'],
+        'opens the order ticket': ['web (e2e) (smoke)'],
+      },
+    ],
+  ])(
+    'names the projects of a config another lists after that config in Vitest 5 only: %s',
+    async (version, expected) => {
+      const unit = (title: string) => `import { test } from 'vitest';\ntest('${title}', () => {});\n`;
+      const root = project({
+        'package.json': JSON.stringify({ name: 'trading', devDependencies: { vitest: version } }),
+        'vitest.config.ts': "export default { test: { projects: ['apps/*'] } };\n",
+        'apps/web/vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    name: 'web',",
+          '    projects: [',
+          "      { test: { name: 'unit', include: ['src/**/*.unit.test.ts'] } },",
+          "      { test: { include: ['src/**/*.dom.test.ts'] } },",
+          "      'e2e',",
+          '    ],',
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'apps/web/e2e/vitest.config.ts':
+          "export default { test: { projects: [{ test: { name: 'smoke', include: ['specs/**/*.test.ts'] } }] } };\n",
+        'apps/web/src/blotter.unit.test.ts': unit('renders the blotter'),
+        'apps/web/src/ticket.dom.test.ts': unit('clicks buy'),
+        'apps/web/e2e/specs/ticket.test.ts': unit('opens the order ticket'),
+        'apps/desk/package.json': JSON.stringify({ name: '@trading/desk' }),
+        'apps/desk/vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    include: ['src/**/*.test.ts'],",
+          "    projects: ['./vitest.config.ts', { test: { include: ['test/**/*.test.ts'] } }],",
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'apps/desk/src/book.test.ts': unit('books a trade'),
+        'apps/desk/test/recon.test.ts': unit('reconciles the desk'),
+      });
+      const inventory = await scan({ root, framework: 'vitest' });
+      expect(projectsOf(inventory)).toEqual(expected);
+    },
+  );
 
   it('has no projects without a config, none when no project runs the test, and null when it cannot tell', async () => {
     const none = await scanned(

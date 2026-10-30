@@ -1,6 +1,6 @@
 import type { OxcError } from 'oxc-parser';
 import { describe, expect, it } from 'vitest';
-import { firstError, parseFile } from '../src/parse.ts';
+import { firstError, parseFile, tooDeeplyNested } from '../src/parse.ts';
 
 describe('parseFile', () => {
   it.each([
@@ -30,6 +30,71 @@ describe('parseFile', () => {
     const parsed = parseFile('orders.spec.ts', 'test("fills", () => {\n  const = 1;\n});');
     expect(parsed.error).toMatchObject({ message: 'Unexpected token' });
     expect(parsed.source.position(parsed.error?.start ?? 0).line).toBe(2);
+  });
+
+  it('parses brackets nested 500 deep', () => {
+    const parsed = parseFile('order-book.spec.ts', `const depth = ${'['.repeat(500)}101.5${']'.repeat(500)};`);
+    expect(parsed.error).toBeNull();
+  });
+
+  it('refuses brackets nested more than 500 deep instead of letting the parser overflow its stack', () => {
+    const parsed = parseFile('order-book.spec.ts', `const depth = ${'['.repeat(501)}101.5${']'.repeat(501)};`);
+    expect(parsed.error).toEqual({
+      message: 'Brackets are nested more than 500 deep, too deep to parse safely',
+      start: 514,
+      end: 515,
+    });
+    expect(parsed.program.body).toEqual([]);
+    expect(parsed.comments).toEqual([]);
+  });
+});
+
+describe('tooDeeplyNested', () => {
+  it('gives the offset of the first bracket nested deeper than the limit', () => {
+    expect(tooDeeplyNested('placeOrder({ legs: [1] });', 3)).toBeNull();
+    expect(tooDeeplyNested('placeOrder({ legs: [[1]] });', 3)).toBe(20);
+  });
+
+  it('counts parentheses, brackets, braces and template substitutions alike', () => {
+    expect(tooDeeplyNested('log(`filled ${fills.map((fill) => fill.price)}`);', 3)).toBe(24);
+    expect(tooDeeplyNested('log(`${`${symbol}`}`);', 2)).toBe(8);
+    expect(tooDeeplyNested('log(`${`${symbol}`}`);', 3)).toBeNull();
+  });
+
+  it('ignores brackets in strings, comments and template text', () => {
+    const code = [
+      "const note = 'it\\'s [[[ (';",
+      'const label = "(((";',
+      "const open = '[[[",
+      '// ((((',
+      '/* [[[[ */',
+      'const line = `[[[ \\${ ((( `;',
+      '/* {{{{',
+    ].join('\n');
+    expect(tooDeeplyNested(code, 1)).toBeNull();
+    expect(tooDeeplyNested('const draft = `[[[ (((', 1)).toBeNull();
+    expect(tooDeeplyNested('submit(order); // fill (((', 1)).toBeNull();
+  });
+
+  it('ignores brackets in regular expressions, but reads on after a division', () => {
+    expect(tooDeeplyNested('const ticker = /^[(/A-Z]{1,5}\\(/;', 1)).toBeNull();
+    expect(tooDeeplyNested('if (side) return /[[(]/.test(symbol);', 1)).toBeNull();
+    expect(tooDeeplyNested('const open = /((\n[[x]]', 1)).toBe(18);
+    expect(tooDeeplyNested('const mid = total / count + ((fee));', 1)).toBe(29);
+    expect(tooDeeplyNested('const mid = (ask + bid) / 2 + ((fee));', 1)).toBe(31);
+  });
+
+  it('reads the slash that ends a JSX tag as markup, not as a regular expression', () => {
+    const legs = (index: number) =>
+      `function OrderLegs${index}({ legs }) {\n  return <ul>{legs.map((leg) => <OrderLeg key={leg.id} leg={leg} />)}</ul>;\n}\n`;
+    const components = Array.from({ length: 600 }, (_, index) => legs(index)).join('');
+    expect(tooDeeplyNested(components, 4)).toBeNull();
+    expect(tooDeeplyNested('const parts = quote.split(/>/); ((fee));', 1)).toBe(33);
+  });
+
+  it('closes up to the matching bracket, so stray or unclosed brackets do not add up', () => {
+    expect(tooDeeplyNested('submit() ) ] } submit()', 1)).toBeNull();
+    expect(tooDeeplyNested('{ total(fills[0 } { total(fills[0 } { (', 3)).toBeNull();
   });
 });
 

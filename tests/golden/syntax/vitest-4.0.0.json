@@ -26,7 +26,7 @@
     "inFunctionCount": 0,
     "typeTestCount": 0,
     "benchmarkCount": 0,
-    "diagnosticCount": 3,
+    "diagnosticCount": 4,
     "tagCounts": {},
     "annotationCounts": {
       "data": 1
@@ -1874,7 +1874,7 @@
       "retryCondition": null,
       "repeats": null,
       "timeoutSource": "suite",
-      "retriesSource": null,
+      "retriesSource": "suite",
       "repeatsSource": null,
       "timeoutConfigText": null,
       "retriesConfigText": null,
@@ -1954,7 +1954,7 @@
       "retryCondition": null,
       "repeats": 50,
       "timeoutSource": "suite",
-      "retriesSource": null,
+      "retriesSource": "suite",
       "repeatsSource": "test",
       "timeoutConfigText": null,
       "retriesConfigText": null,
@@ -2034,7 +2034,7 @@
       "retryCondition": null,
       "repeats": null,
       "timeoutSource": "test",
-      "retriesSource": null,
+      "retriesSource": "suite",
       "repeatsSource": null,
       "timeoutConfigText": null,
       "retriesConfigText": null,
@@ -2322,6 +2322,16 @@
       "columnStart": 1,
       "testId": null,
       "source": "describe"
+    },
+    {
+      "code": "unresolved-option",
+      "level": "warning",
+      "message": "Option retry: { count: 3, delay: 500, condition: /ECONNRESET/ } is an object, which Vitest reads from 4.1; before, it never runs the test.",
+      "relativeFilePath": "tests/vitest.test.ts",
+      "lineStart": 72,
+      "columnStart": 54,
+      "testId": null,
+      "source": "{ count: 3, delay: 500, condition: /ECONNRESET/ }"
     },
     {
       "code": "empty-title",

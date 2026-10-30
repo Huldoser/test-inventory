@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { globSync } from 'tinyglobby';
@@ -12,7 +13,7 @@ function isFile(file: string): boolean {
 
 /** The file a path refers to, found the way TypeScript and Node do: as is, with an extension, or a folder's index. */
 function findFile(base: string): string | null {
-  const stripped = base.replace(/\.[cm]?js$/, '');
+  const stripped = base.replace(/\.(?:[cm]?js|jsx)$/, '');
   const candidates = [
     base,
     ...EXTENSIONS.map((extension) => stripped + extension),
@@ -49,6 +50,16 @@ function record(value: unknown): Record<string, unknown> | null {
 function readText(file: string): string | null {
   try {
     return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** A file's text, with its bytes too when it isn't UTF-8 text, as an image isn't; null when it can't be read. */
+function readContent(file: string): { code: string; bytes?: Uint8Array } | null {
+  try {
+    const bytes = readFileSync(file);
+    return isUtf8(bytes) ? { code: bytes.toString('utf8') } : { code: bytes.toString('utf8'), bytes };
   } catch {
     return null;
   }
@@ -391,15 +402,22 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
         if (candidates.length === 0) return { reason: 'is not in the imports of package.json' };
       } else {
         const options = optionsFor(directory);
-        const aliased = options ? aliasFiles(specifier, options) : null;
+        const targets = options ? aliasFiles(specifier, options) : null;
+        const aliased = targets?.find((file) => findFile(file) !== null);
         if (aliased) {
-          candidates = aliased;
+          candidates = [aliased];
         } else {
-          // `baseUrl` turns any name into a path, so a name not found there may still be a workspace package.
+          // TypeScript goes on to the usual lookup when no file of a matching alias exists. `baseUrl` turns any name
+          // into a path, so a name not found there may still be a workspace package.
           const fromBaseUrl = options?.baseUrl ? findFile(path.resolve(options.baseUrl, specifier)) : null;
           const workspace = fromBaseUrl ? null : workspaceSource(specifier, directory, packagesOf);
           if (workspace && 'reason' in workspace) return workspace;
           const file = fromBaseUrl ?? workspace?.file;
+          // No package name starts with `@/` or `~/`, so these are aliases, as Vite's `resolve.alias` sets them; any
+          // other name with no file may still be a package or a built-in module, as TypeScript takes it to be.
+          if (!file && /^[@~]\//.test(specifier)) {
+            return { reason: targets ? 'could not be read' : 'is a path alias that no tsconfig paths define' };
+          }
           if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
           candidates = [file];
         }
@@ -407,12 +425,14 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
       const found = candidates.map(findFile).find((file) => file !== null);
       if (!found) return { reason: 'could not be read' };
       if (!modules.has(found)) {
-        const code = readText(found);
+        const content = readContent(found);
         modules.set(
           found,
-          code === null
-            ? null
-            : { code, relativeFilePath: path.relative(root, found).replaceAll('\\', '/'), readModule: reader(found) },
+          content && {
+            ...content,
+            relativeFilePath: path.relative(root, found).replaceAll('\\', '/'),
+            readModule: reader(found),
+          },
         );
       }
       return modules.get(found) ?? { reason: 'could not be read' };

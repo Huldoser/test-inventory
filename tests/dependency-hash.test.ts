@@ -1,7 +1,7 @@
-import { symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { scan, type Inventory, type TestRecord } from '../src/index.ts';
+import { filterInventory, scan, type Inventory, type TestRecord } from '../src/index.ts';
 import { expectValidInventory, scanPlaywright, scanVitest } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
 
@@ -336,10 +336,12 @@ test('routes a paper order to NASDAQ', async ({ page }) => {
     const inventory = await scanProject(root);
     expect(inventory.tests[0].dependencies).toEqual([
       'test-data/accounts.ts',
+      'test-data/index.ts',
       'test-data/markets.ts',
       'test-data/venue.ts',
       'tests/routing.spec.ts',
     ]);
+    expect(filterInventory(inventory, { related: ['test-data/index.ts'] }).tests).toHaveLength(1);
     // Loading the barrel runs the module that doesn't parse; a type-only re-export runs nothing.
     expect(inventory.diagnostics.map(({ relativeFilePath, message }) => [relativeFilePath, message])).toEqual([
       ['test-data/index.ts', "'./legacy-accounts' could not be parsed, so dependencyHash doesn't cover it."],
@@ -394,6 +396,104 @@ test('shows the buy side and the equity fee', () => {
       const after = await hashesAfter(files, ['tests/order-ticket.test.tsx', code], 'vitest');
       expect(after, to).not.toEqual(before);
     }
+  });
+
+  it('marks a test that imports through a path alias no tsconfig defines, as one set in a Vite config', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': `import path from 'node:path';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({ resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } } });
+`,
+      'src/pricing.ts': 'export const mid = (bid: number, ask: number) => (bid + ask) / 2;\n',
+      'src/format.ts': 'export const price = (value: number) => value.toFixed(2);\n',
+      'tests/pricing.test.ts': `import { expect, test } from 'vitest';
+import { mid } from '@/pricing';
+import { price } from '~/format';
+
+test('quotes the mid price of AAPL', () => {
+  expect(price(mid(187.25, 187.75))).toBe('187.50');
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0].hasUnfollowedDependencies).toBe(true);
+    expect(inventory.diagnostics.map(({ code, message }) => [code, message])).toEqual([
+      [
+        'dependency-not-followed',
+        "'@/pricing' is a path alias that no tsconfig paths define, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        "'~/format' is a path alias that no tsconfig paths define, so dependencyHash doesn't cover it.",
+      ],
+    ]);
+  });
+
+  it('finds the TypeScript source of an import written with a JavaScript extension, as TypeScript does', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'src/OrderHeader.tsx': 'export const OrderHeader = () => null;\n',
+      'src/format.ts': 'export const price = (value: number) => value.toFixed(2);\n',
+      'src/fees.mts': 'export const COMMISSION = 1.5;\n',
+      'tests/order-header.test.tsx': `import { expect, test } from 'vitest';
+import { OrderHeader } from '../src/OrderHeader.jsx';
+import { price } from '../src/format.js';
+import { COMMISSION } from '../src/fees.mjs';
+
+test('shows the commission in the order header', () => {
+  expect([OrderHeader, price(COMMISSION)]).toHaveLength(2);
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/OrderHeader.tsx', 'src/fees.mts', 'src/format.ts', 'tests/order-header.test.tsx'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('takes an imported file that is not UTF-8 by its bytes, with line endings as git checks them out', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'tests/broker-logo.test.ts': `import { expect, test } from 'vitest';
+import logo from '../assets/broker-logo.png';
+import fees from '../assets/fees-latin1.csv?raw';
+
+test('shows the broker logo above the fee table', () => {
+  expect([logo, fees]).toHaveLength(2);
+});
+`,
+    };
+    // A PNG signature and the length of its first chunk, whose NUL bytes make git take the file as binary.
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d];
+    // "Börse;0,5" in Latin-1, which isn't UTF-8.
+    const csv = [0x42, 0xf6, 0x72, 0x73, 0x65, 0x3b, 0x30, 0x2c, 0x35];
+    const hashWith = async (logo: number[], fees: number[]) => {
+      const root = project(files);
+      mkdirSync(path.join(root, 'assets'));
+      writeFileSync(path.join(root, 'assets/broker-logo.png'), Uint8Array.from(logo));
+      writeFileSync(path.join(root, 'assets/fees-latin1.csv'), Uint8Array.from(fees));
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0].dependencies).toEqual([
+        'assets/broker-logo.png',
+        'assets/fees-latin1.csv',
+        'tests/broker-logo.test.ts',
+      ]);
+      return inventory.tests[0].dependencyHash;
+    };
+    const lf = [...csv, 0x0a, ...csv];
+    const hashes = [
+      await hashWith([...png, 0xff, 0x01], lf),
+      await hashWith([...png, 0xfe, 0x01], lf),
+      await hashWith([...png, 0x0d, 0x0a, 0xff], lf),
+      await hashWith([...png, 0x0a, 0xff], lf),
+      await hashWith([...png, 0xff, 0x01], [...csv, 0x0a, ...csv.slice(0, -1), 0x36]),
+    ];
+    expect(new Set(hashes).size).toBe(5);
+    expect(await hashWith([...png, 0xff, 0x01], [...csv, 0x0d, 0x0a, ...csv])).toBe(hashes[0]);
   });
 
   it('takes the code a module runs when it loads, and a whole module loaded by path at run time', async () => {
@@ -887,10 +987,10 @@ test('quotes MSFT on NASDAQ', () => {
 `,
     };
     const inventory = await scanProject(project(files), 'vitest');
-    // Files that only re-export have no code of their own to list.
+    // Files that only re-export decide which module a name comes from, so a change to them affects the test.
     expect(inventory.tests.map((test) => test.dependencies)).toEqual([
-      ['lib/nasdaq.ts', 'tests/barrel.test.ts'],
-      ['lib/nasdaq.ts', 'tests/quote.test.ts'],
+      ['lib/barrel.ts', 'lib/nasdaq.ts', 'lib/quotes.ts', 'tests/barrel.test.ts'],
+      ['lib/barrel.ts', 'lib/nasdaq.ts', 'lib/quotes.ts', 'tests/quote.test.ts'],
     ]);
   });
 
@@ -2387,6 +2487,39 @@ import WatchlistRow from './WatchlistRow.vue';
         dependencies: ['src/components/Watchlist.vue', 'src/components/WatchlistRow.vue', 'tests/watchlist.test.ts'],
         hasUnfollowedDependencies: false,
       });
+    });
+
+    it('leaves out a script block that is data, as JSON-LD in svelte:head is', async () => {
+      const root = project({
+        'package.json': VITEST_PACKAGE,
+        'src/lib/QuoteCard.svelte': `<script lang="ts">
+  import { spread } from './spread';
+  let { bid, ask }: { bid: number; ask: number } = $props();
+</script>
+
+<svelte:head>
+  <script type="application/ld+json">
+    { "@context": "https://schema.org", "@type": "FinancialProduct", "name": "AAPL" }
+  </script>
+</svelte:head>
+
+<p>{spread(bid, ask)}</p>
+`,
+        'src/lib/spread.ts': 'export const spread = (bid: number, ask: number) => ask - bid;\n',
+        'tests/quote-card.test.ts': `import { expect, test } from 'vitest';
+import QuoteCard from '../src/lib/QuoteCard.svelte';
+
+test('shows the spread of AAPL', () => {
+  expect(QuoteCard).toBeDefined();
+});
+`,
+      });
+      const inventory = await scanProject(root, 'vitest');
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: ['src/lib/QuoteCard.svelte', 'src/lib/spread.ts', 'tests/quote-card.test.ts'],
+        hasUnfollowedDependencies: false,
+      });
+      expect(inventory.diagnostics).toEqual([]);
     });
 
     it('follows what both scripts of a Svelte component import', async () => {

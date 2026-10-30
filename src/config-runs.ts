@@ -67,6 +67,8 @@ export interface ProjectAbout {
   config: ConfigFile;
   grep: ((title: string) => boolean) | null;
   grepRoot: string;
+  /** Whether the runner runs the project without `--project`, as Playwright's `default` decides; null when unknown. */
+  runsByDefault: boolean | null;
   defaults: ProjectDefaults;
 }
 
@@ -100,6 +102,8 @@ export interface Placement {
   runs: Run | false | null;
   /** The projects of the config that run the file, which a Playwright `grep` may narrow per test; null when unknown. */
   projects: ProjectAbout[] | null;
+  /** The tags Playwright's config `tag` gives every test; null when the scan can't work them out. */
+  tags: string[] | null;
 }
 
 const ASSUMED = 'the scan takes its files to be run';
@@ -206,8 +210,8 @@ export class ConfigRuns {
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
-  /** The Vitest configs whose projects are being found, to stop at one whose projects name itself. */
-  private readonly expanding = new Set<ConfigFile>();
+  /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
+  private readonly expanding = new Map<ConfigFile, string>();
 
   constructor(configs: Configs, framework: Framework, version: [number, number] | null, findsFiles: boolean) {
     this.configs = configs;
@@ -222,6 +226,11 @@ export class ConfigRuns {
    * nearest config.
    */
   placementOf(file: string): Placement {
+    const placement = this.place(file);
+    return { ...placement, tags: this.configTags(placement.config) };
+  }
+
+  private place(file: string): Omit<Placement, 'tags'> {
     const around = this.configs.around(file);
     for (const config of around) {
       const running = this.projectsOf(config).flatMap((project) => {
@@ -246,6 +255,28 @@ export class ConfigRuns {
       runs: nearest ? false : null,
       projects: nearest ? [] : null,
     };
+  }
+
+  /**
+   * Playwright's config `tag`, from 1.57, which it gives every test before its own tags; null when the scan can't work
+   * it out. That is reported where the config writes `tag`; a config whose settings come from code the scan can't
+   * follow is reported there already, as its projects can't be worked out either.
+   */
+  private configTags(config: ConfigFile | null): string[] | null {
+    if (config === null || this.framework !== 'playwright' || !atLeast(this.version, 1, 57)) return [];
+    const setting = settingAt(config.settings, ['tag']);
+    if (setting === null || isUnset(setting)) return [];
+    const tags: string[] = [];
+    for (const item of setting.kind === 'list' ? setting.items : [setting]) {
+      if (item.kind !== 'value' || typeof item.value !== 'string') {
+        if (config.settings.kind === 'object' && config.settings.keys.has('tag')) {
+          this.configs.reportUnknown(unknownAt(item), 'tag', "the tests' tags leave it out");
+        }
+        return null;
+      }
+      tags.push(item.value);
+    }
+    return tags;
   }
 
   /** The projects of a config the output lists; null when the scan can't work them out. */
@@ -294,6 +325,7 @@ export class ConfigRuns {
       config,
       grep: null,
       grepRoot: '',
+      runsByDefault: true,
       defaults: NO_DEFAULTS,
     };
     return { config, settings: setting, about, runs: null, unknown: { setting, key } };
@@ -303,11 +335,76 @@ export class ConfigRuns {
     const list = settingAt(config.settings, ['projects']);
     if (list?.kind === 'unknown') return [this.unknownProject(config, list, 'projects')];
     const items = list?.kind === 'list' ? list.items : [emptySettings()];
-    return items.map((project) => this.playwrightProject(config, project));
+    const running = this.runsByDefault(config, items);
+    return items.map((project) => this.playwrightProject(config, project, running.get(project) as boolean | null));
+  }
+
+  /**
+   * Whether Playwright runs each project without `--project`: from 1.64, not with `default: false`, unless a project it
+   * runs lists it in `dependencies` or `teardown`, directly or through others. Null when the scan can't tell.
+   */
+  private runsByDefault(config: ConfigFile, projects: Setting[]): Map<Setting, boolean | null> {
+    const isRead = atLeast(this.version, 1, 64);
+    const runs = new Map<Setting, boolean | null>(projects.map((project) => [project, !isRead]));
+    const names = projects.map((project) => playwrightName(config, project));
+    const visit = (project: Setting, value: true | null) => {
+      const current = runs.get(project);
+      if (current === true || current === value) return;
+      runs.set(project, value);
+      const teardown = settingAt(project, ['teardown']);
+      const dependencies = settingAt(project, ['dependencies']);
+      const needed = strings(dependencies);
+      if (teardown?.kind === 'value' && typeof teardown.value === 'string') needed.push(teardown.value);
+      // A list the scan can't work out may name any project, which then may run.
+      const unknowns = [teardown, dependencies, ...(dependencies?.kind === 'list' ? dependencies.items : [])].filter(
+        (setting) => setting?.kind === 'unknown',
+      );
+      for (const unknown of unknowns) {
+        this.configs.reportUnknown(
+          unknown,
+          'projects dependencies',
+          "the scan can't tell which projects run the tests",
+        );
+      }
+      for (const [index, other] of projects.entries()) {
+        if (needed.includes(names[index])) visit(other, value);
+        else if (unknowns.length > 0) visit(other, null);
+      }
+    };
+    // The projects that surely run go first, so that what they pull in is sure to run too.
+    for (const value of isRead ? ([true, null] as const) : []) {
+      for (const project of projects) {
+        const setting = settingAt(project, ['default']);
+        const seed = setting?.kind === 'unknown' ? null : !(setting?.kind === 'value' && setting.value === false);
+        if (seed !== value) continue;
+        if (seed === null && project.kind !== 'unknown') {
+          this.configs.reportUnknown(
+            setting as Unknown,
+            'projects default',
+            "the scan can't tell which projects run the tests",
+          );
+        }
+        visit(project, value);
+      }
+    }
+    return runs;
+  }
+
+  /** The name of a project a Vitest config lists, with a warning when its `test.name` can't be worked out. */
+  private listedName(settings: Setting, fallback: string, container: string | null): string {
+    const name = settingAt(settings, ['test', 'name']);
+    const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
+    // Only a name written in a config the scan reads; a config it can't read is reported as a whole.
+    const holder = name?.kind === 'object' ? name : settingAt(settings, ['test']);
+    const isWritten = holder?.kind === 'object' && [...holder.keys.values()].includes(label as Setting);
+    if (label?.kind === 'unknown' && isWritten) {
+      this.configs.reportUnknown(label, 'test.name', 'the project is named after its folder or its place in the list');
+    }
+    return vitestName(settings, fallback, container);
   }
 
   /** A Playwright project: its own settings, else the config's, else Playwright's defaults. */
-  private playwrightProject(config: ConfigFile, project: Setting): Project {
+  private playwrightProject(config: ConfigFile, project: Setting, runsByDefault: boolean | null): Project {
     if (project.kind === 'unknown') return this.unknownProject(config, project, 'projects');
     const take = (key: string): Taken | null => {
       for (const [setting, name] of [
@@ -356,12 +453,11 @@ export class ConfigRuns {
       greps.push((title) => (expressions as RegExp[]).some((expression) => matches(expression, title)));
     }
     const [isGrepped, isInverted] = greps;
-    const name = take('name');
     const dependencies = settingAt(project, ['dependencies']);
     // Playwright's root folder: the config's testDir, the start of each test's grep title.
     const configDir = settingAt(config.settings, ['testDir']);
     const about: ProjectAbout = {
-      name: name?.setting.kind === 'value' && typeof name.setting.value === 'string' ? name.setting.value : '',
+      name: playwrightName(config, project),
       testDir: root,
       dependencies: strings(dependencies),
       // A project's own keys, as `snapshotPathTemplate`; the config's apply to every project, and are read there.
@@ -377,6 +473,7 @@ export class ConfigRuns {
         configDir?.kind === 'value' && typeof configDir.value === 'string'
           ? path.resolve(folder, configDir.value)
           : folder,
+      runsByDefault,
       defaults: {
         timeout: take('timeout')?.setting ?? null,
         retry: take('retries')?.setting ?? null,
@@ -392,7 +489,7 @@ export class ConfigRuns {
       about,
       unknown: null,
       runs: (file) => {
-        if (!isInside(root, file)) return false;
+        if (runsByDefault === false || !isInside(root, file)) return false;
         if (isIgnored(file) || !isMatch(file)) return false;
         return gitIgnore && this.isGitIgnored(root, file) ? false : 'test';
       },
@@ -453,7 +550,11 @@ export class ConfigRuns {
     return rules;
   }
 
-  private vitestProjects(config: ConfigFile): Project[] {
+  /**
+   * The projects of a Vitest config, the one the runner starts with or, in Vitest 5, a config another lists, whose name
+   * then goes around the names of its projects.
+   */
+  private vitestProjects(config: ConfigFile, container: string | null = null): Project[] {
     const folder = path.dirname(config.file);
     const list = settingAt(config.settings, ['test', 'projects']);
     const isVitest3 = this.version !== null && this.version[0] < 4;
@@ -463,20 +564,23 @@ export class ConfigRuns {
       // Vitest 3 takes its projects from a workspace file, which the scan doesn't read.
       return [this.unknownProject(config, { kind: 'unknown', where: null }, 'test.projects')];
     }
-    if (list === null) return this.vitestProject(config, config.settings, folder, null);
+    const name = container ?? vitestName(config.settings, '', null);
+    if (list === null) return this.vitestProject(config, config.settings, folder, null, name);
     if (list.kind !== 'list') return [this.unknownProject(config, unknownAt(list), 'test.projects')];
-    this.expanding.add(config);
+    this.expanding.set(config, name);
     const globs: string[] = [];
+    // Vitest names an inline project without a name after its place among the entries that aren't paths.
+    let index = 0;
     const projects = list.items.flatMap((item) => {
       if (item.kind === 'value' && typeof item.value === 'string') {
         // `<rootDir>` is the config's folder, written with / as globs are.
         const pattern = item.value.replace('<rootDir>', posix(folder));
         // Vitest globs every pattern and negation together, and reads a plain path as it is.
         if (pattern.startsWith('!') || picomatch.scan(pattern).isGlob) globs.push(pattern);
-        else return this.vitestPath(config, path.resolve(folder, pattern));
+        else return this.vitestPath(config, path.resolve(folder, pattern), container);
         return [];
       }
-      return this.vitestEntry(config, item, folder);
+      return this.vitestEntry(config, item, folder, String(index++), container);
     });
     const matches = globs.length
       ? globSync(globs, {
@@ -488,13 +592,22 @@ export class ConfigRuns {
           ignore: ['**/node_modules/**'],
         })
       : [];
-    projects.push(...matches.flatMap((match) => this.vitestPath(config, path.resolve(match))));
+    projects.push(...matches.flatMap((match) => this.vitestPath(config, path.resolve(match), container)));
     this.expanding.delete(config);
     return projects;
   }
 
-  /** A project written in `test.projects`, which inherits the root config as each version of Vitest decides. */
-  private vitestEntry(config: ConfigFile, entry: Setting, folder: string): Project[] {
+  /**
+   * A project written in `test.projects`, which inherits the root config as each version of Vitest decides, named
+   * after `index` when it has no name of its own.
+   */
+  private vitestEntry(
+    config: ConfigFile,
+    entry: Setting,
+    folder: string,
+    index: string,
+    container: string | null,
+  ): Project[] {
     if (entry.kind !== 'object') {
       // A function or a promise, read by running the config, or a setting of the wrong type.
       return [this.unknownProject(config, unknownAt(entry), 'test.projects')];
@@ -506,33 +619,48 @@ export class ConfigRuns {
     } else if (extended?.kind === 'value' ? extended.value === true : this.version === null || this.version[0] >= 5) {
       base = withoutProjects(config.settings);
     }
-    // Vitest 5 takes a project's own tags in place of those it extends.
-    const ownTags = atLeast(this.version, 5, 0) ? settingAt(entry, ['test', 'tags']) : null;
-    return this.vitestProject(config, mergeDeep(base, entry), folder, ownTags);
+    const isVitest5 = atLeast(this.version, 5, 0);
+    // Vitest 5 takes a project's own tags in place of those it extends, and doesn't pass on the name.
+    const ownTags = isVitest5 ? settingAt(entry, ['test', 'tags']) : null;
+    const settings = mergeDeep(base, entry);
+    const name = this.listedName(isVitest5 ? entry : settings, index, container);
+    return this.vitestProject(config, settings, folder, ownTags, name);
   }
 
   /**
    * The projects of a config file or folder `test.projects` names: the config's own, also the projects it lists in
-   * Vitest 5, or a project with Vitest's defaults for a folder without a config.
+   * Vitest 5, or a project with Vitest's defaults for a folder without a config. Without a name, a project is named
+   * after the package.json in its folder, else the folder.
    */
-  private vitestPath(config: ConfigFile, target: string): Project[] {
+  private vitestPath(config: ConfigFile, target: string, container: string | null): Project[] {
     const nested = VITEST_CONFIG.test(path.basename(target)) ? this.configs.at(target) : this.configs.inFolder(target);
-    if (!nested) return this.vitestProject(config, emptySettings(), target, null);
-    const isContainer = (this.version === null || this.version[0] >= 5) && !this.expanding.has(nested);
+    const folder = nested ? path.dirname(nested.file) : target;
+    // A config that lists itself also runs as a project, under its own name.
+    const listing = nested && this.expanding.get(nested);
+    const fallback = packageName(folder) ?? path.basename(folder);
+    const name = listing ?? this.listedName(nested?.settings ?? emptySettings(), fallback, container);
+    if (!nested) return this.vitestProject(config, emptySettings(), target, null, name);
+    const isContainer = (this.version === null || this.version[0] >= 5) && listing === undefined;
     const projects =
       isContainer && settingAt(nested.settings, ['test', 'projects'])
-        ? this.vitestProjects(nested)
-        : this.vitestProject(nested, nested.settings, path.dirname(nested.file), null);
+        ? this.vitestProjects(nested, name)
+        : this.vitestProject(nested, nested.settings, folder, null, name);
     // The outermost config lists the others, so it is set last.
     return projects.map((project) => ({ ...project, about: { ...project.about, container: config } }));
   }
 
   /**
-   * A Vitest project: its files are found from `test.dir`, else `test.root` or `root`, else its folder. With browser
-   * mode on, each of `browser.instances` is a project of its own, named as Vitest names it.
+   * A Vitest project, with the name Vitest gives it: its files are found from `test.dir`, else `test.root` or `root`,
+   * else its folder. With browser mode on, each of `browser.instances` is a project of its own, named as Vitest names it.
    */
-  private vitestProject(config: ConfigFile, settings: Setting, folder: string, ownTags: Setting | null): Project[] {
-    const project = this.vitestFiles(config, settings, folder, ownTags);
+  private vitestProject(
+    config: ConfigFile,
+    settings: Setting,
+    folder: string,
+    ownTags: Setting | null,
+    name: string,
+  ): Project[] {
+    const project = this.vitestFiles(config, settings, folder, ownTags, name);
     if (project.unknown) return [project];
     const enabled = settingAt(settings, ['test', 'browser', 'enabled']);
     if (enabled?.kind === 'unknown') return [this.unknownProject(config, enabled, 'test.browser.enabled')];
@@ -553,7 +681,13 @@ export class ConfigRuns {
   }
 
   /** The files a Vitest project runs and its settings; `ownTags`, when set, in place of the tags in `settings`. */
-  private vitestFiles(config: ConfigFile, settings: Setting, folder: string, ownTags: Setting | null): Project {
+  private vitestFiles(
+    config: ConfigFile,
+    settings: Setting,
+    folder: string,
+    ownTags: Setting | null,
+    name: string,
+  ): Project {
     let root = folder;
     let dir: string | null = null;
     let hasTestRoot = false;
@@ -602,10 +736,8 @@ export class ConfigRuns {
       flags.push(setting?.kind === 'value' && setting.value === true);
     }
     const [checksTypes, onlyTypes] = flags;
-    const name = settingAt(settings, ['test', 'name']);
-    const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
     const about: ProjectAbout = {
-      name: label?.kind === 'value' && typeof label.value === 'string' ? label.value : '',
+      name,
       testDir: base,
       dependencies: [],
       settings,
@@ -614,6 +746,7 @@ export class ConfigRuns {
       config,
       grep: null,
       grepRoot: base,
+      runsByDefault: true,
       defaults: {
         timeout: settingAt(settings, ['test', 'testTimeout']),
         retry: this.vitestRetry(settingAt(settings, ['test', 'retry'])),
@@ -653,10 +786,41 @@ function matches(expression: RegExp, text: string): boolean {
   return expression.test(text);
 }
 
+/** A Playwright project's name: its own, else the config's, else empty. */
+function playwrightName(config: ConfigFile, project: Setting): string {
+  for (const setting of [settingAt(project, ['name']), settingAt(config.settings, ['name'])]) {
+    if (setting && !isUnset(setting)) {
+      return setting.kind === 'value' && typeof setting.value === 'string' ? setting.value : '';
+    }
+  }
+  return '';
+}
+
 /** The strings of a list setting, such as Playwright's `dependencies`; none for anything else. */
+/**
+ * A Vitest project's name: its `test.name`, or the name's `label`, else `fallback`; in Vitest 5, inside the name of the
+ * config that lists it, as `web (unit)`.
+ */
+function vitestName(settings: Setting, fallback: string, container: string | null): string {
+  const name = settingAt(settings, ['test', 'name']);
+  const label = name?.kind === 'object' ? settingAt(name, ['label']) : name;
+  const own = (label?.kind === 'value' && typeof label.value === 'string' && label.value) || fallback;
+  return container === null ? own : `${container} (${own})`;
+}
+
 function strings(setting: Setting | null): string[] {
   if (setting?.kind !== 'list') return [];
   return setting.items.flatMap((item) => (item.kind === 'value' && typeof item.value === 'string' ? [item.value] : []));
+}
+
+/** The `name` of the package.json in a folder; null without one, or when it has none. */
+function packageName(folder: string): string | null {
+  try {
+    const { name } = JSON.parse(readFileSync(path.join(folder, 'package.json'), 'utf8')) as { name?: unknown };
+    return typeof name === 'string' && name !== '' ? name : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A setting written as `undefined`, which the runners take as not set. */
@@ -710,24 +874,30 @@ function folders(relative: string): string[] {
  * The projects that run a test: those that run its file, less those whose Playwright `grep` or `grepInvert` leaves its
  * title out, matched as Playwright matches it, against the project's name, the file's path from the config's root
  * folder, the titles of the describes and the test and their tags. Null when a `grep` meets a title the scan can't work
- * out.
+ * out, or the test is in a project the scan can't tell runs.
  */
 function projectsRunning(
   projects: ProjectAbout[],
   test: TestRecord,
   suites: SuiteRecord[],
   file: string,
+  configTags: string[] | null,
 ): ProjectAbout[] | null {
   const titles = [...test.suitePath, test.title];
   const isDynamic =
-    test.hasDynamicTitle || suites.some((suite) => suite.hasDynamicTitle && test.suitePath.includes(suite.title));
-  // Tags written into a title are in its text already; Playwright adds the others after it.
-  const tags = test.tags.filter((tag) => !titles.some((title) => title.includes(tag)));
+    test.hasDynamicTitle ||
+    configTags === null ||
+    suites.some((suite) => suite.hasDynamicTitle && test.suitePath.includes(suite.title));
+  // Tags written into a title are in its text already; Playwright adds the config's after the file, the others after it.
+  const tags = test.tags.filter((tag) => !configTags?.includes(tag) && !titles.some((title) => title.includes(tag)));
   const running: ProjectAbout[] = [];
   for (const project of projects) {
     const { name, grep, grepRoot } = project;
     if (grep && isDynamic) return null;
-    if (!grep || grep([name, path.relative(grepRoot, file), ...titles, ...tags].join(' '))) running.push(project);
+    const text = [name, path.relative(grepRoot, file), ...(configTags ?? []), ...titles, ...tags].join(' ');
+    if (grep && !grep(text)) continue;
+    if (project.runsByDefault === null) return null;
+    running.push(project);
   }
   return running;
 }
@@ -895,7 +1065,7 @@ export function fileConfig(
   if (config === null) {
     // Without a config, Vitest defines no tags and keeps strictTags on.
     const tags = vitestTags(null, null, null, atLeast(version, 5, 0));
-    return framework === 'vitest' ? { forbidOnly: false, forTest: () => NO_CONFIG, tags } : null;
+    return framework === 'vitest' ? { forbidOnly: false, forTest: () => NO_CONFIG, tags, configTags: [] } : null;
   }
   const forbidOnly = framework === 'playwright' ? settingAt(config.settings, ['forbidOnly']) : null;
   return {
@@ -905,11 +1075,12 @@ export function fileConfig(
         : forbidOnly?.kind === 'value' && forbidOnly.value === true,
     forTest(test, suites) {
       if (projects === null) return { projects: null, defaults: UNKNOWN_DEFAULTS };
-      const running = projectsRunning(projects, test, suites, file);
+      const running = projectsRunning(projects, test, suites, file, placement.tags);
       // A grep the scan can't match leaves the projects that run the file, which may still agree.
       return { projects: running?.map(({ name }) => name) ?? null, defaults: configDefaults(running ?? projects) };
     },
     tags: agreedTags(projects),
+    configTags: placement.tags ?? [],
   };
 }
 

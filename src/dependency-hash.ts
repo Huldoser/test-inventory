@@ -6,6 +6,7 @@ import {
   type Node,
   type Program,
   type ObjectProperty,
+  type StringLiteral,
   type VariableDeclarator,
 } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, unwrap, type FunctionNode } from './ast.ts';
@@ -25,8 +26,11 @@ interface Module {
   relativeFilePath: string;
   /** Null for a file that isn't JavaScript or TypeScript, which is taken by its text; for a component, its scripts. */
   parsed: ParsedFile | null;
-  /** The file's text with line endings read as `\n`, for a file that isn't code or a component. */
-  text: string | null;
+  /**
+   * The file's text with line endings read as `\n`, for a file that isn't code or a component; its bytes when it isn't
+   * UTF-8 text, such as an image.
+   */
+  text: string | Uint8Array | null;
   values: Values;
   readModule: ModuleReader | null;
   /** Its top-level code that runs when it is imported, and the modules it imports, which run then too. */
@@ -349,6 +353,22 @@ const COMPONENT_BLOCK =
   /<!--[\s\S]*?--!?>|<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script(?:[\s/][^>]*)?>/gi;
 
 /**
+ * A file's bytes with line endings as `\n`, as git may check out a text file with either; one git takes for binary, with
+ * a NUL byte in its first 8,000, stays as it is.
+ */
+function withLineFeeds(bytes: Uint8Array): Uint8Array {
+  if (bytes.subarray(0, 8000).includes(0)) return bytes;
+  // Latin-1 maps each byte to one character and back, so only the line endings change.
+  return Buffer.from(Buffer.from(bytes).toString('latin1').replace(/\r\n?/g, '\n'), 'latin1');
+}
+
+/** Whether a script block holds code: one with a `type` other than a JavaScript one, as JSON-LD, holds data. */
+function isScriptCode(attributes: string): boolean {
+  const type = /(?:^|\s)type\s*=\s*["']?([^"'\s>]*)/i.exec(attributes)?.[1] ?? '';
+  return /^(?:module|(?:text|application)\/(?:java|ecma)script)?$/i.test(type);
+}
+
+/**
  * A component's script blocks as one module, the rest of the file blanked so that offsets stay those of the file, and
  * a file name for the language they are in: `lang="ts"` is TypeScript, no `lang` JavaScript.
  */
@@ -360,7 +380,7 @@ function componentScript(code: string): { fileName: string; code: string } {
   let lang = 'js';
   for (const match of code.matchAll(COMPONENT_BLOCK)) {
     const [whole, attributes, body] = match;
-    if (whole.startsWith('<!--')) continue;
+    if (whole.startsWith('<!--') || !isScriptCode(attributes)) continue;
     const start = match.index + '<script'.length + attributes.length + 1;
     script += blank(code.slice(end, start)) + body;
     end = start + body.length;
@@ -648,7 +668,7 @@ export class DependencyGraph {
   private newModule(
     relativeFilePath: string,
     parsed: ParsedFile | null,
-    text: string | null,
+    text: string | Uint8Array | null,
     values: Values,
     readModule: ModuleReader | null,
   ): Module {
@@ -709,7 +729,7 @@ export class DependencyGraph {
           this.newModule(source.relativeFilePath, parsed, null, new Values(), source.readModule);
         this.modules.set(parsed, module);
       } else {
-        const text = source.code.replace(/\r\n?/g, '\n');
+        const text = source.bytes ? withLineFeeds(source.bytes) : source.code.replace(/\r\n?/g, '\n');
         // A component's markup and styles shape what it renders, so it is taken by its text, and its scripts are
         // followed for the modules they import.
         const script = COMPONENT_FILE.test(source.relativeFilePath) ? componentScript(source.code) : null;
@@ -813,10 +833,10 @@ export class DependencyGraph {
   }
 
   /** An import of a name a test uses: the module it names and how, as `import { round } from 'lodash'`. */
-  private importUnit(module: Module, statement: Extract<Node, { type: 'ImportDeclaration' }>, specifier: Node): Unit {
+  private importUnit(module: Module, statement: { source: Node }, specifier: Node): Unit {
     let unit = this.imports.get(specifier);
     if (!unit) {
-      const roots = [statement.source, specifier].map((node) => ({ node, scopes: [] }));
+      const roots = [...new Set([statement.source, specifier])].map((node) => ({ node, scopes: [] }));
       unit = this.newUnit(module, roots, new Map(), false);
       unit.edges = new Set();
       this.imports.set(specifier, unit);
@@ -961,7 +981,7 @@ export class DependencyGraph {
           : [this.declarationUnit(module, declaration, types)];
       }
       if (statement.type === 'ExportAllDeclaration' && statement.exported && exportName(statement.exported) === name) {
-        return this.imported(module, statement.source.value, '*', types, statement);
+        return this.passedOn(module, statement, statement.source, statement.exported, '*', types);
       }
       if (statement.type !== 'ExportNamedDeclaration') continue;
       if (statement.exportKind === 'type' && !types) continue;
@@ -980,7 +1000,7 @@ export class DependencyGraph {
       if (!specifier) continue;
       const localName = exportName(specifier.local);
       return statement.source
-        ? this.imported(module, statement.source.value, localName, types, statement)
+        ? this.passedOn(module, statement, statement.source, specifier, localName, types)
         : local(localName);
     }
     // `export *` passes on every name but `default`, and only when the module doesn't export the name itself.
@@ -988,10 +1008,26 @@ export class DependencyGraph {
       for (const statement of program.body) {
         if (statement.type !== 'ExportAllDeclaration' || statement.exported) continue;
         const found = this.reexported(module, statement.source.value, name, types, searched);
-        if (found) return found;
+        if (found) return [...found, this.importUnit(module, statement, statement.source)];
       }
     }
     return [this.wholeUnit(module, types)];
+  }
+
+  /**
+   * A name a module passes on from another, as `export { quote } from './nasdaq'` does, with the re-export itself: which
+   * module the name comes from is code too, so the barrel is among the files a change to which affects the test.
+   */
+  private passedOn(
+    module: Module,
+    statement: Span,
+    source: StringLiteral,
+    specifier: Node,
+    name: string,
+    types: boolean,
+  ): Unit[] {
+    const units = this.imported(module, source.value, name, types, statement);
+    return units === IN_PROGRESS ? units : [...units, this.importUnit(module, { source }, specifier)];
   }
 
   /** What `export * from source` gives for a name; null when the module behind it doesn't export it. */

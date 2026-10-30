@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { codes, onlyTest, scanVitest, testNamed, titles, VITEST_IMPORT } from './helpers.ts';
+import type { Inventory } from '../src/index.ts';
 
 describe('Vitest imports', () => {
   it('recognizes test, it, describe and suite, also renamed', () => {
@@ -292,10 +293,75 @@ describe('Vitest declarations', () => {
     ['test.runIf(false)', { state: 'skip', isConditional: false }],
     ["test.skipIf(process.platform === 'win32')", { state: 'skip', condition: "process.platform === 'win32'" }],
     ['test.runIf(process.env.MARKET_DATA_KEY)', { state: 'skip', condition: '!(process.env.MARKET_DATA_KEY)' }],
-    ['test.skipIf(isWeekend()).runIf(hasApiKey)', { state: 'skip', condition: 'isWeekend() || !(hasApiKey)' }],
   ])('reads %s', (callee, expected) => {
     const test = onlyTest(scanVitest(`${VITEST_IMPORT}\n${callee}('computes the daily return', () => {});`));
     expect(test).toMatchObject({ isOnly: false, isConditional: 'condition' in expected, ...expected });
+  });
+
+  it('takes the last of skip, skipIf and runIf on a test from Vitest 5, where each sets skip; before, any skips', () => {
+    const code = `${VITEST_IMPORT}
+test.skip.skipIf(false)('hedges a long position', () => {});
+test.skipIf(false).skip('hedges a short position', () => {});
+test.skipIf(true).skipIf(false)('hedges a calendar spread', () => {});
+test.skipIf(isWeekend()).runIf(hasApiKey)('hedges a basket', () => {});
+`;
+    const states = (inventory: Inventory) => inventory.tests.map((test) => [test.title, test.state, test.condition]);
+    expect(states(scanVitest(code, { frameworkVersion: '5.0.5' }))).toEqual([
+      ['hedges a long position', 'active', null],
+      ['hedges a short position', 'skip', null],
+      ['hedges a calendar spread', 'active', null],
+      ['hedges a basket', 'skip', '!(hasApiKey)'],
+    ]);
+    expect(states(scanVitest(code, { frameworkVersion: '4.1.12' }))).toEqual([
+      ['hedges a long position', 'skip', null],
+      ['hedges a short position', 'skip', null],
+      ['hedges a calendar spread', 'skip', null],
+      ['hedges a basket', 'skip', 'isWeekend() || !(hasApiKey)'],
+    ]);
+  });
+
+  it("lets skipIf and runIf replace the skip a describe passes down from Vitest 5, as a test's own option does", () => {
+    const code = `${VITEST_IMPORT}
+describe.only('order book', { skip: true }, () => {
+  test.runIf(true)('fills a market order', () => {});
+  test('fills a limit order', () => {});
+});
+`;
+    const states = (inventory: Inventory) => inventory.tests.map((test) => [test.title, test.state]);
+    expect(states(scanVitest(code, { frameworkVersion: '5.0.5' }))).toEqual([
+      ['fills a market order', 'active'],
+      ['fills a limit order', 'skip'],
+    ]);
+    expect(states(scanVitest(code, { frameworkVersion: '4.1.12' }))).toEqual([
+      ['fills a market order', 'skip'],
+      ['fills a limit order', 'skip'],
+    ]);
+  });
+
+  it('leaves out an option set to undefined from Vitest 5, so the chain keeps its state; before, it undoes it', () => {
+    const code = `${VITEST_IMPORT}
+const UNSET = undefined;
+test.skip('settles a trade', { skip: undefined }, () => {});
+test.skip('settles a block trade', { skip: UNSET }, () => {});
+test.todo('nets positions', { todo: undefined }, () => {});
+test.fails('rejects a short sale', { fails: undefined }, () => {});
+test.only('amends an order', { only: undefined }, () => {});
+`;
+    const states = (inventory: Inventory) => inventory.tests.map((test) => [test.title, test.state, test.isOnly]);
+    expect(states(scanVitest(code, { frameworkVersion: '5.0.5' }))).toEqual([
+      ['settles a trade', 'skip', false],
+      ['settles a block trade', 'skip', false],
+      ['nets positions', 'todo', false],
+      ['rejects a short sale', 'expectedToFail', false],
+      ['amends an order', 'active', true],
+    ]);
+    expect(states(scanVitest(code, { frameworkVersion: '4.1.12' }))).toEqual([
+      ['settles a trade', 'active', false],
+      ['settles a block trade', 'active', false],
+      ['nets positions', 'active', false],
+      ['rejects a short sale', 'active', false],
+      ['amends an order', 'active', false],
+    ]);
   });
 
   it.each([

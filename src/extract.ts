@@ -969,13 +969,16 @@ class Walker {
     }
   }
 
-  /** Counts `expect()`, `expect.soft()` and `expect.poll()`, and reads `expect.assertions(n)` and `expect.hasAssertions()`. */
+  /**
+   * Counts `expect()`, `expect.soft()`, `expect.poll()` and `expect.element()`, and reads `expect.assertions(n)` and
+   * `expect.hasAssertions()`.
+   */
   private expectCall(call: CallExpression, test: PendingTest): void {
     const callee = unwrap(call.callee);
     const [root, member] =
       callee.type === 'MemberExpression' ? [unwrap(callee.object), propertyName(callee)] : [callee, 'call'];
     if (root.type !== 'Identifier' || root.name !== 'expect') return;
-    if (member === 'call' || member === 'soft' || member === 'poll') test.expectCount += 1;
+    if (member === 'call' || member === 'soft' || member === 'poll' || member === 'element') test.expectCount += 1;
     if (member === 'hasAssertions') test.expectsAssertions = true;
     const count = call.arguments.at(0);
     if (member === 'assertions' && count && count.type !== 'SpreadElement') {

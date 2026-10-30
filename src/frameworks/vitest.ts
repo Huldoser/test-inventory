@@ -26,6 +26,7 @@ import type {
   ModuleReader,
   Problem,
   Span,
+  StateOption,
   StateSetting,
 } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
@@ -113,6 +114,7 @@ const MODIFIERS: Record<Kind, Set<string>> = {
 };
 const TABLES = new Set(['each', 'for']);
 const CONDITIONS = new Set(['skipIf', 'runIf']);
+const STATE_FLAGS: StateOption[] = ['only', 'todo', 'fails'];
 const DERIVATIONS = new Set(['extend', 'override', 'scoped']);
 /** Hooks, with the position of the test context among their callback's parameters. */
 const HOOKS = new Map<keyof HookCounts, number | null>([
@@ -797,6 +799,16 @@ export class VitestAdapter implements Adapter {
     const chain = new Set(links.filter((link) => MODIFIERS[kind].has(link.name)).map((link) => link.name));
     const flags = new Set(chain);
     let conditions = links.filter((link) => CONDITIONS.has(link.name)).map((link) => this.linkCondition(link, context));
+    // From Vitest 5.0.5 a test's `skip`, `skipIf` and `runIf` each set its `skip`, so the last of them decides, and a
+    // `skipIf` or `runIf` replaces the skip of a tag or of a describe around. The scan applies that to all of Vitest 5.
+    const lastSkip = links.filter((link) => link.name === 'skip' || CONDITIONS.has(link.name)).at(-1);
+    const skipsByChain = kind === 'test' && lastSkip !== undefined && atLeast(this.file.version, 5, 0);
+    const conditionSetsSkip = skipsByChain && CONDITIONS.has(lastSkip.name);
+    if (skipsByChain) {
+      flags.delete('skip');
+      conditions = conditionSetsSkip ? [this.linkCondition(lastSkip, context)] : [];
+      if (!conditionSetsSkip) flags.add('skip');
+    }
     // A test's own options win over its chain, so `test.skip('title', { skip: false }, fn)` runs. The chain wins for a
     // test's mode, and for everything on a describe.
     for (const [flag, value] of read.flags) {
@@ -813,7 +825,7 @@ export class VitestAdapter implements Adapter {
     // win. A `skip` passed down skips them, and turns todo into skip, as skip goes before todo.
     const line = this.file.source.line(call.start);
     const around = context.passedDown as PassedSkip | null;
-    const passed = read.skip ? null : around;
+    const passed = read.skip || conditionSetsSkip ? null : around;
     const skips = passed?.condition.applies === 'always' && !flags.has('only');
     const table = links.find((link) => TABLES.has(link.name)) ?? null;
     const isTodo = flags.has('todo') || body === undefined;
@@ -862,6 +874,10 @@ export class VitestAdapter implements Adapter {
         fixtures: fixturesOf(base.hashed, index, this.file.version),
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
+        ownStateOptions: [
+          ...(read.skip || conditionSetsSkip ? ['skip' as const] : []),
+          ...STATE_FLAGS.filter((flag) => read.flags.has(flag)),
+        ],
       };
     }
     return refusal ? refused(call, refusal, context, () => declared) : declared;
@@ -921,8 +937,14 @@ export class VitestAdapter implements Adapter {
     if (!node) return result;
     const options = readOptions(this.file, context.scopes, node);
     problems.push(...unresolvedOptions(this.file, options, 'its flags, tags and meta are missing'));
+    // From Vitest 5.0.5 an option set to `undefined` replaces nothing; the scan applies that to all of Vitest 5.
+    const given = (key: string) => {
+      const option = options.values.get(key);
+      const isUndefined = option?.resolved.ok === true && option.resolved.value === undefined;
+      return isUndefined && atLeast(this.file.version, 5, 0) ? undefined : option;
+    };
     for (const flag of ['only', 'todo', 'fails', 'concurrent', 'sequential', 'shuffle']) {
-      const option = options.values.get(flag);
+      const option = given(flag);
       if (option && !option.resolved.ok) {
         const { importedFrom } = option.resolved;
         problems.push(unresolvedOption(this.file, flag, option.node, importedFrom, 'it is not applied'));
@@ -932,7 +954,7 @@ export class VitestAdapter implements Adapter {
         result.flags.set(flag, Boolean(option.resolved.value));
       }
     }
-    const skip = options.values.get('skip');
+    const skip = given('skip');
     if (skip) {
       result.skip = skip.resolved.ok
         ? { applies: skip.resolved.value ? 'always' : 'never', text: null }
@@ -967,7 +989,7 @@ export class VitestAdapter implements Adapter {
     return result;
   }
 
-  /** `retry` as a number, or since Vitest 4.1 as `{ count, delay, condition }`; the runner ignores an object before. */
+  /** `retry` as a number, or since Vitest 4.1 as `{ count, delay, condition }`. */
   private retry(option: OptionValue, details: Details, context: CallContext, problems: Problem[]): void {
     const node = unwrap(option.node);
     if (node.type !== 'ObjectExpression') {
@@ -975,7 +997,14 @@ export class VitestAdapter implements Adapter {
       if (count !== null) details.run.retry = { count, delay: null, condition: null };
       return;
     }
-    if (!atLeast(this.file.version, 4, 1)) return;
+    if (!atLeast(this.file.version, 4, 1)) {
+      // Before 4.1 the runner compares the attempt number with the object, so it never runs the test.
+      const source = snippet(text(this.file, node));
+      const message = `Option retry: ${source} is an object, which Vitest reads from 4.1; before, it never runs the test.`;
+      problems.push(problem('unresolved-option', node, message, source));
+      details.run.retry = null;
+      return;
+    }
     const values = readOptions(this.file, context.scopes, node);
     problems.push(...unresolvedOptions(this.file, values, 'the retry is not applied'));
     const read = (key: string) => {

@@ -220,6 +220,66 @@ function spread(base: ObjectSetting, over: Setting, at: Site): ObjectSetting {
   return { kind: 'object', keys: new Map([...base.keys, ...over.keys]), rest: base.rest };
 }
 
+/** `{ ...a, ...b }` of two objects either of which may be unset, as Playwright merges `use` and `expect`. */
+function assign(a: Setting | null, b: Setting | null, at: Site): ObjectSetting {
+  return [a, b].reduce<ObjectSetting>((merged, over) => (over ? spread(merged, over, at) : merged), emptyObject());
+}
+
+/**
+ * Playwright's `defineConfig(base, over)`: `over`'s keys replace `base`'s, but `expect`, `use` and `build` merge key by
+ * key, and `projects` by name. `webServer`, whose lists Playwright joins, isn't read.
+ */
+function playwrightMerge(base: ObjectSetting, over: Setting, at: Site): ObjectSetting {
+  const merged = spread(base, over, at);
+  if (over.kind !== 'object' || over.rest) return merged;
+  for (const key of ['expect', 'use', 'build']) {
+    if (merged.keys.has(key)) merged.keys.set(key, assign(child(base, key), child(over, key), at));
+  }
+  const overrides = child(over, 'projects');
+  // Without projects of its own, `over` keeps those of `base`; with `projects: undefined`, it drops them.
+  if (overrides === null || isNullish(overrides)) return merged;
+  const projects = child(base, 'projects');
+  const items = projects === null || isNullish(projects) ? [] : projects.kind === 'list' ? projects.items : null;
+  const isKnown = items !== null && overrides.kind === 'list';
+  merged.keys.set('projects', isKnown ? mergeProjects(items, overrides.items, at) : unknown(at));
+  return merged;
+}
+
+/**
+ * Playwright's projects of a config with those of a config over it merged in by name, with their `use` key by key; the
+ * others are added after, the last of each name. Unknown when the scan can't tell a project's name.
+ */
+function mergeProjects(base: Setting[], overrides: Setting[], at: Site): Setting {
+  const byName = new Map<string | undefined, Setting>();
+  for (const project of overrides) {
+    const name = projectName(project);
+    if (name === null) return unknown(at);
+    byName.set(name, project);
+  }
+  const projects: Setting[] = [];
+  for (const project of base) {
+    const name = projectName(project);
+    if (name === null) return unknown(at);
+    const override = byName.get(name);
+    byName.delete(name);
+    if (!override) {
+      projects.push(project);
+      continue;
+    }
+    const merged = spread(spread(emptyObject(), project, at), override, at);
+    merged.keys.set('use', assign(child(project, 'use'), child(override, 'use'), at));
+    projects.push(merged);
+  }
+  return { kind: 'list', items: [...projects, ...byName.values()] };
+}
+
+/** The name Playwright merges a project by: undefined when unset, null when the scan can't tell. */
+function projectName(project: Setting): string | undefined | null {
+  const name = child(project, 'name');
+  if (name === null || (name.kind === 'value' && name.value === undefined)) return undefined;
+  return name.kind === 'value' && typeof name.value === 'string' ? name.value : null;
+}
+
 /**
  * One of two settings, as the two sides of a condition: what both agree on is known, and the rest is unknown at `at`,
  * where the condition is written. Null is a setting neither side sets.
@@ -551,11 +611,11 @@ class ConfigCode {
       // Vitest's defineConfig() and defineProject() return the config they are given, or the one a function returns.
       return isFunctionNode(args[0]) ? this.returned(args[0], frame, scopes) : this.evaluate(args[0], frame, scopes);
     }
-    // Playwright's defineConfig() merges the configs it is given, each over the ones before it. It also merges their
-    // `use`, `expect`, `build`, `webServer` and `projects`, which the scan doesn't read yet.
-    return args.reduce(
-      (merged, arg) => spread(merged, this.evaluate(arg, frame, scopes), { frame, node: arg }),
-      emptyObject(),
+    // Playwright's defineConfig() merges the configs it is given, each over the ones before it.
+    const [first, ...others] = args;
+    return others.reduce(
+      (merged, arg) => playwrightMerge(merged, this.evaluate(arg, frame, scopes), { frame, node: arg }),
+      spread(emptyObject(), this.evaluate(first, frame, scopes), { frame, node: first }),
     );
   }
 

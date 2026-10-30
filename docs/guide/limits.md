@@ -19,8 +19,8 @@ out is still listed, with that project missing from its `projects`.
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
 that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
 Vitest 3 project list in `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
-For a Playwright project's `grep`, a test's text is its project, file, describe and test titles and its tags, as
-Playwright builds it, but with every tag given as an option at the end, where Playwright puts a describe's after its
+For a Playwright project's `grep`, a test's text is its project, file, the config's `tag`, describe and test titles
+and its tags, as Playwright builds it, but with every tag given as an option at the end, where Playwright puts a describe's after its
 title; only a pattern that depends on that order can tell them apart.
 
 A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
@@ -201,6 +201,10 @@ something included. Some of what a test runs is out of its reach:
 
 - Installed packages, such as `@playwright/test` or a library from `node_modules`. An upgrade shows in the lockfile,
   not in the hash.
+- Path aliases set only in a bundler config, such as Vite's `resolve.alias`; the scan reads aliases from tsconfig
+  `paths`. An import that starts with `@/` or `~/`, which no package name can, gives the test
+  `hasUnfollowedDependencies`, with a `dependency-not-followed` warning. Other aliases, such as `@app/pricing`, read as
+  installed packages.
 - Files the code reads while it runs, with `fs` or `fetch`, environment variables, and the clock.
 - Modules loaded by a path worked out at run time, as in ``import(`./venues/${venue}`)``, or by a pattern, as with
   `import.meta.glob()`, and a value imported from a module that only a declaration file (`.d.ts`) describes. The test
@@ -218,7 +222,7 @@ something included. Some of what a test runs is out of its reach:
   linked into a snapshots folder aren't followed; linked files are.
 - Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
 - A Vue component's script loaded with `src`, as in `<script src="./watchlist.ts">`. A file that isn't JavaScript or
-  TypeScript, such as JSON, is taken by its text.
+  TypeScript, such as JSON, is taken by its text, and one that isn't text, such as an image, by its bytes.
 
 Some of what the hash takes is more than the test needs, so a change can change the hash of a test it doesn't affect:
 

@@ -64,6 +64,35 @@ describe('a custom test object imported through a tsconfig path alias', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('falls back to packages and built-in modules when no file of a matching alias exists, as TypeScript does', async () => {
+    const inventory = await scanSpec(
+      {
+        'package.json': VITEST_PACKAGE,
+        'node_modules/vitest/package.json': '{ "name": "vitest" }',
+        'node_modules/decimal.js/package.json': '{ "name": "decimal.js" }',
+        'tsconfig.json': '{ "compilerOptions": { "paths": { "*": ["./src/types/*"] } } }',
+        'src/types/money.ts': "export const CURRENCY = 'USD';\n",
+        'tests/fees.test.ts': `import { readFileSync } from 'node:fs';
+import path from 'path';
+import { expect, test } from 'vitest';
+import Decimal from 'decimal.js';
+import { addBusinessDays } from 'date-fns';
+import { CURRENCY } from 'money';
+
+test('charges the commission in the account currency', () => {
+  expect(new Decimal(1.5).toFixed(2) + CURRENCY).toBe('1.50USD');
+});
+`,
+      },
+      'vitest',
+    );
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/types/money.ts', 'tests/fees.test.ts'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('is followed through baseUrl alone', async () => {
     const inventory = await scanSpec({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -93,9 +122,10 @@ describe('a custom test object imported through a tsconfig path alias', () => {
       'a tsconfig that is not JSON',
       { 'tsconfig.json': '{ "compilerOptions": ' },
       '@/fixtures',
-      'is not a local file, a path alias or a workspace package',
+      'is a path alias that no tsconfig paths define',
     ],
-    ['no tsconfig', {}, '@/fixtures', 'is not a local file, a path alias or a workspace package'],
+    ['no tsconfig', {}, '@/fixtures', 'is a path alias that no tsconfig paths define'],
+    ['no tsconfig, for a name no package can have', {}, '~/fixtures', 'is a path alias that no tsconfig paths define'],
   ])('is reported with %s', async (_, files, from, reason) => {
     const inventory = await scanSpec({
       'package.json': PLAYWRIGHT_PACKAGE,
