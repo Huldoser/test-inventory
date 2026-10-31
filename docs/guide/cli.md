@@ -131,7 +131,10 @@ Vitest 5 removed `describe.sequential`. The version is read from the project, in
 3. The version in `package.json`.
 
 Each is looked for in the root, then in each folder above it, as a package in a monorepo may be installed or locked
-at the top. `--framework-version` overrides all of them. The version ends up in `frameworkVersion` in the output.
+at the top. When none of them has the framework, as in a monorepo whose root leaves it to a package such as `code/`,
+the shallowest `package.json` below the root that declares it and holds scanned files is used instead, outside
+`node_modules`, and its folder is read in the same order. `--framework-version` overrides all of them. The version
+ends up in `frameworkVersion` in the output.
 
 When `package.json` gives only a range, such as `^4.0.0`, `frameworkVersion` is the lowest version in it, the rules of
 the newest release in that major apply, and an `approximate-framework-version` warning names the range and the file.
