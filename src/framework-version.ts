@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { globSync } from 'tinyglobby';
 import type { Framework } from './types.ts';
 
 const PACKAGES: Record<Framework, string> = { playwright: '@playwright/test', vitest: 'vitest' };
@@ -92,12 +93,32 @@ function declaredVersion(folder: string, name: string): { version: string; range
 
 /**
  * The framework version from the installed package, then a lockfile, then package.json, each looked for in the root
- * and the folders above it. A version range, as in `^4.0.0`, is used only when nothing else is found.
+ * and the folders above it. A version range, as in `^4.0.0`, is used only when nothing else is found. When none of
+ * those has the framework, as in a monorepo whose root leaves it to a package such as `code/`, the shallowest package
+ * below the root that declares it and holds one of the scanned `files` is read the same way, from its own folder up.
  */
-export function detectFrameworkVersion(root: string, framework: Framework): DetectedVersion | null {
+export function detectFrameworkVersion(
+  root: string,
+  framework: Framework,
+  files: readonly string[],
+): DetectedVersion | null {
   const name = PACKAGES[framework];
+  const found = detectIn(root, folders(root), name);
+  if (found) return found;
+  // In path order, then shallowest first; the sort is stable, so packages as deep stay in path order.
+  const nested = globSync('**/package.json', { cwd: root, ignore: ['**/node_modules/**'] })
+    .sort()
+    .sort((a, b) => a.split('/').length - b.split('/').length)
+    .map((file) => path.dirname(file))
+    .find(
+      (folder) =>
+        files.some((file) => file.startsWith(`${folder}/`)) && declaredVersion(path.join(root, folder), name) !== null,
+    );
+  return nested === undefined ? null : detectIn(root, folders(path.join(root, nested)), name);
+}
+
+function detectIn(root: string, all: string[], name: string): DetectedVersion | null {
   const source = (folder: string, file: string) => path.relative(root, path.join(folder, file)).replaceAll('\\', '/');
-  const all = folders(root);
   for (const folder of all) {
     const version = installedVersion(folder, name);
     if (version) return { version, source: source(folder, `node_modules/${name}/package.json`), range: null };

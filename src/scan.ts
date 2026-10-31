@@ -159,7 +159,10 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   if (!existsSync(root) || !statSync(root).isDirectory())
     throw invalid('options.root', `a directory, and ${root} is not one`);
 
-  const detected = override === null ? detectFrameworkVersion(root, framework) : null;
+  // Without patterns, the configs choose among all JavaScript and TypeScript files.
+  const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
+  const scanned = found.files.map((file) => file.relativeFilePath);
+  const detected = override === null ? detectFrameworkVersion(root, framework, scanned) : null;
   const frameworkVersion = override ?? detected?.version ?? null;
   const range = detected?.range ?? null;
   // With only a range, the newest rules of its major apply, as the newest release in it is the likeliest installed.
@@ -168,8 +171,6 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     : majorMinor(frameworkVersion);
   const source = override === null ? (detected?.source ?? 'package.json') : '.';
   const projectDiagnostics = versionDiagnostics(framework, frameworkVersion, source, range);
-  // Without patterns, the configs choose among all JavaScript and TypeScript files.
-  const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
   projectDiagnostics.push(...found.diagnostics);
 
   const readerFor = moduleResolver(root);

@@ -1133,6 +1133,66 @@ describeWithBroker('live broker', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('reads members destructured from the test object or describe as those members', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+const { beforeAll, beforeEach, afterEach, afterAll, aroundEach, describe: group, skip, todo, fails, concurrent } = test;
+const { concurrent: concurrentGroup } = test.describe;
+const { skip: skipGroup } = describe;
+group('order ticket', () => {
+  beforeAll(() => {});
+  beforeEach(() => {});
+  afterEach(() => {});
+  afterAll(() => {});
+  aroundEach(async (run) => {
+    await run();
+  });
+  skip('routes an iceberg order', () => {});
+  todo('cancels a filled order');
+  fails('rejects a negative quantity', () => {
+    expect(-1).toBeGreaterThan(0);
+  });
+  concurrent('places a market order', () => {});
+});
+skipGroup('live broker', () => {
+  it('sends an order', () => {});
+});
+concurrentGroup('watchlists', () => {
+  test('adds a symbol', () => {});
+});
+`);
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isParallel])).toEqual([
+      ['order ticket > routes an iceberg order', 'skip', false],
+      ['order ticket > cancels a filled order', 'todo', false],
+      ['order ticket > rejects a negative quantity', 'expectedToFail', false],
+      ['order ticket > places a market order', 'active', true],
+      ['live broker > sends an order', 'skip', false],
+      ['watchlists > adds a symbol', 'active', true],
+    ]);
+    expect(inventory.suites[0].hooks).toEqual({
+      beforeAll: 1,
+      beforeEach: 1,
+      afterEach: 1,
+      afterAll: 1,
+      aroundEach: 1,
+      aroundAll: 0,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('does not read calls of destructured members that Vitest calls on the test object itself', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+const { each, for: forEach, skipIf, runIf, extend } = test;
+each([['AAPL']])('quotes %s', () => {});
+forEach([['AAPL']])('quotes %s', () => {});
+skipIf(process.env.CI)('sends an order', () => {});
+runIf(process.env.CI)('cancels an order', () => {});
+const withBroker = extend({ broker: 'paper' });
+withBroker('routes an order', () => {});
+`);
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('reads describe functions kept in a variable, also chosen by a condition', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 const suiteOf = describe;

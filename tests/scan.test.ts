@@ -1295,6 +1295,40 @@ describe('scan reads the framework version', () => {
     ]);
   });
 
+  it('from the shallowest package below the root that declares it and holds scanned files, when the root and above have none', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'trading-desk', private: true }),
+      'node_modules/vitest-plugin-broker/package.json': JSON.stringify({ peerDependencies: { vitest: '^5.0.0' } }),
+      'packages/desk/package.json': JSON.stringify({
+        devDependencies: { vitest: '^3.2.4', '@playwright/test': '^1.52.0' },
+      }),
+      'packages/desk/yarn.lock': '"vitest@npm:^3.2.4":\n  version: 3.2.4\n',
+      'packages/risk/package.json': JSON.stringify({ devDependencies: { vitest: '^5.0.0' } }),
+      'packages/desk/sandbox/package.json': JSON.stringify({ devDependencies: { vitest: '^5.0.0' } }),
+      'packages/desk/tests/stories.test.ts': `import { test, vi } from 'vitest';
+test('loads the stored orders', () => {
+  vi.mock('../stores/orders');
+});
+`,
+      'packages/desk/stores/orders.ts': 'export const orders = [];\n',
+      'packages/desk/tests/a.spec.ts': SPEC,
+      'packages/risk/tests/limits.test.ts':
+        "import { test } from 'vitest';\ntest('caps the position size', () => {});\n",
+    });
+    const vitest = await scan({ root, patterns: ['packages/desk/tests/*.test.ts'], framework: 'vitest' });
+    expect(vitest.frameworkVersion).toBe('3.2.4');
+    // `vi.mock` inside a test fails only from Vitest 5.
+    expect(vitest.tests.map((test) => test.state)).toEqual(['active']);
+    expect(vitest.diagnostics).toEqual([]);
+    const playwright = await scan({ root, patterns: ['packages/desk/tests/*.spec.ts'], framework: 'playwright' });
+    expect(playwright.frameworkVersion).toBe('1.52.0');
+    expect(playwright.diagnostics).toMatchObject([
+      { code: 'approximate-framework-version', relativeFilePath: 'packages/desk/package.json' },
+    ]);
+    const risk = await scan({ root, patterns: ['packages/risk/tests/*.test.ts'], framework: 'vitest' });
+    expect(risk.frameworkVersion).toBe('5.0.0');
+  });
+
   it('from node_modules in a folder above the root, as in a monorepo', async () => {
     const root = project({
       'node_modules/@playwright/test/package.json': '{"version":"1.63.0"}',
