@@ -62,6 +62,7 @@ import {
   readCondition,
   returnedFunction,
   returnedTestObject,
+  boundMembers,
   destructuredNames,
   takesWhole,
   readCount,
@@ -546,7 +547,7 @@ export class VitestAdapter implements Adapter {
       this.worthFollowing(base.name, links, args) &&
       this.follow(base.name, !inBody && mayDeclareTests(base.name, links));
     if (!followed && !this.bindings.declarations.has(declaration)) {
-      const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, lookup) : null;
+      const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, base.name, lookup) : null;
       if (alias) return { kind: alias.kind, index: 0, modifiers: alias.links };
       return this.assumeLocal(declaration, base.name, links, args)
         ? { kind: KINDS.get(base.name) ?? 'test', index: 0 }
@@ -560,8 +561,14 @@ export class VitestAdapter implements Adapter {
     return kind ? { kind, index: 0 } : null;
   }
 
-  /** The function and modifiers a variable holds, as in `const skipOnCi = test.skipIf(isCI)`. */
-  private alias(declarator: VariableDeclarator, lookup: Lookup): TestFunction | null {
+  /**
+   * The function and modifiers a variable holds, as in `const skipOnCi = test.skipIf(isCI)`, with the member `name`
+   * takes when it is destructured, as in `const { beforeEach } = test`. The members Vitest reads through `this`, such as
+   * `each` and `skipIf`, return a test function only when called, so their calls are never read through a variable.
+   */
+  private alias(declarator: VariableDeclarator, name: string, lookup: Lookup): TestFunction | null {
+    const destructured = boundMembers(declarator.id, name);
+    if (!destructured) return null;
     let alias = this.aliases.get(declarator);
     if (alias === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
@@ -569,7 +576,8 @@ export class VitestAdapter implements Adapter {
       alias = declarator.init ? this.aliasOf(declarator.init, lookup) : null;
       this.aliases.set(declarator, alias);
     }
-    return alias;
+    const links = destructured.map((member) => ({ name: member, args: null, template: null }));
+    return alias && { kind: alias.kind, links: [...alias.links, ...links] };
   }
 
   private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {

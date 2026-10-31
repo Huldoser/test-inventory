@@ -31,6 +31,7 @@ import {
 } from './bindings.ts';
 import {
   atLeast,
+  boundMembers,
   findFunction,
   hookFunction,
   isTestName,
@@ -371,7 +372,9 @@ export class PlaywrightAdapter implements Adapter {
       const bound = declaration !== null && this.bindings.declarations.has(declaration);
       const local = declaration !== null && this.imports.get(base.name)?.node === declaration;
       const alias =
-        declaration?.type === 'VariableDeclarator' && !bound && !local ? this.alias(declaration, lookup) : null;
+        declaration?.type === 'VariableDeclarator' && !bound && !local
+          ? this.alias(declaration, base.name, lookup)
+          : null;
       // The module from `require()` is both the namespace and `test`, so `pw.test(...)` reads as the namespace.
       if (bound && this.bindings.namespaces.has(base.name) && links[0]?.name === 'test' && !links[0].args) {
         return links.slice(1);
@@ -440,9 +443,13 @@ export class PlaywrightAdapter implements Adapter {
 
   /**
    * The members of `test` a variable holds: those of a describe function, as in `const serialDescribe =
-   * test.describe.serial`, or none for a test object a function returns.
+   * test.describe.serial`, none for a test object a function returns, and the member `name` takes when it is
+   * destructured, as in `const { beforeEach } = test`. Playwright binds every member to its test object, so a
+   * destructured one works as it does on the object; a test object built with a destructured `extend` is not followed.
    */
-  private alias(declarator: VariableDeclarator, lookup: Lookup): string[] | null {
+  private alias(declarator: VariableDeclarator, name: string, lookup: Lookup): string[] | null {
+    const destructured = boundMembers(declarator.id, name);
+    if (!destructured) return null;
     let members = this.aliases.get(declarator);
     if (members === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
@@ -450,7 +457,7 @@ export class PlaywrightAdapter implements Adapter {
       members = declarator.init ? this.members(declarator.init, lookup) : null;
       this.aliases.set(declarator, members);
     }
-    return members;
+    return members && [...members, ...destructured];
   }
 
   /** The members of `test` a value holds: none for a test object, or those of a describe function. */

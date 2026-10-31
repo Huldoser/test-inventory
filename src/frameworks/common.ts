@@ -402,6 +402,23 @@ export function destructuredNames(fn: FunctionNode | null, index: number | null)
 }
 
 /**
+ * The members of a declared value that `name` gets: none in `const name = test`, `['describe', 'serial']` in
+ * `const { describe: { serial: name } } = test`, and none for the rest of an object, which keeps the other members.
+ * Null when it gets something else: a default, an array element, or a member under a computed key.
+ */
+export function boundMembers(pattern: Node, name: string): string[] | null {
+  if (pattern.type === 'Identifier') return pattern.name === name ? [] : null;
+  if (pattern.type !== 'ObjectPattern') return null;
+  for (const property of pattern.properties) {
+    if (property.type === 'RestElement') return boundMembers(property.argument, name);
+    const members = boundMembers(property.value, name);
+    const key = propertyKey(property);
+    if (members) return key === null ? null : [key, ...members];
+  }
+  return null;
+}
+
+/**
  * Whether a function takes one of its parameters whole, as in `(fixtures) => ...`, or keeps the rest of its object
  * pattern, so that any key of it may be used.
  */

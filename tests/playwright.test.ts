@@ -1103,6 +1103,71 @@ describeOrHelper('not a describe', () => {});
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('reads members destructured from the test object as those members', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const { beforeAll, beforeEach, afterEach, afterAll, describe, step, skip, fixme, expect: softExpect } = test;
+const { serial } = test.describe;
+const {
+  describe: { parallel },
+} = test;
+const { only, ...members } = test;
+describe('order ticket', () => {
+  beforeAll(async () => {});
+  beforeEach(async () => {});
+  afterEach(async () => {});
+  afterAll(async () => {});
+  test('rejects a limit price far from the last trade', async () => {
+    await step('enter the price', async () => {
+      softExpect(1).toBe(1);
+    });
+  });
+  skip('routes an iceberg order', async () => {});
+  fixme('cancels a filled order', async () => {});
+});
+serial('position sizing', () => {
+  test('caps the size at the account limit', async () => {});
+});
+parallel('watchlists', () => {
+  test('adds a symbol', async () => {});
+});
+members.describe('risk limits', () => {
+  members.beforeEach(async () => {});
+  test('caps the position size', async () => {});
+});
+`);
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.steps.length])).toEqual([
+      ['order ticket > rejects a limit price far from the last trade', 'active', 1],
+      ['order ticket > routes an iceberg order', 'skip', 0],
+      ['order ticket > cancels a filled order', 'fixme', 0],
+      ['position sizing > caps the size at the account limit', 'active', 0],
+      ['watchlists > adds a symbol', 'active', 0],
+      ['risk limits > caps the position size', 'active', 0],
+    ]);
+    expect(inventory.suites.map((suite) => [suite.title, suite.isSerial, suite.isParallel])).toEqual([
+      ['order ticket', false, false],
+      ['position sizing', true, false],
+      ['watchlists', false, true],
+      ['risk limits', false, false],
+    ]);
+    expect(inventory.suites[0].hooks).toMatchObject({ beforeAll: 1, beforeEach: 1, afterEach: 1, afterAll: 1 });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('does not read a destructured name whose member is not known', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const member = process.env.CI ? 'skip' : 'only';
+const { [member]: onCi } = test;
+const { describe: grouped = test.describe } = test;
+const [first] = [test];
+onCi('routes an iceberg order', async () => {});
+grouped('position sizing', () => {});
+first('cancels a filled order', async () => {});
+`);
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.suites).toEqual([]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('reads tests on the test object or describe a function in the file returns', () => {
     const inventory = scanPlaywright(`import { test as base } from '@playwright/test';
 const liveTest = base.extend({ broker: 'live' });
