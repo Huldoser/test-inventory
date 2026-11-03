@@ -464,6 +464,7 @@ class RecordBuilder {
       isSerial: scope.mode === 'serial',
       isShuffled: declaration.isShuffled,
       isParameterized: declaration.isParameterized,
+      caseIndex: pending.caseIndex,
       tags: unique(scope.details.tags),
       annotations: scope.details.annotations,
       locks: unique(scope.details.locks),
@@ -651,6 +652,7 @@ class RecordBuilder {
         tables.length > 0 || pending.isInLoop
           ? repetitions([...tables.map((item) => item.caseCount), ...pending.loops])
           : null,
+      caseIndex: pending.caseIndex,
       isInLoop: pending.isInLoop,
       isInCondition: pending.isInCondition,
       isInFunction: pending.isInFunction,

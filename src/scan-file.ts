@@ -19,6 +19,8 @@ export interface FileSettings {
   /** `[major, minor]` of the framework version; null applies the newest rules. */
   version: [number, number] | null;
   comments: CommentsMode;
+  /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
+  expandCases?: boolean;
   readModule: ModuleReader | null;
   /** The project root, left out of error messages so that the output has no absolute paths. */
   root: string | null;
@@ -89,10 +91,14 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
     }
     const exports = settings.exports ?? new ExportedValues();
     const main = frame(parsed, relativeFilePath, settings, settings.readModule, exports);
-    const extraction = extract(main, (module: ModuleSource) => {
-      const helper = parseModule(module);
-      return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
-    });
+    const extraction = extract(
+      main,
+      (module: ModuleSource) => {
+        const helper = parseModule(module);
+        return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
+      },
+      { expandCases: settings.expandCases ?? false, version: settings.version },
+    );
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
     const unfollowed: Place[] = [];
     const dependencies = fileDependencies(

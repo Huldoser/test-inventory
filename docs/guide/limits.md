@@ -199,8 +199,16 @@ or `throw` in it, and a test under a condition inside the loop.
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
-work out the table. The runner creates one test per iteration or per case; expanding them is planned for a later
-release.
+work out the table.
+
+With `--expand-cases` (library: `expandCases: true`), each case of a table and each pass of a loop whose values the
+scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The
+values of the case are bound in its callback, as the runner passes them, so a title, tag or condition built from
+them is worked out per case. Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`,
+`%j`, `%o`, `%O`, `%c`, `%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
+stays one record, with a `cases-not-expanded` warning, when the scan can't work out a value in it or its title, or the
+title would show an array or object. A config that sets `taskTitleValueFormatTruncate`, or before Vitest 5
+`chaiConfig.truncateThreshold`, is not read, so long values are cut at 40 characters there too.
 
 ## Conditions are not evaluated
 

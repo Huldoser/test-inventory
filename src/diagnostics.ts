@@ -11,6 +11,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'unresolved-tag': 'warning',
   'unresolved-annotation': 'warning',
   'unresolved-cases': 'warning',
+  'cases-not-expanded': 'warning',
   'test-in-loop': 'warning',
   'dynamic-title': 'warning',
   'duplicate-title': 'warning',

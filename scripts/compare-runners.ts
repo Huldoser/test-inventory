@@ -2,8 +2,9 @@
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
 // runner list the tests (Playwright) or run them with its JSON reporter (Vitest), and compares tests, states and tags
-// with the inventory. Differences described in tests/compare/expected-differences.json are allowed; any other
-// difference fails the run.
+// with the inventory, scanned once as it is by default and once with expandCases, whose cases must have the runner's
+// names. Differences described in tests/compare/expected-differences.json are allowed; any other difference fails the
+// run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -143,11 +144,24 @@ function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
 
+function exactly(name: string): RegExp {
+  return new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 's');
+}
+
 /** The runner names a title stands for: `.each` titles with `%s` or `$name` become patterns that match any value. */
 function titlePattern(test: TestRecord, inTable: boolean): RegExp {
   const escaped = test.fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const formatted = test.isParameterized || inTable ? escaped.replace(/%[sdifjoO#%]|\\\$[\w.]+/g, '.*') : escaped;
   return new RegExp(`^${formatted}$`, 's');
+}
+
+/** Whether the test is one case of a table or pass of a loop, or in a describe that is, so its title is the runner's. */
+function isExpanded(inventory: Inventory, test: TestRecord): boolean {
+  const suites = new Map(inventory.suites.map((suite) => [suite.id, suite]));
+  for (let suite = suites.get(test.suiteId ?? ''); suite; suite = suites.get(suite.parentId ?? '')) {
+    if (suite.caseIndex !== null) return true;
+  }
+  return test.caseIndex !== null;
 }
 
 /** Whether a describe around the test is declared with `.each` or `.for`, so the runner repeats the test per case. */
@@ -173,13 +187,14 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
   const differences: Difference[] = [];
   const matched = new Set<RunnerTest>();
   for (const test of inventory.tests) {
-    const inTable = inDescribeTable(inventory, test);
-    const pattern = titlePattern(test, inTable);
-    // Vitest 3 lists type tests without a location, so those are matched by name.
+    const expanded = isExpanded(inventory, test);
+    const pattern = expanded ? exactly(test.fullName) : titlePattern(test, inDescribeTable(inventory, test));
+    // Vitest 3 lists type tests without a location, so those are matched by name, as the cases of one declaration are.
     const candidates = listed.filter(
       (item) =>
         item.file === test.relativeFilePath &&
-        (item.line === 0 ? pattern.test(item.name) : item.line >= test.lineStart && item.line <= test.lineEnd),
+        (item.line === 0 || expanded ? pattern.test(item.name) : true) &&
+        (item.line === 0 || (item.line >= test.lineStart && item.line <= test.lineEnd)),
     );
     candidates.forEach((item) => matched.add(item));
     const at = { file: test.relativeFilePath, line: test.lineStart, test };
@@ -251,25 +266,26 @@ async function main(): Promise<void> {
     run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], work);
 
     const listed = framework === 'playwright' ? playwrightTests(work) : vitestTests(work);
-    const inventory = await scan({ root: work, patterns: project.patterns, framework });
-    const differences = compare(inventory, listed);
     const rules = JSON.parse(
       readFileSync(path.join(repository, 'tests/compare/expected-differences.json'), 'utf8'),
     ) as ExpectedDifference[];
-
-    const lines = [
-      `### ${framework} ${version}`,
-      '',
-      `${inventory.tests.length} records, ${listed.length} tests listed by the runner, ${differences.length} differences.`,
-      '',
-    ];
+    const lines = [`### ${framework} ${version}`, ''];
     let unexpected = 0;
-    for (const difference of differences) {
-      const rule = isExpected(difference, framework, rules);
-      if (!rule) unexpected++;
+    for (const expandCases of [false, true]) {
+      const inventory = await scan({ root: work, patterns: project.patterns, framework, expandCases });
+      const differences = compare(inventory, listed);
       lines.push(
-        `- ${rule ? 'expected' : '**unexpected**'} ${difference.kind} at ${difference.file}:${difference.line}: ${difference.detail}${rule ? ` (${rule.reason})` : ''}`,
+        `${expandCases ? 'With expandCases: ' : ''}${inventory.tests.length} records, ${listed.length} tests listed by the runner, ${differences.length} differences.`,
+        '',
       );
+      for (const difference of differences) {
+        const rule = isExpected(difference, framework, rules);
+        if (!rule) unexpected++;
+        lines.push(
+          `- ${rule ? 'expected' : '**unexpected**'} ${difference.kind} at ${difference.file}:${difference.line}: ${difference.detail}${rule ? ` (${rule.reason})` : ''}`,
+        );
+      }
+      if (differences.length > 0) lines.push('');
     }
     const report = `${lines.join('\n')}\n`;
     console.log(report);

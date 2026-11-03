@@ -54,6 +54,7 @@ export type DiagnosticCode =
   | 'unresolved-tag'
   | 'unresolved-annotation'
   | 'unresolved-cases'
+  | 'cases-not-expanded'
   | 'test-in-loop'
   | 'dynamic-title'
   | 'duplicate-title'
@@ -273,6 +274,11 @@ export interface SuiteRecord {
   isShuffled: boolean;
   /** Declared with `.each` or `.for`. */
   isParameterized: boolean;
+  /**
+   * With `expandCases`, which case of its table or pass of its loop the describe is, from 0, as Vitest's `%#` counts;
+   * null without `expandCases`, or when the describe isn't one of several.
+   */
+  caseIndex: Count | null;
   tags: string[];
   annotations: Annotation[];
   /** Playwright only. */
@@ -438,6 +444,11 @@ export interface TestRecord {
    * parameterized nor in a loop.
    */
   caseCount: Count | null;
+  /**
+   * With `expandCases`, which case of its table or pass of the innermost loop around it the test is, from 0, as
+   * Vitest's `%#` counts; null without `expandCases`, or when the test isn't one of several.
+   */
+  caseIndex: Count | null;
   /** Declared inside a loop, `forEach` or `map`. */
   isInLoop: boolean;
   /** Declared inside `if`, `?:`, `&&`, `switch` or a `catch` block. */

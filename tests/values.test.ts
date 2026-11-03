@@ -229,6 +229,57 @@ routingChecks(undefined, 'sell');
     ]);
   });
 
+  it('binds destructured parameters, with holes, rests and defaults, as JavaScript does', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { ORDER } from './orders';
+const KEY = 'venue';
+function orderTests([side, qty], { [KEY]: venue, ...rest }, [, first, ...others], { tier = 'retail' } = {}) {
+  test(\`\${side} \${qty} on \${venue} for \${rest.account}, \${first} then \${others.join('+')}, \${tier}\`, async () => {});
+}
+function quoteTests([symbol, ...more], { venue, ...rest }, { [lookupKey()]: desk }) {
+  test(\`quotes \${symbol} \${more} on \${venue} \${rest} \${desk}\`, async () => {});
+}
+function legTests([leg]) {
+  test(\`fills \${leg}\`, async () => {});
+}
+orderTests(['buy', 100], { venue: 'NYSE', account: 'margin' }, ['skip', 'AAPL', 'MSFT', 'NVDA']);
+quoteTests(ORDER, 'not an object', { desk: 'fx' });
+quoteTests(['AAPL'], ORDER, ORDER);
+legTests(...LEGS);
+legTests('AAPL');
+`);
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'buy 100 on NYSE for margin, AAPL then MSFT+NVDA, retail',
+      '`quotes ${symbol} ${more} on ${venue} ${rest} ${desk}`',
+      '`quotes ${symbol} ${more} on ${venue} ${rest} ${desk}`',
+      '`fills ${leg}`',
+      '`fills ${leg}`',
+    ]);
+  });
+
+  it('leaves names unknown that the helper assigns by destructuring or as a loop variable', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function routeTests(side, venue, tier, desk, legs) {
+  [side] = ['sell'];
+  ({ venue } = { venue: 'NYSE' });
+  ({ tier = 'professional' } = {});
+  for (desk of ['fx']) {}
+  [...legs] = [];
+  test(\`routes \${side} \${venue} \${tier} \${desk} \${legs}\`, async () => {});
+}
+function bookTests(account, ...rest) {
+  ({ ...rest } = {});
+  test(\`books \${account} \${rest}\`, async () => {});
+}
+routeTests('buy', 'NASDAQ', 'retail', 'equities', 2);
+bookTests('margin', 1);
+`);
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      '`routes ${side} ${venue} ${tier} ${desk} ${legs}`',
+      '`books ${account} ${rest}`',
+    ]);
+  });
+
   it('leaves a constant unknown when the file changes it at the top level', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 const WATCHED = ['AAPL'];
@@ -241,6 +292,11 @@ const DESKS = { fx: 'FX' };
 delete DESKS.fx;
 const FEES = { retail: 25 };
 Object.assign(FEES, { retail: 30 });
+Object.assign();
+loadConfig().market = 'NYSE';
+FEES[pickMethod()]();
+let session;
+session = 'regular';
 const SIDES = ['buy'];
 const ORDER = { qty: 100 };
 test.beforeEach(() => {

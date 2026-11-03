@@ -30,6 +30,7 @@ Options:
   --ignore <glob>              leave out matching files; can be repeated (node_modules is always left out)
   --framework-version <x.y.z>  apply the rules of this framework version instead of the one in the project
   --comments <mode>            comments above tests: all, non-active or none (default: non-active)
+  --expand-cases               one record per case of a .each or .for table and per pass of a loop, with its title
   --state <state>              keep tests in this state, such as skip or fixme; can be repeated
   --tag <tag>                  keep tests with this tag, such as @smoke; can be repeated
   --grep <regex>               keep tests whose full name matches, ignoring case
@@ -132,6 +133,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
         ignore: { type: 'string', multiple: true },
         'framework-version': { type: 'string' },
         comments: { type: 'string' },
+        'expand-cases': { type: 'boolean' },
         state: { type: 'string', multiple: true },
         tag: { type: 'string', multiple: true },
         grep: { type: 'string' },
@@ -194,6 +196,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
       ignore: values.ignore ?? [],
       frameworkVersion: values['framework-version'],
       comments: values.comments as 'all' | undefined,
+      expandCases: values['expand-cases'],
     });
     const filtered = filterInventory(inventory, filter);
     result = fields === undefined ? filtered : pickTestFields(filtered, fields);

@@ -28,6 +28,7 @@ import type {
   Span,
   StateOption,
   StateSetting,
+  TableCase,
 } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
@@ -863,6 +864,7 @@ export class VitestAdapter implements Adapter {
       hashed: fn ?? namedFunction(this.file, context.scopes, body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(call, table, context, problems) : null,
+      cases: table ? this.tableCases(table, context) : null,
       problems,
     };
     let declared: ApiCall;
@@ -1061,6 +1063,40 @@ export class VitestAdapter implements Adapter {
       );
     }
     return count;
+  }
+
+  /**
+   * The cases of a table whose values the scan can work out, as Vitest passes them: `.each` spreads a case that is an
+   * array into the callback's arguments when every case is one, and `.for` passes each case whole. A tagged template
+   * gives one object per row, keyed by the names in its first line.
+   */
+  private tableCases(table: Link, context: CallContext): TableCase[] | null {
+    let cases: Value[];
+    if (table.template) {
+      const values = table.template.expressions.map((item) => this.file.values.resolve(item, context.scopes));
+      if (!values.every((item) => item.ok)) return null;
+      const strings = table.template.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw);
+      const header = strings.join('').trim().replace(/ /g, '').split('\n')[0].split('|');
+      cases = Array.from({ length: Math.floor(values.length / header.length) }, (_, row) =>
+        Object.fromEntries(header.map((name, column) => [name, values[row * header.length + column].value])),
+      );
+    } else {
+      const first = (table.args as Argument[]).at(0);
+      const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
+      if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
+      cases = resolved.value;
+    }
+    if (table.name === 'for') {
+      return cases.map((item) => ({
+        items: item === null || item === undefined ? [] : Array.isArray(item) ? item : [item],
+        args: [item],
+      }));
+    }
+    const arraysOnly = cases.every((item) => Array.isArray(item));
+    return cases.map((item) => {
+      const items = Array.isArray(item) ? item : [item];
+      return { items, args: arraysOnly ? items : [item] };
+    });
   }
 
   private arrayLength(node: Argument | undefined, context: CallContext): number | null {

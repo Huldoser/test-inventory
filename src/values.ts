@@ -167,13 +167,17 @@ export class Values {
         return;
       case 'AssignmentPattern': {
         const useDefault = !value || (value.ok && value.value === undefined);
-        if (!useDefault) return this.bind(pattern.left, value, names, scopes);
+        if (!useDefault) {
+          this.bind(pattern.left, value, names, scopes);
+          return;
+        }
         const fallback = pattern.right;
         if (pattern.left.type === 'Identifier') {
           names.set(pattern.left.name, () => this.resolve(fallback, scopes));
           return;
         }
-        return this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes);
+        this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes);
+        return;
       }
       case 'ArrayPattern':
         for (const [index, element] of pattern.elements.entries()) {

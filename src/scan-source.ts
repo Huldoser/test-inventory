@@ -1,6 +1,7 @@
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
+  checkFlag,
   checkFramework,
   checkObject,
   checkString,
@@ -26,10 +27,12 @@ export function scanSource(options: ScanSourceOptions): Inventory {
   const framework = checkFramework(checked.framework, 'options.framework');
   const frameworkVersion = checkVersion(checked.frameworkVersion, 'options.frameworkVersion');
   const comments = checkComments(checked.comments, 'options.comments');
+  const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
   const result = scanFile(checked.code, relativeFilePath, {
     framework,
     version: majorMinor(frameworkVersion),
     comments,
+    expandCases,
     readModule: null,
     root: null,
   });

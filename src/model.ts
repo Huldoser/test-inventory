@@ -1,6 +1,7 @@
 import type { CallExpression, Expression, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue } from './types.ts';
+import type { Value } from './values.ts';
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
 
@@ -86,7 +87,15 @@ interface Declaration {
   isParameterized: boolean;
   /** Number of cases of `.each` or `.for` when the table is written out; null otherwise. */
   caseCount: number | null;
+  /** The cases of `.each` or `.for` when the scan can work out every value in them; null otherwise. */
+  cases: TableCase[] | null;
   problems: Problem[];
+}
+
+/** One case of a `.each` or `.for` table: the items its title is formatted with, and the arguments its callback gets. */
+export interface TableCase {
+  items: Value[];
+  args: Value[];
 }
 
 export interface TestDeclaration extends Declaration {

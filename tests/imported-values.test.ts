@@ -190,6 +190,22 @@ describe('values imported from project files', () => {
     ]);
   });
 
+  it('reads a module each lookup meets twice once, when a path through it led back', async () => {
+    const inventory = await scanFiles({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'test-data/index.ts': "export * from './equities';\nexport * from './crypto';",
+      'test-data/equities.ts': "export * from './index';",
+      'test-data/crypto.ts': "export * from './equities';\nexport * from './venues';",
+      'test-data/venues.ts': "export const VENUE = 'Coinbase';",
+      'tests/crypto.spec.ts': [
+        "import { test } from '@playwright/test';",
+        "import { VENUE } from '../test-data/index';",
+        'test(`routes to ${VENUE}`, async () => {});',
+      ].join('\n'),
+    });
+    expect(inventory.tests.map((test) => test.title)).toEqual(['routes to Coinbase']);
+  });
+
   it('stops following re-exports 16 modules deep', async () => {
     const chain = Object.fromEntries(
       Array.from({ length: 40 }, (_, index) => [

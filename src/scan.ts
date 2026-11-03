@@ -13,6 +13,7 @@ import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
+  checkFlag,
   checkFramework,
   checkObject,
   checkStrings,
@@ -152,6 +153,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const framework = checkFramework(checked.framework, 'options.framework');
   const ignore = checkStrings(checked.ignore, 'options.ignore', false);
   const comments = checkComments(checked.comments, 'options.comments');
+  const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
   const override = checkVersion(checked.frameworkVersion, 'options.frameworkVersion');
   if (checked.root !== undefined && (typeof checked.root !== 'string' || checked.root === '')) {
     throw invalid('options.root', 'a non-empty string');
@@ -233,6 +235,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       framework,
       version: rules,
       comments,
+      expandCases,
       readModule: readerFor(absolutePath),
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
