@@ -29,6 +29,7 @@ describe('filterInventory', () => {
       'backtests > exports trades to CSV',
       'buying power > rejects an order above buying power',
       'buying power > allows an order that uses all buying power',
+      'orders > limit orders > cancels an open limit order',
     ]);
   });
 

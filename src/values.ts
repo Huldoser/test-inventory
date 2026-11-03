@@ -10,12 +10,16 @@ export type Resolved = { ok: true; value: Value } | { ok: false; importedFrom: s
 type Binding = { declaration: Node } & (
   | { kind: 'const'; init: Expression; scopes: Node[] }
   | { kind: 'enum'; node: TSEnumDeclaration; scopes: Node[] }
-  | { kind: 'import'; source: string }
+  /** `imported` is null for `import * as name`. */
+  | { kind: 'import'; source: string; imported: string | null }
   | { kind: 'function' }
   | { kind: 'other' }
 );
 
 const UNRESOLVED: Resolved = { ok: false, importedFrom: null };
+
+/** What another module exports under a name, `default` included, for an import of the file. */
+export type ImportReader = (source: string, name: string) => Resolved;
 
 /** A function read at one of its calls: what each of its simple parameters is given there. */
 interface BoundCall {
@@ -86,6 +90,12 @@ export class Values {
   private readonly pending = new Set<Expression>();
   /** The functions being read at one of their calls, innermost last. */
   private readonly calls: BoundCall[] = [];
+  private readonly imports: ImportReader | null;
+
+  /** Without `imports`, a value imported from another module is not worked out. */
+  constructor(imports: ImportReader | null = null) {
+    this.imports = imports;
+  }
 
   /**
    * Runs `read` with a function's parameters bound to the arguments of one call, worked out where the call is, so that
@@ -189,6 +199,8 @@ export class Values {
       case 'Identifier':
         return this.resolveName(expression.name, scopes);
       case 'MemberExpression': {
+        const namespace = this.namespaceMember(expression, scopes);
+        if (namespace) return namespace;
         const object = this.resolve(expression.object, scopes);
         if (!object.ok) return object;
         const key = expression.computed
@@ -238,7 +250,29 @@ export class Values {
     return this.resolve(key as Expression, scopes);
   }
 
-  private resolveName(name: string, scopes: readonly Node[]): Resolved {
+  /** `data.name` where `data` is `import * as data`: what the module exports as `name`; null for any other member. */
+  private namespaceMember(
+    expression: Extract<Expression, { type: 'MemberExpression' }>,
+    scopes: readonly Node[],
+  ): Resolved | null {
+    const object = unwrap(expression.object);
+    if (object.type !== 'Identifier') return null;
+    const binding = this.lookup(object.name, scopes)?.binding;
+    if (binding?.kind !== 'import' || binding.imported !== null) return null;
+    const key = expression.computed
+      ? this.resolve(expression.property, scopes)
+      : { ok: true as const, value: propertyName(expression) };
+    if (!key.ok || !isKey(key.value)) return { ok: false, importedFrom: binding.source };
+    return this.imported(binding.source, String(key.value));
+  }
+
+  private imported(source: string, name: string | null): Resolved {
+    const resolved = name !== null && this.imports ? this.imports(source, name) : UNRESOLVED;
+    return resolved.ok ? resolved : { ok: false, importedFrom: source };
+  }
+
+  /** What a name refers to where it is used; `scopes` lists the scope nodes around the use, outermost first. */
+  resolveName(name: string, scopes: readonly Node[]): Resolved {
     const found = this.lookup(name, scopes);
     if (!found) return name === 'undefined' ? { ok: true, value: undefined } : UNRESOLVED;
     const { binding } = found;
@@ -248,7 +282,7 @@ export class Values {
       case 'enum':
         return { ok: true, value: this.enumMembers(binding.node, binding.scopes) };
       case 'import':
-        return { ok: false, importedFrom: binding.source };
+        return this.imported(binding.source, binding.imported);
       case 'function':
         return UNRESOLVED;
       case 'other':
@@ -345,6 +379,14 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
           bindings.set(specifier.local.name, {
             kind: 'import',
             source: statement.source.value,
+            imported:
+              specifier.type === 'ImportSpecifier'
+                ? specifier.imported.type === 'Identifier'
+                  ? specifier.imported.name
+                  : specifier.imported.value
+                : specifier.type === 'ImportDefaultSpecifier'
+                  ? 'default'
+                  : null,
             declaration: specifier,
           });
         }

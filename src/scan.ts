@@ -6,6 +6,7 @@ import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
+import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
 import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
@@ -175,6 +176,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
 
   const readerFor = moduleResolver(root);
   const graph = new DependencyGraph();
+  const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
@@ -236,6 +238,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
       graph,
+      exports,
       runsWith,
       snapshotFiles: { ...snapshotFiles, moved: runsWith.moved },
     });

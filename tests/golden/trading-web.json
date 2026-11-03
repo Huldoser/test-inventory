@@ -26,11 +26,11 @@
     "inFunctionCount": 0,
     "typeTestCount": 0,
     "benchmarkCount": 0,
-    "diagnosticCount": 3,
+    "diagnosticCount": 2,
     "tagCounts": {
       "@backtest": 3,
       "@orders": 12,
-      "@risk": 2,
+      "@risk": 3,
       "@smoke": 10
     },
     "annotationCounts": {
@@ -2114,7 +2114,8 @@
       "isParallel": false,
       "isSerial": false,
       "tags": [
-        "@orders"
+        "@orders",
+        "@risk"
       ],
       "annotations": [],
       "comments": [],
@@ -3769,16 +3770,6 @@
     }
   ],
   "diagnostics": [
-    {
-      "code": "unresolved-tag",
-      "level": "warning",
-      "message": "Tag value TAGS.risk comes from '../../test-data/tags' and could not be worked out; the tag is missing.",
-      "relativeFilePath": "tests/orders/limit-orders.spec.ts",
-      "lineStart": 16,
-      "columnStart": 48,
-      "testId": "74099e2f6d05b9ee",
-      "source": "TAGS.risk"
-    },
     {
       "code": "test-in-loop",
       "level": "warning",
