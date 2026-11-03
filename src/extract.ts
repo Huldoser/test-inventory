@@ -98,8 +98,13 @@ export interface PendingTest {
   states: StateSetting[];
   annotations: Annotation[];
   isInLoop: boolean;
-  /** How many passes each loop around the test makes, outermost first; null for a loop the scan can't count. */
+  /**
+   * How many times each loop around the test registers it, outermost first; null for a loop the scan can't count, or
+   * one that registers it under a condition.
+   */
   loops: (number | null)[];
+  /** How many passes each loop around the test makes, whether or not it registers the test on each. */
+  passes: (number | null)[];
   isInCondition: boolean;
   isInFunction: boolean;
   /** With `expandCases`, the index of the case of a table or pass of a loop this test is; null otherwise. */
@@ -212,6 +217,12 @@ const MAX_DEPTH = 16;
  */
 const MAX_CALLS = 10_000;
 
+/**
+ * How many loop passes and describe cases `expandCases` walks one by one in a file, far more than real suites expand;
+ * past it, loops and describe tables are one record, so that a long loop over test data can't use up the walk.
+ */
+const MAX_EXPANDED = 1000;
+
 /** Where a function is written or called: in which describe, function, conditions and loop. */
 interface Placement {
   scope: Scope;
@@ -269,7 +280,7 @@ interface Case<T> {
  * so that a test in it may not be registered on every pass. Functions inside run later, and don't count.
  */
 function leavesEarly(body: Node): boolean {
-  if (isFunctionNode(body)) return false;
+  if (body.type === 'FunctionDeclaration' || isFunctionNode(body)) return false;
   switch (body.type) {
     case 'BreakStatement':
     case 'ContinueStatement':
@@ -386,6 +397,8 @@ class Walker {
   private readonly callStack: Node[] = [];
   /** Helper calls walked in the file so far, up to MAX_CALLS. */
   private callsWalked = 0;
+  /** Loop passes and describe cases walked one by one so far, up to MAX_EXPANDED. */
+  private expandedPasses = 0;
   /** Problems already reported, since a function walked at several calls finds the same ones each time. */
   private readonly reported = new Set<string>();
   /** What the functions named in calls such as `onNode(22)('title', fn)` return, by the declaration of each name. */
@@ -487,6 +500,12 @@ class Walker {
         if (isImportMetaVitest(node.test)) break;
         const condition = this.text(node.test);
         this.visit(node.test, context);
+        const known = this.known(node.test, context);
+        if (known) {
+          const taken = known.value ? node.consequent : node.alternate;
+          if (taken) this.visit(taken, context);
+          return;
+        }
         this.visit(node.consequent, this.guarded(context, condition));
         if (node.alternate) this.visit(node.alternate, this.guarded(context, `!(${condition})`));
         return;
@@ -494,6 +513,11 @@ class Walker {
       case 'ConditionalExpression': {
         const condition = this.text(node.test);
         this.visit(node.test, context);
+        const known = this.known(node.test, context);
+        if (known) {
+          this.visit(known.value ? node.consequent : node.alternate, context);
+          return;
+        }
         this.visit(node.consequent, this.guarded(context, condition));
         this.visit(node.alternate, this.guarded(context, `!(${condition})`));
         return;
@@ -502,6 +526,18 @@ class Walker {
         const left = this.text(node.left);
         const guard = node.operator === '&&' ? left : node.operator === '||' ? `!(${left})` : `(${left}) == null`;
         this.visit(node.left, context);
+        const known = this.known(node.left, context);
+        if (known) {
+          const { value } = known;
+          const right =
+            node.operator === '&&'
+              ? Boolean(value)
+              : node.operator === '||'
+                ? !value
+                : value === null || value === undefined;
+          if (right) this.visit(node.right, context);
+          return;
+        }
         this.visit(node.right, this.guarded(context, guard));
         return;
       }
@@ -523,11 +559,16 @@ class Walker {
         }
         return;
       }
+      case 'BlockStatement':
+        this.visitStatements(node.body, context);
+        return;
       case 'ForInStatement':
       case 'ForOfStatement': {
         const values = leavesEarly(node.body) ? null : this.loopValues(node);
-        if (values && this.options.expandCases && this.expandLoop(node, values, context)) return;
-        this.visitChildren(node, this.inLoop(context, values?.length ?? null));
+        if (values && this.expands(node, values, context) && this.expandLoop(node, values, context)) return;
+        this.walkUnexpanded(node, values, context, () => {
+          this.visitChildren(node, this.inLoop(context, values?.length ?? null));
+        });
         return;
       }
       case 'ForStatement':
@@ -572,6 +613,38 @@ class Walker {
     );
   }
 
+  /**
+   * With `expandCases`, the value of a condition outside test and hook bodies when the scan can work it out, as with
+   * the values of a case or pass; null otherwise, and then both branches are walked under the condition.
+   */
+  private known(test: Expression, context: Context): { value: Value } | null {
+    if (!this.options.expandCases || context.test || context.hookScope) return null;
+    const resolved = this.frame.values.resolve(test, this.scopes);
+    return resolved.ok ? { value: resolved.value } : null;
+  }
+
+  /**
+   * Walks the statements of a block. After an `if` whose branch leaves the function or loop, as in
+   * `if (!strategy.enabled) return;`, what follows runs only when that branch isn't taken, so it is under the opposite
+   * condition; a branch taken for certain, or both branches leaving, ends the walk.
+   */
+  private visitStatements(statements: readonly Node[], context: Context): void {
+    let current = context;
+    for (const statement of statements) {
+      this.visit(statement, current);
+      if (statement.type !== 'IfStatement' || isImportMetaVitest(statement.test)) continue;
+      const thenLeaves = leavesEarly(statement.consequent);
+      const elseLeaves = statement.alternate !== null && leavesEarly(statement.alternate);
+      if (!thenLeaves && !elseLeaves) continue;
+      const known = this.known(statement.test, current);
+      const taken = known && (known.value ? thenLeaves : elseLeaves);
+      if (taken || (thenLeaves && elseLeaves)) return;
+      if (known) continue;
+      const condition = this.text(statement.test);
+      current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
+    }
+  }
+
   private placement(context: Context): Placement {
     return {
       scope: context.scope,
@@ -614,8 +687,53 @@ class Walker {
       loops: [...context.loops, passes],
       loopConditions: [...context.loopConditions, context.isInCondition || pass !== null],
       caseIndex: pass?.index ?? context.caseIndex,
-      expandedAt: context.expandedAt ?? pass?.at ?? null,
+      expandedAt: this.expandedAt(context, pass?.at ?? null),
     };
+  }
+
+  /**
+   * Where what an expansion registers is ordered: the outermost expansion in the scanned file. In a helper walked at a
+   * call, the call already orders what it registers, and the helper may be in another file.
+   */
+  private expandedAt(context: Context, at: number | null): number | null {
+    return context.expandedAt ?? (context.registeredBy === null ? at : null);
+  }
+
+  /**
+   * Whether to walk a loop once per value: with `expandCases`, outside test and hook bodies, which the runner walks
+   * once for each test, for a loop that declares its variable with `let` or `const`, and while the file has expanded
+   * fewer than MAX_EXPANDED passes and cases, so that a long loop over test data can't use up the walk.
+   */
+  private expands(
+    loop: Extract<Node, { type: 'ForOfStatement' | 'ForInStatement' }> | null,
+    values: readonly unknown[],
+    context: Context,
+  ): boolean {
+    if (!this.options.expandCases || context.test || context.hookScope) return false;
+    // Vitest runs describe callbacks after the loop, when a `var` holds its last value.
+    if (loop && !(loop.left.type === 'VariableDeclaration' && loop.left.kind !== 'var')) return false;
+    if (this.expandedPasses + values.length > MAX_EXPANDED) return false;
+    this.expandedPasses += values.length;
+    return true;
+  }
+
+  /**
+   * Walks a loop as one record, and says why it isn't expanded when it was asked to be and registers tests or
+   * describes.
+   */
+  private walkUnexpanded(node: Node, values: readonly unknown[] | null, context: Context, walk: () => void): void {
+    const before = this.tests.length + this.suites.length;
+    walk();
+    const registers = this.tests.length + this.suites.length > before;
+    if (!registers || !values || !this.options.expandCases || context.test || context.hookScope) return;
+    if (this.expandedPasses + values.length <= MAX_EXPANDED) return;
+    this.report(
+      problem(
+        'cases-not-expanded',
+        node,
+        `The passes of the loop are listed as one record, since expanding it would take the file past ${MAX_EXPANDED.toLocaleString('en-US')} loop passes and describe cases.`,
+      ),
+    );
   }
 
   /**
@@ -627,8 +745,7 @@ class Walker {
     values: Value[],
     context: Context,
   ): boolean {
-    const declarator = loop.left.type === 'VariableDeclaration' ? loop.left.declarations.at(0) : undefined;
-    if (!declarator) return false;
+    const declarator = (loop.left as Extract<Node, { type: 'VariableDeclaration' }>).declarations[0];
     this.visit(loop.right, context);
     for (const [index, value] of values.entries()) {
       this.frame.values.withLoopValue(declarator, declarator.id, { ok: true, value }, loop.body, this.scopes, () => {
@@ -660,7 +777,7 @@ class Walker {
     for (const arg of call.arguments) {
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
         const values = leavesEarly(arg.body as Node) ? null : list;
-        if (values && this.options.expandCases) {
+        if (values && this.expands(null, values, context)) {
           // The callback gets each element, its index and the array.
           for (const [index, value] of values.entries()) {
             const args = [value, index, values].map((item): Resolved => ({ ok: true, value: item }));
@@ -669,7 +786,9 @@ class Walker {
             });
           }
         } else {
-          this.visitCallback(arg, this.inLoop(context, values?.length ?? null));
+          this.walkUnexpanded(call, values, context, () => {
+            this.visitCallback(arg, this.inLoop(context, values?.length ?? null));
+          });
         }
       } else {
         this.visit(arg, context);
@@ -1276,7 +1395,7 @@ class Walker {
 
   private declareTest(call: CallExpression, declaration: TestDeclaration, context: Context): void {
     if (context.quiet || this.nested(call, context)) return;
-    for (const item of this.cases(declaration, call)) this.declareCase(call, item, context);
+    for (const item of this.cases(declaration, call, context)) this.declareCase(call, item, context);
   }
 
   /**
@@ -1284,7 +1403,11 @@ class Walker {
    * gets; otherwise, or when the scan can't give each case its title, the declaration alone, with a problem that says
    * why.
    */
-  private cases<T extends TestDeclaration | SuiteDeclaration>(declaration: T, call: CallExpression): Case<T>[] {
+  private cases<T extends TestDeclaration | SuiteDeclaration>(
+    declaration: T,
+    call: CallExpression,
+    context: Context,
+  ): Case<T>[] {
     const single = (reason: string | null): Case<T>[] => {
       if (reason === null) return [{ declaration, index: null, args: null }];
       const item = problem(
@@ -1304,6 +1427,11 @@ class Walker {
     );
     if (titles.some((text) => text === null)) {
       return single("the title shows an array or object, which the scan doesn't format the way Vitest does");
+    }
+    if (declaration.kind === 'describe' && !this.expands(null, declaration.cases, context)) {
+      return single(
+        `expanding it would take the file past ${MAX_EXPANDED.toLocaleString('en-US')} loop passes and describe cases`,
+      );
     }
     return declaration.cases.map((item, index) => ({
       declaration: {
@@ -1331,11 +1459,12 @@ class Walker {
       declaredAt: this.declaredAt(call),
       frame: this.frame,
       registeredBy: context.registeredBy,
-      order: context.registeredBy?.start ?? context.expandedAt ?? call.start,
+      order: context.expandedAt ?? context.registeredBy?.start ?? call.start,
       states: [...declaration.states],
       annotations: [...declaration.details.annotations],
       isInLoop: context.isInLoop,
       // A condition inside a loop decides on each pass whether the test is registered.
+      passes: context.loops,
       loops: context.loops.map((passes, index) =>
         context.isInCondition && !context.loopConditions[index] ? null : passes,
       ),
@@ -1380,7 +1509,7 @@ class Walker {
 
   private declareSuite(call: CallExpression, declaration: SuiteDeclaration, context: Context): void {
     if (context.quiet || this.nested(call, context)) return;
-    for (const item of this.cases(declaration, call)) this.declareSuiteCase(call, item, context);
+    for (const item of this.cases(declaration, call, context)) this.declareSuiteCase(call, item, context);
   }
 
   private declareSuiteCase(
@@ -1411,7 +1540,7 @@ class Walker {
       declaredAt: this.declaredAt(call),
       frame: this.frame,
       registeredBy: context.registeredBy,
-      order: context.registeredBy?.start ?? context.expandedAt ?? call.start,
+      order: context.expandedAt ?? context.registeredBy?.start ?? call.start,
       cuts: [],
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
@@ -1436,7 +1565,7 @@ class Walker {
           helper: null,
           // The pass of a loop around the describe is the describe's, not that of each test in it.
           caseIndex: null,
-          expandedAt: index === null ? context.expandedAt : (context.expandedAt ?? call.start),
+          expandedAt: this.expandedAt(context, index === null ? null : call.start),
         });
       });
     }

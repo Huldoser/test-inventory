@@ -2,7 +2,7 @@ import type { ExpressionStatement } from 'oxc-parser';
 import { describe, expect, it } from 'vitest';
 import { parseFile } from '../src/parse.ts';
 import { Values } from '../src/values.ts';
-import { PLAYWRIGHT_IMPORT, scanPlaywright, titles } from './helpers.ts';
+import { PLAYWRIGHT_IMPORT, scanPlaywright, scanVitest, titles, VITEST_IMPORT } from './helpers.ts';
 
 /** Resolves the last statement of the code, which must be an expression, at the top level of the file. */
 function resolve(code: string) {
@@ -226,6 +226,50 @@ routingChecks(undefined, 'sell');
       ['`fills a ${side} order`', 'active', null],
       ['`fills ${lots} lots`', 'active', null],
       ['routes a sell order to NASDAQ', 'skip', null],
+    ]);
+  });
+
+  it('leaves a constant unknown when code that runs while the file loads changes it, also through an alias', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { DESKS } from './desks';
+const VENUES = ['NYSE'];
+const SIDES = ['buy'];
+const TIERS = ['retail'];
+const LIMITS = { lots: 1 };
+const register = (venue) => VENUES.push(venue);
+const all = SIDES;
+all.push('sell');
+DESKS.push('rates');
+function addTier(list) {
+  list.push('professional');
+  test(\`lists \${list.length} tiers\`, () => {});
+}
+describe('routing', () => {
+  register('IEX');
+  TIERS.push('market maker');
+  const BOOKS = ['equities'];
+  BOOKS.push('fx');
+  for (const book of BOOKS) test(\`books \${book}\`, () => {});
+});
+test('fills an order', () => {
+  LIMITS.lots = 2;
+});
+for (const venue of VENUES) test(\`routes to \${venue}\`, () => {});
+for (const side of SIDES) test(\`places a \${side} order\`, () => {});
+for (const tier of TIERS) test(\`charges \${tier}\`, () => {});
+for (const desk of DESKS) test(\`books to \${desk}\`, () => {});
+addTier(['retail']);
+test(\`trades \${LIMITS.lots} lot\`, () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`books ${book}`', null],
+      ['fills an order', null],
+      ['`routes to ${venue}`', null],
+      ['`places a ${side} order`', null],
+      ['`charges ${tier}`', null],
+      ['`books to ${desk}`', null],
+      ['`lists ${list.length} tiers`', null],
+      ['trades 1 lot', null],
     ]);
   });
 

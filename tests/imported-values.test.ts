@@ -206,6 +206,25 @@ describe('values imported from project files', () => {
     expect(inventory.tests.map((test) => test.title)).toEqual(['routes to Coinbase']);
   });
 
+  it('gives the same values whichever files the scan reads, through export * cycles', async () => {
+    const files = {
+      'package.json': VITEST_PACKAGE,
+      'src/a.ts': "export * from './b';\nexport * from './fees';\nexport * from './d';",
+      'src/b.ts': "export * from './a';",
+      'src/d.ts': "export * from './b';",
+      'src/fees.ts': 'export const FEE_BPS = 5;',
+      'tests/1-a.test.ts':
+        "import { test } from 'vitest';\nimport { FEE_BPS } from '../src/a';\ntest(`charges ${FEE_BPS} bps`, () => {});",
+      'tests/2-d.test.ts':
+        "import { test } from 'vitest';\nimport { FEE_BPS } from '../src/d';\ntest(`routes at ${FEE_BPS} bps`, () => {});",
+    };
+    const root = project(files);
+    const both = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    const one = await scan({ root, patterns: ['tests/2-d.test.ts'], framework: 'vitest' });
+    expect(both.tests.map((test) => test.title)).toEqual(['charges 5 bps', 'routes at 5 bps']);
+    expect(one.tests.map((test) => test.title)).toEqual(['routes at 5 bps']);
+  });
+
   it('stops following re-exports 16 modules deep', async () => {
     const chain = Object.fromEntries(
       Array.from({ length: 40 }, (_, index) => [

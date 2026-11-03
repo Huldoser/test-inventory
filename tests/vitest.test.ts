@@ -763,7 +763,7 @@ test.each\`
     expect(test.caseCount).toBe(2);
   });
 
-  it('warns when the cases cannot be counted', () => {
+  it('warns when the cases cannot be counted, and counts template tables as Vitest splits them', () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 import { HISTORICAL_CLOSES } from './fixtures/closes';
 test.each(HISTORICAL_CLOSES)('matches the reference SMA on %s', () => {});
@@ -775,8 +775,9 @@ test.for\`
 test.each\`\`('has an empty template', () => {});
 test.each()('has no table', () => {});
 `);
-    expect(inventory.tests.map((test) => test.caseCount)).toEqual([null, null, null, null, null]);
-    expect(codes(inventory)).toEqual(Array(5).fill('unresolved-cases'));
+    // Vitest leaves out an incomplete last row of a template table, and takes a template without values as one case.
+    expect(inventory.tests.map((test) => test.caseCount)).toEqual([null, null, 0, 1, null]);
+    expect(codes(inventory)).toEqual(Array(3).fill('unresolved-cases'));
   });
 });
 
@@ -1036,6 +1037,22 @@ venueTests('sell');
     expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
       ['dynamic-title', 4],
     ]);
+  });
+
+  it('counts the rows of a tagged template table as Vitest splits it', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+test.each\`
+  | symbol | qty |
+  | \${'AAPL'} | \${1} |
+  | \${'MSFT'} | \${2} |
+\`('buys $qty of $symbol', () => {});
+test.each\`
+  symbol | qty
+  \${'AAPL'} | \${1}
+  \${'MSFT'}
+\`('sells $qty of $symbol', () => {});
+`);
+    expect(inventory.tests.map((test) => test.caseCount)).toEqual([1, 1]);
   });
 
   it('allows a fixed title in a loop, as Vitest runs duplicate titles', () => {

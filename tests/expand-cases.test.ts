@@ -117,6 +117,8 @@ describe.each([[{ venue: 'NASDAQ' }]])('routes to %o', () => {});
     const inventory = scanVitest(
       `${VITEST_IMPORT}
 test.for([null, 'buy'])('places a %s order', () => {});
+test.each\`\\xZZ\`('parses a raw quote %s', () => {});
+test.each\`\`('lists the watchlist', () => {});
 test.each\`
   side      | quantity
   \${'buy'} | \${loadQuantity()}
@@ -127,6 +129,8 @@ test.each\`
     expect(cases(inventory)).toEqual([
       ['places a undefined order', 0, 1],
       ['places a buy order', 1, 1],
+      ['parses a raw quote undefined', 0, 1],
+      ['lists the watchlist', 0, 1],
       ['fills $quantity of $side', null, 1],
     ]);
     expect(codes(inventory)).toEqual(['cases-not-expanded']);
@@ -160,6 +164,206 @@ describe.each([[{ venue: 'NASDAQ' }]])('routes to %s', () => {
   });
 });
 
+describe('expandCases where the runner registers fewer tests, or in another order', () => {
+  it('keeps the helper call budget for tests when a long loop registers none, and says when it stops expanding', () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => `{ px: ${index} }`).join(', ');
+    const symbols = Array.from({ length: 1001 }, (_, index) => `'S${index}'`).join(', ');
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+const RAW = [${rows}];
+function toOrder(row) { return row; }
+function rejectsZeroQuantity(side) {
+  test(\`\${side} rejects a zero quantity\`, () => {});
+}
+const ORDERS = RAW.map((row) => toOrder(row));
+describe('orders', () => {
+  rejectsZeroQuantity('buy');
+  rejectsZeroQuantity('sell');
+});
+for (const symbol of [${symbols}]) test(\`quotes \${symbol}\`, () => {});
+`,
+      expand,
+    );
+    expect(cases(inventory)).toEqual([
+      ['orders > buy rejects a zero quantity', null, null],
+      ['orders > sell rejects a zero quantity', null, null],
+      ['`quotes ${symbol}`', null, 1001],
+    ]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      [
+        'cases-not-expanded',
+        'The passes of the loop are listed as one record, since expanding it would take the file past 1,000 loop passes and describe cases.',
+      ],
+      ['dynamic-title', 'Title `quotes ${symbol}` could not be worked out; the record uses its source text.'],
+    ]);
+  });
+
+  it('keeps a describe table as one record past the limit of expanded cases', () => {
+    const accounts = Array.from({ length: 1001 }, (_, index) => `'ACC-${index}'`).join(', ');
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe.each([${accounts}])('account %s', () => {
+  test('opens', () => {});
+});
+`,
+      expand,
+    );
+    expect(inventory.suites.map((suite) => [suite.title, suite.caseIndex])).toEqual([['account %s', null]]);
+    expect(inventory.diagnostics.map((item) => item.message)).toEqual([
+      'The cases of the table are listed as one record, since expanding it would take the file past 1,000 loop passes and describe cases.',
+    ]);
+  });
+
+  it('keeps the order the runner registers tests in, those of helpers included', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+function rejectsZeroQuantity(side) {
+  test(\`\${side} rejects a zero quantity\`, () => {});
+}
+describe.each(['buy', 'sell'])('%s orders', (side) => {
+  test('fills at the limit price', () => {});
+  rejectsZeroQuantity(side);
+  test('cancels', () => {});
+});
+for (const symbol of ['AAPL', 'MSFT']) {
+  test(\`quotes \${symbol}\`, () => {});
+  rejectsZeroQuantity(symbol);
+}
+`,
+      expand,
+    );
+    expect(inventory.tests.map((test) => test.fullName)).toEqual([
+      'buy orders > fills at the limit price',
+      'buy orders > buy rejects a zero quantity',
+      'buy orders > cancels',
+      'sell orders > fills at the limit price',
+      'sell orders > sell rejects a zero quantity',
+      'sell orders > cancels',
+      'quotes AAPL',
+      'AAPL rejects a zero quantity',
+      'quotes MSFT',
+      'MSFT rejects a zero quantity',
+    ]);
+  });
+
+  it('registers only the branch a condition takes with the values of the case, early returns in helpers included', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+const STRATEGIES = [
+  { name: 'momentum', enabled: true },
+  { name: 'mean reversion', enabled: false },
+];
+function backtests(strategy) {
+  if (!strategy.enabled) return;
+  test(\`backtests \${strategy.name}\`, () => {});
+}
+for (const strategy of STRATEGIES) backtests(strategy);
+for (const symbol of ['AAPL', 'TSLA']) {
+  if (symbol !== 'TSLA') test(\`charts \${symbol}\`, () => {});
+  symbol === 'TSLA' && test(\`halts \${symbol}\`, () => {});
+}
+describe.each(['buy', 'sell'])('%s orders', (side) => {
+  if (side === 'buy') test('lifts the offer', () => {});
+  else test('hits the bid', () => {});
+  if (isMarketOpen()) test('fills at once', () => {});
+});
+`,
+      expand,
+    );
+    expect(inventory.tests.map((test) => [test.fullName, test.isInCondition])).toEqual([
+      ['backtests momentum', false],
+      ['charts AAPL', false],
+      ['halts TSLA', false],
+      ['buy orders > lifts the offer', false],
+      ['buy orders > fills at once', true],
+      ['sell orders > hits the bid', false],
+      ['sell orders > fills at once', true],
+    ]);
+    // Without the option, a test after an early return in a helper is under a condition, so the loop has no count.
+    const plain = scanVitest(
+      `${VITEST_IMPORT}
+function backtests(strategy) {
+  if (!strategy.enabled) return;
+  test(\`backtests \${strategy.name}\`, () => {});
+}
+for (const strategy of [{ name: 'momentum', enabled: true }]) backtests(strategy);
+`,
+    );
+    expect(plain.tests.map((test) => [test.condition, test.isInCondition, test.caseCount])).toEqual([
+      [null, true, null],
+    ]);
+  });
+
+  it('takes the branch of ?:, || and ?? the values of a pass decide, and guards what follows an else that returns', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+const ROUTES = [{ venue: 'NASDAQ', fallback: null }, { venue: 'NYSE', fallback: 'IEX' }];
+for (const route of ROUTES) {
+  route.venue === 'NASDAQ' ? test(\`routes to \${route.venue}\`, () => {}) : test(\`queues for \${route.venue}\`, () => {});
+  route.venue === 'NYSE' || test(\`streams \${route.venue}\`, () => {});
+  route.fallback ?? test(\`has no fallback for \${route.venue}\`, () => {});
+}
+function settles(account) {
+  if (account.active) {
+    test('books the trade', () => {});
+  } else {
+    return;
+  }
+  test('settles the trade', () => {});
+}
+settles(loadAccount());
+`,
+      expand,
+    );
+    expect(inventory.tests.map((test) => [test.title, test.isInCondition])).toEqual([
+      ['routes to NASDAQ', false],
+      ['streams NASDAQ', false],
+      ['has no fallback for NASDAQ', false],
+      ['queues for NYSE', false],
+      ['books the trade', true],
+      ['settles the trade', true],
+    ]);
+  });
+
+  it('leaves loops in test bodies as written, and loops over var as one record', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test('checks every quote', async () => {
+  for (const symbol of ['AAPL', 'MSFT', 'TSLA']) {
+    await test.step(\`checks \${symbol}\`, async () => {
+      expect(symbol).toBeTruthy();
+    });
+  }
+});
+for (var venue of ['NASDAQ', 'NYSE']) test(\`routes to \${venue}\`, async () => {});
+for (const desk of ['fx', 'rates']) {
+  function deskName() {
+    return desk.toUpperCase();
+  }
+  test(\`books \${desk}\`, async () => {});
+}
+`,
+      expand,
+    );
+    expect(inventory.tests.map((test) => [test.title, test.expectCount, test.steps.length, test.caseCount])).toEqual([
+      ['checks every quote', 1, 1, null],
+      ['`routes to ${venue}`', 0, 0, 2],
+      ['books fx', 0, 0, 1],
+      ['books rates', 0, 0, 1],
+    ]);
+  });
+
+  it('loads a Playwright file whose loop of one pass registers a fixed title under a condition', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+for (const side of ['buy']) {
+  if (process.env.SHORTS) test('places a short', async () => {});
+}
+`);
+    expect(codes(inventory)).toEqual(['test-in-loop']);
+    expect(inventory.tests[0].state).toBe('active');
+  });
+});
+
 describe('expandCases with loops', () => {
   it('lists each pass of a loop over known values, with its loop variable bound', () => {
     const inventory = scanPlaywright(
@@ -187,7 +391,6 @@ for (const tier in FEES) {
       ['charges retail accounts 25 bps', 0, 1],
       ['charges professional accounts 10 bps', 1, 1],
       ['retail accounts > opens a retail account', null, 1],
-      ['retail accounts > grants margin', null, 1],
       ['professional accounts > opens a professional account', null, 1],
       ['professional accounts > grants margin', null, 1],
     ]);

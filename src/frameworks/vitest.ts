@@ -1075,11 +1075,14 @@ export class VitestAdapter implements Adapter {
     if (table.template) {
       const values = table.template.expressions.map((item) => this.file.values.resolve(item, context.scopes));
       if (!values.every((item) => item.ok)) return null;
-      const strings = table.template.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw);
-      const header = strings.join('').trim().replace(/ /g, '').split('\n')[0].split('|');
-      cases = Array.from({ length: Math.floor(values.length / header.length) }, (_, row) =>
-        Object.fromEntries(header.map((name, column) => [name, values[row * header.length + column].value])),
-      );
+      const header = templateHeader(table.template);
+      // Without values, Vitest passes the template's strings as the table.
+      cases =
+        values.length === 0
+          ? table.template.quasis.map((quasi) => quasi.value.cooked ?? undefined)
+          : Array.from({ length: Math.floor(values.length / header.length) }, (_, row) =>
+              Object.fromEntries(header.map((name, column) => [name, values[row * header.length + column].value])),
+            );
     } else {
       const first = (table.args as Argument[]).at(0);
       const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
@@ -1127,12 +1130,24 @@ export class VitestAdapter implements Adapter {
   }
 }
 
-/** Rows in a tagged-template table such as ``each`a | b ${1} | ${2}` ``: values divided by header columns. */
-function templateRows(template: TemplateLiteral): number | null {
-  const header = (template.quasis[0].value.cooked ?? template.quasis[0].value.raw).trim().split('\n')[0];
-  const columns = header.split('|').filter((column) => column.trim() !== '').length;
-  if (columns === 0 || template.expressions.length % columns !== 0) return null;
-  return template.expressions.length / columns;
+/**
+ * The column names of a tagged-template table such as ``each`side | qty ${'buy'} | ${100}` ``, as Vitest's
+ * `formatTemplateString` reads them: the text of the template with its spaces taken out, its first line split at `|`.
+ * Outer pipes, as in `| side | qty |`, give empty names too.
+ */
+function templateHeader(template: TemplateLiteral): string[] {
+  // A string with an invalid escape, as in `\xZZ`, has no cooked value, which joins as nothing.
+  const strings = template.quasis.map((quasi) => quasi.value.cooked ?? '');
+  return strings.join('').trim().replace(/ /g, '').split('\n')[0].split('|');
+}
+
+/**
+ * Rows of a tagged-template table: as many as the values fill, an incomplete last row left out, as Vitest does. A
+ * template without values isn't split, so its text is the one case.
+ */
+function templateRows(template: TemplateLiteral): number {
+  if (template.expressions.length === 0) return 1;
+  return Math.floor(template.expressions.length / templateHeader(template).length);
 }
 
 function isMetaValue(value: Value): value is MetaValue {

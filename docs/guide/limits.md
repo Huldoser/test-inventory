@@ -195,7 +195,8 @@ A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: tr
 the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
 registers the test on every pass, `caseCount` says how many tests the runner registers. Otherwise `caseCount` is `null`
 and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
-or `throw` in it, and a test under a condition inside the loop.
+or `throw` in it, and a test under a condition inside the loop, such as one in a helper after
+`if (!strategy.enabled) return;`.
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
@@ -204,8 +205,14 @@ work out the table.
 With `--expand-cases` (library: `expandCases: true`), each case of a table and each pass of a loop whose values the
 scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The
 values of the case are bound in its callback, as the runner passes them, so a title, tag or condition built from
-them is worked out per case. Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`,
-`%j`, `%o`, `%O`, `%c`, `%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
+them is worked out per case, and an `if`, `?:`, `&&`, `||` or `??` that decides whether a test is registered takes
+the branch they give. Loops in test and hook bodies, which the runner runs after collecting the tests, and loops over
+a `var`, which holds its last value by the time Vitest runs the describes, are not expanded. A file is expanded up to
+1,000 loop passes and describe cases; past that, loops and describe tables that register tests are one record with a
+`cases-not-expanded` warning, so that a long loop over test data can't slow the scan down.
+
+Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`,
+`%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
 stays one record, with a `cases-not-expanded` warning, when the scan can't work out a value in it or its title, or the
 title would show an array or object. A config that sets `taskTitleValueFormatTruncate`, or before Vitest 5
 `chaiConfig.truncateThreshold`, is not read, so long values are cut at 40 characters there too.
@@ -219,7 +226,9 @@ constant, or `test.skip(side === 'short')` in a helper called with `'buy'`, is w
 
 A skip inside `if`, `?:`, `&&`, `||`, `??`, `switch` or a `catch` block runs only when that code does, so it is
 conditional too, with the source text of what decides it as its condition. For a `catch` block that is the clause
-itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws.
+itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws. Code after an `if` whose
+branch returns, throws, breaks or continues, as in `if (!account.active) return;`, runs only when that branch isn't
+taken, so it is under the opposite condition, `!(!account.active)` here.
 
 ## What dependencyHash leaves out
 

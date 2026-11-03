@@ -447,6 +447,7 @@ export class Values {
       case 'enum':
         return { ok: true, value: this.enumMembers(binding.node, binding.scopes) };
       case 'import':
+        if (this.changedAtLoad(scopes[0]).has(name)) return { ok: false, importedFrom: binding.source };
         return this.imported(binding.source, binding.imported);
       case 'function':
         return UNRESOLVED;
@@ -461,7 +462,7 @@ export class Values {
     return call?.parameters.get(name)?.() ?? UNRESOLVED;
   }
 
-  /** Constants the module's top-level code changes, as in `WATCHED.push('MSFT')`, whose declared value isn't the one used. */
+  /** Names the module changes while it loads, as in `WATCHED.push('MSFT')`, whose declared value isn't the one used. */
   private changedAtLoad(program: Node): Set<string> {
     let names = this.changed.get(program);
     if (!names) {
@@ -584,7 +585,10 @@ function rootName(node: Node): string | null {
   return current.type === 'Identifier' ? current.name : null;
 }
 
-/** Names assigned to anywhere in `body`, its functions included: `x = ...`, `x++`, `[x] = ...`, `for (x of ...)`. */
+/**
+ * Names assigned to or changed anywhere in `body`, its functions included: `x = ...`, `x++`, `[x] = ...`,
+ * `for (x of ...)`, `x.push(...)`.
+ */
 function assignedNames(body: Node): Set<string> {
   const names = new Set<string>();
   const targets = (target: Node | null): void => {
@@ -610,47 +614,103 @@ function assignedNames(body: Node): Set<string> {
     if (node.type === 'AssignmentExpression') targets(node.left);
     if (node.type === 'UpdateExpression') targets(node.argument);
     if (node.type === 'ForOfStatement' || node.type === 'ForInStatement') targets(node.left);
+    // A parameter whose value the function changes, as in `list.push(...)`, no longer holds the argument's value.
+    const changed = mutatedName(node);
+    if (changed !== null) names.add(changed);
     for (const child of childNodes(node)) walk(child);
   };
   walk(body);
   return names;
 }
 
+/** Calls whose callbacks run after the runner has collected the tests: tests, hooks and steps. */
+const RUNS_LATER = new Set([
+  'test',
+  'it',
+  'bench',
+  'step',
+  'beforeEach',
+  'afterEach',
+  'beforeAll',
+  'afterAll',
+  'aroundEach',
+  'aroundAll',
+]);
+
+/** Calls whose callbacks run while the runner collects the tests, also when they hang off `test`. */
+const RUNS_NOW = new Set(['describe', 'suite', 'context']);
+
+/** The names of a call's callee, as in `test.describe.serial`: the identifier it starts from and each property. */
+function calleeNames(callee: Node): string[] {
+  const names: string[] = [];
+  let current = unwrap(callee as Expression);
+  while (current.type === 'MemberExpression' || current.type === 'CallExpression') {
+    if (current.type === 'CallExpression') {
+      current = unwrap(current.callee);
+      continue;
+    }
+    names.push(propertyName(current) ?? '');
+    current = unwrap(current.object);
+  }
+  if (current.type === 'Identifier') names.push(current.name);
+  return names;
+}
+
+/** The name a mutation changes the value of, as in `WATCHED.push('MSFT')` or `ROUTING.market = 'NYSE'`; or null. */
+function mutatedName(node: Node): string | null {
+  switch (node.type) {
+    case 'AssignmentExpression':
+      return node.left.type === 'MemberExpression' ? rootName(node.left) : null;
+    case 'UpdateExpression':
+      return node.argument.type === 'MemberExpression' ? rootName(node.argument) : null;
+    case 'UnaryExpression':
+      return node.operator === 'delete' ? rootName(node.argument) : null;
+    case 'CallExpression': {
+      const callee = unwrap(node.callee);
+      if (callee.type !== 'MemberExpression') return null;
+      const method = propertyName(callee) ?? '';
+      if (MUTATING_METHODS.has(method)) return rootName(callee.object);
+      const target = node.arguments.at(0);
+      return OBJECT_MUTATORS.has(method) && rootName(callee.object) === 'Object' && target ? rootName(target) : null;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
- * Names whose value the module's top-level code changes while it loads: a member assigned or deleted, a mutating
- * method such as `push()`, or `Object.assign()`. Code in functions runs later, as a test or hook does, after the
- * runner has read titles and tables.
+ * Names whose value the module changes while it loads, as describe callbacks and helpers run then: a member assigned
+ * or deleted, a mutating method such as `push()`, or `Object.assign()`, also through an alias such as
+ * `const all = SIDES`. The callbacks of tests, hooks and steps run after the runner has read titles and tables, so
+ * what they change doesn't count.
  */
 function changedNames(program: Node): Set<string> {
   const names = new Set<string>();
-  const add = (node: Node | undefined): void => {
-    const name = node ? rootName(node) : null;
-    if (name !== null) names.add(name);
-  };
-  const walk = (node: Node): void => {
-    if (isFunctionNode(node)) return;
-    switch (node.type) {
-      case 'AssignmentExpression':
-        if (node.left.type === 'MemberExpression') add(node.left);
-        break;
-      case 'UpdateExpression':
-        if (node.argument.type === 'MemberExpression') add(node.argument);
-        break;
-      case 'UnaryExpression':
-        if (node.operator === 'delete') add(node.argument);
-        break;
-      case 'CallExpression': {
-        const callee = unwrap(node.callee);
-        if (callee.type !== 'MemberExpression') break;
-        const method = propertyName(callee) ?? '';
-        if (MUTATING_METHODS.has(method)) add(callee.object);
-        if (OBJECT_MUTATORS.has(method) && rootName(callee.object) === 'Object') add(node.arguments[0]);
-        break;
-      }
+  const aliases = new Map<string, string>();
+  const walk = (node: Node, later: boolean): void => {
+    if (!later) {
+      const name = mutatedName(node);
+      if (name !== null) names.add(name);
     }
-    for (const child of childNodes(node)) walk(child);
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init?.type === 'Identifier') {
+      aliases.set(node.id.name, node.init.name);
+    }
+    if (node.type === 'CallExpression') {
+      const callee = calleeNames(node.callee);
+      const runsLater =
+        !later && callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
+      walk(node.callee, later);
+      for (const argument of node.arguments) walk(argument, later || (runsLater && isFunctionNode(argument)));
+      return;
+    }
+    for (const child of childNodes(node)) walk(child, later);
   };
-  walk(program);
+  walk(program, false);
+  for (const name of [...names]) {
+    for (let target = aliases.get(name); target !== undefined && !names.has(target); target = aliases.get(target)) {
+      names.add(target);
+    }
+  }
   return names;
 }
 

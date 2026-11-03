@@ -43,7 +43,11 @@ export class ExportedValues {
   private exported(module: ModuleSource, name: string): Resolved | null {
     const key = `${module.relativeFilePath}\0${name}`;
     if (this.done.has(key)) return this.done.get(key) as Resolved | null;
-    if (this.current.has(key)) return this.current.get(key) as Resolved | null;
+    if (this.current.has(key)) {
+      // It was worked out on a path that was cut short, so what is built on it depends on that path too.
+      this.cutShort++;
+      return this.current.get(key) as Resolved | null;
+    }
     // A path that comes back to a name being worked out, as `export *` modules that re-export each other do, gives
     // nothing; another path may still give it.
     if (this.pending.has(key) || this.pending.size >= MAX_DEPTH) {
@@ -82,8 +86,8 @@ export class ExportedValues {
     if (own) {
       return opened.values.resolveName(own.kind === 'specifier' ? own.local : name, [program]);
     }
-    // `export *` passes on every name but the default. When two modules export the name with different values, the
-    // module fails to load, as JavaScript refuses the conflict.
+    // `export *` passes on every name but the default. When two modules export the name with different values, Node
+    // refuses to load the module and Vite's module runner keeps the first, so the value isn't known.
     if (name === 'default') return null;
     let found: Resolved | null = null;
     for (const statement of program.body) {

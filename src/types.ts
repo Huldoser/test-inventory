@@ -445,8 +445,9 @@ export interface TestRecord {
    */
   caseCount: Count | null;
   /**
-   * With `expandCases`, which case of its table or pass of the innermost loop around it the test is, from 0, as
-   * Vitest's `%#` counts; null without `expandCases`, or when the test isn't one of several.
+   * With `expandCases`, which case of its own table, or pass of the innermost loop around it inside its describe, the
+   * test is, from 0, as Vitest's `%#` counts; null without `expandCases`, or when the test isn't one of several. The
+   * case of a describe table or loop around the describe is the describe's `caseIndex`.
    */
   caseIndex: Count | null;
   /** Declared inside a loop, `forEach` or `map`. */
