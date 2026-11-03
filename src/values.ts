@@ -415,13 +415,18 @@ export class Values {
   }
 }
 
-const BINARY = new Set(['+', '===', '!==', '<', '<=', '>', '>=']);
+const BINARY = new Set(['+', '-', '*', '/', '%', '===', '!==', '<', '<=', '>', '>=']);
+
+const ARITHMETIC = new Set(['-', '*', '/', '%']);
 
 const STRING_METHODS = new Set(['toUpperCase', 'toLowerCase', 'trim']);
 
 type Primitive = string | number | boolean | null | undefined;
 
-/** A binary operator on two primitives, as JavaScript works it out; comparisons only between values of one type. */
+/**
+ * A binary operator on two primitives, as JavaScript works it out; arithmetic only on numbers, as in
+ * `30 * 1000`, and comparisons only between values of one type.
+ */
 function binary(operator: string, left: Primitive, right: Primitive): Resolved {
   if (operator === '===') return { ok: true, value: left === right };
   if (operator === '!==') return { ok: true, value: left !== right };
@@ -431,9 +436,20 @@ function binary(operator: string, left: Primitive, right: Primitive): Resolved {
       ? { ok: true, value: String(left) + String(right) }
       : UNRESOLVED;
   }
-  const comparable =
-    (typeof left === 'number' && typeof right === 'number') || (typeof left === 'string' && typeof right === 'string');
-  if (!comparable) return UNRESOLVED;
+  const numbers = typeof left === 'number' && typeof right === 'number';
+  if (numbers && ARITHMETIC.has(operator)) {
+    const value =
+      operator === '-'
+        ? left - right
+        : operator === '*'
+          ? left * right
+          : operator === '/'
+            ? left / right
+            : left % right;
+    return { ok: true, value };
+  }
+  const comparable = numbers || (typeof left === 'string' && typeof right === 'string');
+  if (!comparable || ARITHMETIC.has(operator)) return UNRESOLVED;
   const [a, b] = [left, right] as [number, number];
   const value = operator === '<' ? a < b : operator === '<=' ? a <= b : operator === '>' ? a > b : a >= b;
   return { ok: true, value };

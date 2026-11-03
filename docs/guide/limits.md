@@ -45,7 +45,7 @@ is read when the file declares it, not when it is imported. Vitest's `annotate()
 
 Titles, tags, annotations, reasons, run settings and tables are worked out when they are built from values the scan
 can read: string and number literals, constants, enums, arrays and objects built from them, spreads, string
-concatenation, template strings, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
+concatenation, template strings, arithmetic, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
 `Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
 array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
 included:
