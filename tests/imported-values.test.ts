@@ -1,10 +1,14 @@
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { scan, type Inventory } from '../src/index.ts';
 import { PLAYWRIGHT_PACKAGE, project, VITEST_PACKAGE } from './project.ts';
 
-async function scanFiles(files: Record<string, string>): Promise<Inventory> {
-  const framework = 'package.json' in files && files['package.json'] === VITEST_PACKAGE ? 'vitest' : 'playwright';
-  return scan({ root: project(files), patterns: ['tests/**/*.{spec,test}.ts'], framework });
+async function scanFiles(files: Record<string, string>, binary: Record<string, Uint8Array> = {}): Promise<Inventory> {
+  const framework = files['package.json'] === VITEST_PACKAGE ? 'vitest' : 'playwright';
+  const root = project(files);
+  for (const [name, bytes] of Object.entries(binary)) writeFileSync(path.join(root, name), bytes);
+  return scan({ root, patterns: ['tests/**/*.{spec,test}.ts'], framework });
 }
 
 const messages = (inventory: Inventory) => inventory.diagnostics.map((diagnostic) => diagnostic.message);
@@ -76,7 +80,11 @@ describe('values imported from project files', () => {
     const inventory = await scanFiles({
       'package.json': VITEST_PACKAGE,
       'tests/data/instruments.json': JSON.stringify({ symbols: ['AAPL', 'MSFT'], venue: 'NASDAQ' }),
-      'tests/data/limits.ts': "export default { maxNotional: 250000 };\nexport const DESK = 'equities';",
+      'tests/data/limits.ts': [
+        'export default { maxNotional: 250000 };',
+        "const DESK = 'equities';",
+        'export { DESK, DESK as BOOK };',
+      ].join('\n'),
       'tests/limits.test.ts': [
         "import { test } from 'vitest';",
         "import instruments, { venue } from './data/instruments.json';",
@@ -84,60 +92,70 @@ describe('values imported from project files', () => {
         "import * as risk from './data/limits';",
         'test.for(instruments.symbols)(`quotes %s on ${venue}`, () => {});',
         'test(`caps a ${risk.DESK} order at ${limits.maxNotional}`, () => {});',
-        "test(`books to the ${risk['DESK']} desk`, () => {});",
+        "test(`books to the ${risk['BOOK']} desk`, () => {});",
+        'test(`lists ${instruments.symbols.length} symbols on ${venue}`, () => {});',
       ].join('\n'),
     });
     expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
       ['quotes %s on NASDAQ', 2],
       ['caps a equities order at 250000', null],
       ['books to the equities desk', null],
+      ['lists 2 symbols on NASDAQ', null],
     ]);
   });
 
   it('names the module when an imported value still cannot be worked out', async () => {
-    const inventory = await scanFiles({
-      'package.json': PLAYWRIGHT_PACKAGE,
-      'test-data/session.ts': [
-        "export let tradingDay = 'Monday';",
-        "export function deskName() { return 'equities'; }",
-        "export default function openSession() {}",
-        "export { holiday } from './calendar';",
-        "export const STATUS = loadStatus();",
-      ].join('\n'),
-      'test-data/broken.ts': 'export const = ;',
-      'test-data/data.json': '{ not json',
-      'test-data/symbols.json': '["AAPL"]',
-      'test-data/logo.png': '\u0089PNG\r\n\u001a\n\u0000\u0000\u0000\rIHDRÿþ',
-      'tests/session.spec.ts': [
-        "import { test } from '@playwright/test';",
-        "import openSession, { deskName, holiday, STATUS, tradingDay, missing } from '../test-data/session';",
-        "import { BROKEN } from '../test-data/broken';",
-        "import data from '../test-data/data.json';",
-        "import { first } from '../test-data/symbols.json';",
-        "import logo from '../test-data/logo.png';",
-        "import * as session from '../test-data/session';",
-        "import { MARKETS } from '@acme/market-data';",
-        'test(`opens on ${tradingDay}`, async () => {});',
-        'test(`books to ${deskName}`, async () => {});',
-        'test(`starts with ${openSession}`, async () => {});',
-        'test(`closes on ${holiday}`, async () => {});',
-        'test(`reports ${STATUS}`, async () => {});',
-        'test(`skips ${missing}`, async () => {});',
-        'test(`parses ${BROKEN}`, async () => {});',
-        'test(`loads ${data}`, async () => {});',
-        'test(`lists ${first}`, async () => {});',
-        'test(`shows ${logo}`, async () => {});',
-        'test(`prints ${session}`, async () => {});',
-        'test(`reads ${session[tradingDay]}`, async () => {});',
-        'test(`trades ${MARKETS.us}`, async () => {});',
-      ].join('\n'),
-    });
+    const inventory = await scanFiles(
+      {
+        'package.json': PLAYWRIGHT_PACKAGE,
+        'test-data/session.ts': [
+          "export let tradingDay = 'Monday';",
+          "export function deskName() { return 'equities'; }",
+          'export default function openSession() {}',
+          "export { holiday } from './calendar';",
+          'export const STATUS = loadStatus();',
+          "export { closingBell } from './calendar-rules';",
+        ].join('\n'),
+        'test-data/calendar-rules.ts': "export const OPENING_BELL = '9:30';",
+        'test-data/broken.ts': 'export const = ;',
+        'test-data/data.json': '{ not json',
+        'test-data/symbols.json': '["AAPL"]',
+        'tests/session.spec.ts': [
+          "import { test } from '@playwright/test';",
+          "import openSession, { deskName, holiday, STATUS, tradingDay, missing } from '../test-data/session';",
+          "import { BROKEN } from '../test-data/broken';",
+          "import data from '../test-data/data.json';",
+          "import { first } from '../test-data/symbols.json';",
+          "import logo from '../test-data/logo.png';",
+          "import * as session from '../test-data/session';",
+          "import { MARKETS } from '@acme/market-data';",
+          "import calendar from '../test-data/calendar-rules';",
+          "import { closingBell } from '../test-data/session';",
+          'test(`opens on ${tradingDay}`, async () => {});',
+          'test(`books to ${deskName}`, async () => {});',
+          'test(`starts with ${openSession}`, async () => {});',
+          'test(`closes on ${holiday}`, async () => {});',
+          'test(`reports ${STATUS}`, async () => {});',
+          'test(`skips ${missing}`, async () => {});',
+          'test(`parses ${BROKEN}`, async () => {});',
+          'test(`loads ${data}`, async () => {});',
+          'test(`lists ${first}`, async () => {});',
+          'test(`shows ${logo}`, async () => {});',
+          'test(`prints ${session}`, async () => {});',
+          'test(`reads ${session[tradingDay]}`, async () => {});',
+          'test(`trades ${MARKETS.us}`, async () => {});',
+          'test(`rings at ${closingBell}`, async () => {});',
+          'test(`follows ${calendar}`, async () => {});',
+        ].join('\n'),
+      },
+      { 'test-data/logo.png': Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe) },
+    );
     expect(inventory.tests.every((test) => test.hasDynamicTitle)).toBe(true);
     const from = inventory.diagnostics
       .filter((diagnostic) => diagnostic.code === 'dynamic-title')
       .map((diagnostic) => /comes from '([^']+)'/.exec(diagnostic.message)?.[1]);
     expect(from).toEqual([
-      ...Array(6).fill('../test-data/session'),
+      ...Array<string>(6).fill('../test-data/session'),
       '../test-data/broken',
       '../test-data/data.json',
       '../test-data/symbols.json',
@@ -145,6 +163,8 @@ describe('values imported from project files', () => {
       '../test-data/session',
       '../test-data/session',
       '@acme/market-data',
+      '../test-data/session',
+      '../test-data/calendar-rules',
     ]);
   });
 

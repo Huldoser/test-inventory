@@ -888,16 +888,53 @@ function defineOrderTests(side) {
 }
 defineOrderTests('buy');
 `);
-    expect(inventory.tests.map((test) => [test.title, test.isInLoop, test.isInCondition, test.isInFunction])).toEqual([
-      ['`quotes ${symbol}`', true, false, false],
-      ['`charts ${symbol}`', true, false, false],
-      ["'lists ' + symbol", true, false, false],
-      ['retries the order', true, false, false],
-      ['sends a live order', false, true, false],
-      ['runs on CI only', false, true, false],
-      ['places a buy order', false, false, true],
+    expect(
+      inventory.tests.map((test) => [test.title, test.isInLoop, test.isInCondition, test.isInFunction, test.caseCount]),
+    ).toEqual([
+      ['`quotes ${symbol}`', true, false, false, 2],
+      ['`charts ${symbol}`', true, false, false, 2],
+      ["'lists ' + symbol", true, false, false, 2],
+      ['retries the order', true, false, false, null],
+      ['sends a live order', false, true, false, null],
+      ['runs on CI only', false, true, false, null],
+      ['places a buy order', false, false, true, null],
     ]);
-    expect(codes(inventory).filter((code) => code === 'test-in-loop')).toHaveLength(4);
+    // Only the loop the scan can't count needs a warning; caseCount says how many tests the others register.
+    expect(codes(inventory).filter((code) => code === 'test-in-loop')).toHaveLength(1);
+  });
+});
+
+describe('Playwright tests in loops', () => {
+  it('counts the passes of loops over values the scan can work out, nested loops and describes included', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const FEES = { retail: 25, professional: 10, marketMaker: 0 };
+const VENUES = ['NASDAQ', 'NYSE'];
+for (const tier in FEES) {
+  test(\`charges the \${tier} fee\`, async () => {});
+}
+for (const venue of VENUES) {
+  test.describe(\`\${venue} routing\`, () => {
+    Object.entries(FEES).forEach(([tier, bps]) => {
+      test(\`routes a \${tier} order at \${bps} bps\`, async () => {});
+    });
+  });
+}
+for (const index in null) test('never runs', async () => {});
+for (const symbol of 'AAPL') test(\`quotes \${symbol}\`, async () => {});
+for (const venue in loadVenues()) test(\`connects to \${venue}\`, async () => {});
+loadVenues().map((venue) => test(\`lists \${venue}\`, async () => {}));
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`charges the ${tier} fee`', 3],
+      ['`routes a ${tier} order at ${bps} bps`', 6],
+      ['never runs', 0],
+      ['`quotes ${symbol}`', null],
+      ['`connects to ${venue}`', null],
+      ['`lists ${venue}`', null],
+    ]);
+    expect(inventory.diagnostics.filter((item) => item.code === 'test-in-loop').map((item) => item.lineStart)).toEqual([
+      15, 16, 17,
+    ]);
   });
 });
 
@@ -1460,7 +1497,6 @@ for (const symbol of ['AAPL', 'MSFT']) {
 }
 `);
     expect(repeated.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.level])).toEqual([
-      ['test-in-loop', 'warning'],
       ['duplicate-title', 'error'],
     ]);
     expect(onlyTest(repeated).state).toBe('notLoaded');
@@ -1471,7 +1507,7 @@ for (const symbol of ['AAPL', 'MSFT']) {
   });
 }
 `);
-    expect(codes(varied)).toEqual(['dynamic-title', 'test-in-loop']);
+    expect(codes(varied)).toEqual(['dynamic-title']);
     expect(onlyTest(varied).state).toBe('active');
   });
 
@@ -1522,11 +1558,6 @@ test.describe('buy orders', () => sideTests());
     ).toEqual([
       ['test-in-function', 3, 'The test is declared in a function, and the file exports the function'],
       [
-        'test-in-loop',
-        6,
-        'The test is declared in a loop; it is listed once, while the runner creates one test per iteration',
-      ],
-      [
         'duplicate-title',
         6,
         'The test is declared in a loop with the same title on each pass, so Playwright fails to load the file and runs no tests at all',
@@ -1537,7 +1568,7 @@ test.describe('buy orders', () => sideTests());
         'The test is declared in a function, and the function is called in another place than where it is written',
       ],
     ]);
-    expect(testNamed(inventory, 'streams a quote').isInLoop).toBe(true);
+    expect(testNamed(inventory, 'streams a quote')).toMatchObject({ isInLoop: true, caseCount: 2 });
     expect(testNamed(inventory, 'rejects a zero quantity').suitePath).toEqual(['buy orders']);
   });
 

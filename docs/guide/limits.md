@@ -1,5 +1,5 @@
 ---
-description: What a scan can't know without running the code, such as config files and imported values.
+description: What a scan can't know without running the code, such as config files and values from installed packages.
 ---
 
 # Known limits
@@ -41,23 +41,36 @@ Calls that change settings while tests run are not read: `testInfo.setTimeout()`
 and fixtures that other fixtures or automatic fixtures set up, are not in them. A test or hook function passed by name
 is read when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read.
 
-## Imported values are not resolved
+## Values from installed packages are not worked out
 
-Values written in the same file are worked out: string and number literals, constants, enums, arrays and objects
-built from them, spreads, string concatenation and template strings. A value imported from another file is not.
-When a title, tag, annotation or table comes from an import, the record keeps what it can and a diagnostic names the
-module the value came from:
+Titles, tags, annotations, reasons, run settings and tables are worked out when they are built from values the scan
+can read: string and number literals, constants, enums, arrays and objects built from them, spreads, string
+concatenation, template strings, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
+`Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
+array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
+included:
 
 ```ts
 import { TAGS } from '../../test-data/tags';
+
+test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) => {
+  // listed with the @risk tag
+});
+```
+
+A value from an installed package, or built with any other call, is not. The record then keeps what it can and a
+diagnostic says so, naming the module when the value comes from an import:
+
+```ts
+import { TAGS } from '@trading/qa-tags';
 
 test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) => {
   // listed without the tag, with an unresolved-tag warning
 });
 ```
 
-Two kinds of import are followed: a custom `test` object, and a function that declares tests, as described under
-[tests in helper functions](#tests-in-helper-functions). They are found through:
+Values, a custom `test` object, and a function that declares tests, as described under
+[tests in helper functions](#tests-in-helper-functions), are followed through imports found through:
 
 - a relative path, as in `../fixtures`;
 - a path alias from `compilerOptions.paths` or `baseUrl` in the tsconfig nearest the importing file, with every file
@@ -176,18 +189,22 @@ Such a test is listed where it is written. Tests in a callback passed to another
 
 ## Loops and tables are one record
 
-A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true` and a `test-in-loop` warning.
+A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true`. When the loop goes over values
+the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, `caseCount`
+says how many tests the runner registers; otherwise, as for a `while` loop, `caseCount` is `null` and a `test-in-loop`
+warning says the count is unknown.
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
-A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the table is
-written in the file. The runner creates one test per iteration or per case; expanding them is planned for a later
+A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
+work out the table. The runner creates one test per iteration or per case; expanding them is planned for a later
 release.
 
 ## Conditions are not evaluated
 
 `test.skip(browserName === 'webkit', 'reason')` gives `state: 'skip'` with `isConditional: true` and the condition's
 source text. Whether the test is skipped on a given run depends on the browser, the environment or the clock. A
-condition written as a constant, such as `test.skip(true)` or `test.skipIf(false)`, is worked out.
+condition the scan can work out, such as `test.skip(true)`, `test.skipIf(MARKET === 'crypto')` with `MARKET` a
+constant, or `test.skip(side === 'short')` in a helper called with `'buy'`, is worked out.
 
 A skip inside `if`, `?:`, `&&`, `||`, `??`, `switch` or a `catch` block runs only when that code does, so it is
 conditional too, with the source text of what decides it as its condition. For a `catch` block that is the clause

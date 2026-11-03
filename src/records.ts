@@ -556,7 +556,8 @@ class RecordBuilder {
       this.diagnostics.push(this.diagnostic(problem('bench-outside-benchmark-file', located, message), id));
     }
     if (declaration.isOnly) this.forbidOnly(located, pending.site ? null : pending.call);
-    if (pending.isInLoop) {
+    // A loop the scan counts is described by caseCount, as a table is.
+    if (pending.loops.includes(null)) {
       this.diagnostics.push(
         this.diagnostic(
           problem(
@@ -646,7 +647,10 @@ class RecordBuilder {
       steps: pending.steps,
       isBenchmark: this.options.isBenchmarkFile || declaration.usesBench,
       isParameterized: tables.length > 0,
-      caseCount: tables.length > 0 ? repetitions(tables.map((item) => item.caseCount)) : null,
+      caseCount:
+        tables.length > 0 || pending.isInLoop
+          ? repetitions([...tables.map((item) => item.caseCount), ...pending.loops])
+          : null,
       isInLoop: pending.isInLoop,
       isInCondition: pending.isInCondition,
       isInFunction: pending.isInFunction,

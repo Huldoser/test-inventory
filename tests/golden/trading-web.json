@@ -26,7 +26,7 @@
     "inFunctionCount": 0,
     "typeTestCount": 0,
     "benchmarkCount": 0,
-    "diagnosticCount": 2,
+    "diagnosticCount": 1,
     "tagCounts": {
       "@backtest": 3,
       "@orders": 12,
@@ -3392,7 +3392,7 @@
       "steps": [],
       "isBenchmark": false,
       "isParameterized": false,
-      "caseCount": null,
+      "caseCount": 4,
       "isInLoop": true,
       "isInCondition": false,
       "isInFunction": false,
@@ -3770,16 +3770,6 @@
     }
   ],
   "diagnostics": [
-    {
-      "code": "test-in-loop",
-      "level": "warning",
-      "message": "The test is declared in a loop; it is listed once, while the runner creates one test per iteration.",
-      "relativeFilePath": "tests/quotes.spec.ts",
-      "lineStart": 6,
-      "columnStart": 5,
-      "testId": "8be9925edcd4647c",
-      "source": null
-    },
     {
       "code": "dynamic-title",
       "level": "warning",

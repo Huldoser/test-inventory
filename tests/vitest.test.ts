@@ -1044,8 +1044,8 @@ for (const symbol of ['AAPL', 'MSFT']) {
   it('parses a quote', () => {});
 }
 `);
-    expect(codes(inventory)).toEqual(['test-in-loop']);
-    expect(onlyTest(inventory).state).toBe('active');
+    expect(codes(inventory)).toEqual([]);
+    expect(onlyTest(inventory)).toMatchObject({ state: 'active', caseCount: 2 });
   });
 
   it('records shared tests that a helper declares in each describe that calls it', () => {

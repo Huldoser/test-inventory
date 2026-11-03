@@ -187,8 +187,9 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
       differences.push({ kind: 'missing-in-runner', ...at, detail: `${test.fullName} (${test.state})` });
       continue;
     }
-    // Loops and tables the scanner could not count may list any number of tests; caseCount includes describe tables.
-    const count = test.isInLoop ? null : test.isParameterized ? test.caseCount : 1;
+    // Loops and tables the scanner could not count may list any number of tests; caseCount includes describe tables
+    // and loops.
+    const count = test.caseCount ?? (test.isInLoop || test.isParameterized ? null : 1);
     if (count !== null && candidates.length !== count) {
       differences.push({
         kind: 'count',

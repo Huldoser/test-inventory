@@ -140,19 +140,32 @@ export class Values {
         return { ok: true, value: text };
       }
       case 'BinaryExpression': {
-        if (expression.operator !== '+') return UNRESOLVED;
-        const left = this.resolve(expression.left, scopes);
+        if (!BINARY.has(expression.operator)) return UNRESOLVED;
+        const left = this.resolve(expression.left as Expression, scopes);
         if (!left.ok) return left;
         const right = this.resolve(expression.right, scopes);
         if (!right.ok) return right;
         if (!isPrimitive(left.value) || !isPrimitive(right.value)) return UNRESOLVED;
-        if (typeof left.value === 'number' && typeof right.value === 'number') {
-          return { ok: true, value: left.value + right.value };
-        }
-        return typeof left.value === 'string' || typeof right.value === 'string'
-          ? { ok: true, value: String(left.value) + String(right.value) }
-          : UNRESOLVED;
+        return binary(expression.operator, left.value, right.value);
       }
+      case 'LogicalExpression': {
+        const left = this.resolve(expression.left, scopes);
+        if (!left.ok) return left;
+        const useLeft =
+          expression.operator === '&&'
+            ? !left.value
+            : expression.operator === '||'
+              ? Boolean(left.value)
+              : left.value !== null && left.value !== undefined;
+        return useLeft ? left : this.resolve(expression.right, scopes);
+      }
+      case 'ConditionalExpression': {
+        const test = this.resolve(expression.test, scopes);
+        if (!test.ok) return test;
+        return this.resolve(test.value ? expression.consequent : expression.alternate, scopes);
+      }
+      case 'CallExpression':
+        return this.call(expression, scopes);
       case 'UnaryExpression': {
         if (expression.operator !== '!' && expression.operator !== '-') return UNRESOLVED;
         const argument = this.resolve(expression.argument, scopes);
@@ -208,6 +221,7 @@ export class Values {
           : { ok: true as const, value: propertyName(expression) };
         if (!key.ok) return key;
         const container = object.value;
+        if (typeof container === 'string' && key.value === 'length') return { ok: true, value: container.length };
         if (typeof container !== 'object' || container === null || !isKey(key.value)) return UNRESOLVED;
         const name = String(key.value);
         return Object.hasOwn(container, name)
@@ -248,6 +262,62 @@ export class Values {
     if (computed) return this.resolve(key as Expression, scopes);
     if (key.type === 'Identifier') return { ok: true, value: key.name };
     return this.resolve(key as Expression, scopes);
+  }
+
+  /**
+   * The calls titles are often built with, all of them pure: `Object.keys()`, `Object.values()`, `Object.entries()`,
+   * `JSON.stringify()` with one argument, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and
+   * an array's `join()`.
+   */
+  private call(expression: Extract<Expression, { type: 'CallExpression' }>, scopes: readonly Node[]): Resolved {
+    const callee = unwrap(expression.callee);
+    if (expression.optional || expression.arguments.some((item) => item.type === 'SpreadElement')) return UNRESOLVED;
+    const args = expression.arguments as Expression[];
+    if (
+      callee.type === 'Identifier' &&
+      callee.name === 'String' &&
+      args.length === 1 &&
+      this.isGlobal('String', scopes)
+    ) {
+      const value = this.resolve(args[0], scopes);
+      return value.ok && isPrimitive(value.value)
+        ? { ok: true, value: String(value.value) }
+        : value.ok
+          ? UNRESOLVED
+          : value;
+    }
+    if (callee.type !== 'MemberExpression' || callee.computed) return UNRESOLVED;
+    const method = propertyName(callee) as string;
+    const target = unwrap(callee.object);
+    if (target.type === 'Identifier' && (target.name === 'Object' || target.name === 'JSON')) {
+      if (!this.isGlobal(target.name, scopes) || args.length !== 1) return UNRESOLVED;
+      const value = this.resolve(args[0], scopes);
+      if (!value.ok) return value;
+      if (target.name === 'JSON')
+        return method === 'stringify' ? { ok: true, value: JSON.stringify(value.value) } : UNRESOLVED;
+      if (!isPlainObject(value.value) && !Array.isArray(value.value)) return UNRESOLVED;
+      if (method === 'keys') return { ok: true, value: Object.keys(value.value) };
+      if (method === 'values') return { ok: true, value: Object.values(value.value) };
+      return method === 'entries' ? { ok: true, value: Object.entries(value.value) } : UNRESOLVED;
+    }
+    const object = this.resolve(callee.object, scopes);
+    if (!object.ok) return object;
+    const text = object.value;
+    if (typeof text === 'string' && args.length === 0 && STRING_METHODS.has(method)) {
+      return {
+        ok: true,
+        value: method === 'trim' ? text.trim() : method === 'toUpperCase' ? text.toUpperCase() : text.toLowerCase(),
+      };
+    }
+    if (!Array.isArray(text) || method !== 'join' || args.length > 1 || !text.every(isPrimitive)) return UNRESOLVED;
+    const separator = args.length === 0 ? { ok: true as const, value: ',' } : this.resolve(args[0], scopes);
+    if (!separator.ok) return separator;
+    return typeof separator.value === 'string' ? { ok: true, value: text.join(separator.value) } : UNRESOLVED;
+  }
+
+  /** Whether a name refers to a global, as no scope around the use declares it. */
+  private isGlobal(name: string, scopes: readonly Node[]): boolean {
+    return this.lookup(name, scopes) === null;
   }
 
   /** `data.name` where `data` is `import * as data`: what the module exports as `name`; null for any other member. */
@@ -343,6 +413,30 @@ export class Values {
     }
     return bindings;
   }
+}
+
+const BINARY = new Set(['+', '===', '!==', '<', '<=', '>', '>=']);
+
+const STRING_METHODS = new Set(['toUpperCase', 'toLowerCase', 'trim']);
+
+type Primitive = string | number | boolean | null | undefined;
+
+/** A binary operator on two primitives, as JavaScript works it out; comparisons only between values of one type. */
+function binary(operator: string, left: Primitive, right: Primitive): Resolved {
+  if (operator === '===') return { ok: true, value: left === right };
+  if (operator === '!==') return { ok: true, value: left !== right };
+  if (operator === '+') {
+    if (typeof left === 'number' && typeof right === 'number') return { ok: true, value: left + right };
+    return typeof left === 'string' || typeof right === 'string'
+      ? { ok: true, value: String(left) + String(right) }
+      : UNRESOLVED;
+  }
+  const comparable =
+    (typeof left === 'number' && typeof right === 'number') || (typeof left === 'string' && typeof right === 'string');
+  if (!comparable) return UNRESOLVED;
+  const [a, b] = [left, right] as [number, number];
+  const value = operator === '<' ? a < b : operator === '<=' ? a <= b : operator === '>' ? a > b : a >= b;
+  return { ok: true, value };
 }
 
 function isPlainObject(value: Value): value is Record<string, Value> {

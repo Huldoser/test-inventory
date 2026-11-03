@@ -95,6 +95,8 @@ export interface PendingTest {
   states: StateSetting[];
   annotations: Annotation[];
   isInLoop: boolean;
+  /** How many passes each loop around the test makes, outermost first; null for a loop the scan can't count. */
+  loops: (number | null)[];
   isInCondition: boolean;
   isInFunction: boolean;
   comments: string[];
@@ -150,6 +152,8 @@ interface Context {
   /** Source text of the conditions around a call (`if`, `?:`, logical operators, `switch`) within the current body. */
   guards: string[];
   isInLoop: boolean;
+  /** How many passes each loop around the call makes, outermost first; null for a loop the scan can't count. */
+  loops: (number | null)[];
   isInCondition: boolean;
   isInFunction: boolean;
   /** The plain function being walked outside any test or hook, whose states apply to the code that calls it. */
@@ -372,6 +376,7 @@ class Walker {
       testContext: null,
       guards: [],
       isInLoop: false,
+      loops: [],
       isInCondition: false,
       isInFunction: false,
       helper: null,
@@ -464,12 +469,14 @@ class Walker {
         }
         return;
       }
-      case 'ForStatement':
       case 'ForInStatement':
       case 'ForOfStatement':
+        this.visitChildren(node, this.inLoop(context, this.passes(node)));
+        return;
+      case 'ForStatement':
       case 'WhileStatement':
       case 'DoWhileStatement':
-        this.visitChildren(node, { ...context, isInLoop: true });
+        this.visitChildren(node, this.inLoop(context, null));
         return;
       case 'FunctionDeclaration':
       case 'FunctionExpression':
@@ -542,14 +549,32 @@ class Walker {
     return snippet(this.frame.parsed.source.slice(node.start, node.end));
   }
 
+  private inLoop(context: Context, passes: number | null): Context {
+    return { ...context, isInLoop: true, loops: [...context.loops, passes] };
+  }
+
+  /**
+   * How many passes `for...of` or `for...in` makes over a value the scan can work out: an array's elements, or the keys
+   * of any value, as `for...in` takes them; null when the value is unknown or `for...of` can't go over it.
+   */
+  private passes(loop: Extract<Node, { type: 'ForOfStatement' | 'ForInStatement' }>): number | null {
+    // The loop's own scope declares the loop variable, which the value it goes over can't refer to.
+    const resolved = this.frame.values.resolve(loop.right, this.scopes.slice(0, -1));
+    if (!resolved.ok) return null;
+    if (loop.type === 'ForInStatement') return Object.keys(Object(resolved.value ?? {}) as object).length;
+    return Array.isArray(resolved.value) ? resolved.value.length : null;
+  }
+
   /** `symbols.forEach((symbol) => test(...))` declares its tests in a loop. */
   private loopCall(call: CallExpression, context: Context): boolean {
     const callee = unwrap(call.callee);
     if (callee.type !== 'MemberExpression' || !LOOP_METHODS.has(propertyName(callee) ?? '')) return false;
     this.visit(call.callee, context);
+    const list = this.frame.values.resolve(callee.object, this.scopes);
+    const passes = list.ok && Array.isArray(list.value) ? list.value.length : null;
     for (const arg of call.arguments) {
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        this.visitCallback(arg, { ...context, isInLoop: true });
+        this.visitCallback(arg, this.inLoop(context, passes));
       } else {
         this.visit(arg, context);
       }
@@ -1169,6 +1194,7 @@ class Walker {
       states: [...declaration.states],
       annotations: [...declaration.details.annotations],
       isInLoop: context.isInLoop,
+      loops: context.loops,
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
       comments: this.commentsAbove(statement.start),

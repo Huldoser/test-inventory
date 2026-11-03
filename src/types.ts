@@ -433,8 +433,9 @@ export interface TestRecord {
   /** Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it. */
   isParameterized: boolean;
   /**
-   * How many times the runner repeats the test: the cases of its own table times those of each describe table around
-   * it. Null when a table is not written out in the file, or the test is not parameterized.
+   * How many times the runner repeats the test: the cases of its own table times those of each describe table and the
+   * passes of each loop around it. Null when the scan can't work out a table or a loop's values, or the test is neither
+   * parameterized nor in a loop.
    */
   caseCount: Count | null;
   /** Declared inside a loop, `forEach` or `map`. */
