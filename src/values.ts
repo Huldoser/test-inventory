@@ -347,6 +347,16 @@ export class Values {
     return binding?.kind === 'import' ? binding.source : null;
   }
 
+  /**
+   * Whether a name refers to a parameter or loop variable bound to a value where it is used: an argument of the helper
+   * call being walked, or a value of the case or pass of an expansion.
+   */
+  isBound(name: string, scopes: readonly Node[]): boolean {
+    const binding = this.lookup(name, scopes)?.binding;
+    if (binding?.kind !== 'other') return false;
+    return this.calls.findLast((item) => item.fn === binding.declaration)?.parameters.has(name) ?? false;
+  }
+
   /** Whether a name refers to a function or class declared in the file. */
   isFunction(name: string, scopes: readonly Node[]): boolean {
     return this.lookup(name, scopes)?.binding.kind === 'function';
@@ -628,7 +638,6 @@ const RUNS_LATER = new Set([
   'test',
   'it',
   'bench',
-  'step',
   'beforeEach',
   'afterEach',
   'beforeAll',

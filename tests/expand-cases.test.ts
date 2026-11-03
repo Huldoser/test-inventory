@@ -364,6 +364,178 @@ for (const side of ['buy']) {
   });
 });
 
+describe('code after a branch that leaves', () => {
+  it('guards what follows only a branch that always leaves, and keeps every test', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+describe('order router', () => {
+  if (mode === 'paper') return;
+  else if (mode === 'replay') return;
+  test('routes a market order to the exchange', () => {});
+});
+describe('settlement', () => {
+  if (isEquity) {
+    if (isHoliday) return;
+  } else {
+    if (isCrypto) return;
+  }
+  test('settles a fill on T+1', () => {});
+});
+describe('venues', () => {
+  if (isLive) {
+    for (const venue of VENUES) {
+      if (venue) break;
+    }
+  }
+  if (side) {
+    switch (side) {
+      case 'buy':
+        break;
+      default:
+        break;
+    }
+  }
+  if (audited) {
+    check: {
+      break check;
+    }
+  }
+  test('lists the venues', () => {});
+});
+describe('positions', () => {
+  if (stale) {
+    try {
+      return;
+    } catch {
+      return;
+    }
+  }
+  if (hedged) {
+    try {
+      loadHedges();
+    } finally {
+      return;
+    }
+  }
+  if (netted) {
+    try {
+      return;
+    } catch {
+      logFailure();
+    }
+  }
+  test('marks positions to market', () => {});
+});
+describe('accounts', () => {
+  if (closed) {
+    throw new Error('closed');
+  } else if (frozen) {
+    return;
+  } else {
+    return;
+  }
+  test('is never registered', () => {});
+});
+`);
+    expect(inventory.tests.map((test) => [test.fullName, test.isInCondition])).toEqual([
+      ['order router > routes a market order to the exchange', true],
+      ['settlement > settles a fill on T+1', false],
+      ['venues > lists the venues', false],
+      ['positions > marks positions to market', true],
+    ]);
+  });
+
+  it('keeps an in-body state unconditional when the branch before it only breaks out of its own loop', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+test('quotes on WebKit', async ({ browserName }) => {
+  if (browserName === 'webkit') {
+    for (const venue of ['NYSE']) {
+      if (venue) break;
+    }
+  }
+  test.fixme();
+});
+test('quotes on mobile', async ({ browserName, isMobile }) => {
+  if (browserName === 'webkit') return;
+  else if (isMobile) return;
+  test.skip(true, 'mobile quotes are not streamed');
+});
+`);
+    expect(inventory.tests.map((test) => [test.state, test.isConditional])).toEqual([
+      ['fixme', false],
+      ['skip', true],
+    ]);
+  });
+});
+
+describe('expandCases and conditions on values the file may change', () => {
+  it('works out only conditions on the values of a case or pass, and keeps tests under any other', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+const FLAGS = { live: false };
+const CONFIG = { flags: { live: false } };
+const MODE = { paper: true };
+function enableLive(flags) { flags.live = true; }
+enableLive(FLAGS);
+const { flags } = CONFIG;
+flags.live = true;
+Reflect.set(MODE, 'paper', false);
+describe('live trading', () => {
+  if (FLAGS.live) test('sends orders to the live venue', () => {});
+  if (CONFIG.flags.live) test('streams fills', () => {});
+  if (!MODE.paper) test('books real trades', () => {});
+  if (FLAGS.live) {
+    for (const venue of ['NYSE', 'NASDAQ']) {
+      if (venue === 'NASDAQ') break;
+    }
+  }
+  test('sends orders to the exchange', () => {});
+});
+for (const venue of ['NYSE', 'IEX']) {
+  if (venue === 'NYSE') test(\`routes to \${venue}\`, () => {});
+  if (['NYSE'].some((open) => open === venue)) test(\`streams \${venue}\`, () => {});
+}
+`,
+      expand,
+    );
+    expect(inventory.tests.map((test) => [test.fullName, test.isInCondition])).toEqual([
+      ['live trading > sends orders to the live venue', true],
+      ['live trading > streams fills', true],
+      ['live trading > books real trades', true],
+      ['live trading > sends orders to the exchange', false],
+      ['routes to NYSE', false],
+      ['streams NYSE', true],
+      ['streams IEX', true],
+    ]);
+  });
+
+  it('expands all passes of a loop inside an expanded loop, and blames the limit only when it is the reason', () => {
+    const symbols = Array.from({ length: 10 }, (_, index) => `'S${index}'`).join(', ');
+    const lots = Array.from({ length: 200 }, (_, index) => index).join(', ');
+    const nested = scanVitest(
+      `${VITEST_IMPORT}
+for (const symbol of [${symbols}]) {
+  describe(\`\${symbol} book\`, () => {
+    for (const lot of [${lots}]) test(\`fills \${lot} lots\`, () => {});
+  });
+}
+`,
+      expand,
+    );
+    expect(nested.tests).toHaveLength(2000);
+    expect(nested.tests.every((test) => test.caseIndex !== null && !test.hasDynamicTitle)).toBe(true);
+    const quantities = Array.from({ length: 999 }, (_, index) => index).join(', ');
+    const desks = scanVitest(
+      `${VITEST_IMPORT}
+for (var desk of ['fx', 'rates', 'credit']) {
+  for (const qty of [${quantities}]) test(\`books \${qty}\`, () => {});
+}
+`,
+      expand,
+    );
+    expect(codes(desks).filter((code) => code === 'cases-not-expanded')).toEqual([]);
+  });
+});
+
 describe('expandCases with loops', () => {
   it('lists each pass of a loop over known values, with its loop variable bound', () => {
     const inventory = scanPlaywright(

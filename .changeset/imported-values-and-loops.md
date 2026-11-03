@@ -14,9 +14,9 @@ count. Values also work out arithmetic on numbers, as in `30 * 1000`, `?:`, `&&`
 `toLowerCase()` and `trim()` and an array's `join()`. A skip condition that works out to a constant, such as
 `side === 'short'` in a helper called with `'buy'`, now sets the state it gives instead of being kept as a condition.
 
-Code after an `if` whose branch returns or throws, as in `if (!strategy.enabled) return;` in a helper, is now under
-the opposite condition, so its tests have `isInCondition` and a loop around them no count. A tagged-template table is
-counted as Vitest splits it: outer pipes are columns, an incomplete last row is left out, and a template without
-values is one case.
+Code after an `if` whose branch always returns or throws, as in `if (!strategy.enabled) return;` in a helper, is now
+under the opposite condition, so its tests have `isInCondition` and a loop around them no count. A tagged-template
+table is counted as Vitest splits it: outer pipes are columns, an incomplete last row is left out, and a template
+without values is one case.
 
 A test whose title was its source text and is now worked out gets a new `id`, once.

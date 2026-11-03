@@ -206,10 +206,13 @@ With `--expand-cases` (library: `expandCases: true`), each case of a table and e
 scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The
 values of the case are bound in its callback, as the runner passes them, so a title, tag or condition built from
 them is worked out per case, and an `if`, `?:`, `&&`, `||` or `??` that decides whether a test is registered takes
-the branch they give. Loops in test and hook bodies, which the runner runs after collecting the tests, and loops over
-a `var`, which holds its last value by the time Vitest runs the describes, are not expanded. A file is expanded up to
-1,000 loop passes and describe cases; past that, loops and describe tables that register tests are one record with a
-`cases-not-expanded` warning, so that a long loop over test data can't slow the scan down.
+the branch they give when it reads nothing but them. A condition on a constant of the module still has both branches,
+under the condition, since code the scan doesn't follow may change the constant. Loops in test and hook bodies, which
+the runner runs after collecting the tests, and loops over a `var`, which holds its last value by the time Vitest runs
+the describes, are not expanded. A loop or describe table
+outside any other is expanded while the file has fewer than 1,000 expanded loop passes and describe cases, and then
+in whole; past that, loops and describe tables that register tests are one record with a `cases-not-expanded`
+warning, so that a long loop over test data can't slow the scan down.
 
 Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`,
 `%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
@@ -226,9 +229,11 @@ constant, or `test.skip(side === 'short')` in a helper called with `'buy'`, is w
 
 A skip inside `if`, `?:`, `&&`, `||`, `??`, `switch` or a `catch` block runs only when that code does, so it is
 conditional too, with the source text of what decides it as its condition. For a `catch` block that is the clause
-itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws. Code after an `if` whose
-branch returns, throws, breaks or continues, as in `if (!account.active) return;`, runs only when that branch isn't
-taken, so it is under the opposite condition, `!(!account.active)` here.
+itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws.
+
+Code after an `if` whose branch always returns, throws, breaks or continues, as in `if (!account.active) return;`,
+runs only when that branch isn't taken, so it is under the opposite condition, `!(!account.active)` here. A branch that
+leaves on only some of its paths, as in `if (isEquity) { if (isHoliday) return; }`, leaves what follows as it is.
 
 ## What dependencyHash leaves out
 
