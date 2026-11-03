@@ -28,6 +28,7 @@ import type {
   Span,
   StateOption,
   StateSetting,
+  TableCase,
 } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
@@ -863,6 +864,7 @@ export class VitestAdapter implements Adapter {
       hashed: fn ?? namedFunction(this.file, context.scopes, body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(call, table, context, problems) : null,
+      cases: table ? this.tableCases(table, context) : null,
       problems,
     };
     let declared: ApiCall;
@@ -1063,6 +1065,43 @@ export class VitestAdapter implements Adapter {
     return count;
   }
 
+  /**
+   * The cases of a table whose values the scan can work out, as Vitest passes them: `.each` spreads a case that is an
+   * array into the callback's arguments when every case is one, and `.for` passes each case whole. A tagged template
+   * gives one object per row, keyed by the names in its first line.
+   */
+  private tableCases(table: Link, context: CallContext): TableCase[] | null {
+    let cases: Value[];
+    if (table.template) {
+      const values = table.template.expressions.map((item) => this.file.values.resolve(item, context.scopes));
+      if (!values.every((item) => item.ok)) return null;
+      const header = templateHeader(table.template);
+      // Without values, Vitest passes the template's strings as the table.
+      cases =
+        values.length === 0
+          ? table.template.quasis.map((quasi) => quasi.value.cooked ?? undefined)
+          : Array.from({ length: Math.floor(values.length / header.length) }, (_, row) =>
+              Object.fromEntries(header.map((name, column) => [name, values[row * header.length + column].value])),
+            );
+    } else {
+      const first = (table.args as Argument[]).at(0);
+      const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
+      if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
+      cases = resolved.value;
+    }
+    if (table.name === 'for') {
+      return cases.map((item) => ({
+        items: item === null || item === undefined ? [] : Array.isArray(item) ? item : [item],
+        args: [item],
+      }));
+    }
+    const arraysOnly = cases.every((item) => Array.isArray(item));
+    return cases.map((item) => {
+      const items = Array.isArray(item) ? item : [item];
+      return { items, args: arraysOnly ? items : [item] };
+    });
+  }
+
   private arrayLength(node: Argument | undefined, context: CallContext): number | null {
     if (node === undefined || node.type === 'SpreadElement') return null;
     const resolved = this.file.values.resolve(node, context.scopes);
@@ -1091,12 +1130,24 @@ export class VitestAdapter implements Adapter {
   }
 }
 
-/** Rows in a tagged-template table such as ``each`a | b ${1} | ${2}` ``: values divided by header columns. */
-function templateRows(template: TemplateLiteral): number | null {
-  const header = (template.quasis[0].value.cooked ?? template.quasis[0].value.raw).trim().split('\n')[0];
-  const columns = header.split('|').filter((column) => column.trim() !== '').length;
-  if (columns === 0 || template.expressions.length % columns !== 0) return null;
-  return template.expressions.length / columns;
+/**
+ * The column names of a tagged-template table such as ``each`side | qty ${'buy'} | ${100}` ``, as Vitest's
+ * `formatTemplateString` reads them: the text of the template with its spaces taken out, its first line split at `|`.
+ * Outer pipes, as in `| side | qty |`, give empty names too.
+ */
+function templateHeader(template: TemplateLiteral): string[] {
+  // A string with an invalid escape, as in `\xZZ`, has no cooked value, which joins as nothing.
+  const strings = template.quasis.map((quasi) => quasi.value.cooked ?? '');
+  return strings.join('').trim().replace(/ /g, '').split('\n')[0].split('|');
+}
+
+/**
+ * Rows of a tagged-template table: as many as the values fill, an incomplete last row left out, as Vitest does. A
+ * template without values isn't split, so its text is the one case.
+ */
+function templateRows(template: TemplateLiteral): number {
+  if (template.expressions.length === 0) return 1;
+  return Math.floor(template.expressions.length / templateHeader(template).length);
 }
 
 function isMetaValue(value: Value): value is MetaValue {

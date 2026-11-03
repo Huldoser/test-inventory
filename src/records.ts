@@ -464,6 +464,7 @@ class RecordBuilder {
       isSerial: scope.mode === 'serial',
       isShuffled: declaration.isShuffled,
       isParameterized: declaration.isParameterized,
+      caseIndex: pending.caseIndex,
       tags: unique(scope.details.tags),
       annotations: scope.details.annotations,
       locks: unique(scope.details.locks),
@@ -556,13 +557,14 @@ class RecordBuilder {
       this.diagnostics.push(this.diagnostic(problem('bench-outside-benchmark-file', located, message), id));
     }
     if (declaration.isOnly) this.forbidOnly(located, pending.site ? null : pending.call);
-    if (pending.isInLoop) {
+    // A loop the scan counts is described by caseCount, as a table is.
+    if (pending.loops.includes(null)) {
       this.diagnostics.push(
         this.diagnostic(
           problem(
             'test-in-loop',
             located,
-            'The test is declared in a loop; it is listed once, while the runner creates one test per iteration.',
+            "The test is declared in a loop the scan can't count; it is listed once, while the runner creates one test per pass.",
           ),
           id,
         ),
@@ -646,7 +648,11 @@ class RecordBuilder {
       steps: pending.steps,
       isBenchmark: this.options.isBenchmarkFile || declaration.usesBench,
       isParameterized: tables.length > 0,
-      caseCount: tables.length > 0 ? repetitions(tables.map((item) => item.caseCount)) : null,
+      caseCount:
+        tables.length > 0 || pending.isInLoop
+          ? repetitions([...tables.map((item) => item.caseCount), ...pending.loops])
+          : null,
+      caseIndex: pending.caseIndex,
       isInLoop: pending.isInLoop,
       isInCondition: pending.isInCondition,
       isInFunction: pending.isInFunction,
@@ -674,7 +680,9 @@ class RecordBuilder {
       const titles = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []).reverse();
       // In a loop, a title path that never changes is registered again on each pass.
       const repeated =
-        playwright && test.isInLoop && describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
+        playwright &&
+        test.passes.some((passes) => passes === null || passes > 1) &&
+        describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
       if (repeated) {
         const message =
           'The test is declared in a loop with the same title on each pass, so Playwright fails to load the file and runs no tests at all.';

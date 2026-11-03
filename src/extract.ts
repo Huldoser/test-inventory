@@ -28,7 +28,8 @@ import type {
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
-import { isScopeNode, type Values } from './values.ts';
+import { vitestCaseTitle } from './case-titles.ts';
+import { isScopeNode, type Resolved, type Value, type Values } from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
 export interface Scope {
@@ -76,6 +77,8 @@ export interface PendingSuite {
   /** Declared under a condition, or in a function: it may not run while the file loads. */
   isInCondition: boolean;
   isInFunction: boolean;
+  /** With `expandCases`, the index of the case of a table or pass of a loop this describe is; null otherwise. */
+  caseIndex: number | null;
 }
 
 export interface PendingTest {
@@ -95,8 +98,17 @@ export interface PendingTest {
   states: StateSetting[];
   annotations: Annotation[];
   isInLoop: boolean;
+  /**
+   * How many times each loop around the test registers it, outermost first; null for a loop the scan can't count, or
+   * one that registers it under a condition.
+   */
+  loops: (number | null)[];
+  /** How many passes each loop around the test makes, whether or not it registers the test on each. */
+  passes: (number | null)[];
   isInCondition: boolean;
   isInFunction: boolean;
+  /** With `expandCases`, the index of the case of a table or pass of a loop this test is; null otherwise. */
+  caseIndex: number | null;
   comments: string[];
   /** Run settings from calls in the body, which win over everything around the test. */
   run: RunSettings;
@@ -114,6 +126,14 @@ export interface Frame {
   values: Values;
   readModule: ModuleReader | null;
   relativeFilePath: string;
+}
+
+/** How the walk lists tables and loops. */
+export interface ExtractOptions {
+  /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
+  expandCases: boolean;
+  /** Vitest's `[major, minor]`, whose rules give each case its title; null for the newest rules. */
+  version: readonly [number, number] | null;
 }
 
 /** Reads a module a helper is imported from as a frame; null when it can't be parsed. */
@@ -150,6 +170,22 @@ interface Context {
   /** Source text of the conditions around a call (`if`, `?:`, logical operators, `switch`) within the current body. */
   guards: string[];
   isInLoop: boolean;
+  /** How many passes each loop around the call makes, outermost first; null for a loop the scan can't count. */
+  loops: (number | null)[];
+  /**
+   * For each of `loops`, whether a condition inside it leaves the count as it is: one was already around where the
+   * loop starts, or the loop is expanded, so each pass is its own record.
+   */
+  loopConditions: boolean[];
+  /** The pass of the innermost expanded loop the walk is in, for the next test or describe; null outside one. */
+  caseIndex: number | null;
+  /** In a pass of an expanded loop or a case of an expanded describe table. */
+  isExpanding: boolean;
+  /**
+   * Where the outermost expanded loop or describe table the walk is in starts; null outside one. What it registers is
+   * ordered there, as the runner registers it, pass after pass.
+   */
+  expandedAt: number | null;
   isInCondition: boolean;
   isInFunction: boolean;
   /** The plain function being walked outside any test or hook, whose states apply to the code that calls it. */
@@ -182,6 +218,12 @@ const MAX_DEPTH = 16;
  * of six levels are a million.
  */
 const MAX_CALLS = 10_000;
+
+/**
+ * How many loop passes and describe cases `expandCases` walks one by one in a file, far more than real suites expand;
+ * past it, loops and describe tables are one record, so that a long loop over test data can't use up the walk.
+ */
+const MAX_EXPANDED = 1000;
 
 /** Where a function is written or called: in which describe, function, conditions and loop. */
 interface Placement {
@@ -227,6 +269,80 @@ interface HelperCall {
 }
 
 const LOOP_METHODS = new Set(['forEach', 'map']);
+
+/** A declaration as the walk records it: one case of its table, with its index and arguments, or the whole of it. */
+interface Case<T> {
+  declaration: T;
+  index: number | null;
+  args: Resolved[] | null;
+}
+
+/**
+ * Whether a statement leaves on every path through it, with `return` or `throw`, or with `break` or `continue` aimed
+ * at a loop or label outside it, so that what follows it in its block doesn't run. `labels` are those declared inside.
+ */
+function alwaysLeaves(statement: Node, labels: ReadonlySet<string> = new Set()): boolean {
+  switch (statement.type) {
+    case 'ReturnStatement':
+    case 'ThrowStatement':
+      return true;
+    case 'BreakStatement':
+    case 'ContinueStatement':
+      return statement.label === null || !labels.has(statement.label.name);
+    case 'BlockStatement':
+      return statement.body.some((item) => alwaysLeaves(item, labels));
+    case 'IfStatement':
+      return (
+        statement.alternate !== null &&
+        alwaysLeaves(statement.consequent, labels) &&
+        alwaysLeaves(statement.alternate, labels)
+      );
+    case 'LabeledStatement':
+      return alwaysLeaves(statement.body, new Set([...labels, statement.label.name]));
+    case 'TryStatement':
+      return (
+        (statement.finalizer !== null && alwaysLeaves(statement.finalizer, labels)) ||
+        (alwaysLeaves(statement.block, labels) &&
+          (statement.handler === null || alwaysLeaves(statement.handler.body, labels)))
+      );
+    default:
+      // A loop or switch takes the `break` and `continue` inside it, and may run its body not at all.
+      return false;
+  }
+}
+
+/**
+ * The names a condition reads, as in `side === 'buy'` or `!strategy.enabled`; null when it has a function, which the
+ * scan doesn't look into.
+ */
+function referencedNames(node: Node): string[] | null {
+  if (isFunctionNode(node)) return null;
+  if (node.type === 'Identifier') return [node.name];
+  const parts = node.type === 'MemberExpression' && !node.computed ? [node.object] : childNodes(node);
+  const names: string[] = [];
+  for (const part of parts) {
+    const found = referencedNames(part);
+    if (!found) return null;
+    names.push(...found);
+  }
+  return names;
+}
+
+/**
+ * Whether a loop body can end a pass before its end or stop the loop, with `break`, `continue`, `return` or `throw`,
+ * so that a test in it may not be registered on every pass. Functions inside run later, and don't count.
+ */
+function leavesEarly(body: Node): boolean {
+  if (body.type === 'FunctionDeclaration' || isFunctionNode(body)) return false;
+  switch (body.type) {
+    case 'BreakStatement':
+    case 'ContinueStatement':
+    case 'ReturnStatement':
+    case 'ThrowStatement':
+      return true;
+  }
+  return childNodes(body).some(leavesEarly);
+}
 
 /**
  * What `test.describe.configure()` sets on the describe or file it is called in: the last mode, timeout and retries
@@ -334,6 +450,8 @@ class Walker {
   private readonly callStack: Node[] = [];
   /** Helper calls walked in the file so far, up to MAX_CALLS. */
   private callsWalked = 0;
+  /** Loop passes and describe cases walked one by one so far, up to MAX_EXPANDED. */
+  private expandedPasses = 0;
   /** Problems already reported, since a function walked at several calls finds the same ones each time. */
   private readonly reported = new Set<string>();
   /** What the functions named in calls such as `onNode(22)('title', fn)` return, by the declaration of each name. */
@@ -341,7 +459,10 @@ class Walker {
   /** For each file's program, the scopes around each function in it. */
   private readonly scopeChains = new Map<Node, Map<Node, Node[]>>();
 
-  constructor(main: Frame, openModule: OpenModule) {
+  private readonly options: ExtractOptions;
+
+  constructor(main: Frame, openModule: OpenModule, options: ExtractOptions) {
+    this.options = options;
     this.main = main;
     this.frame = main;
     this.openModule = openModule;
@@ -372,6 +493,11 @@ class Walker {
       testContext: null,
       guards: [],
       isInLoop: false,
+      loops: [],
+      loopConditions: [],
+      caseIndex: null,
+      isExpanding: false,
+      expandedAt: null,
       isInCondition: false,
       isInFunction: false,
       helper: null,
@@ -428,6 +554,12 @@ class Walker {
         if (isImportMetaVitest(node.test)) break;
         const condition = this.text(node.test);
         this.visit(node.test, context);
+        const known = this.known(node.test, context);
+        if (known) {
+          const taken = known.value ? node.consequent : node.alternate;
+          if (taken) this.visit(taken, context);
+          return;
+        }
         this.visit(node.consequent, this.guarded(context, condition));
         if (node.alternate) this.visit(node.alternate, this.guarded(context, `!(${condition})`));
         return;
@@ -435,6 +567,11 @@ class Walker {
       case 'ConditionalExpression': {
         const condition = this.text(node.test);
         this.visit(node.test, context);
+        const known = this.known(node.test, context);
+        if (known) {
+          this.visit(known.value ? node.consequent : node.alternate, context);
+          return;
+        }
         this.visit(node.consequent, this.guarded(context, condition));
         this.visit(node.alternate, this.guarded(context, `!(${condition})`));
         return;
@@ -443,6 +580,18 @@ class Walker {
         const left = this.text(node.left);
         const guard = node.operator === '&&' ? left : node.operator === '||' ? `!(${left})` : `(${left}) == null`;
         this.visit(node.left, context);
+        const known = this.known(node.left, context);
+        if (known) {
+          const { value } = known;
+          const right =
+            node.operator === '&&'
+              ? Boolean(value)
+              : node.operator === '||'
+                ? !value
+                : value === null || value === undefined;
+          if (right) this.visit(node.right, context);
+          return;
+        }
         this.visit(node.right, this.guarded(context, guard));
         return;
       }
@@ -464,12 +613,26 @@ class Walker {
         }
         return;
       }
-      case 'ForStatement':
+      case 'BlockStatement':
+        this.visitStatements(node.body, context);
+        return;
       case 'ForInStatement':
-      case 'ForOfStatement':
+      case 'ForOfStatement': {
+        const values = leavesEarly(node.body) ? null : this.loopValues(node);
+        const expands = values ? this.expands(node, values, context) : 'no';
+        if (values && expands === 'yes') {
+          this.expandLoop(node, values, context);
+          return;
+        }
+        this.walkUnexpanded(node, expands === 'limit', () => {
+          this.visitChildren(node, this.inLoop(context, values?.length ?? null));
+        });
+        return;
+      }
+      case 'ForStatement':
       case 'WhileStatement':
       case 'DoWhileStatement':
-        this.visitChildren(node, { ...context, isInLoop: true });
+        this.visitChildren(node, this.inLoop(context, null));
         return;
       case 'FunctionDeclaration':
       case 'FunctionExpression':
@@ -508,6 +671,43 @@ class Walker {
     );
   }
 
+  /**
+   * With `expandCases`, the value of a condition outside test and hook bodies when the scan can work it out, as with
+   * the values of a case or pass; null otherwise, and then both branches are walked under the condition.
+   */
+  private known(test: Expression, context: Context): { value: Value } | null {
+    if (!this.options.expandCases || context.test || context.hookScope) return null;
+    // Only the values of the case, pass or helper call decide: a constant of the module may be changed in ways the scan
+    // doesn't see, and taking a branch away would drop a test the runner registers.
+    const names = referencedNames(test);
+    if (!names?.every((name) => this.frame.values.isBound(name, this.scopes))) return null;
+    const resolved = this.frame.values.resolve(test, this.scopes);
+    return resolved.ok ? { value: resolved.value } : null;
+  }
+
+  /**
+   * Walks the statements of a block. After an `if` whose branch always leaves the function or loop, as in
+   * `if (!strategy.enabled) return;`, what follows runs only when that branch isn't taken, so it is under the opposite
+   * condition; a branch taken for certain, or both branches leaving, ends the walk. A branch that leaves on only some
+   * of its paths leaves what follows as it is.
+   */
+  private visitStatements(statements: readonly Node[], context: Context): void {
+    let current = context;
+    for (const statement of statements) {
+      this.visit(statement, current);
+      if (statement.type !== 'IfStatement' || isImportMetaVitest(statement.test)) continue;
+      const thenLeaves = alwaysLeaves(statement.consequent);
+      const elseLeaves = statement.alternate !== null && alwaysLeaves(statement.alternate);
+      if (!thenLeaves && !elseLeaves) continue;
+      const known = this.known(statement.test, current);
+      const taken = known && (known.value ? thenLeaves : elseLeaves);
+      if (taken || (thenLeaves && elseLeaves)) return;
+      if (known) continue;
+      const condition = this.text(statement.test);
+      current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
+    }
+  }
+
   private placement(context: Context): Placement {
     return {
       scope: context.scope,
@@ -542,14 +742,120 @@ class Walker {
     return snippet(this.frame.parsed.source.slice(node.start, node.end));
   }
 
+  /** `pass` is the pass of an expanded loop, and where the loop starts. */
+  private inLoop(context: Context, passes: number | null, pass: { index: number; at: number } | null = null): Context {
+    return {
+      ...context,
+      isInLoop: true,
+      loops: [...context.loops, passes],
+      loopConditions: [...context.loopConditions, context.isInCondition || pass !== null],
+      caseIndex: pass?.index ?? context.caseIndex,
+      isExpanding: context.isExpanding || pass !== null,
+      expandedAt: this.expandedAt(context, pass?.at ?? null),
+    };
+  }
+
+  /**
+   * Where what an expansion registers is ordered: the outermost expansion in the scanned file. In a helper walked at a
+   * call, the call already orders what it registers, and the helper may be in another file.
+   */
+  private expandedAt(context: Context, at: number | null): number | null {
+    return context.expandedAt ?? (context.registeredBy === null ? at : null);
+  }
+
+  /**
+   * Whether to walk a loop or describe table once per value: with `expandCases`, outside test and hook bodies, which
+   * the runner walks once for each test, for a loop that declares its variable with `let` or `const`. An expansion
+   * outside any other starts only while the file has expanded fewer than MAX_EXPANDED passes and cases, so that a long
+   * loop over test data can't use up the walk; inside one, loops expand up to ten times that, so that an expansion
+   * is whole. `limit` means the limit is why it doesn't.
+   */
+  private expands(
+    loop: Extract<Node, { type: 'ForOfStatement' | 'ForInStatement' }> | null,
+    values: readonly unknown[],
+    context: Context,
+  ): 'yes' | 'no' | 'limit' {
+    if (!this.options.expandCases || context.test || context.hookScope) return 'no';
+    // Vitest runs describe callbacks after the loop, when a `var` holds its last value.
+    if (loop && !(loop.left.type === 'VariableDeclaration' && loop.left.kind !== 'var')) return 'no';
+    const limit = context.isExpanding ? 10 * MAX_EXPANDED : MAX_EXPANDED;
+    if (this.expandedPasses + values.length > limit) return 'limit';
+    this.expandedPasses += values.length;
+    return 'yes';
+  }
+
+  /**
+   * Walks a loop as one record, and says why it isn't expanded when it was asked to be and registers tests or
+   * describes.
+   */
+  private walkUnexpanded(node: Node, limited: boolean, walk: () => void): void {
+    const before = this.tests.length + this.suites.length;
+    walk();
+    if (!limited || this.tests.length + this.suites.length === before) return;
+    this.report(
+      problem(
+        'cases-not-expanded',
+        node,
+        `The passes of the loop are listed as one record, since expanding it would take the file past ${MAX_EXPANDED.toLocaleString('en-US')} loop passes and describe cases.`,
+      ),
+    );
+  }
+
+  /**
+   * Walks the body of `for...of` or `for...in` once per value, with the loop variable bound to it, as the runner runs
+   * it; false when the loop doesn't declare its variable, as in `for (symbol of SYMBOLS)`.
+   */
+  private expandLoop(
+    loop: Extract<Node, { type: 'ForOfStatement' | 'ForInStatement' }>,
+    values: Value[],
+    context: Context,
+  ): boolean {
+    const declarator = (loop.left as Extract<Node, { type: 'VariableDeclaration' }>).declarations[0];
+    this.visit(loop.right, context);
+    for (const [index, value] of values.entries()) {
+      this.frame.values.withLoopValue(declarator, declarator.id, { ok: true, value }, loop.body, this.scopes, () => {
+        this.visit(loop.body, this.inLoop(context, 1, { index, at: loop.start }));
+      });
+    }
+    return true;
+  }
+
+  /**
+   * What `for...of` or `for...in` goes over, when the scan can work it out: an array's elements, or the keys of any
+   * value, as `for...in` takes them; null when the value is unknown or `for...of` can't go over it.
+   */
+  private loopValues(loop: Extract<Node, { type: 'ForOfStatement' | 'ForInStatement' }>): Value[] | null {
+    // The loop's own scope declares the loop variable, which the value it goes over can't refer to.
+    const resolved = this.frame.values.resolve(loop.right, this.scopes.slice(0, -1));
+    if (!resolved.ok) return null;
+    if (loop.type === 'ForInStatement') return Object.keys(Object(resolved.value ?? {}) as object);
+    return Array.isArray(resolved.value) ? resolved.value : null;
+  }
+
   /** `symbols.forEach((symbol) => test(...))` declares its tests in a loop. */
   private loopCall(call: CallExpression, context: Context): boolean {
     const callee = unwrap(call.callee);
     if (callee.type !== 'MemberExpression' || !LOOP_METHODS.has(propertyName(callee) ?? '')) return false;
     this.visit(call.callee, context);
+    const resolved = this.frame.values.resolve(callee.object, this.scopes);
+    const list = resolved.ok && Array.isArray(resolved.value) ? resolved.value : null;
     for (const arg of call.arguments) {
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        this.visitCallback(arg, { ...context, isInLoop: true });
+        const values = leavesEarly(arg.body as Node) ? null : list;
+        const expands = values ? this.expands(null, values, context) : 'no';
+        if (values && expands === 'yes') {
+          // The callback gets each element, its index and the array.
+          for (const [index, value] of values.entries()) {
+            const args = [value, index, values].map((item): Resolved => ({ ok: true, value: item }));
+            this.frame.values.withArguments(arg, args, this.scopes, () => {
+              this.visitCallback(arg, this.inLoop(context, 1, { index, at: call.start }));
+            });
+          }
+        } else {
+          this.walkUnexpanded(call, expands === 'limit', () => {
+            this.visitCallback(arg, this.inLoop(context, values?.length ?? null));
+          });
+        }
       } else {
         this.visit(arg, context);
       }
@@ -1155,6 +1461,60 @@ class Walker {
 
   private declareTest(call: CallExpression, declaration: TestDeclaration, context: Context): void {
     if (context.quiet || this.nested(call, context)) return;
+    for (const item of this.cases(declaration, call, context)) this.declareCase(call, item, context);
+  }
+
+  /**
+   * With `expandCases`, a declaration for each case of its table, with the case's title and the arguments its callback
+   * gets; otherwise, or when the scan can't give each case its title, the declaration alone, with a problem that says
+   * why.
+   */
+  private cases<T extends TestDeclaration | SuiteDeclaration>(
+    declaration: T,
+    call: CallExpression,
+    context: Context,
+  ): Case<T>[] {
+    const single = (reason: string | null): Case<T>[] => {
+      if (reason === null) return [{ declaration, index: null, args: null }];
+      const item = problem(
+        'cases-not-expanded',
+        call,
+        `The cases of the table are listed as one record, since ${reason}.`,
+      );
+      return [{ declaration: { ...declaration, problems: [...declaration.problems, item] }, index: null, args: null }];
+    };
+    if (!this.options.expandCases || !declaration.isParameterized || declaration.caseCount === null)
+      return single(null);
+    if (!declaration.cases) return single("the scan can't work out every value in it");
+    const title = declaration.title;
+    if (!title || title.isDynamic) return single("the scan can't work out the title");
+    const titles = declaration.cases.map((item, index) =>
+      vitestCaseTitle(title.text, item.items, index, this.options.version),
+    );
+    if (titles.some((text) => text === null)) {
+      return single("the title shows an array or object, which the scan doesn't format the way Vitest does");
+    }
+    if (declaration.kind === 'describe' && this.expands(null, declaration.cases, context) === 'limit') {
+      return single(
+        `expanding it would take the file past ${MAX_EXPANDED.toLocaleString('en-US')} loop passes and describe cases`,
+      );
+    }
+    return declaration.cases.map((item, index) => ({
+      declaration: {
+        ...declaration,
+        title: { text: titles[index] as string, withoutTags: titles[index] as string, isDynamic: false },
+        caseCount: 1,
+      },
+      index,
+      args: item.args.map((value): Resolved => ({ ok: true, value })),
+    }));
+  }
+
+  private declareCase(
+    call: CallExpression,
+    { declaration, index, args }: Case<TestDeclaration>,
+    context: Context,
+  ): void {
     const statement = this.statement(call);
     const empty = emptyTitle(declaration, call);
     const test: PendingTest = {
@@ -1165,12 +1525,18 @@ class Walker {
       declaredAt: this.declaredAt(call),
       frame: this.frame,
       registeredBy: context.registeredBy,
-      order: (context.registeredBy ?? call).start,
+      order: context.expandedAt ?? context.registeredBy?.start ?? call.start,
       states: [...declaration.states],
       annotations: [...declaration.details.annotations],
       isInLoop: context.isInLoop,
+      // A condition inside a loop decides on each pass whether the test is registered.
+      passes: context.loops,
+      loops: context.loops.map((passes, index) =>
+        context.isInCondition && !context.loopConditions[index] ? null : passes,
+      ),
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
+      caseIndex: index ?? context.caseIndex,
       comments: this.commentsAbove(statement.start),
       run: {},
       expectCount: 0,
@@ -1186,21 +1552,37 @@ class Walker {
     const body = declaration.fn ?? declaration.hashed;
     if (body) {
       if (!declaration.fn) this.walkedAtCall.add(body);
-      this.visitCallback(body, {
-        ...context,
-        test,
-        hookScope: null,
-        hookName: null,
-        stepDepth: 0,
-        testContext: declaration.testContext,
-        guards: [],
-        helper: null,
+      this.withCase(body, args, () => {
+        this.visitCallback(body, {
+          ...context,
+          test,
+          hookScope: null,
+          hookName: null,
+          stepDepth: 0,
+          testContext: declaration.testContext,
+          guards: [],
+          helper: null,
+        });
       });
     }
   }
 
+  /** Runs `walk` with a case's arguments bound to the parameters of its callback, as the runner calls it. */
+  private withCase(fn: FunctionNode, args: Resolved[] | null, walk: () => void): void {
+    if (args) this.frame.values.withArguments(fn, args, this.scopes, walk);
+    else walk();
+  }
+
   private declareSuite(call: CallExpression, declaration: SuiteDeclaration, context: Context): void {
     if (context.quiet || this.nested(call, context)) return;
+    for (const item of this.cases(declaration, call, context)) this.declareSuiteCase(call, item, context);
+  }
+
+  private declareSuiteCase(
+    call: CallExpression,
+    { declaration, index, args }: Case<SuiteDeclaration>,
+    context: Context,
+  ): void {
     for (const item of [...declaration.problems, ...emptyTitle(declaration, call)]) this.report(item);
     const scope: Scope = {
       kind: 'describe',
@@ -1224,26 +1606,34 @@ class Walker {
       declaredAt: this.declaredAt(call),
       frame: this.frame,
       registeredBy: context.registeredBy,
-      order: (context.registeredBy ?? call).start,
+      order: context.expandedAt ?? context.registeredBy?.start ?? call.start,
       cuts: [],
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
+      caseIndex: index ?? context.caseIndex,
     };
     scope.suite = suite;
     this.suites.push(suite);
     this.cut(context.scope, call);
     this.suiteFrames.set(suite, this.frame);
-    if (declaration.fn) {
-      this.visitCallback(declaration.fn, {
-        ...context,
-        scope,
-        test: null,
-        hookScope: null,
-        hookName: null,
-        stepDepth: 0,
-        testContext: null,
-        guards: [],
-        helper: null,
+    const { fn } = declaration;
+    if (fn) {
+      this.withCase(fn, args, () => {
+        this.visitCallback(fn, {
+          ...context,
+          scope,
+          test: null,
+          hookScope: null,
+          hookName: null,
+          stepDepth: 0,
+          testContext: null,
+          guards: [],
+          helper: null,
+          // The pass of a loop around the describe is the describe's, not that of each test in it.
+          caseIndex: null,
+          isExpanding: context.isExpanding || index !== null,
+          expandedAt: this.expandedAt(context, index === null ? null : call.start),
+        });
       });
     }
   }
@@ -1278,6 +1668,10 @@ class Walker {
 }
 
 /** Walks the scanned file; `openModule` reads the modules of imported helpers that the file calls. */
-export function extract(main: Frame, openModule: OpenModule): Extraction {
-  return new Walker(main, openModule).run();
+export function extract(
+  main: Frame,
+  openModule: OpenModule,
+  options: ExtractOptions = { expandCases: false, version: null },
+): Extraction {
+  return new Walker(main, openModule, options).run();
 }

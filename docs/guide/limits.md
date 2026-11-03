@@ -1,5 +1,5 @@
 ---
-description: What a scan can't know without running the code, such as config files and imported values.
+description: What a scan can't know without running the code, such as config files and values from installed packages.
 ---
 
 # Known limits
@@ -41,23 +41,38 @@ Calls that change settings while tests run are not read: `testInfo.setTimeout()`
 and fixtures that other fixtures or automatic fixtures set up, are not in them. A test or hook function passed by name
 is read when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read.
 
-## Imported values are not resolved
+## Values from installed packages are not worked out
 
-Values written in the same file are worked out: string and number literals, constants, enums, arrays and objects
-built from them, spreads, string concatenation and template strings. A value imported from another file is not.
-When a title, tag, annotation or table comes from an import, the record keeps what it can and a diagnostic names the
-module the value came from:
+Titles, tags, annotations, reasons, run settings and tables are worked out when they are built from values the scan
+can read: string and number literals, constants, enums, arrays and objects built from them, spreads, string
+concatenation, template strings, arithmetic, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
+`Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
+array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
+included:
 
 ```ts
 import { TAGS } from '../../test-data/tags';
+
+test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) => {
+  // listed with the @risk tag
+});
+```
+
+A value from an installed package, or built with any other call, is not. Nor is a constant the module changes while
+it loads, as in `WATCHED.push('MSFT')`, or a function parameter or loop variable the code assigns to, since the
+declared value may not be the one the runner reads. The record then keeps what it can and a
+diagnostic says so, naming the module when the value comes from an import:
+
+```ts
+import { TAGS } from '@trading/qa-tags';
 
 test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) => {
   // listed without the tag, with an unresolved-tag warning
 });
 ```
 
-Two kinds of import are followed: a custom `test` object, and a function that declares tests, as described under
-[tests in helper functions](#tests-in-helper-functions). They are found through:
+Values, a custom `test` object, and a function that declares tests, as described under
+[tests in helper functions](#tests-in-helper-functions), are followed through imports found through:
 
 - a relative path, as in `../fixtures`;
 - a path alias from `compilerOptions.paths` or `baseUrl` in the tsconfig nearest the importing file, with every file
@@ -176,22 +191,49 @@ Such a test is listed where it is written. Tests in a callback passed to another
 
 ## Loops and tables are one record
 
-A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true` and a `test-in-loop` warning.
+A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true`. When the loop goes over values
+the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
+registers the test on every pass, `caseCount` says how many tests the runner registers. Otherwise `caseCount` is `null`
+and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
+or `throw` in it, and a test under a condition inside the loop, such as one in a helper after
+`if (!strategy.enabled) return;`.
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
-A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the table is
-written in the file. The runner creates one test per iteration or per case; expanding them is planned for a later
-release.
+A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
+work out the table.
+
+With `--expand-cases` (library: `expandCases: true`), each case of a table and each pass of a loop whose values the
+scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The
+values of the case are bound in its callback, as the runner passes them, so a title, tag or condition built from
+them is worked out per case, and an `if`, `?:`, `&&`, `||` or `??` that decides whether a test is registered takes
+the branch they give when it reads nothing but them. A condition on a constant of the module still has both branches,
+under the condition, since code the scan doesn't follow may change the constant. Loops in test and hook bodies, which
+the runner runs after collecting the tests, and loops over a `var`, which holds its last value by the time Vitest runs
+the describes, are not expanded. A loop or describe table
+outside any other is expanded while the file has fewer than 1,000 expanded loop passes and describe cases, and then
+in whole; past that, loops and describe tables that register tests are one record with a `cases-not-expanded`
+warning, so that a long loop over test data can't slow the scan down.
+
+Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`,
+`%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
+stays one record, with a `cases-not-expanded` warning, when the scan can't work out a value in it or its title, or the
+title would show an array or object. A config that sets `taskTitleValueFormatTruncate`, or before Vitest 5
+`chaiConfig.truncateThreshold`, is not read, so long values are cut at 40 characters there too.
 
 ## Conditions are not evaluated
 
 `test.skip(browserName === 'webkit', 'reason')` gives `state: 'skip'` with `isConditional: true` and the condition's
 source text. Whether the test is skipped on a given run depends on the browser, the environment or the clock. A
-condition written as a constant, such as `test.skip(true)` or `test.skipIf(false)`, is worked out.
+condition the scan can work out, such as `test.skip(true)`, `test.skipIf(MARKET === 'crypto')` with `MARKET` a
+constant, or `test.skip(side === 'short')` in a helper called with `'buy'`, is worked out.
 
 A skip inside `if`, `?:`, `&&`, `||`, `??`, `switch` or a `catch` block runs only when that code does, so it is
 conditional too, with the source text of what decides it as its condition. For a `catch` block that is the clause
 itself, `catch` or `catch (error)`, since the block runs only when the `try` block throws.
+
+Code after an `if` whose branch always returns, throws, breaks or continues, as in `if (!account.active) return;`,
+runs only when that branch isn't taken, so it is under the opposite condition, `!(!account.active)` here. A branch that
+leaves on only some of its paths, as in `if (isEquity) { if (isHoliday) return; }`, leaves what follows as it is.
 
 ## What dependencyHash leaves out
 

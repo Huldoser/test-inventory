@@ -818,12 +818,19 @@ test.describe('short sells', () => {
 `,
     });
     const inventory = await scanProject(root);
-    // The condition is kept as source text, as everywhere, and the state is set on the line of each call.
+    // The condition is worked out with the arguments of each call, and the state is set on the line of the call.
     expect(
-      inventory.tests.map((test) => [test.fullName, test.lineStart, test.condition, test.stateLine, test.tags]),
+      inventory.tests.map((test) => [
+        test.fullName,
+        test.lineStart,
+        test.state,
+        test.condition,
+        test.stateLine,
+        test.tags,
+      ]),
     ).toEqual([
-      ['buy orders > buy rejects a zero quantity', 5, "side === 'short'", 5, ['@orders']],
-      ['short sells > short rejects a zero quantity', 8, "side === 'short'", 8, []],
+      ['buy orders > buy rejects a zero quantity', 5, 'active', null, null, ['@orders']],
+      ['short sells > short rejects a zero quantity', 8, 'skip', null, 8, []],
     ]);
     expect(inventory.tests.map((test) => test.declaredAt)).toEqual([
       { relativeFilePath: 'helpers/orders.ts', lineStart: 6, columnStart: 3 },

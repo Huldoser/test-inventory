@@ -2,7 +2,7 @@ import type { ExpressionStatement } from 'oxc-parser';
 import { describe, expect, it } from 'vitest';
 import { parseFile } from '../src/parse.ts';
 import { Values } from '../src/values.ts';
-import { PLAYWRIGHT_IMPORT, scanPlaywright, titles } from './helpers.ts';
+import { PLAYWRIGHT_IMPORT, scanPlaywright, scanVitest, titles, VITEST_IMPORT } from './helpers.ts';
 
 /** Resolves the last statement of the code, which must be an expression, at the top level of the file. */
 function resolve(code: string) {
@@ -39,6 +39,25 @@ describe('Values', () => {
     ['enum Level { Low, Mid = 5, High }\nLevel.High;', 6],
     ["enum Quote { 'last price' = 'last', Bid = 'bid' }\nQuote['last price'] + Quote.Bid;", 'lastbid'],
     ['export const LIMIT = 100;\nLIMIT;', 100],
+    ["const SIDE = 'sell';\nSIDE === 'sell' ? 'short' : 'long';", 'short'],
+    ["const SIDE = 'buy';\nSIDE !== 'buy' ? 'short' : 'long';", 'long'],
+    ["const LOTS = 3;\n`${LOTS > 1 ? 'lots' : 'lot'} ${LOTS >= 3} ${LOTS < 1} ${LOTS <= 3}`;", 'lots true false true'],
+    ["'AAPL' < 'MSFT';", true],
+    ['30 * 1000 - 500 / 2 + (7 % 4);', 29_753],
+    ["const VENUE = '';\nVENUE || 'NASDAQ';", 'NASDAQ'],
+    ["'NYSE' || price;", 'NYSE'],
+    ["const DESK = 'fx';\nDESK && `${DESK} desk`;", 'fx desk'],
+    ['0 && price;', 0],
+    ["null ?? 'market';", 'market'],
+    ["'limit' ?? price;", 'limit'],
+    ['Object.keys({ buy: 1, sell: 2 });', ['buy', 'sell']],
+    ["Object.values({ buy: 'B', sell: 'S' });", ['B', 'S']],
+    ['Object.entries({ buy: 1 });', [['buy', 1]]],
+    ["JSON.stringify({ symbol: 'AAPL', qty: 10 });", '{"symbol":"AAPL","qty":10}'],
+    ['String(42.5);', '42.5'],
+    ["'buy'.toUpperCase() + 'SELL'.toLowerCase() + ' gtc '.trim();", 'BUYsellgtc'],
+    ["['AAPL', 'MSFT'].join(', ') + ['GTC', 'IOC'].join();", 'AAPL, MSFTGTC,IOC'],
+    ["'NVDA'.length;", 4],
   ])('works out %s', (code, value) => {
     expect(resolve(code)).toEqual({ ok: true, value });
   });
@@ -50,7 +69,6 @@ describe('Values', () => {
     ['`${price}`;'],
     ['true + 1;'],
     ["[1] + 'a';"],
-    ['5 - 1;'],
     ['price + 1;'],
     ['1 + price;'],
     ["-'a';"],
@@ -75,9 +93,40 @@ describe('Values', () => {
     ['(1).toFixed;'],
     ["const ORDER = { side: 'buy' };\nORDER[side];"],
     ["const ORDER = { side: 'buy' };\nORDER[{}];"],
-    ["enum Side { Buy = 'buy', Short = 'sell'.length, Cover }\nSide.Cover;"],
+    ["enum Side { Buy = 'buy', Short = shortCode(), Cover }\nSide.Cover;"],
     ['enum Side { Buy = price }\nSide.Buy;'],
     ['price?.last;'],
+    ["1 < 'a';"],
+    ["'5' - 1;"],
+    ['0 / 0;'],
+    ["'buy' * 'sell';"],
+    ['[1] === [1];'],
+    ['1 == 1;'],
+    ['price ? 1 : 2;'],
+    ['price || 1;'],
+    ['price === 1;'],
+    ['1 === price;'],
+    ['quote();'],
+    ['quote.last();'],
+    ['const Object = { keys: () => [] };\nObject.keys({});'],
+    ['Object.keys({}, 1);'],
+    ['Object.keys(price);'],
+    ["Object.keys('ab');"],
+    ['Object.freeze({});'],
+    ['JSON.parse("1");'],
+    ['String(price);'],
+    ['String([1]);'],
+    ['const String = (value) => value;\nString(1);'],
+    ["'a'.toUpperCase?.();"],
+    ["'a'.padStart(2);"],
+    ["'a'.trim(1);"],
+    ["'a'[`trim`]();"],
+    ['price.trim();'],
+    ['[[1]].join();'],
+    ['[1].join(price);'],
+    ['[1].join(1);'],
+    ['[1].join(...seps);'],
+    ['[1].concat([2]);'],
   ])('leaves %s unresolved', (code) => {
     expect(resolve(code)).toEqual(UNRESOLVED);
   });
@@ -134,13 +183,178 @@ quoteTests();
 `);
     expect(titles(inventory)).toEqual([
       'routes a buy order',
-      '`to ${venue}`',
+      'to NASDAQ',
       '`with ${rest}`',
       'title',
       '`to ${venue}`',
       '`with ${rest}`',
       'NASDAQ accepts market orders',
       '`quotes ${symbol}`',
+    ]);
+  });
+
+  it('leaves a parameter the helper assigns to unknown, and gives an explicit undefined the default', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function venueChecks(venue) {
+  if (!venue) venue = 'NASDAQ';
+  test.describe('venue', () => {
+    test.skip(venue === 'NASDAQ', 'NASDAQ sandbox is down');
+    test(\`routes to \${venue}\`, async () => {});
+  });
+}
+function sideChecks(side) {
+  side = side.toUpperCase();
+  test(\`fills a \${side} order\`, async () => {});
+}
+function quantityChecks(lots) {
+  lots++;
+  test(\`fills \${lots} lots\`, async () => {});
+}
+function routingChecks(venue = 'NASDAQ', side = 'buy') {
+  test.describe('routing', () => {
+    test.skip(venue === 'NASDAQ', 'NASDAQ sandbox is down');
+    test(\`routes a \${side} order to \${venue}\`, async () => {});
+  });
+}
+venueChecks('');
+sideChecks('buy');
+quantityChecks(1);
+routingChecks(undefined, 'sell');
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.condition])).toEqual([
+      ['`routes to ${venue}`', 'skip', "venue === 'NASDAQ'"],
+      ['`fills a ${side} order`', 'active', null],
+      ['`fills ${lots} lots`', 'active', null],
+      ['routes a sell order to NASDAQ', 'skip', null],
+    ]);
+  });
+
+  it('leaves a constant unknown when code that runs while the file loads changes it, also through an alias', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+import { DESKS } from './desks';
+const VENUES = ['NYSE'];
+const SIDES = ['buy'];
+const TIERS = ['retail'];
+const LIMITS = { lots: 1 };
+const register = (venue) => VENUES.push(venue);
+const all = SIDES;
+all.push('sell');
+DESKS.push('rates');
+function addTier(list) {
+  list.push('professional');
+  test(\`lists \${list.length} tiers\`, () => {});
+}
+describe('routing', () => {
+  register('IEX');
+  TIERS.push('market maker');
+  const BOOKS = ['equities'];
+  BOOKS.push('fx');
+  for (const book of BOOKS) test(\`books \${book}\`, () => {});
+});
+test('fills an order', () => {
+  LIMITS.lots = 2;
+});
+for (const venue of VENUES) test(\`routes to \${venue}\`, () => {});
+for (const side of SIDES) test(\`places a \${side} order\`, () => {});
+for (const tier of TIERS) test(\`charges \${tier}\`, () => {});
+for (const desk of DESKS) test(\`books to \${desk}\`, () => {});
+addTier(['retail']);
+test(\`trades \${LIMITS.lots} lot\`, () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`books ${book}`', null],
+      ['fills an order', null],
+      ['`routes to ${venue}`', null],
+      ['`places a ${side} order`', null],
+      ['`charges ${tier}`', null],
+      ['`books to ${desk}`', null],
+      ['`lists ${list.length} tiers`', null],
+      ['trades 1 lot', null],
+    ]);
+  });
+
+  it('binds destructured parameters, with holes, rests and defaults, as JavaScript does', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+import { ORDER } from './orders';
+const KEY = 'venue';
+function orderTests([side, qty], { [KEY]: venue, ...rest }, [, first, ...others], { tier = 'retail' } = {}) {
+  test(\`\${side} \${qty} on \${venue} for \${rest.account}, \${first} then \${others.join('+')}, \${tier}\`, async () => {});
+}
+function quoteTests([symbol, ...more], { venue, ...rest }, { [lookupKey()]: desk }) {
+  test(\`quotes \${symbol} \${more} on \${venue} \${rest} \${desk}\`, async () => {});
+}
+function legTests([leg]) {
+  test(\`fills \${leg}\`, async () => {});
+}
+orderTests(['buy', 100], { venue: 'NYSE', account: 'margin' }, ['skip', 'AAPL', 'MSFT', 'NVDA']);
+quoteTests(ORDER, 'not an object', { desk: 'fx' });
+quoteTests(['AAPL'], ORDER, ORDER);
+legTests(...LEGS);
+legTests('AAPL');
+`);
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'buy 100 on NYSE for margin, AAPL then MSFT+NVDA, retail',
+      '`quotes ${symbol} ${more} on ${venue} ${rest} ${desk}`',
+      '`quotes ${symbol} ${more} on ${venue} ${rest} ${desk}`',
+      '`fills ${leg}`',
+      '`fills ${leg}`',
+    ]);
+  });
+
+  it('leaves names unknown that the helper assigns by destructuring or as a loop variable', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function routeTests(side, venue, tier, desk, legs) {
+  [side] = ['sell'];
+  ({ venue } = { venue: 'NYSE' });
+  ({ tier = 'professional' } = {});
+  for (desk of ['fx']) {}
+  [...legs] = [];
+  test(\`routes \${side} \${venue} \${tier} \${desk} \${legs}\`, async () => {});
+}
+function bookTests(account, ...rest) {
+  ({ ...rest } = {});
+  test(\`books \${account} \${rest}\`, async () => {});
+}
+routeTests('buy', 'NASDAQ', 'retail', 'equities', 2);
+bookTests('margin', 1);
+`);
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      '`routes ${side} ${venue} ${tier} ${desk} ${legs}`',
+      '`books ${account} ${rest}`',
+    ]);
+  });
+
+  it('leaves a constant unknown when the file changes it at the top level', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const WATCHED = ['AAPL'];
+WATCHED.push('MSFT');
+const ROUTING = { market: 'NASDAQ' };
+ROUTING.market = 'NYSE';
+const LIMITS = { lots: 1 };
+LIMITS.lots++;
+const DESKS = { fx: 'FX' };
+delete DESKS.fx;
+const FEES = { retail: 25 };
+Object.assign(FEES, { retail: 30 });
+Object.assign();
+loadConfig().market = 'NYSE';
+FEES[pickMethod()]();
+let session;
+session = 'regular';
+const SIDES = ['buy'];
+const ORDER = { qty: 100 };
+test.beforeEach(() => {
+  SIDES.push('sell');
+  ORDER.qty = 200;
+});
+for (const symbol of WATCHED) test(\`quotes \${symbol}\`, async () => {});
+test(\`routes to \${ROUTING.market} with \${LIMITS.lots} lots, \${DESKS.fx} and \${FEES.retail}\`, async () => {});
+test(\`fills \${SIDES.join()} for \${ORDER.qty}\`, async () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`quotes ${symbol}`', null],
+      ['`routes to ${ROUTING.market} with ${LIMITS.lots} lots, ${DESKS.fx} and ${FEES.retail}`', null],
+      ['fills buy for 100', null],
     ]);
   });
 

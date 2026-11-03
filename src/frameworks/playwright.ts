@@ -561,6 +561,7 @@ export class PlaywrightAdapter implements Adapter {
       hashed,
       isParameterized: false,
       caseCount: null,
+      cases: null,
       testContext: null,
       fixtures: destructuredNames(hashed, 0),
       takesAllFixtures: takesWhole(hashed, 0),
@@ -648,6 +649,7 @@ export class PlaywrightAdapter implements Adapter {
       hashed: fn,
       isParameterized: false,
       caseCount: null,
+      cases: null,
       problems,
     };
   }

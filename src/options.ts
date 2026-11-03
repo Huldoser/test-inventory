@@ -19,6 +19,11 @@ export interface ScanOptions {
   frameworkVersion?: string;
   /** Which tests get the comments above them. Defaults to `non-active`. */
   comments?: CommentsMode;
+  /**
+   * One test or describe per case of a `.each` or `.for` table and per pass of a loop whose values the scan can work
+   * out, each with the title the runner gives it. Defaults to `false`: one record per declaration.
+   */
+  expandCases?: boolean;
 }
 
 /** @inline */
@@ -31,6 +36,11 @@ export interface ScanSourceOptions {
   frameworkVersion?: string | null;
   /** Which tests get the comments above them. Defaults to `non-active`. */
   comments?: CommentsMode;
+  /**
+   * One test or describe per case of a `.each` or `.for` table and per pass of a loop whose values the scan can work
+   * out, each with the title the runner gives it. Defaults to `false`: one record per declaration.
+   */
+  expandCases?: boolean;
 }
 
 const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest'];
@@ -59,6 +69,12 @@ export function checkComments(value: unknown, option: string): CommentsMode {
   if (value === undefined) return 'non-active';
   if (!COMMENTS.includes(value as CommentsMode)) throw invalid(option, '"all", "non-active" or "none"');
   return value as CommentsMode;
+}
+
+export function checkFlag(value: unknown, option: string): boolean {
+  if (value === undefined) return false;
+  if (typeof value !== 'boolean') throw invalid(option, 'true or false');
+  return value;
 }
 
 export function checkVersion(value: unknown, option: string): string | null {

@@ -56,7 +56,8 @@ when tests may be missing from the output, and `warning` when a value is missing
 | `unresolved-annotation`        | warning                                   | The same for an annotation.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `unresolved-option`            | warning                                   | An options object, a spread in one, a lock, a Vitest flag such as `concurrent` or `only`, a `meta` value, a timeout, retry or repeat count, or the count of `expect.assertions()` could not be worked out, a timeout is set only under a condition, or a Vitest `retry` is an object before 4.1, where Vitest never runs the test. What it would set is missing from the record.                                                                                      |
 | `unresolved-cases`             | warning                                   | The cases of `.each` or `.for` could not be counted; `caseCount` is `null`.                                                                                                                                                                                                                                                                                                                                                                                           |
-| `test-in-loop`                 | warning                                   | The test is declared in a loop. It is listed once, while the runner creates one test per iteration.                                                                                                                                                                                                                                                                                                                                                                   |
+| `cases-not-expanded`           | warning                                   | With `--expand-cases`, a table is listed as one record: the scan can't work out every value in it or the title, or the title shows an array or object, which the scan doesn't format the way Vitest does.                                                                                                                                                                                                                                                             |
+| `test-in-loop`                 | warning                                   | The test is declared in a loop whose values the scan can't work out. It is listed once, while the runner creates one test per iteration, and `caseCount` is `null`.                                                                                                                                                                                                                                                                                                   |
 | `test-in-function`             | warning                                   | The test is declared in a function the scan can't place: nothing in the file calls it by name, the file only exports it, or it is called only from tests or hooks. The record stays where the test is written. Functions called from the file or a describe have their tests recorded at each call, up to 10,000 calls in a file, where this warning marks the call the scan stopped at; see [limits](/guide/limits#tests-in-helper-functions).                       |
 | `empty-title`                  | warning                                   | A test or describe is titled with an empty string. Both runners allow it, but reports and filters can't tell it apart.                                                                                                                                                                                                                                                                                                                                                |
 | `bench-outside-benchmark-file` | warning                                   | A test uses Vitest 5's `bench` fixture outside a benchmark file such as `*.bench.ts`, where Vitest fails the test. It still has `isBenchmark`.                                                                                                                                                                                                                                                                                                                        |
@@ -91,13 +92,13 @@ it, so the file loads.
 
 ```json
 {
-  "code": "unresolved-tag",
+  "code": "dynamic-title",
   "level": "warning",
-  "message": "Tag value TAGS.risk comes from '../../test-data/tags' and could not be worked out; the tag is missing.",
-  "relativeFilePath": "tests/orders/limit-orders.spec.ts",
-  "lineStart": 16,
-  "columnStart": 48,
-  "testId": "74099e2f6d05b9ee",
-  "source": "TAGS.risk"
+  "message": "Title `shows a live quote for ${symbol}` could not be worked out; the record uses its source text.",
+  "relativeFilePath": "tests/quotes.spec.ts",
+  "lineStart": 6,
+  "columnStart": 10,
+  "testId": "8be9925edcd4647c",
+  "source": "`shows a live quote for ${symbol}`"
 }
 ```

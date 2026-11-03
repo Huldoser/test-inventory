@@ -6,12 +6,14 @@ import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
 import { Configs } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
+import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
 import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
+  checkFlag,
   checkFramework,
   checkObject,
   checkStrings,
@@ -151,6 +153,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const framework = checkFramework(checked.framework, 'options.framework');
   const ignore = checkStrings(checked.ignore, 'options.ignore', false);
   const comments = checkComments(checked.comments, 'options.comments');
+  const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
   const override = checkVersion(checked.frameworkVersion, 'options.frameworkVersion');
   if (checked.root !== undefined && (typeof checked.root !== 'string' || checked.root === '')) {
     throw invalid('options.root', 'a non-empty string');
@@ -175,6 +178,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
 
   const readerFor = moduleResolver(root);
   const graph = new DependencyGraph();
+  const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
@@ -231,11 +235,13 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       framework,
       version: rules,
       comments,
+      expandCases,
       readModule: readerFor(absolutePath),
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
       graph,
+      exports,
       runsWith,
       snapshotFiles: { ...snapshotFiles, moved: runsWith.moved },
     });

@@ -103,6 +103,7 @@ const TEST_KEYS = Object.keys({
   isBenchmark: true,
   isParameterized: true,
   caseCount: true,
+  caseIndex: true,
   isInLoop: true,
   isInCondition: true,
   isInFunction: true,

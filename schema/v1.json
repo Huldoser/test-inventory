@@ -514,6 +514,18 @@
           "type": "boolean",
           "description": "Declared with `.each` or `.for`."
         },
+        "caseIndex": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `expandCases`, which case of its table or pass of its loop the describe is, from 0, as Vitest's `%#` counts; null without `expandCases`, or when the describe isn't one of several."
+        },
         "tags": {
           "type": "array",
           "items": {
@@ -645,6 +657,7 @@
         "isSerial",
         "isShuffled",
         "isParameterized",
+        "caseIndex",
         "tags",
         "annotations",
         "locks",
@@ -1144,7 +1157,19 @@
               "type": "null"
             }
           ],
-          "description": "How many times the runner repeats the test: the cases of its own table times those of each describe table around it. Null when a table is not written out in the file, or the test is not parameterized."
+          "description": "How many times the runner repeats the test: the cases of its own table times those of each describe table and the passes of each loop around it. Null when the scan can't work out a table or a loop's values, or the test is neither parameterized nor in a loop."
+        },
+        "caseIndex": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `expandCases`, which case of its own table, or pass of the innermost loop around it inside its describe, the test is, from 0, as Vitest's `%#` counts; null without `expandCases`, or when the test isn't one of several. The case of a describe table or loop around the describe is the describe's `caseIndex`."
         },
         "isInLoop": {
           "type": "boolean",
@@ -1237,6 +1262,7 @@
         "isBenchmark",
         "isParameterized",
         "caseCount",
+        "caseIndex",
         "isInLoop",
         "isInCondition",
         "isInFunction",
@@ -1412,6 +1438,7 @@
             "unresolved-tag",
             "unresolved-annotation",
             "unresolved-cases",
+            "cases-not-expanded",
             "test-in-loop",
             "dynamic-title",
             "duplicate-title",

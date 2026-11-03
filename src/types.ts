@@ -54,6 +54,7 @@ export type DiagnosticCode =
   | 'unresolved-tag'
   | 'unresolved-annotation'
   | 'unresolved-cases'
+  | 'cases-not-expanded'
   | 'test-in-loop'
   | 'dynamic-title'
   | 'duplicate-title'
@@ -273,6 +274,11 @@ export interface SuiteRecord {
   isShuffled: boolean;
   /** Declared with `.each` or `.for`. */
   isParameterized: boolean;
+  /**
+   * With `expandCases`, which case of its table or pass of its loop the describe is, from 0, as Vitest's `%#` counts;
+   * null without `expandCases`, or when the describe isn't one of several.
+   */
+  caseIndex: Count | null;
   tags: string[];
   annotations: Annotation[];
   /** Playwright only. */
@@ -433,10 +439,17 @@ export interface TestRecord {
   /** Declared with `.each` or `.for`, or inside a describe declared with them, so the runner repeats it. */
   isParameterized: boolean;
   /**
-   * How many times the runner repeats the test: the cases of its own table times those of each describe table around
-   * it. Null when a table is not written out in the file, or the test is not parameterized.
+   * How many times the runner repeats the test: the cases of its own table times those of each describe table and the
+   * passes of each loop around it. Null when the scan can't work out a table or a loop's values, or the test is neither
+   * parameterized nor in a loop.
    */
   caseCount: Count | null;
+  /**
+   * With `expandCases`, which case of its own table, or pass of the innermost loop around it inside its describe, the
+   * test is, from 0, as Vitest's `%#` counts; null without `expandCases`, or when the test isn't one of several. The
+   * case of a describe table or loop around the describe is the describe's `caseIndex`.
+   */
+  caseIndex: Count | null;
   /** Declared inside a loop, `forEach` or `map`. */
   isInLoop: boolean;
   /** Declared inside `if`, `?:`, `&&`, `switch` or a `catch` block. */

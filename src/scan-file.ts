@@ -3,6 +3,7 @@ import { DependencyGraph, fileDependencies, type Place, type SnapshotFiles } fro
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
 import { parseModule } from './frameworks/bindings.ts';
+import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
@@ -18,6 +19,8 @@ export interface FileSettings {
   /** `[major, minor]` of the framework version; null applies the newest rules. */
   version: [number, number] | null;
   comments: CommentsMode;
+  /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
+  expandCases?: boolean;
   readModule: ModuleReader | null;
   /** The project root, left out of error messages so that the output has no absolute paths. */
   root: string | null;
@@ -27,6 +30,8 @@ export interface FileSettings {
   config?: FileConfig | null;
   /** Shared by the files of one scan, so that code many tests reach is read once. */
   graph?: DependencyGraph;
+  /** Shared by the files of one scan, so that each module's exported values are worked out once. */
+  exports?: ExportedValues;
   /** What the file's config runs with each of its tests: the config, setup files and setup projects. */
   runsWith?: RunsWith;
   /** Reads the snapshot files tests compare against; none when one file's code is scanned. */
@@ -46,8 +51,10 @@ function frame(
   relativeFilePath: string,
   settings: FileSettings,
   readModule: ModuleReader | null,
+  exports: ExportedValues,
 ): Frame {
-  const file: FileContext = { source: parsed.source, values: new Values(), version: settings.version };
+  const values = new Values(exports.reader(readModule));
+  const file: FileContext = { source: parsed.source, values, version: settings.version };
   const adapter: Adapter =
     settings.framework === 'playwright'
       ? new PlaywrightAdapter(parsed.program, file, readModule)
@@ -82,11 +89,16 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       // The parser keeps what it could read after some errors; after others it returns nothing.
       if (parsed.program.body.length === 0) return { ...noRecords(relativeFilePath), diagnostics, usesGlobals: false };
     }
-    const main = frame(parsed, relativeFilePath, settings, settings.readModule);
-    const extraction = extract(main, (module: ModuleSource) => {
-      const helper = parseModule(module);
-      return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule);
-    });
+    const exports = settings.exports ?? new ExportedValues();
+    const main = frame(parsed, relativeFilePath, settings, settings.readModule, exports);
+    const extraction = extract(
+      main,
+      (module: ModuleSource) => {
+        const helper = parseModule(module);
+        return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
+      },
+      { expandCases: settings.expandCases ?? false, version: settings.version },
+    );
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
     const unfollowed: Place[] = [];
     const dependencies = fileDependencies(
