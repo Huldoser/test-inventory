@@ -18,7 +18,7 @@ code from the project, writes nothing and opens no network connections.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.4 --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.5 --framework playwright
 ```
 
 `--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. Given only
@@ -36,10 +36,11 @@ options and the security notes are in the server's [README](https://github.com/H
 The tests have the keys of the [output](/reference/output). Each call scans the files again, so answers follow the
 agent's edits. `related` takes the files a change touches, as `git diff --name-only` writes them, and keeps the tests
 whose [`dependencies`](/reference/output#tests) include one of them, as [`--related`](/guide/cli#tests-a-change-can-affect)
-does on the command line.
+does on the command line. Every tool also takes `expandCases`, which lists each case of a `.each` or `.for` table and
+each pass of a loop as its own test, with the name the runner gives it, as `--expand-cases` does.
 
 The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.4` gets fixes only.
+`test-inventory-mcp@0.5` gets fixes only.
 
 ## Command line
 
