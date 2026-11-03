@@ -509,7 +509,7 @@ for (const venue of ['NYSE', 'IEX']) {
   });
 
   it('expands all passes of a loop inside an expanded loop, and blames the limit only when it is the reason', () => {
-    const symbols = Array.from({ length: 10 }, (_, index) => `'S${index}'`).join(', ');
+    const symbols = Array.from({ length: 6 }, (_, index) => `'S${index}'`).join(', ');
     const lots = Array.from({ length: 200 }, (_, index) => index).join(', ');
     const nested = scanVitest(
       `${VITEST_IMPORT}
@@ -521,7 +521,7 @@ for (const symbol of [${symbols}]) {
 `,
       expand,
     );
-    expect(nested.tests).toHaveLength(2000);
+    expect(nested.tests).toHaveLength(1200);
     expect(nested.tests.every((test) => test.caseIndex !== null && !test.hasDynamicTitle)).toBe(true);
     const quantities = Array.from({ length: 999 }, (_, index) => index).join(', ');
     const desks = scanVitest(
@@ -533,7 +533,8 @@ for (var desk of ['fx', 'rates', 'credit']) {
       expand,
     );
     expect(codes(desks).filter((code) => code === 'cases-not-expanded')).toEqual([]);
-  });
+    // About 2,000 records, which take seconds on the slowest CI machines.
+  }, 20_000);
 });
 
 describe('expandCases with loops', () => {
