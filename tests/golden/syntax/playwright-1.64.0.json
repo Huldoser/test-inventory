@@ -2932,7 +2932,7 @@
     {
       "code": "test-in-loop",
       "level": "warning",
-      "message": "The test is declared in a loop; it is listed once, while the runner creates one test per iteration.",
+      "message": "The test is declared in a loop the scan can't count; it is listed once, while the runner creates one test per pass.",
       "relativeFilePath": "tests/playwright.spec.ts",
       "lineStart": 85,
       "columnStart": 5,

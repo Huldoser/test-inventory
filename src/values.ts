@@ -1,5 +1,5 @@
 import type { Expression, Node, TSEnumDeclaration } from 'oxc-parser';
-import { propertyName, unwrap, type FunctionNode } from './ast.ts';
+import { childNodes, isFunctionNode, propertyName, unwrap, type FunctionNode } from './ast.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -91,6 +91,8 @@ export class Values {
   /** The functions being read at one of their calls, innermost last. */
   private readonly calls: BoundCall[] = [];
   private readonly imports: ImportReader | null;
+  private readonly assigned = new WeakMap<Node, Set<string>>();
+  private readonly changed = new WeakMap<Node, Set<string>>();
 
   /** Without `imports`, a value imported from another module is not worked out. */
   constructor(imports: ImportReader | null = null) {
@@ -106,19 +108,107 @@ export class Values {
   withArguments<T>(fn: FunctionNode, args: readonly Resolved[], scopes: readonly Node[], read: () => T): T {
     const parameters = new Map<string, () => Resolved>();
     for (const [index, parameter] of fn.params.entries()) {
-      const target = parameter.type === 'AssignmentPattern' ? parameter.left : parameter;
-      if (target.type !== 'Identifier') continue;
-      const argument = args.at(index);
-      if (argument) parameters.set(target.name, () => argument);
-      else if (parameter.type === 'AssignmentPattern') {
-        parameters.set(target.name, () => this.resolve(parameter.right, [...scopes, fn]));
-      }
+      this.bind(parameter, args.at(index), parameters, [...scopes, fn]);
     }
+    // A parameter the function assigns to may hold another value by the time it is read.
+    for (const name of this.assignedIn(fn.body as Node)) parameters.delete(name);
+    return this.withBound(fn, parameters, read);
+  }
+
+  /**
+   * Runs `read` with the names a loop declares bound to one of the values it goes over, as in
+   * `for (const [tier, bps] of Object.entries(FEES))`. `declarator` is the loop's variable declarator.
+   */
+  withLoopValue<T>(
+    declarator: Node,
+    pattern: Node,
+    value: Resolved,
+    body: Node,
+    scopes: readonly Node[],
+    read: () => T,
+  ): T {
+    const names = new Map<string, () => Resolved>();
+    this.bind(pattern, value, names, scopes);
+    for (const name of this.assignedIn(body)) names.delete(name);
+    return this.withBound(declarator, names, read);
+  }
+
+  private assignedIn(body: Node): Set<string> {
+    let names = this.assigned.get(body);
+    if (!names) {
+      names = assignedNames(body);
+      this.assigned.set(body, names);
+    }
+    return names;
+  }
+
+  private withBound<T>(fn: Node, parameters: Map<string, () => Resolved>, read: () => T): T {
     this.calls.push({ fn, parameters, cache: new Map() });
     try {
       return read();
     } finally {
       this.calls.pop();
+    }
+  }
+
+  /**
+   * Binds the names of a parameter or a loop variable to the parts of `value` they take, as destructuring does. A
+   * missing `value`, after a spread argument, leaves them unknown, unless a default gives them one.
+   */
+  private bind(
+    pattern: Node,
+    value: Resolved | undefined,
+    names: Map<string, () => Resolved>,
+    scopes: readonly Node[],
+  ): void {
+    switch (pattern.type) {
+      case 'Identifier':
+        if (value) names.set(pattern.name, () => value);
+        return;
+      case 'AssignmentPattern': {
+        const useDefault = !value || (value.ok && value.value === undefined);
+        if (!useDefault) return this.bind(pattern.left, value, names, scopes);
+        const fallback = pattern.right;
+        if (pattern.left.type === 'Identifier') {
+          names.set(pattern.left.name, () => this.resolve(fallback, scopes));
+          return;
+        }
+        return this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes);
+      }
+      case 'ArrayPattern':
+        for (const [index, element] of pattern.elements.entries()) {
+          if (!element || !value) continue;
+          const list = value.ok && Array.isArray(value.value) ? value.value : null;
+          const part = (rest: boolean): Resolved =>
+            list ? { ok: true, value: rest ? list.slice(index) : list[index] } : value.ok ? UNRESOLVED : value;
+          if (element.type === 'RestElement') this.bind(element.argument, part(true), names, scopes);
+          else this.bind(element, part(false), names, scopes);
+        }
+        return;
+      case 'ObjectPattern': {
+        if (!value) return;
+        const object = value.ok && isPlainObject(value.value) ? value.value : null;
+        const taken: string[] = [];
+        for (const property of pattern.properties) {
+          if (property.type === 'RestElement') {
+            const rest = object && Object.fromEntries(Object.entries(object).filter(([key]) => !taken.includes(key)));
+            this.bind(
+              property.argument,
+              rest ? { ok: true, value: rest } : value.ok ? UNRESOLVED : value,
+              names,
+              scopes,
+            );
+            continue;
+          }
+          const key = this.propertyKey(property.key, property.computed, scopes);
+          const name = key.ok && isKey(key.value) ? String(key.value) : null;
+          if (name !== null) taken.push(name);
+          const part: Resolved =
+            object && name !== null ? { ok: true, value: object[name] } : value.ok ? UNRESOLVED : value;
+          this.bind(property.value, part, names, scopes);
+        }
+        return;
+      }
     }
   }
 
@@ -348,6 +438,7 @@ export class Values {
     const { binding } = found;
     switch (binding.kind) {
       case 'const':
+        if (this.changedAtLoad(binding.scopes[0]).has(name)) return UNRESOLVED;
         return this.resolveConstant(binding.init, binding.scopes);
       case 'enum':
         return { ok: true, value: this.enumMembers(binding.node, binding.scopes) };
@@ -364,6 +455,16 @@ export class Values {
   private resolveParameter(name: string, fn: Node): Resolved {
     const call = this.calls.findLast((item) => item.fn === fn);
     return call?.parameters.get(name)?.() ?? UNRESOLVED;
+  }
+
+  /** Constants the module's top-level code changes, as in `WATCHED.push('MSFT')`, whose declared value isn't the one used. */
+  private changedAtLoad(program: Node): Set<string> {
+    let names = this.changed.get(program);
+    if (!names) {
+      names = changedNames(program);
+      this.changed.set(program, names);
+    }
+    return names;
   }
 
   private resolveConstant(init: Expression, scopes: readonly Node[]): Resolved {
@@ -389,6 +490,8 @@ export class Values {
         : { ok: true, value: next };
       if (name.ok && isKey(name.value) && resolved.ok && isKey(resolved.value)) {
         members[String(name.value)] = resolved.value;
+        // TypeScript maps a numeric member's value back to its name too.
+        if (typeof resolved.value === 'number') members[String(resolved.value)] = String(name.value);
         next = typeof resolved.value === 'number' ? resolved.value + 1 : null;
       } else {
         next = null;
@@ -446,13 +549,105 @@ function binary(operator: string, left: Primitive, right: Primitive): Resolved {
           : operator === '/'
             ? left / right
             : left % right;
-    return { ok: true, value };
+    // Transforms fold `-NaN` differently, so the runner may see either sign; no real table holds NaN.
+    return Number.isNaN(value) ? UNRESOLVED : { ok: true, value };
   }
   const comparable = numbers || (typeof left === 'string' && typeof right === 'string');
   if (!comparable || ARITHMETIC.has(operator)) return UNRESOLVED;
   const [a, b] = [left, right] as [number, number];
   const value = operator === '<' ? a < b : operator === '<=' ? a <= b : operator === '>' ? a > b : a >= b;
   return { ok: true, value };
+}
+
+const MUTATING_METHODS = new Set([
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+  'splice',
+  'sort',
+  'reverse',
+  'fill',
+  'copyWithin',
+]);
+
+const OBJECT_MUTATORS = new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']);
+
+/** The identifier a member chain such as `ROUTING.venues[0]` starts from; null for any other expression. */
+function rootName(node: Node): string | null {
+  let current = unwrap(node as Expression);
+  while (current.type === 'MemberExpression') current = unwrap(current.object);
+  return current.type === 'Identifier' ? current.name : null;
+}
+
+/** Names assigned to anywhere in `body`, its functions included: `x = ...`, `x++`, `[x] = ...`, `for (x of ...)`. */
+function assignedNames(body: Node): Set<string> {
+  const names = new Set<string>();
+  const targets = (target: Node | null): void => {
+    switch (target?.type) {
+      case 'Identifier':
+        names.add(target.name);
+        break;
+      case 'ArrayPattern':
+        for (const element of target.elements) targets(element);
+        break;
+      case 'ObjectPattern':
+        for (const property of target.properties) targets(property.type === 'RestElement' ? property : property.value);
+        break;
+      case 'AssignmentPattern':
+        targets(target.left);
+        break;
+      case 'RestElement':
+        targets(target.argument);
+        break;
+    }
+  };
+  const walk = (node: Node): void => {
+    if (node.type === 'AssignmentExpression') targets(node.left);
+    if (node.type === 'UpdateExpression') targets(node.argument);
+    if (node.type === 'ForOfStatement' || node.type === 'ForInStatement') targets(node.left);
+    for (const child of childNodes(node)) walk(child);
+  };
+  walk(body);
+  return names;
+}
+
+/**
+ * Names whose value the module's top-level code changes while it loads: a member assigned or deleted, a mutating
+ * method such as `push()`, or `Object.assign()`. Code in functions runs later, as a test or hook does, after the
+ * runner has read titles and tables.
+ */
+function changedNames(program: Node): Set<string> {
+  const names = new Set<string>();
+  const add = (node: Node | undefined): void => {
+    const name = node ? rootName(node) : null;
+    if (name !== null) names.add(name);
+  };
+  const walk = (node: Node): void => {
+    if (isFunctionNode(node)) return;
+    switch (node.type) {
+      case 'AssignmentExpression':
+        if (node.left.type === 'MemberExpression') add(node.left);
+        break;
+      case 'UpdateExpression':
+        if (node.argument.type === 'MemberExpression') add(node.argument);
+        break;
+      case 'UnaryExpression':
+        if (node.operator === 'delete') add(node.argument);
+        break;
+      case 'CallExpression': {
+        const callee = unwrap(node.callee);
+        if (callee.type !== 'MemberExpression') break;
+        const method = propertyName(callee) ?? '';
+        if (MUTATING_METHODS.has(method)) add(callee.object);
+        if (OBJECT_MUTATORS.has(method) && rootName(callee.object) === 'Object') add(node.arguments[0]);
+        break;
+      }
+    }
+    for (const child of childNodes(node)) walk(child);
+  };
+  walk(program);
+  return names;
 }
 
 function isPlainObject(value: Value): value is Record<string, Value> {

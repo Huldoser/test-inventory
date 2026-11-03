@@ -168,6 +168,50 @@ describe('values imported from project files', () => {
     ]);
   });
 
+  it('finds a name past an export * that leads back, and gives none for a name two export * modules have', async () => {
+    const inventory = await scanFiles({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'test-data/index.ts': "export * from './accounts';\nexport * from './markets';\nexport * from './crypto';",
+      'test-data/accounts.ts': "export * from './index';\nexport const DESK = 'equities';",
+      'test-data/markets.ts': "export const MARKET = 'NASDAQ';\nexport const VENUE = 'NYSE';",
+      'test-data/crypto.ts': "export const VENUE = 'Coinbase';\nexport { MARKET } from './markets';",
+      'tests/routing.spec.ts': [
+        "import { test } from '@playwright/test';",
+        "import { DESK, MARKET as FROM_INDEX } from '../test-data/index';",
+        "import { MARKET as FROM_ACCOUNTS } from '../test-data/accounts';",
+        "import { VENUE } from '../test-data/index';",
+        'test(`routes a ${DESK} order to ${FROM_INDEX} and ${FROM_ACCOUNTS}`, async () => {});',
+        'test(`routes to ${VENUE}`, async () => {});',
+      ].join('\n'),
+    });
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'routes a equities order to NASDAQ and NASDAQ',
+      '`routes to ${VENUE}`',
+    ]);
+  });
+
+  it('stops following re-exports 16 modules deep', async () => {
+    const chain = Object.fromEntries(
+      Array.from({ length: 40 }, (_, index) => [
+        `test-data/level-${index}.ts`,
+        index === 39 ? "export const DESK = 'equities';" : `export * from './level-${index + 1}';`,
+      ]),
+    );
+    const inventory = await scanFiles({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      ...chain,
+      'test-data/near.ts': "export * from './level-30';",
+      'tests/desk.spec.ts': [
+        "import { test } from '@playwright/test';",
+        "import { DESK } from '../test-data/level-0';",
+        "import { DESK as NEAR } from '../test-data/near';",
+        'test(`books to ${DESK}`, async () => {});',
+        'test(`books near ${NEAR}`, async () => {});',
+      ].join('\n'),
+    });
+    expect(inventory.tests.map((test) => test.title)).toEqual(['`books to ${DESK}`', 'books near equities']);
+  });
+
   it('stops at an import cycle, and still works out the other exports of the module for each file', async () => {
     const inventory = await scanFiles({
       'package.json': PLAYWRIGHT_PACKAGE,

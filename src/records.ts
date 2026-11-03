@@ -563,7 +563,7 @@ class RecordBuilder {
           problem(
             'test-in-loop',
             located,
-            'The test is declared in a loop; it is listed once, while the runner creates one test per iteration.',
+            "The test is declared in a loop the scan can't count; it is listed once, while the runner creates one test per pass.",
           ),
           id,
         ),
@@ -678,7 +678,9 @@ class RecordBuilder {
       const titles = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []).reverse();
       // In a loop, a title path that never changes is registered again on each pass.
       const repeated =
-        playwright && test.isInLoop && describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
+        playwright &&
+        test.loops.some((passes) => passes === null || passes > 1) &&
+        describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
       if (repeated) {
         const message =
           'The test is declared in a loop with the same title on each pass, so Playwright fails to load the file and runs no tests at all.';

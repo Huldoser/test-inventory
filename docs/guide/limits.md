@@ -58,7 +58,9 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 });
 ```
 
-A value from an installed package, or built with any other call, is not. The record then keeps what it can and a
+A value from an installed package, or built with any other call, is not. Nor is a constant the module changes while
+it loads, as in `WATCHED.push('MSFT')`, or a function parameter or loop variable the code assigns to, since the
+declared value may not be the one the runner reads. The record then keeps what it can and a
 diagnostic says so, naming the module when the value comes from an import:
 
 ```ts
@@ -190,9 +192,10 @@ Such a test is listed where it is written. Tests in a callback passed to another
 ## Loops and tables are one record
 
 A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true`. When the loop goes over values
-the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, `caseCount`
-says how many tests the runner registers; otherwise, as for a `while` loop, `caseCount` is `null` and a `test-in-loop`
-warning says the count is unknown.
+the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
+registers the test on every pass, `caseCount` says how many tests the runner registers. Otherwise `caseCount` is `null`
+and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
+or `throw` in it, and a test under a condition inside the loop.
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can

@@ -154,6 +154,8 @@ interface Context {
   isInLoop: boolean;
   /** How many passes each loop around the call makes, outermost first; null for a loop the scan can't count. */
   loops: (number | null)[];
+  /** For each of `loops`, whether the walk was already under a condition where the loop starts. */
+  loopConditions: boolean[];
   isInCondition: boolean;
   isInFunction: boolean;
   /** The plain function being walked outside any test or hook, whose states apply to the code that calls it. */
@@ -231,6 +233,22 @@ interface HelperCall {
 }
 
 const LOOP_METHODS = new Set(['forEach', 'map']);
+
+/**
+ * Whether a loop body can end a pass before its end or stop the loop, with `break`, `continue`, `return` or `throw`,
+ * so that a test in it may not be registered on every pass. Functions inside run later, and don't count.
+ */
+function leavesEarly(body: Node): boolean {
+  if (isFunctionNode(body)) return false;
+  switch (body.type) {
+    case 'BreakStatement':
+    case 'ContinueStatement':
+    case 'ReturnStatement':
+    case 'ThrowStatement':
+      return true;
+  }
+  return childNodes(body).some(leavesEarly);
+}
 
 /**
  * What `test.describe.configure()` sets on the describe or file it is called in: the last mode, timeout and retries
@@ -377,6 +395,7 @@ class Walker {
       guards: [],
       isInLoop: false,
       loops: [],
+      loopConditions: [],
       isInCondition: false,
       isInFunction: false,
       helper: null,
@@ -471,7 +490,7 @@ class Walker {
       }
       case 'ForInStatement':
       case 'ForOfStatement':
-        this.visitChildren(node, this.inLoop(context, this.passes(node)));
+        this.visitChildren(node, this.inLoop(context, leavesEarly(node.body) ? null : this.passes(node)));
         return;
       case 'ForStatement':
       case 'WhileStatement':
@@ -550,7 +569,12 @@ class Walker {
   }
 
   private inLoop(context: Context, passes: number | null): Context {
-    return { ...context, isInLoop: true, loops: [...context.loops, passes] };
+    return {
+      ...context,
+      isInLoop: true,
+      loops: [...context.loops, passes],
+      loopConditions: [...context.loopConditions, context.isInCondition],
+    };
   }
 
   /**
@@ -574,7 +598,7 @@ class Walker {
     const passes = list.ok && Array.isArray(list.value) ? list.value.length : null;
     for (const arg of call.arguments) {
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        this.visitCallback(arg, this.inLoop(context, passes));
+        this.visitCallback(arg, this.inLoop(context, leavesEarly(arg.body as Node) ? null : passes));
       } else {
         this.visit(arg, context);
       }
@@ -1194,7 +1218,10 @@ class Walker {
       states: [...declaration.states],
       annotations: [...declaration.details.annotations],
       isInLoop: context.isInLoop,
-      loops: context.loops,
+      // A condition inside a loop decides on each pass whether the test is registered.
+      loops: context.loops.map((passes, index) =>
+        context.isInCondition && !context.loopConditions[index] ? null : passes,
+      ),
       isInCondition: context.isInCondition,
       isInFunction: context.isInFunction,
       comments: this.commentsAbove(statement.start),

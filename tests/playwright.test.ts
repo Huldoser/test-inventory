@@ -938,6 +938,80 @@ loadVenues().map((venue) => test(\`lists \${venue}\`, async () => {}));
   });
 });
 
+describe('Playwright loops whose passes the scan does not count', () => {
+  it('leaves the count unknown when the body can leave a pass early, or registers the test under a condition', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const SIDES = ['buy', 'sell', 'short'];
+for (const side of SIDES) {
+  if (side === 'short') continue;
+  test(\`rejects a zero \${side} quantity\`, async () => {});
+}
+for (const side of SIDES) {
+  test(\`fills a \${side} order\`, async () => {});
+  break;
+}
+SIDES.forEach((side) => {
+  if (side === 'short') return;
+  test(\`cancels a \${side} order\`, async () => {});
+});
+for (const side of SIDES) {
+  if (side !== 'short') test(\`borrows for a \${side} order\`, async () => {});
+}
+if (process.env.CI) {
+  for (const side of SIDES) test(\`settles a \${side} order\`, async () => {});
+}
+for (const side of SIDES) {
+  test(\`books a \${side} order\`, async () => {
+    for (const leg of [1, 2]) if (leg > 1) break;
+  });
+}
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`rejects a zero ${side} quantity`', null],
+      ['`fills a ${side} order`', null],
+      ['`cancels a ${side} order`', null],
+      ['`borrows for a ${side} order`', null],
+      ['`settles a ${side} order`', 3],
+      ['`books a ${side} order`', 3],
+    ]);
+  });
+
+  it('counts the keys of a numeric enum both ways, as TypeScript emits it', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+enum Side { Buy, Sell }
+enum Venue { Nasdaq = 'NASDAQ' }
+for (const side in Side) test(\`places a \${side} order\`, async () => {});
+test(\`sides \${Object.keys(Side).join(',')} on \${Object.keys(Venue).join()}\`, async () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`places a ${side} order`', 4],
+      ['sides 0,1,Buy,Sell on Nasdaq', null],
+    ]);
+  });
+
+  it('registers a fixed title once in a loop of one pass, so Playwright loads the file', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+for (const side of ['buy']) test('places an order', async () => {});
+for (const side of []) test('places no order', async () => {});
+`);
+    expect(inventory.tests.map((test) => [test.state, test.caseCount])).toEqual([
+      ['active', 1],
+      ['active', 0],
+    ]);
+    expect(codes(inventory)).toEqual([]);
+  });
+
+  it('says the count is unknown in its warning', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+while (loadSymbols()) test('quotes a symbol', async () => {});
+`);
+    const warnings = inventory.diagnostics.filter((item) => item.code === 'test-in-loop');
+    expect(warnings.map((item) => item.message)).toEqual([
+      "The test is declared in a loop the scan can't count; it is listed once, while the runner creates one test per pass.",
+    ]);
+  });
+});
+
 describe('Playwright forms that are rare but valid', () => {
   it('binds test from string import names, string keys and the module object', () => {
     const inventory = scanPlaywright(`

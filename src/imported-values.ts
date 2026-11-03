@@ -5,6 +5,9 @@ import { Values, type ImportReader, type Resolved, type Value } from './values.t
 
 const UNRESOLVED: Resolved = { ok: false, importedFrom: null };
 
+/** How many modules deep a name is followed through re-exports and imports, as for test objects. */
+const MAX_DEPTH = 16;
+
 interface OpenedModule {
   program: Program | null;
   /** The value of a JSON module. */
@@ -20,7 +23,11 @@ interface OpenedModule {
 export class ExportedValues {
   private readonly modules = new WeakMap<ModuleSource, OpenedModule | null>();
   private readonly done = new Map<string, Resolved | null>();
+  /** Results of the current lookup, also those that `done` can't keep, so that each module is read once in it. */
+  private readonly current = new Map<string, Resolved | null>();
   private readonly pending = new Set<string>();
+  /** How many times a lookup was cut short by a cycle or the depth limit. */
+  private cutShort = 0;
 
   /** What a file that reads its imports with `readModule` gets for `import { name } from source`. */
   reader(readModule: ModuleReader | null): ImportReader | null {
@@ -36,12 +43,21 @@ export class ExportedValues {
   private exported(module: ModuleSource, name: string): Resolved | null {
     const key = `${module.relativeFilePath}\0${name}`;
     if (this.done.has(key)) return this.done.get(key) as Resolved | null;
-    // An import cycle that comes back to a name being worked out has no value yet.
-    if (this.pending.has(key)) return UNRESOLVED;
+    if (this.current.has(key)) return this.current.get(key) as Resolved | null;
+    // A path that comes back to a name being worked out, as `export *` modules that re-export each other do, gives
+    // nothing; another path may still give it.
+    if (this.pending.has(key) || this.pending.size >= MAX_DEPTH) {
+      this.cutShort++;
+      return this.pending.has(key) ? null : UNRESOLVED;
+    }
+    const before = this.cutShort;
     this.pending.add(key);
     const result = this.read(module, name);
     this.pending.delete(key);
-    this.done.set(key, result);
+    // A result found while a path was cut short depends on where the lookup began, so only this lookup keeps it.
+    if (this.cutShort === before) this.done.set(key, result);
+    else this.current.set(key, result);
+    if (this.pending.size === 0) this.current.clear();
     return result;
   }
 
@@ -66,15 +82,21 @@ export class ExportedValues {
     if (own) {
       return opened.values.resolveName(own.kind === 'specifier' ? own.local : name, [program]);
     }
-    // `export *` passes on every name but the default; the first module that exports the name gives it.
+    // `export *` passes on every name but the default. When two modules export the name with different values, the
+    // module fails to load, as JavaScript refuses the conflict.
     if (name === 'default') return null;
+    let found: Resolved | null = null;
     for (const statement of program.body) {
       const source = starReexport(statement);
       const from = source === null ? null : module.readModule(source);
-      const found = from && !('reason' in from) ? this.exported(from, name) : null;
-      if (found) return found;
+      const result = from && !('reason' in from) ? this.exported(from, name) : null;
+      if (!result) continue;
+      if (found && !(found.ok && result.ok && JSON.stringify(found.value) === JSON.stringify(result.value))) {
+        return UNRESOLVED;
+      }
+      found = result;
     }
-    return null;
+    return found;
   }
 
   private open(module: ModuleSource): OpenedModule | null {

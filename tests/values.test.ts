@@ -98,6 +98,7 @@ describe('Values', () => {
     ['price?.last;'],
     ["1 < 'a';"],
     ["'5' - 1;"],
+    ['0 / 0;'],
     ["'buy' * 'sell';"],
     ['[1] === [1];'],
     ['1 == 1;'],
@@ -182,13 +183,78 @@ quoteTests();
 `);
     expect(titles(inventory)).toEqual([
       'routes a buy order',
-      '`to ${venue}`',
+      'to NASDAQ',
       '`with ${rest}`',
       'title',
       '`to ${venue}`',
       '`with ${rest}`',
       'NASDAQ accepts market orders',
       '`quotes ${symbol}`',
+    ]);
+  });
+
+  it('leaves a parameter the helper assigns to unknown, and gives an explicit undefined the default', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+function venueChecks(venue) {
+  if (!venue) venue = 'NASDAQ';
+  test.describe('venue', () => {
+    test.skip(venue === 'NASDAQ', 'NASDAQ sandbox is down');
+    test(\`routes to \${venue}\`, async () => {});
+  });
+}
+function sideChecks(side) {
+  side = side.toUpperCase();
+  test(\`fills a \${side} order\`, async () => {});
+}
+function quantityChecks(lots) {
+  lots++;
+  test(\`fills \${lots} lots\`, async () => {});
+}
+function routingChecks(venue = 'NASDAQ', side = 'buy') {
+  test.describe('routing', () => {
+    test.skip(venue === 'NASDAQ', 'NASDAQ sandbox is down');
+    test(\`routes a \${side} order to \${venue}\`, async () => {});
+  });
+}
+venueChecks('');
+sideChecks('buy');
+quantityChecks(1);
+routingChecks(undefined, 'sell');
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.condition])).toEqual([
+      ['`routes to ${venue}`', 'skip', "venue === 'NASDAQ'"],
+      ['`fills a ${side} order`', 'active', null],
+      ['`fills ${lots} lots`', 'active', null],
+      ['routes a sell order to NASDAQ', 'skip', null],
+    ]);
+  });
+
+  it('leaves a constant unknown when the file changes it at the top level', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const WATCHED = ['AAPL'];
+WATCHED.push('MSFT');
+const ROUTING = { market: 'NASDAQ' };
+ROUTING.market = 'NYSE';
+const LIMITS = { lots: 1 };
+LIMITS.lots++;
+const DESKS = { fx: 'FX' };
+delete DESKS.fx;
+const FEES = { retail: 25 };
+Object.assign(FEES, { retail: 30 });
+const SIDES = ['buy'];
+const ORDER = { qty: 100 };
+test.beforeEach(() => {
+  SIDES.push('sell');
+  ORDER.qty = 200;
+});
+for (const symbol of WATCHED) test(\`quotes \${symbol}\`, async () => {});
+test(\`routes to \${ROUTING.market} with \${LIMITS.lots} lots, \${DESKS.fx} and \${FEES.retail}\`, async () => {});
+test(\`fills \${SIDES.join()} for \${ORDER.qty}\`, async () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`quotes ${symbol}`', null],
+      ['`routes to ${ROUTING.market} with ${LIMITS.lots} lots, ${DESKS.fx} and ${FEES.retail}`', null],
+      ['fills buy for 100', null],
     ]);
   });
 
