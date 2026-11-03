@@ -1,5 +1,54 @@
 # test-inventory
 
+## 0.7.0
+
+### Minor Changes
+
+- [#72](https://github.com/Huldoser/test-inventory/pull/72) [`cf784f0`](https://github.com/Huldoser/test-inventory/commit/cf784f070e66523df1d68c546f033e1f495f0f49) - `--expand-cases` (library: `expandCases: true`) lists each case of a `.each` or `.for` table and each pass of a loop
+  whose values the scan can work out as its own record, with the title the runner gives it. Vitest's titles follow the
+  rules of the project's Vitest version, 3.0 to 5: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%#`, `%$` and `$name`,
+  with values quoted and cut as that version does; they match the names Vitest 3.0, 3.1, 3.2, 4.0, 4.1 and 5.0 list.
+  Each case's values are bound in its callback, so titles, tags and conditions built from them are worked out per case,
+  and an `if`, `?:`, `&&`, `||` or `??` that reads nothing but them registers only the branch it takes. Loops in test
+  and hook bodies and loops over a `var` are not expanded, and a file starts expansions up to 1,000 loop passes and
+  describe cases.
+  Suites and tests have a new key, `caseIndex`: the case's index from 0, as `%#` counts, or `null` without the option. A
+  table that can't be expanded stays one record with a new `cases-not-expanded` warning. Without the option the output
+  is as before, apart from `caseIndex: null` on every suite and test.
+
+- [#72](https://github.com/Huldoser/test-inventory/pull/72) [`cf784f0`](https://github.com/Huldoser/test-inventory/commit/cf784f070e66523df1d68c546f033e1f495f0f49) - Values imported from other files of the project are now worked out: a title, tag, annotation, reason, run setting or
+  `.each` table built from a constant, enum or default export of another module, through re-exports, `export *`,
+  `import * as` and JSON files, found the same way as helper functions (relative paths, tsconfig `paths`, `#imports`,
+  workspace packages). Values from installed packages are still not read, and keep their diagnostic.
+
+  A test in a `for...of`, `for...in`, `forEach` or `map` loop over values the scan can work out now has `caseCount`, the
+  number of tests the runner registers, and no `test-in-loop` warning; the warning now marks a loop the scan can't
+  count. Values also work out arithmetic on numbers, as in `30 * 1000`, `?:`, `&&`, `||`, `??`, comparisons,
+  `Object.keys()`, `Object.values()`, `Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`,
+  `toLowerCase()` and `trim()` and an array's `join()`. A skip condition that works out to a constant, such as
+  `side === 'short'` in a helper called with `'buy'`, now sets the state it gives instead of being kept as a condition.
+
+  Code after an `if` whose branch always returns or throws, as in `if (!strategy.enabled) return;` in a helper, is now
+  under the opposite condition, so its tests have `isInCondition` and a loop around them no count. A tagged-template
+  table is counted as Vitest splits it: outer pipes are columns, an incomplete last row is left out, and a template
+  without values is one case.
+
+  A test whose title was its source text and is now worked out gets a new `id`, once.
+
+### Patch Changes
+
+- [#71](https://github.com/Huldoser/test-inventory/pull/71) [`bf8383f`](https://github.com/Huldoser/test-inventory/commit/bf8383f009a73a026d128cd8e050505cdd63cfb5) - A name destructured from a test object, as in `const { describe, beforeEach } = test`, is now read as that member:
+  `beforeEach(...)` is a hook, `describe(...)` a describe and `skip(...)` a skipped test, for Playwright and Vitest,
+  also nested, as in `const { describe: { serial } } = test`. Every such name was read as `test` itself, so a hook got
+  `test-without-body` and every test of the file `notLoaded`, and the tests inside a describe were left out with
+  `nested-test` warnings.
+
+- [#71](https://github.com/Huldoser/test-inventory/pull/71) [`bf8383f`](https://github.com/Huldoser/test-inventory/commit/bf8383f009a73a026d128cd8e050505cdd63cfb5) - When the root and the folders above it don't have the framework, its version is now read from the shallowest
+  `package.json` below the root that declares it and holds scanned files, as `code/package.json` in a monorepo, with
+  that package's lockfile or installed copy first. The version was `null` there, so the newest rules applied: Vitest
+  5's, which refuse a file that calls `vi.mock` inside a block, made every test of such a file `notLoaded` in a project
+  on Vitest 3.
+
 ## 0.6.1
 
 ### Patch Changes
