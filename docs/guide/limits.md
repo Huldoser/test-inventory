@@ -10,10 +10,10 @@ such as `isInLoop`; each section says when one does not.
 
 ## Config files are read only in part
 
-`playwright.config.*` and `vitest.config.*` can change which tests run and how. The scan finds the config each file
-uses and lists it in [`configs`](/reference/output#configs), and reads from it which files and projects run each test,
-Vitest's `test.globals`, the run settings and modes it gives the tests, Playwright's `forbidOnly`, and the tags Vitest
-defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
+`playwright.config.*`, `vitest.config.*` and Jest's `jest.config.*` or `package.json` can change which tests run and
+how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
+which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
+it gives the tests, Playwright's `forbidOnly`, and the tags Vitest defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
 out is still listed, with that project missing from its `projects`.
 
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
@@ -26,7 +26,11 @@ title; only a pattern that depends on that order can tell them apart.
 A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
 installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config
 the runner is pointed to with `--config` is not known from the files, nor a config built by a function the config
-calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`.
+calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })` or Next.js's `createJestConfig(config)`. A Jest
+`preset` is a package, so its settings are not read; when it may choose the test files and the config doesn't set
+`testMatch` or `testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. Jest's
+`moduleNameMapper`, `modulePaths` and `moduleDirectories` are not read, so imports they map are not followed for
+`dependencyHash`.
 
 A run setting the config sets under a condition, as `retries: process.env.CI ? 2 : 0`, is `null` with its source
 `config`, since the scan doesn't know where the tests will run; `retriesConfigText` and the other `ConfigText` keys
@@ -34,8 +38,9 @@ quote it. When the scan can't work out the tags a Vitest config defines, a file 
 `config-may-change-state` warning, as a tag can skip a test or change how it runs.
 
 Calls that change settings while tests run are not read: `testInfo.setTimeout()` and
-`testInfo.slow()`, Vitest's `vi.setConfig()`, and calls in an imported function passed to a hook by name, as in
-`test.beforeEach(slowOnCI)` with `slowOnCI` from another file.
+`testInfo.slow()`, Vitest's `vi.setConfig()`, Jest's `jest.setTimeout()` and a `jest.retryTimes()` in a test, hook or
+function, and calls in an imported function passed to a hook by name, as in `test.beforeEach(slowOnCI)` with
+`slowOnCI` from another file.
 
 `expectCount`, `steps` and `fixtures` read the test function only. Assertions and steps in page objects and helpers,
 and fixtures that other fixtures or automatic fixtures set up, are not in them. A test or hook function passed by name
@@ -295,5 +300,9 @@ When one file's code is scanned with `scanSource()`, no import is read, so a tes
 
 Tests created inside a function from an installed package, or from a file the scan can't read, as in
 `registerOrderTests(orderTicket)`, are not listed, and nothing in the output says so: the call does not look like a
-test. When a call does look like a test and goes
+test. The same goes for a function a setup file puts on `globalThis`, as Jest projects often do, and for packages
+that write the tests for you, such as `babel-plugin-tester`. When a call does look like a test and goes
 through an import that can't be followed, an `unresolved-test-import` error says tests are missing.
+
+Files with Flow type annotations, which React and React Native projects compile with Babel before Jest runs them,
+can't be parsed: they get a `parse-error`, and their tests are missing.

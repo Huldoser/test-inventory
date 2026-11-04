@@ -1,12 +1,12 @@
 ---
-description: How the inventory differs from playwright test --list and vitest list, and how CI compares them.
+description: How the inventory differs from playwright test --list, vitest list and jest --collectTests, and how CI compares them.
 ---
 
 # Compared with the runners
 
-Playwright and Vitest can list their tests too: `playwright test --list --reporter=json` and
-`vitest list --json`. Both load the test files, and so run the code at the top level of every file. test-inventory
-reads the files without running them.
+The runners can list their tests too: `playwright test --list --reporter=json`, `vitest list --json` and, from Jest
+30.4, `jest --collectTests`. They load the test files, and so run the code at the top level of every file.
+test-inventory reads the files without running them.
 
 |                                | test-inventory                       | `playwright test --list`     | `vitest list`                   |
 | ------------------------------ | ------------------------------------ | ---------------------------- | ------------------------------- |
@@ -17,7 +17,7 @@ reads the files without running them.
 | Skip conditions                | Kept as source text                  | Evaluated at load time       | Not shown                       |
 | Tags                           | As written, `@smoke`                 | Without the `@`, `smoke`     | Not shown                       |
 | Stable id and body hash        | Yes                                  | No                           | No                              |
-| One schema for both frameworks | Yes                                  | No                           | No                              |
+| One schema for every framework | Yes                                  | No                           | No                              |
 
 ## Matching records with the runners' lists
 
@@ -35,12 +35,19 @@ written, drops a test or describe chained after a call, as in `describe.runIf(ha
 call such as `testRouting('NYSE')` as a test because its name starts with `test`. test-inventory follows what the
 runner does.
 
+## Jest's list
+
+Jest 30.4 added `--collectTests`, which lists the tests without running them; from 30.5 it lists each case of a `.each`
+table. It loads the test files and calls their describe callbacks, so Jest has to be installed and the files'
+top-level code runs. `jest --listTests` lists only the files. Jest 29 has neither, so the only way to see its tests
+there is to run them.
+
 ## Checked in CI
 
 On every pull request, CI scans the fixture projects in the repository and compares the inventory with Playwright
-1.42, 1.63 and 1.64 and Vitest 3.0 and 5.0. Playwright lists the tests with `--list`; Vitest runs them with its JSON
-reporter, which, unlike `vitest list`, includes skipped and todo tests. Each test is matched by file and line, and
-its full title, its state and its tags are compared. A state set by a condition is left out, since the runner
+1.42, 1.63 and 1.64, Vitest 3.0 and 5.0, and Jest 29.7 and 30.5. Playwright lists the tests with `--list`; Vitest and
+Jest run them with their JSON output, which, unlike `vitest list`, includes skipped and todo tests. Each test is matched by file and line, and
+its full title, its state and its tags are compared; Jest reports no tags. A state set by a condition is left out, since the runner
 decides it on the machine it runs on. Any difference fails the check.
 
 The [real projects](/guide/real-projects) that use Vitest are compared too, with Vitest's static parser, which lists

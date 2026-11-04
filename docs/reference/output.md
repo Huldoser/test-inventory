@@ -48,10 +48,10 @@ In the TypeScript declarations on this page, ids and hashes are a `Hash`, lines 
 | ------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `schemaVersion`    | `1`            | The version of this format. See [versioning](#versioning).                                                         |
 | `tool`             | object         | `name` is `test-inventory`; `version` is the version that produced the output.                                     |
-| `framework`        | string         | `playwright` or `vitest`, as given to the scan.                                                                    |
+| `framework`        | string         | `playwright`, `vitest` or `jest`: the one given to the scan, or the one the project uses.                          |
 | `frameworkVersion` | string or null | Read from the project, or given with `--framework-version`. See [framework version](/guide/cli#framework-version). |
 | `summary`          | object         | Counts over the whole scan.                                                                                        |
-| `configs`          | array          | The Playwright or Vitest configs the scanned files use.                                                            |
+| `configs`          | array          | The configs the scanned files use; for Jest, a `package.json` too.                                                 |
 | `files`            | array          | One record per scanned file.                                                                                       |
 | `suites`           | array          | One record per describe.                                                                                           |
 | `tests`            | array          | One record per test declaration.                                                                                   |
@@ -346,7 +346,9 @@ root would use for it: of the configs in its folder and the folders above it, up
 runs it, and for Vitest `projects` the project that does. When none runs it, it uses the nearest one, and a file with
 tests gets a `file-not-run` warning, as the runner doesn't collect them. In each folder, the config is
 `playwright.config.*` for Playwright, and `vitest.config.*` for Vitest, or `vite.config.*` when there is no
-`vitest.config.*`.
+`vitest.config.*`. For Jest it is `jest.config.*`, else `package.json`, which Jest reads as a config also without a
+`jest` key; from Jest 30 a `jest` key that is a string is the path to the config. Without any of them up to the root,
+Jest's defaults apply from the root, and the files have no config.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
@@ -356,19 +358,24 @@ defaults, `includeSource` files that hold in-source tests, `typecheck.include` w
 `benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root
 config as each version decides, or the config its `extends` names; a config file or folder it names is a project of
 its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config that lists projects runs only
-those.
+those. For Jest: the files under `roots` with an extension in `moduleFileExtensions` that `testMatch` or `testRegex`
+match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with each version's defaults
+and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders, globs and config files, each with the config
+Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own files then count
+only when an entry names its folder. A `preset` is a package, which the scan doesn't read.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
 `use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
 config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
-`fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`.
+`fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
+a function, which Jest calls and awaits.
 
-| Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `relativeFilePath` | string        | The config, from the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `extends`          | array         | Files the config takes settings from through imports, such as a shared base config, in the order read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `projects`         | array or null | The config's projects, each `{ name, testDir, dependencies }`: Playwright's `projects`, or one project for a config without them, named after its `name`; Vitest's, named as Vitest names them: after `test.name`, else the `name` in the package.json of the project's folder, else the folder, or an inline project after its place among the inline ones, such as `0`; with each browser instance as a project, such as `unit (chromium)`; and in Vitest 5, a project of a config another config lists inside that config's name, such as `web (unit)`. `testDir` is the folder its files are found in. `null` when the scan can't work them out. |
+| Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `relativeFilePath` | string        | The config, from the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `extends`          | array         | Files the config takes settings from through imports, such as a shared base config, in the order read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `projects`         | array or null | The config's projects, each `{ name, testDir, dependencies }`: Playwright's `projects`, or one project for a config without them, named after its `name`; Vitest's, named as Vitest names them: after `test.name`, else the `name` in the package.json of the project's folder, else the folder, or an inline project after its place among the inline ones, such as `0`; with each browser instance as a project, such as `unit (chromium)`; and in Vitest 5, a project of a config another config lists inside that config's name, such as `web (unit)`; Jest's, named by `displayName`, else empty. `testDir` is the folder its files are found in. `null` when the scan can't work them out. |
 
 In the monorepo, the risk package builds on a config the packages share:
 
@@ -397,10 +404,11 @@ export default mergeConfig(
 }
 ```
 
-Besides which files it runs, the scan reads Vitest's `test.globals` from the file's project, for the
-`globals-not-enabled` warning. A setting it reads but can't work out, such as one computed from `process.env` or taken
-from an installed package, gets a `config-value-unknown` warning that names it, and the config is taken to run the
-file.
+Besides which files it runs, the scan reads Vitest's `test.globals` and Jest's `injectGlobals` from the file's
+project, for the `globals-not-enabled` warning. A setting it reads but can't work out, such as one computed from
+`process.env` or taken from an installed package, gets a `config-value-unknown` warning that names it, and the config
+is taken to run the file. For Jest's `testPathIgnorePatterns` and `modulePathIgnorePatterns`, which only leave files
+out, the files the other settings pick are kept instead.
 
 ::: details TypeScript
 

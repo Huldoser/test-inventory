@@ -4,7 +4,8 @@ description: What the runners' lists leave out, and what test-inventory reads fr
 
 # Why test-inventory
 
-Playwright and Vitest can list their tests: `playwright test --list` and `vitest list`. A list says which tests exist.
+The runners can list their tests: `playwright test --list`, `vitest list` and `jest --collectTests`. A list says which
+tests exist.
 It doesn't say which of them won't run, under what condition, or why. test-inventory reads the test files and answers
 those questions from the code, without running anything.
 
@@ -47,7 +48,7 @@ suite, `vitest list` leaves skipped and todo tests out altogether. test-inventor
 ```
 
 Each record also has the tags, an id that stays the same when the test moves to another line, and a hash of its body
-that changes when its code does. Playwright and Vitest suites get the same keys.
+that changes when its code does. Playwright, Vitest and Jest suites get the same keys.
 [Compared with the runners](/guide/runners) has the full comparison.
 
 ## Questions it answers

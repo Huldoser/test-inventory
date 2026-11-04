@@ -2,7 +2,7 @@
 
 Test metadata from source code, not from test results.
 
-test-inventory reads Playwright and Vitest test files and lists every test declaration as JSON: its title, file and
+test-inventory reads Playwright, Vitest and Jest test files and lists every test declaration as JSON: its title, file and
 lines, the describes around it, its tags and annotations, and whether it is active, skipped, fixme, todo, expected
 to fail or in a file the runner refuses to load, with the condition when the state only applies sometimes. It parses
 the code and runs nothing, so it needs no browsers, no build and no runner configuration.
@@ -15,7 +15,7 @@ Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/te
 npm install --save-dev test-inventory
 ```
 
-Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 3.0 or newer.
+Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 3.0 or newer, Jest 29.0 or newer.
 
 ## Command line
 
@@ -25,7 +25,8 @@ Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vi
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 ```
 
-Without the glob, the test files are those the Playwright or Vitest configs in the project run.
+Without the glob, the test files are those the project's Playwright, Vitest or Jest configs run. Without
+`--framework`, the scan takes the runner the project uses, and asks for `--framework` when it uses several.
 
 For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:
 
