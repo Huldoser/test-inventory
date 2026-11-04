@@ -3,6 +3,7 @@ import { propertyKey, propertyName, unwrap } from '../ast.ts';
 import type { Adapter, ApiCall, CallContext, ModuleReader, Problem, Span } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import type { HookCounts } from '../types.ts';
+import { bindingNames } from '../values.ts';
 import {
   allDeclarators,
   bindAll,
@@ -11,7 +12,9 @@ import {
   followModule,
   moduleImports,
   ModuleFunctions,
+  ownExport,
   requiredModule,
+  topLevelDeclarators,
   type Exported,
   type FollowImport,
   type Framework,
@@ -63,6 +66,8 @@ export interface Dialect {
   hooks: ReadonlySet<string>;
   /** Members that build a test object from another, such as Vitest's `extend`. */
   derivations: ReadonlySet<string>;
+  /** Members that give a test function a mode, as `skip` and `only` do, which a variable can hold it with. */
+  modifiers: ReadonlySet<string>;
   /** Whether the test function carries the others, as Vitest's `test.describe` and `describe.test` do. */
   carriesKinds: boolean;
   /** Whether an expression is the framework's module, as `import.meta.vitest` or `require('@jest/globals')` are. */
@@ -106,9 +111,18 @@ export class SuiteBindings implements TestObjects {
   private readonly follow: FollowImport;
   /** The module's functions and the variables they may build test objects in; see `ModuleFunctions`. */
   private readonly functions: ModuleFunctions;
+  private readonly program: Program;
+  /** Names the module declares or imports at its top level, which hide the framework's globals. */
+  private readonly declared: Set<string>;
 
-  constructor(program: Program, dialect: Dialect, follow: FollowImport) {
+  /** Whether the module is one a scanned file imports from, where no walk reads its globals and chains. */
+  private readonly isFollowed: boolean;
+
+  constructor(program: Program, dialect: Dialect, follow: FollowImport, isFollowed = false) {
     this.dialect = dialect;
+    this.program = program;
+    this.isFollowed = isFollowed;
+    this.declared = topLevelNames(program);
     this.imported = moduleImports(program, (source) => source === dialect.source || dialect.mismatched.has(source));
     this.follow = follow;
     this.functions = new ModuleFunctions(program, this.imported, follow);
@@ -167,14 +181,12 @@ export class SuiteBindings implements TestObjects {
     if (node.type === 'Identifier') {
       const { name } = node;
       return (
-        this.starts.get(name)?.kind === 'test' ||
+        this.boundStart(node)?.kind === 'test' ||
         this.importsTestObject(name) ||
         (followsCalls && this.holdsTestObject(name))
       );
     }
-    if (node.type === 'MemberExpression') {
-      return this.dialect.starts.get(propertyName(node) ?? '')?.kind === 'test' && this.isNamespace(node.object);
-    }
+    if (node.type === 'MemberExpression') return this.boundStart(node)?.kind === 'test';
     // `process.env.CI ? vitestTest : skippedTest` is a test object either way.
     if (node.type === 'ConditionalExpression') {
       return this.isTestObject(node.consequent, followsCalls) || this.isTestObject(node.alternate, followsCalls);
@@ -192,6 +204,43 @@ export class SuiteBindings implements TestObjects {
 
   returnsTestObject(name: string): boolean {
     return this.functions.returnsTestObject(name, (expression) => this.isTestObject(expression));
+  }
+
+  /**
+   * What a name or chain stands for: one bound from the framework, a global the module doesn't hide, a member of the
+   * module, or one of those with modifiers, as `it.skip`; null otherwise.
+   */
+  startOf(expression: Expression): Start | null {
+    const node = unwrap(expression);
+    if (node.type === 'Identifier') {
+      const global = this.declared.has(node.name) ? undefined : this.dialect.starts.get(node.name);
+      return this.starts.get(node.name) ?? global ?? null;
+    }
+    if (node.type !== 'MemberExpression') return null;
+    const name = propertyName(node);
+    if (name === null) return null;
+    if (this.isNamespace(node.object)) return this.dialect.starts.get(name) ?? null;
+    const base = this.startOf(node.object);
+    return base && this.dialect.modifiers.has(name) ? { kind: base.kind, links: [...base.links, name] } : null;
+  }
+
+  /**
+   * What a value stands for when the file binds it: in a scanned file, a name bound from the framework or a member of
+   * its module, as the walk reads globals and chains itself; in a followed module, also globals and chains.
+   */
+  private boundStart(expression: Expression): Start | null {
+    if (this.isFollowed) return this.startOf(expression);
+    const node = unwrap(expression);
+    if (node.type === 'Identifier') return this.starts.get(node.name) ?? null;
+    if (node.type !== 'MemberExpression' || !this.isNamespace(node.object)) return null;
+    return this.dialect.starts.get(propertyName(node) ?? '') ?? null;
+  }
+
+  exportedStart(name: string): Start | null {
+    const own = ownExport(this.program, name);
+    if (own?.kind === 'default') return this.startOf(own.value);
+    const local = own?.kind === 'specifier' ? own.local : name;
+    return this.starts.get(local) ?? null;
   }
 
   private holdsTestObject(name: string): boolean {
@@ -227,12 +276,7 @@ export class SuiteBindings implements TestObjects {
     if (!init) return false;
     if (id.type === 'Identifier' && this.isTestObject(init, false)) {
       // `const later = xit` or `= globals.xit` keeps the skip that `xit` stands for.
-      const node = unwrap(init);
-      let start: Start | undefined;
-      if (node.type === 'Identifier') start = this.starts.get(node.name);
-      // A member is a test object only when it names one of the starts.
-      else if (node.type === 'MemberExpression') start = this.dialect.starts.get(propertyName(node) as string);
-      this.starts.set(id.name, start ?? TEST);
+      this.starts.set(id.name, this.boundStart(init) ?? TEST);
       return true;
     }
     if (!this.dialect.isModule(init)) return false;
@@ -270,7 +314,7 @@ export abstract class SuiteAdapter implements Adapter {
   protected readonly suiteParameters = new Map<Node, string>();
   private readonly readModule: ModuleReader | null;
   private readonly imports: Map<string, ModuleImport>;
-  private readonly followed = new Map<string, { exported: boolean; problem: Problem | null }>();
+  private readonly followed = new Map<string, { exported: boolean; problem: Problem | null; start: unknown }>();
   private readonly reported = new Set<string>();
   /** Variables and names of functions read as test objects on trust, each reported once. */
   private readonly assumed = new Set<Node | string>();
@@ -497,7 +541,7 @@ export abstract class SuiteAdapter implements Adapter {
     return {
       name: dialect.name,
       isSource: (source) => source === dialect.source,
-      testObjects: (program, follow) => new SuiteBindings(program, dialect, follow),
+      testObjects: (program, follow) => new SuiteBindings(program, dialect, follow, true),
     };
   }
 
@@ -509,7 +553,8 @@ export abstract class SuiteAdapter implements Adapter {
       result = followImport(name, imported, this.readModule, this.file, this.framework());
       this.followed.set(name, result);
       if (result.exported) {
-        this.bindings.starts.set(name, this.dialect.starts.get(imported.imported) ?? TEST);
+        const start = (result.start as Start | null | undefined) ?? this.dialect.starts.get(imported.imported) ?? TEST;
+        this.bindings.starts.set(name, start);
         this.bindings.declarations.add(imported.node);
       }
     }
@@ -537,4 +582,20 @@ export abstract class SuiteAdapter implements Adapter {
     if (node === undefined || node.type === 'SpreadElement') return null;
     return this.file.values.lengthOf(node, context.scopes);
   }
+}
+
+/** The names a module declares or imports at its top level, destructured ones too. */
+function topLevelNames(program: Program): Set<string> {
+  const names = new Set<string>();
+  for (const declarator of topLevelDeclarators(program))
+    for (const name of bindingNames(declarator.id)) names.add(name);
+  for (const statement of program.body) {
+    const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+    if ((declaration?.type === 'FunctionDeclaration' || declaration?.type === 'ClassDeclaration') && declaration.id) {
+      names.add(declaration.id.name);
+    }
+    if (statement.type === 'ImportDeclaration')
+      for (const specifier of statement.specifiers) names.add(specifier.local.name);
+  }
+  return names;
 }

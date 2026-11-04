@@ -301,15 +301,20 @@ module.exports = defineConfig(mergeConfig(base, { testMatch: ['**/*.verify.js'] 
       'src/fees.test.js': TEST,
     });
     expect(files(await scan({ root, framework: 'jest' }))).toEqual(['src/fees.check.js', 'src/fees.verify.js']);
-    const empty = project({
-      'package.json': JEST_PACKAGE,
-      'jest.base.js': "globalThis.base = { testMatch: ['**/*.check.js'] };\n",
-      'jest.config.js':
-        "const base = require('./jest.base.js');\nmodule.exports = { ...base, testMatch: ['**/*.check.js'] };\n",
-      'src/fees.check.js': TEST,
-    });
-    const spread = await scan({ root: empty, framework: 'jest' });
-    expect(spread.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown', 'no-files-matched']);
+    const spreads = [
+      "const base = require('./jest.base.js');\nmodule.exports = { ...base, testMatch: ['**/*.check.js'] };\n",
+      "module.exports = { ...require('./jest.base.js'), testMatch: ['**/*.check.js'] };\n",
+    ];
+    for (const config of spreads) {
+      const empty = project({
+        'package.json': JEST_PACKAGE,
+        'jest.base.js': "globalThis.base = { testMatch: ['**/*.check.js'] };\n",
+        'jest.config.js': config,
+        'src/fees.check.js': TEST,
+      });
+      const spread = await scan({ root: empty, framework: 'jest' });
+      expect(spread.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown', 'no-files-matched']);
+    }
     const old = await scan({ root, framework: 'jest', frameworkVersion: '30.2.0', patterns: ['src/*.js'] });
     expect(old.diagnostics.map((item) => item.code)).toContain('config-value-unknown');
     const fn = project({

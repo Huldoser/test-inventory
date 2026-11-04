@@ -341,6 +341,12 @@ export class Values {
     return binding?.kind === 'const' ? { init: binding.init, scopes: binding.scopes } : null;
   }
 
+  /** The name a module exports that a name imported from it stands for, `default` for a default import; null otherwise. */
+  importedName(name: string, scopes: readonly Node[]): string | null {
+    const binding = this.lookup(name, scopes)?.binding;
+    return binding?.kind === 'import' ? binding.imported : null;
+  }
+
   /** The module a name is imported from where it is used; null when it isn't an import. */
   importSource(name: string, scopes: readonly Node[]): string | null {
     const binding = this.lookup(name, scopes)?.binding;
@@ -786,7 +792,30 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
         // `declare const it: TestAPI` only types a global; the name still refers to it.
         if (statement.declare) break;
         for (const declarator of statement.declarations) {
-          if (statement.kind === 'const' && declarator.id.type === 'Identifier' && declarator.init) {
+          const required = declarator.init ? localRequire(declarator.init) : null;
+          if (required !== null && declarator.id.type === 'Identifier') {
+            // `const symbols = require('./symbols')` stands for what the module exports, as a default import does.
+            bindings.set(declarator.id.name, {
+              kind: 'import',
+              source: required,
+              imported: 'default',
+              declaration: declarator,
+            });
+          } else if (required !== null && declarator.id.type === 'ObjectPattern') {
+            for (const property of declarator.id.properties) {
+              const key = property.type === 'Property' ? propertyKey(property) : null;
+              if (key !== null && property.type === 'Property' && property.value.type === 'Identifier') {
+                bindings.set(property.value.name, {
+                  kind: 'import',
+                  source: required,
+                  imported: key,
+                  declaration: declarator,
+                });
+              } else {
+                other(bindingNames(property.type === 'Property' ? property.value : property), declarator);
+              }
+            }
+          } else if (statement.kind === 'const' && declarator.id.type === 'Identifier' && declarator.init) {
             bindings.set(declarator.id.name, { kind: 'const', init: declarator.init, scopes, declaration: declarator });
           } else {
             other(bindingNames(declarator.id), declarator);
@@ -862,4 +891,14 @@ function isObjectListing(call: CallExpression): boolean {
     call.arguments.length === 1 &&
     call.arguments[0].type !== 'SpreadElement'
   );
+}
+
+/** The local file `require('./symbols')` loads, as an import of it; null for a package or any other expression. */
+function localRequire(expression: Expression): string | null {
+  const node = unwrap(expression);
+  if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'require')
+    return null;
+  const [argument] = node.arguments;
+  const isLocal = argument.type === 'Literal' && typeof argument.value === 'string' && /^\.\.?\//.test(argument.value);
+  return isLocal ? argument.value : null;
 }

@@ -42,6 +42,7 @@ const JEST: Dialect = {
   ]),
   hooks: new Set(['beforeEach', 'afterEach', 'beforeAll', 'afterAll']),
   derivations: new Set(),
+  modifiers: new Set(['only', 'skip', 'todo', 'concurrent', 'failing']),
   carriesKinds: false,
   isModule: (expression) => requiredModule(expression) === SOURCE,
   // Babel and TypeScript give a default import of the CommonJS module the whole module.

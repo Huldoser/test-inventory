@@ -1,5 +1,5 @@
-import type { Program } from 'oxc-parser';
-import { ownExport, parseModule, starReexport } from './frameworks/bindings.ts';
+import type { Expression, Program } from 'oxc-parser';
+import { commonJsExport, commonJsNames, ownExport, parseModule, starReexport } from './frameworks/bindings.ts';
 import type { ModuleReader, ModuleSource } from './model.ts';
 import { Values, type ImportReader, type Resolved, type Value } from './values.ts';
 
@@ -85,6 +85,20 @@ export class ExportedValues {
     }
     if (own) {
       return opened.values.resolveName(own.kind === 'specifier' ? own.local : name, [program]);
+    }
+    const commonJs = commonJsExport(program, name);
+    if (commonJs) return opened.values.resolve(commonJs, [program]);
+    // What `require()` gives for a module that exports its names one by one: an object of them.
+    const names = name === 'default' ? commonJsNames(program) : [];
+    if (names.length > 0) {
+      const entries = names.map(
+        (item) => [item, opened.values.resolve(commonJsExport(program, item) as Expression, [program])] as const,
+      );
+      if (!entries.every(([, value]) => value.ok)) return UNRESOLVED;
+      return {
+        ok: true,
+        value: Object.fromEntries(entries.map(([key, value]) => [key, (value as { value: Value }).value])),
+      };
     }
     // `export *` passes on every name but the default. When two modules export the name with different values, Node
     // refuses to load the module and Vite's module runner keeps the first, so the value isn't known.

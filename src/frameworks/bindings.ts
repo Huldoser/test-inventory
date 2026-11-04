@@ -1,5 +1,13 @@
 import type { Expression, ModuleExportName, Node, Program, VariableDeclarator } from 'oxc-parser';
-import { childNodes, isFunctionNode, propertyName, returnValues, unwrap, type FunctionNode } from '../ast.ts';
+import {
+  childNodes,
+  isFunctionNode,
+  propertyKey,
+  propertyName,
+  returnValues,
+  unwrap,
+  type FunctionNode,
+} from '../ast.ts';
 import type { ModuleReader, ModuleSource, Problem } from '../model.ts';
 import { parseFile, type ParsedFile } from '../parse.ts';
 import { snippet, type SourceText } from '../source.ts';
@@ -27,6 +35,8 @@ export interface TestObjects {
   returnsTestObject(name: string): boolean;
   /** Whether re-exporting `imported` from `source` exports a test object, or a function that returns one. */
   reexports(source: string, imported: string, exported: Exported): boolean;
+  /** What the test object the module exports as `name` stands for, as `it.skip` stands for `it` with `skip`. */
+  exportedStart?(name: string): unknown;
 }
 
 /**
@@ -146,6 +156,17 @@ export function moduleImports(program: Program, isFramework: (source: string) =>
       imports.set(specifier.local.name, { source: statement.source.value, imported, node: specifier });
     }
   }
+  // `const { test } = require('./fixtures')` imports as `import { test } from './fixtures'` does.
+  for (const declarator of topLevelDeclarators(program)) {
+    const source = declarator.init ? requiredModule(declarator.init) : null;
+    if (source === null || !/^\.\.?\//.test(source) || declarator.id.type !== 'ObjectPattern') continue;
+    for (const property of declarator.id.properties) {
+      const key = property.type === 'Property' ? propertyKey(property) : null;
+      if (key !== null && property.type === 'Property' && property.value.type === 'Identifier') {
+        imports.set(property.value.name, { source, imported: key, node: declarator });
+      }
+    }
+  }
   return imports;
 }
 
@@ -156,6 +177,53 @@ export function requiredModule(expression: Expression): string | null {
     return null;
   const argument = node.arguments.at(0);
   return argument?.type === 'Literal' && typeof argument.value === 'string' ? argument.value : null;
+}
+
+/**
+ * What a CommonJS module exports under `name`: `exports.name = value`, `module.exports.name = value` or a key of
+ * `module.exports = { ... }`, and for `default`, `module.exports` itself; the last one written wins; null otherwise.
+ */
+export function commonJsExport(program: Program, name: string): Expression | null {
+  let found: Expression | null = null;
+  for (const statement of program.body) {
+    const whole = moduleExportsValue(statement);
+    if (whole) {
+      const object = unwrap(whole);
+      if (name === 'default') found = whole;
+      else if (object.type === 'ObjectExpression') {
+        for (const property of object.properties) {
+          if (property.type === 'Property' && propertyKey(property) === name) found = property.value;
+        }
+      }
+      continue;
+    }
+    if (statement.type !== 'ExpressionStatement') continue;
+    const expression = unwrap(statement.expression);
+    if (expression.type !== 'AssignmentExpression' || expression.left.type !== 'MemberExpression') continue;
+    if (propertyName(expression.left) !== name) continue;
+    const target = unwrap(expression.left.object);
+    const isExports = target.type === 'Identifier' && target.name === 'exports';
+    const isModuleExports =
+      target.type === 'MemberExpression' &&
+      target.object.type === 'Identifier' &&
+      target.object.name === 'module' &&
+      propertyName(target) === 'exports';
+    if (isExports || isModuleExports) found = expression.right;
+  }
+  return found;
+}
+
+/** The names a CommonJS module exports one by one, as `exports.name = value` and `module.exports.name = value` do. */
+export function commonJsNames(program: Program): string[] {
+  const names = new Set<string>();
+  for (const statement of program.body) {
+    if (statement.type !== 'ExpressionStatement') continue;
+    const expression = unwrap(statement.expression);
+    if (expression.type !== 'AssignmentExpression' || expression.left.type !== 'MemberExpression') continue;
+    const name = propertyName(expression.left);
+    if (name !== null && commonJsExport(program, name) === expression.right) names.add(name);
+  }
+  return [...names];
 }
 
 /** What `module.exports = value` assigns, the default export of a CommonJS module; null for any other statement. */
@@ -217,6 +285,8 @@ export function exportsTestObject(
     case 'specifier':
       return own.source === null ? local(own.local) : objects.reexports(own.source, own.local, exported);
   }
+  const commonJs = exported === 'test object' && name !== 'default' ? commonJsExport(program, name) : null;
+  if (commonJs) return objects.isTestObject(commonJs);
   return program.body.some((statement) => {
     const source = starReexport(statement);
     return source !== null && objects.reexports(source, name, exported);
@@ -444,6 +514,10 @@ export function followModule(
 interface Followed {
   exported: boolean;
   reason: string | null;
+  /** What the exported test object stands for, when the framework's test objects say. */
+  start?: unknown;
+  /** The module writes a function under the name, a helper that registers tests itself, which the walk follows. */
+  isHelper?: boolean;
 }
 
 /**
@@ -466,12 +540,21 @@ function followExports(
     program,
     (from, imported, kind = 'test object') => followFrom(from, imported, kind).exported,
   );
-  if (exportsTestObject(program, name, objects, exported)) return { exported: true, reason: null };
+  if (exportsTestObject(program, name, objects, exported)) {
+    return { exported: true, reason: null, start: objects.exportedStart?.(name) };
+  }
+  // A function the module writes and exports is a helper that registers tests itself, which the walk follows.
+  if (exported === 'test object' && exportsFunction(program, name)) {
+    return { exported: false, reason: null, isHelper: true };
+  }
   const unrecognized = (kind: Exported) =>
     `does not export ${kind === 'function' ? 'a function that returns a test object' : `a ${framework.name} test object`} that could be recognized`;
   const origin = importOrigin(program, name, framework.isSource, exported);
   if (origin) {
-    const end = followFrom(origin.source, origin.imported, origin.exported).reason ?? unrecognized(origin.exported);
+    const followed = followFrom(origin.source, origin.imported, origin.exported);
+    // A helper function re-exported, as `import helper from './a'; export { helper }`, is no broken test object.
+    if (followed.isHelper && origin.how === 're-exports') return followed;
+    const end = followed.reason ?? unrecognized(origin.exported);
     return { exported: false, reason: `${origin.how} it from '${origin.source}', which ${end}` };
   }
   if (importsFrom(program, framework.isSource)) return { exported: false, reason: unrecognized(exported) };
@@ -479,6 +562,25 @@ function followExports(
   // `export const test = defineBrokerTest()`; one the scan can't follow is worth an error, not silence.
   const call = exported === 'test object' ? creatingCall(program, name, source) : null;
   return { exported: false, reason: call ? `builds it with ${call}, which is not followed` : null };
+}
+
+/** Whether a module writes the function it exports as `name`: declared, written in place, or held in a variable. */
+function exportsFunction(program: Program, name: string): boolean {
+  const own = ownExport(program, name);
+  if (own?.kind === 'function') return true;
+  if (own?.kind === 'default') {
+    const value = unwrap(own.value);
+    return value.type === 'FunctionDeclaration' || isFunctionNode(value);
+  }
+  const local = own?.kind === 'variable' ? name : own?.kind === 'specifier' && own.source === null ? own.local : null;
+  if (local === null) return false;
+  const declared = program.body.some(
+    (statement) => statement.type === 'FunctionDeclaration' && statement.id?.name === local,
+  );
+  const declarator = topLevelDeclarators(program).find(
+    (item) => item.id.type === 'Identifier' && item.id.name === local,
+  );
+  return declared || isFunctionNode(declarator?.init ? unwrap(declarator.init) : null);
 }
 
 /**
@@ -504,8 +606,8 @@ export function followImport(
   readModule: ModuleReader | null,
   file: FileContext,
   framework: Framework,
-): { exported: boolean; problem: Problem | null } {
-  const { exported, reason } = followModule(imported.source, imported.imported, readModule, framework);
+): { exported: boolean; problem: Problem | null; start: unknown } {
+  const { exported, reason, start } = followModule(imported.source, imported.imported, readModule, framework);
   const problemFound = reason
     ? problem(
         'unresolved-test-import',
@@ -514,5 +616,5 @@ export function followImport(
         snippet(text(file, imported.node)),
       )
     : null;
-  return { exported, problem: problemFound };
+  return { exported, problem: problemFound, start };
 }

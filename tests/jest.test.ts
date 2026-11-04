@@ -3,7 +3,8 @@ import { headingsMatch } from '../src/frameworks/jest.ts';
 import { parseFile } from '../src/parse.ts';
 import { Values } from '../src/values.ts';
 import { codes, onlyTest, scanJest, testNamed, titles } from './helpers.ts';
-import type { Inventory } from '../src/index.ts';
+import { project } from './project.ts';
+import { scan, type Inventory } from '../src/index.ts';
 
 function states(inventory: Inventory): [string, string, boolean][] {
   return inventory.tests.map((test) => [test.fullName, test.state, test.isOnly]);
@@ -845,5 +846,176 @@ describe(function OrderBook() {}, () => {
 `);
     expect(inventory.tests.map((test) => test.fullName)).toEqual(['OrderBook > Matcher', 'OrderBook > ']);
     expect(codes(inventory)).toEqual(['empty-title']);
+  });
+});
+
+describe('helpers and values from other files', () => {
+  const JEST = JSON.stringify({ devDependencies: { jest: '30.5.2' } });
+  const scanned = async (files: Record<string, string>) => {
+    const inventory = await scan({
+      root: project({ 'package.json': JEST, ...files }),
+      framework: 'jest',
+      patterns: ['**/*.test.js'],
+    });
+    return {
+      tests: inventory.tests.map((test) => [test.fullName, test.state, test.caseCount]),
+      codes: codes(inventory),
+      messages: inventory.diagnostics.map((item) => item.message),
+    };
+  };
+
+  it('reads values and helper functions from files loaded with require() (TI-70)', async () => {
+    const result = await scanned({
+      'lib/symbols.js': "exports.SYMBOLS = ['AAPL', 'MSFT'];\nmodule.exports.VENUES = ['XNAS'];\n",
+      'lib/limits.json': '{ "lots": [1, 10, 100] }',
+      'lib/helpers.js': `function registerSettlement(desk) {
+  describe(\`\${desk} settlement\`, () => {
+    test('books the cash leg', () => {});
+  });
+}
+module.exports = { registerSettlement };
+`,
+      'lib/clearing.js':
+        'module.exports = function registerClearing(desk) {\n  test(`clears ${desk}`, () => {});\n};\n',
+      'tests/settle.test.js': `const { SYMBOLS } = require('../lib/symbols');
+const registerClearing = require('../lib/clearing');
+const symbols = require('../lib/symbols');
+const { lots } = require('../lib/limits.json');
+const { registerSettlement } = require('../lib/helpers');
+test.each(SYMBOLS)('settles %s', () => {});
+test.each(symbols.VENUES)('routes to %s', () => {});
+test.each(lots)('rounds %i lots', () => {});
+registerSettlement('equities');
+registerClearing('futures');
+`,
+    });
+    expect(result.tests).toEqual([
+      ['settles %s', 'active', 2],
+      ['routes to %s', 'active', 1],
+      ['rounds %i lots', 'active', 3],
+      ['equities settlement > books the cash leg', 'active', null],
+      ['clears futures', 'active', null],
+    ]);
+    expect(result.codes).toEqual([]);
+  });
+
+  it('follows a helper function written into module.exports, and not a name the module leaves out', async () => {
+    const result = await scanned({
+      'lib/helpers.js': `module.exports = {
+  registerSettlement(desk) {
+    test(\`settles \${desk}\`, () => {});
+  },
+  registerClearing: (desk) => test(\`clears \${desk}\`, () => {}),
+};
+`,
+      'tests/settle.test.js': `const { registerSettlement, registerClearing, registerNetting } = require('../lib/helpers');
+registerSettlement('equities');
+registerClearing('futures');
+registerNetting('rates');
+`,
+    });
+    expect(result.tests).toEqual([
+      ['settles equities', 'active', null],
+      ['clears futures', 'active', null],
+    ]);
+    expect(result.codes).toEqual([]);
+  });
+
+  it('reads the names it can from a destructured require(), and none from a module of exports it cannot read', async () => {
+    const result = await scanned({
+      'lib/symbols.js':
+        "const SYMBOLS = ['AAPL', 'MSFT'];\nexports.SYMBOLS = SYMBOLS;\nexports.VENUES = [['XNAS', 'XNYS']];\n",
+      'lib/limits.js':
+        "'use strict';\nexports.TICK = 0.01;\nconst TICK = readTick();\nexports.LOTS = [1, 10];\nexports.TICK = TICK;\n",
+      'tests/route.test.js': `const { SYMBOLS, VENUES: [venues], ...rest } = require('../lib/symbols');
+const limits = require('../lib/limits');
+test.each(SYMBOLS)('routes %s', () => {});
+test.each(venues)('quotes on %s', () => {});
+test.each(rest.SYMBOLS)('books %s', () => {});
+test.each(limits.LOTS)('rounds %i lots', () => {});
+`,
+    });
+    expect(result.tests).toEqual([
+      ['routes %s', 'active', 2],
+      ['quotes on %s', 'active', null],
+      ['books %s', 'active', null],
+      ['rounds %i lots', 'active', null],
+    ]);
+  });
+
+  it('reads a test function a helper takes from the framework namespace, and none it hides, misnames or cannot follow', async () => {
+    const result = await scanned({
+      'helpers/tests.js': `const it = (title, fn) => fn();
+export const settlementTest = it;
+export const brokerTest = test.extend();
+`,
+      'helpers/globals.js':
+        "import * as globals from '@jest/globals';\nexport const pendingTest = globals.xit;\nexport const quoteTest = globals.quote;\n",
+      'helpers/focused.js': "const mode = 'only';\nexport default test[mode];\n",
+      'tests/settle.test.js':
+        "import { settlementTest } from '../helpers/tests';\nsettlementTest('settles a trade', () => {});\n",
+      'tests/focus.test.js':
+        "import focusedTest from '../helpers/focused';\nfocusedTest('amends a trade', () => {});\n",
+      'tests/broker.test.js':
+        "import { brokerTest } from '../helpers/tests';\nbrokerTest('voids a trade', () => {});\n",
+      'tests/quote.test.js':
+        "import { pendingTest, quoteTest } from '../helpers/globals';\npendingTest('quotes a spread', () => {});\nquoteTest('quotes a price', () => {});\n",
+    });
+    expect(result.tests).toEqual([['quotes a spread', 'skip', null]]);
+    expect(result.messages).toEqual([
+      "'brokerTest' is imported from '../helpers/tests', which builds it with test.extend(), which is not followed; tests that use it are missing.",
+      "'quoteTest' is imported from '../helpers/globals', which does not export a Jest test object that could be recognized; tests that use it are missing.",
+    ]);
+  });
+
+  it('follows a helper a file imports and exports again (TI-71)', async () => {
+    const result = await scanned({
+      'shared/rootPropsTest.js': `import { describe, it } from '@jest/globals';
+export default function rootPropsTest(component) {
+  describe('root props', () => {
+    it(\`passes props to \${component}\`, () => {});
+  });
+}
+`,
+      'shared/demoTest.js':
+        "import rootPropsTest from './rootPropsTest';\nexport { rootPropsTest };\nexport default rootPropsTest;\n",
+      'components/button.test.js': "import { rootPropsTest } from '../shared/demoTest';\nrootPropsTest('button');\n",
+      'components/select.test.js': "import venueTests from '../shared/demoTest';\nvenueTests('select');\n",
+    });
+    expect(result.tests).toEqual([
+      ['root props > passes props to button', 'active', null],
+      ['root props > passes props to select', 'active', null],
+    ]);
+    expect(result.codes).toEqual([]);
+  });
+
+  it('does not report a re-exported helper called like a test as a broken import (TI-71)', async () => {
+    const result = await scanned({
+      'shared/settlementTest.js': 'export default function settlementTest(title, body) {\n  test(title, body);\n}\n',
+      'shared/index.js': "import settlementTest from './settlementTest';\nexport { settlementTest };\n",
+      'tests/settle.test.js':
+        "import { settlementTest } from '../shared';\nsettlementTest('settles equities', () => {});\n",
+    });
+    expect(result.tests).toEqual([['settles equities', 'active', null]]);
+    // The scan also warns of a nested test here, which is wrong: TI-77.
+    expect(result.codes).not.toContain('unresolved-test-import');
+  });
+
+  it('reads a test function a helper takes from the globals, with its modifiers (TI-69)', async () => {
+    const result = await scanned({
+      'helpers/tests.js':
+        'export const test = it;\nexport const skipTest = it.skip;\nexport const pendingBrokerTest = xit;\n',
+      'tests/broker.test.js': `import { test, skipTest, pendingBrokerTest } from '../helpers/tests';
+test('settles a trade', () => {});
+skipTest('amends a trade', () => {});
+pendingBrokerTest('voids a trade', () => {});
+`,
+    });
+    expect(result.tests).toEqual([
+      ['settles a trade', 'active', null],
+      ['amends a trade', 'skip', null],
+      ['voids a trade', 'skip', null],
+    ]);
+    expect(result.codes).toEqual([]);
   });
 });

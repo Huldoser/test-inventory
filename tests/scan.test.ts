@@ -362,20 +362,29 @@ describe('scan follows a custom test object to its fixtures file', () => {
       'does not export a Playwright test object that could be recognized',
     ],
     [
-      'requires Playwright and exports test with CommonJS',
-      {
-        'fixtures/index.js':
-          "const { test: base } = require('@playwright/test');\nmodule.id = 'fixtures';\nexports.test = base.extend({});\n",
-      },
-      'does not export a Playwright test object that could be recognized',
-    ],
-    [
       'does not export the name',
       {
         'fixtures/index.ts':
           "import { test as base } from '@playwright/test';\nexport const trading = base.extend({});\nexport default 1;\nexport * as all from '@playwright/test';\n",
       },
       'does not export a Playwright test object that could be recognized',
+    ],
+    [
+      'requires Playwright and exports an object of fixtures with CommonJS',
+      {
+        'fixtures/index.js':
+          "const { test: base } = require('@playwright/test');\nconst fixtures = { test: base.extend({}) };\nmodule.exports = fixtures;\n",
+      },
+      'does not export a Playwright test object that could be recognized',
+    ],
+    [
+      'builds test with a function from a CommonJS module',
+      {
+        'fixtures/index.ts': "import { defineBrokerTest } from './define';\nexport const test = defineBrokerTest();\n",
+        'fixtures/define.js':
+          "const { test: base } = require('@playwright/test');\nexports.defineBrokerTest = () => base.extend({});\n",
+      },
+      "builds it from './define', which does not export a function that returns a test object that could be recognized",
     ],
     [
       'exports something else from Playwright under the name',
@@ -406,6 +415,18 @@ describe('scan follows a custom test object to its fixtures file', () => {
         message: `'test' is imported from '${fixtures}', which ${reason}; tests that use it are missing.`,
       },
     ]);
+  });
+
+  it('follows a fixtures file that requires Playwright and exports test with CommonJS', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/portfolio.spec.ts': spec('../fixtures'),
+      'fixtures/index.js':
+        "const { test: base } = require('@playwright/test');\nmodule.id = 'fixtures';\nexports.test = base.extend({});\n",
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests).toHaveLength(1);
+    expect(inventory.diagnostics).toEqual([]);
   });
 
   it('reports test functions and describes through modules it cannot follow, but not helpers or calls in tests', async () => {

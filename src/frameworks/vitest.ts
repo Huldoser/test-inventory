@@ -92,6 +92,7 @@ const VITEST: Dialect = {
   ]),
   hooks: new Set(HOOKS.keys()),
   derivations: DERIVATIONS,
+  modifiers: new Set([...MODIFIERS.test, ...MODIFIERS.describe]),
   carriesKinds: true,
   isModule: isImportMetaVitest,
   defaultImport: "Vitest has no default export; import { test, describe } from 'vitest' instead.",

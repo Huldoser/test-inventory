@@ -430,9 +430,10 @@ class ConfigCode {
       const setting = this.once(constant.init, site, () => this.evaluate(constant.init, frame, constant.scopes));
       return this.changed(setting, frame, declaration as Node);
     }
-    if (declaration?.type !== 'ImportSpecifier' && declaration?.type !== 'ImportDefaultSpecifier') return null;
-    const imported = declaration.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
-    const source = frame.values.importSource(name, scopes) as string;
+    // An import, or a local file loaded with `require()`, which reads as one.
+    const source = frame.values.importSource(name, scopes);
+    const imported = frame.values.importedName(name, scopes);
+    if (source === null || imported === null) return null;
     if (source === 'vitest/config' || source === 'vitest/node') {
       const defaults = this.vitestDefaults(imported, site);
       if (defaults) return defaults;

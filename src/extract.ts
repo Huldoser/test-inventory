@@ -8,7 +8,7 @@ import {
   unwrap,
   type FunctionNode,
 } from './ast.ts';
-import { exportName } from './frameworks/bindings.ts';
+import { commonJsExport, exportName } from './frameworks/bindings.ts';
 import { problem, readCount } from './frameworks/common.ts';
 import type {
   Adapter,
@@ -1067,10 +1067,9 @@ class Walker {
 
   /** The function a name imported from a local module stands for, in the file that writes it; null otherwise. */
   private importedFunction(name: string, scopes: readonly Node[], from = this.frame): Callee | null {
-    const declaration = from.values.declarationOf(name, scopes);
     const source = from.values.importSource(name, scopes);
     if (source === null) return null;
-    const imported = declaration?.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
+    const imported = from.values.importedName(name, scopes) as string;
     const frame = this.openFrom(from, source);
     return frame ? this.exportedFunction(frame, imported, new Set(), 0) : null;
   }
@@ -1093,13 +1092,16 @@ class Walker {
     if (searched.has(key) || depth >= MAX_DEPTH) return null;
     searched.add(key);
     const { program } = frame.parsed;
-    const local = (localName: string): Callee | null => {
-      const fn = this.functionIn(frame, localName, [program]);
-      return fn ? { fn, frame } : null;
-    };
     const from = (source: string, exported: string): Callee | null => {
       const module = this.openFrom(frame, source);
       return module ? this.exportedFunction(module, exported, searched, depth + 1) : null;
+    };
+    const local = (localName: string): Callee | null => {
+      const fn = this.functionIn(frame, localName, [program]);
+      if (fn) return { fn, frame };
+      // A name the module imports and exports again, as `import helper from './a'; export { helper }`.
+      const source = frame.values.importSource(localName, [program]);
+      return source === null ? null : from(source, frame.values.importedName(localName, [program]) as string);
     };
     for (const statement of program.body) {
       if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
@@ -1128,7 +1130,11 @@ class Walker {
         return statement.source ? from(statement.source.value, localName) : local(localName);
       }
     }
-    return null;
+    // A CommonJS module: `module.exports = { registerSettlement }` or `exports.registerSettlement = function () {}`.
+    const commonJs = commonJsExport(program, name);
+    const value = commonJs ? unwrap(commonJs) : null;
+    if (value?.type === 'Identifier') return local(value.name);
+    return isFunctionNode(value) ? { fn: value, frame } : null;
   }
 
   /**
