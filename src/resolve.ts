@@ -296,42 +296,36 @@ function pnpmWorkspacePatterns(text: string): string[] {
   return patterns;
 }
 
-/** The folder of each package in the workspace a folder belongs to, by name; empty outside a workspace. */
-function workspacePackages(directory: string): Map<string, string> {
-  for (let folder = directory; ; folder = path.dirname(folder)) {
-    const workspaces = readJson(path.join(folder, 'package.json'))?.workspaces;
-    const fromManifest = Array.isArray(workspaces) ? workspaces : record(workspaces)?.packages;
-    const pnpm = readText(path.join(folder, 'pnpm-workspace.yaml'));
-    // pnpm reads only pnpm-workspace.yaml, and npm, Yarn and Bun only package.json, so a repository that moved to
-    // pnpm may still have an old list there. Packages from both are found.
-    const lists = [Array.isArray(fromManifest) ? fromManifest : null, pnpm ? pnpmWorkspacePatterns(pnpm) : null];
-    const patterns = lists.some((list) => list !== null)
-      ? lists.flat().filter((item): item is string => typeof item === 'string')
-      : null;
-    if (patterns) {
-      // Packages are inside the workspace. A pattern or a link that leads out of its folder could send the search through
-      // the whole disk, so neither is followed.
-      const inside = patterns.filter(
-        (item) => !path.isAbsolute(item.replace(/^!/, '')) && !/(^|\/)\.\.(\/|$)/.test(item),
-      );
-      const manifests = globSync(
-        inside.filter((item) => !item.startsWith('!')).map((item) => `${item.replace(/\/+$/, '')}/package.json`),
-        {
-          cwd: folder,
-          absolute: true,
-          followSymbolicLinks: false,
-          ignore: ['**/node_modules/**', ...inside.filter((item) => item.startsWith('!')).map((item) => item.slice(1))],
-        },
-      );
-      const packages = new Map<string, string>();
-      for (const manifest of manifests) {
-        const name = readJson(manifest)?.name;
-        if (typeof name === 'string') packages.set(name, path.dirname(manifest));
-      }
-      return packages;
-    }
-    if (path.dirname(folder) === folder) return new Map();
+/** The folder of each package of the workspace a folder is the root of, by name; null when it isn't one. */
+function workspaceAt(folder: string): Map<string, string> | null {
+  const workspaces = readJson(path.join(folder, 'package.json'))?.workspaces;
+  const fromManifest = Array.isArray(workspaces) ? workspaces : record(workspaces)?.packages;
+  const pnpm = readText(path.join(folder, 'pnpm-workspace.yaml'));
+  // pnpm reads only pnpm-workspace.yaml, and npm, Yarn and Bun only package.json, so a repository that moved to
+  // pnpm may still have an old list there. Packages from both are found.
+  const lists = [Array.isArray(fromManifest) ? fromManifest : null, pnpm ? pnpmWorkspacePatterns(pnpm) : null];
+  const patterns = lists.some((list) => list !== null)
+    ? lists.flat().filter((item): item is string => typeof item === 'string')
+    : null;
+  if (!patterns) return null;
+  // Packages are inside the workspace. A pattern or a link that leads out of its folder could send the search through
+  // the whole disk, so neither is followed.
+  const inside = patterns.filter((item) => !path.isAbsolute(item.replace(/^!/, '')) && !/(^|\/)\.\.(\/|$)/.test(item));
+  const manifests = globSync(
+    inside.filter((item) => !item.startsWith('!')).map((item) => `${item.replace(/\/+$/, '')}/package.json`),
+    {
+      cwd: folder,
+      absolute: true,
+      followSymbolicLinks: false,
+      ignore: ['**/node_modules/**', ...inside.filter((item) => item.startsWith('!')).map((item) => item.slice(1))],
+    },
+  );
+  const packages = new Map<string, string>();
+  for (const manifest of manifests) {
+    const name = readJson(manifest)?.name;
+    if (typeof name === 'string') packages.set(name, path.dirname(manifest));
   }
+  return packages;
 }
 
 /**
@@ -381,12 +375,17 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
     }
     return options;
   };
+  // The packages of the workspace a folder belongs to, empty outside one; each folder on the way up is looked at once.
   const packagesOf = (directory: string): Map<string, string> => {
-    let packages = workspaces.get(directory);
-    if (!packages) {
-      packages = workspacePackages(directory);
-      workspaces.set(directory, packages);
+    const passed: string[] = [];
+    let packages: Map<string, string> | null | undefined;
+    for (let folder = directory; !packages; folder = path.dirname(folder)) {
+      packages = workspaces.get(folder);
+      if (packages) break;
+      passed.push(folder);
+      packages = workspaceAt(folder) ?? (path.dirname(folder) === folder ? new Map() : null);
     }
+    for (const folder of passed) workspaces.set(folder, packages);
     return packages;
   };
   const reader =
