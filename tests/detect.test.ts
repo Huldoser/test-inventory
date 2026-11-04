@@ -53,6 +53,15 @@ describe('framework detection', () => {
     expect((await scan({ root })).framework).toBe('jest');
   });
 
+  it('leaves out what the ignore globs leave out', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'examples/storefront/vitest.config.ts': 'export default {};\n',
+      'src/fees.test.js': JEST,
+    });
+    expect((await scan({ root, patterns: ['src/*.js'], ignore: ['examples/**'] })).framework).toBe('jest');
+  });
+
   it('throws a TypeError that names the runners when a project uses several', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.64.1', vitest: '5.0.5' } }),

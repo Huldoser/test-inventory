@@ -31,6 +31,8 @@ const JEST_TEST_MATCH = {
   29: ['**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[tj]s?(x)'],
   30: ['**/__tests__/**/*.?([mc])[jt]s?(x)', '**/?(*.)+(spec|test).?([mc])[jt]s?(x)'],
 };
+/** The extensions a file a Jest `projects` glob matches needs to be read as a config. */
+const JEST_CONFIG_EXTENSIONS = ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts', '.json'];
 /** Jest's default `moduleFileExtensions` before 30.0; 30.0 adds `mts` and `cts`. */
 const JEST_EXTENSIONS = ['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'json', 'node'];
 /** Presets that leave Jest's choice of test files as it is, so the scan needs nothing from them. */
@@ -569,10 +571,6 @@ export class ConfigRuns {
     return rules;
   }
 
-  /**
-   * The projects of a Vitest config, the one the runner starts with or, in Vitest 5, a config another lists, whose name
-   * then goes around the names of its projects.
-   */
   /** A config for the defaults of a runner started where no config is found. */
   private noConfig(): ConfigFile {
     const file = path.join(this.configs.root, 'package.json');
@@ -601,7 +599,12 @@ export class ConfigRuns {
       const matches = picomatch.scan(entry).isGlob
         ? globSync(entry, { cwd: this.configs.root, absolute: true, onlyFiles: false, expandDirectories: false })
         : [];
-      const targets = matches.length > 0 ? matches : [path.resolve(this.configs.root, entry)];
+      // Jest leaves out a matched file it can't require, such as a README.
+      const requirable = matches.filter(
+        (match) =>
+          statSync(match).isDirectory() || JEST_CONFIG_EXTENSIONS.some((extension) => match.endsWith(extension)),
+      );
+      const targets = matches.length > 0 ? requirable : [path.resolve(this.configs.root, entry)];
       // Jest fails on an entry that names nothing, so it adds no project here.
       return targets.sort().flatMap((target) => {
         if (!existsSync(target)) return [];
@@ -655,19 +658,26 @@ export class ConfigRuns {
     } else if (testRegex.length > 0 && testMatchSetting !== null && !isUnset(testMatchSetting)) {
       refusal = 'The config sets both testMatch and testRegex, which Jest refuses, so it runs no tests.';
     }
-    if (refusal) this.configs.reportConfig(config, refusal);
-    const rooted = (key: string) => (lists[key] as string[]).map((item) => replaceRootDir(rootDir, item));
-    const roots = rooted('roots').map((root) => path.resolve(rootDir, root));
+    const roots = (lists.roots as string[])
+      .map((item) => replaceRootDir(rootDir, item))
+      .map((root) => path.resolve(rootDir, root));
     const escaped = posix(rootDir).replaceAll(/([!()*?[\\\]{}])/g, '\\$1');
     const testMatch =
       testRegex.length > 0 ? [] : (lists.testMatch as string[]).map((glob) => posix(replaceRootDir(escaped, glob)));
     const isTestMatch = jestGlobs(testMatch);
+    // A pattern is a regular expression: only the path `<rootDir>` stands for is given `/`, escapes stay as written.
     const joined = (key: string) => {
-      const items = rooted(key).map(posix);
-      return items.length > 0 ? regExp(items.join('|'), '') : null;
+      const items = (lists[key] as string[]).map((item) =>
+        item.startsWith('<rootDir>') ? posix(replaceRootDir(rootDir, item)) : item,
+      );
+      if (items.length === 0) return null;
+      const expression = regExp(items.join('|'), '');
+      refusal ??= expression ? null : `The config's ${key} is not a regular expression, so Jest fails to start.`;
+      return expression;
     };
     const ignored = joined('testPathIgnorePatterns');
     const moduleIgnored = joined('modulePathIgnorePatterns');
+    if (refusal) this.configs.reportConfig(config, refusal);
     const extensions = new Set(lists.moduleFileExtensions as string[]);
     const preset = settingAt(settings, ['preset']);
     if (preset?.kind === 'value' && typeof preset.value === 'string' && !NEUTRAL_PRESETS.test(preset.value)) {
@@ -716,6 +726,10 @@ export class ConfigRuns {
     };
   }
 
+  /**
+   * The projects of a Vitest config, the one the runner starts with or, in Vitest 5, a config another lists, whose name
+   * then goes around the names of its projects.
+   */
   private vitestProjects(config: ConfigFile, container: string | null = null): Project[] {
     const folder = path.dirname(config.file);
     const list = settingAt(config.settings, ['test', 'projects']);

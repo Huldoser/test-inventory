@@ -603,6 +603,12 @@ class ConfigCode {
    */
   private call(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
     const site = { frame, node: call };
+    // `require('./jest.base.js')` of a local file, as CommonJS configs build on a shared one, is its default export.
+    const required = requiredModule(call);
+    const isGlobal = frame.values.declarationOf('require', scopes) === null;
+    if (required !== null && isGlobal && /^\.\.?\//.test(required)) {
+      return this.fromModule(frame, required, 'default', site) ?? unknown(site);
+    }
     const origin = this.origin(unwrap(call.callee), frame, scopes);
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
@@ -614,9 +620,15 @@ class ConfigCode {
     const name = isPackage && CONFIG_FUNCTIONS.has(origin.name) ? origin.name : null;
     const { arguments: given } = call;
     const needed = name === 'mergeConfig' ? 2 : 1;
+    // Jest exports defineConfig() and mergeConfig() from 30.3; neither takes a project.
+    const isJest =
+      origin !== null &&
+      ['jest', 'jest-config'].includes(origin.source) &&
+      name !== 'defineProject' &&
+      atLeast(this.version, 30, 3);
     if (
       name === null ||
-      this.framework === 'jest' ||
+      (this.framework === 'jest' && !isJest) ||
       given.length < needed ||
       given.some((arg) => arg.type === 'SpreadElement')
     ) {
@@ -627,8 +639,8 @@ class ConfigCode {
       const [base, over] = args.map((arg) => this.evaluate(arg, frame, scopes));
       return mergeDeep(base, over);
     }
-    if (this.framework === 'vitest') {
-      // Vitest's defineConfig() and defineProject() return the config they are given, or the one a function returns.
+    if (this.framework !== 'playwright') {
+      // Vitest's and Jest's defineConfig() return the config they are given, or the one a function returns.
       return isFunctionNode(args[0]) ? this.returned(args[0], frame, scopes) : this.evaluate(args[0], frame, scopes);
     }
     // Playwright's defineConfig() merges the configs it is given, each over the ones before it.
@@ -783,8 +795,12 @@ export class Configs {
     let config = this.inFolders.get(folder);
     if (config === undefined) {
       // The runners take a config that exists, without checking that it is a file they can read.
-      const name = this.names().find((item) => existsSync(path.join(folder, item)));
-      config = name ? this.at(path.join(folder, name)) : this.framework === 'jest' ? this.packageConfig(folder) : null;
+      if (this.framework === 'jest') {
+        config = this.jestConfigIn(folder);
+      } else {
+        const name = this.names().find((item) => existsSync(path.join(folder, item)));
+        config = name ? this.at(path.join(folder, name)) : null;
+      }
       this.inFolders.set(folder, config);
     }
     return config;
@@ -801,14 +817,27 @@ export class Configs {
   }
 
   /**
-   * Without a `jest.config` file, Jest takes the folder's `package.json` as the config, also without a `jest` key; from
-   * 30.0 a `jest` key that is a string is the path to the config.
+   * The config Jest takes in a folder: a `jest.config` file, else the `package.json` with a `jest` key, which from 30.0
+   * may be the path to the config. A `package.json` without one is a config only in the root, as Jest started there
+   * reads it; below the root it is a package, whose tests the root's config runs. Jest refuses to start with more than
+   * one config in the folder, which is reported.
    */
-  private packageConfig(folder: string): ConfigFile | null {
-    const file = path.join(folder, 'package.json');
-    if (!existsSync(file)) return null;
-    const key = jestKey(file);
-    return typeof key === 'string' && atLeast(this.version, 30, 0) ? this.at(path.resolve(folder, key)) : this.at(file);
+  private jestConfigIn(folder: string): ConfigFile | null {
+    const names = this.names().filter((item) => existsSync(path.join(folder, item)));
+    const manifest = path.join(folder, 'package.json');
+    const key = existsSync(manifest) ? jestKey(manifest) : undefined;
+    const KEY = 'the jest key in package.json';
+    if (key !== undefined) names.push(KEY);
+    if (names.length > 1) {
+      const listed = `${names.slice(0, -1).join(', ')} and ${names.at(-1) as string}`;
+      const message = `Jest finds more than one config in this folder, ${listed}, and refuses to start; the scan reads ${names[0]}.`;
+      this.diagnostics.push(
+        fileDiagnostic('config-value-unknown', this.relative(path.join(folder, names[0])), message),
+      );
+    }
+    if (names.length > 0 && names[0] !== KEY) return this.at(path.join(folder, names[0]));
+    if (typeof key === 'string' && atLeast(this.version, 30, 0)) return this.at(path.resolve(folder, key));
+    return key !== undefined || (folder === this.root && existsSync(manifest)) ? this.at(manifest) : null;
   }
 
   private read(file: string): ConfigFile {

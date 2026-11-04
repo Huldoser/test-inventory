@@ -172,7 +172,9 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   if (!existsSync(root) || !statSync(root).isDirectory())
     throw invalid('options.root', `a directory, and ${root} is not one`);
   const framework =
-    checked.framework === undefined ? detectFramework(root) : checkFramework(checked.framework, 'options.framework');
+    checked.framework === undefined
+      ? detectFramework(root, ignore)
+      : checkFramework(checked.framework, 'options.framework');
 
   // Without patterns, the configs choose among all JavaScript and TypeScript files.
   const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);

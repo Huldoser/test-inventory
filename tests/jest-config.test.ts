@@ -266,6 +266,97 @@ module.exports = { rootDir: process.env.ROOT, testMatch: defineConfig(['**/*.che
   });
 });
 
+describe('Jest config lookup', () => {
+  it('takes a nested package.json as a config only with a jest key, as Jest started at the root reads the root one', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { testPathIgnorePatterns: ['/node_modules/', '/fixtures/'] };\n",
+      'fixtures/broker/package.json': JSON.stringify({ name: 'broker-fixture' }),
+      'fixtures/broker/order.test.js': TEST,
+      'packages/ledger/package.json': JSON.stringify({ name: 'ledger', jest: { displayName: 'ledger' } }),
+      'packages/ledger/post.test.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest', patterns: ['**/*.test.js'] });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['fixtures/broker/order.test.js', 'jest.config.js'],
+      ['packages/ledger/post.test.js', 'jest.config.js'],
+      ['src/fees.test.js', 'jest.config.js'],
+    ]);
+    expect(messages(inventory)).toEqual([
+      "file-not-run: The file has tests, but no config in its folder or above runs it, so the runner doesn't collect them; the nearest config is jest.config.js.",
+    ]);
+  });
+
+  it("reads Jest 30.3's defineConfig() and mergeConfig()", async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.base.js': "module.exports = { testMatch: ['**/*.check.js'] };\n",
+      'jest.config.js': `const { defineConfig, mergeConfig } = require('jest');
+const base = require('./jest.base.js');
+module.exports = defineConfig(mergeConfig(base, { testMatch: ['**/*.verify.js'] }));
+`,
+      'src/fees.check.js': TEST,
+      'src/fees.verify.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    expect(files(await scan({ root, framework: 'jest' }))).toEqual(['src/fees.check.js', 'src/fees.verify.js']);
+    const empty = project({
+      'package.json': JEST_PACKAGE,
+      'jest.base.js': "globalThis.base = { testMatch: ['**/*.check.js'] };\n",
+      'jest.config.js':
+        "const base = require('./jest.base.js');\nmodule.exports = { ...base, testMatch: ['**/*.check.js'] };\n",
+      'src/fees.check.js': TEST,
+    });
+    const spread = await scan({ root: empty, framework: 'jest' });
+    expect(spread.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown', 'no-files-matched']);
+    const old = await scan({ root, framework: 'jest', frameworkVersion: '30.2.0', patterns: ['src/*.js'] });
+    expect(old.diagnostics.map((item) => item.code)).toContain('config-value-unknown');
+    const fn = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.ts':
+        "import { defineConfig } from 'jest-config';\nexport default defineConfig(() => ({ testMatch: ['**/*.check.js'] }));\n",
+      'src/fees.check.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    expect(files(await scan({ root: fn, framework: 'jest' }))).toEqual(['src/fees.check.js']);
+  });
+
+  it('reports two configs in one folder, with which Jest refuses to start', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' }, jest: { testMatch: ['**/*.check.js'] } }),
+      'jest.config.js': 'module.exports = {};\n',
+      'src/fees.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest', patterns: ['src/*.js'] });
+    expect(messages(inventory)).toEqual([
+      'config-value-unknown: Jest finds more than one config in this folder, jest.config.js and the jest key in package.json, and refuses to start; the scan reads jest.config.js.',
+    ]);
+  });
+
+  it('reports an ignore pattern that is not a regular expression, with which Jest fails to start', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { testPathIgnorePatterns: ['/node_modules/', '(unclosed'] };\n",
+      'src/fees.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest', patterns: ['src/*.js'] });
+    expect(messages(inventory)[0]).toBe(
+      "config-value-unknown: The config's testPathIgnorePatterns is not a regular expression, so Jest fails to start.",
+    );
+  });
+
+  it('reads ignore patterns that escape with a backslash, on every system', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { testPathIgnorePatterns: ['\\\\.e2e\\\\.'] };\n",
+      'src/fees.test.js': TEST,
+      'src/orders.e2e.test.js': TEST,
+    });
+    expect(files(await scan({ root, framework: 'jest' }))).toEqual(['src/fees.test.js']);
+  });
+});
+
 describe('Jest projects', () => {
   it('runs the projects the config lists: folders, config files and objects, named by displayName', async () => {
     const root = project({
@@ -316,6 +407,20 @@ describe('Jest projects', () => {
     });
     const inventory = await scan({ root, framework: 'jest' });
     expect(inventory.diagnostics.map((item) => item.relativeFilePath)).toEqual(['packages/fees/jest.config.json']);
+  });
+
+  it('leaves out files a projects glob matches that Jest cannot require, such as a README', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { projects: ['<rootDir>/packages/*'] };\n",
+      'packages/README.md': '# Packages\n',
+      'packages/LICENSE': 'MIT\n',
+      'packages/fees/jest.config.js': "module.exports = { displayName: 'fees' };\n",
+      'packages/fees/minimum.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.tests.map((test) => test.projects)).toEqual([['fees']]);
+    expect(inventory.diagnostics).toEqual([]);
   });
 
   it("runs the config's own files when an entry names its folder", async () => {

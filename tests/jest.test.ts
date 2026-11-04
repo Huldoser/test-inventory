@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { headingsMatch } from '../src/frameworks/jest.ts';
 import { codes, onlyTest, scanJest, testNamed, titles } from './helpers.ts';
 import type { Inventory } from '../src/index.ts';
 
@@ -484,5 +485,26 @@ test('books the cash leg', () => {});
   it('reads files with Windows line endings', () => {
     const inventory = scanJest("/**\r\n * @group settlement\r\n */\r\ntest('books the cash leg', () => {});\r\n");
     expect(onlyTest(inventory).tags).toEqual(['settlement']);
+  });
+});
+
+describe('headingsMatch', () => {
+  // jest-each's own pattern, which the scan doesn't run, as it can take exponential time.
+  const JEST_HEADINGS = /^\n\s*[^\s]+\s*(\|\s*[^\s]+\s*)*\n/;
+
+  it('matches what jest-each matches, for every first line of up to 9 characters of names, |, spaces and line breaks', () => {
+    const differences: string[] = [];
+    const visit = (text: string) => {
+      const expected = JEST_HEADINGS.exec(text)?.[0] ?? null;
+      if (headingsMatch(text) !== expected) differences.push(JSON.stringify(text));
+      if (text.length < 10) for (const char of ['a', '|', ' ', '\n']) visit(text + char);
+    };
+    visit('\n');
+    expect(differences).toEqual([]);
+    expect(headingsMatch('symbol | side\n')).toBeNull();
+  });
+
+  it('reads a long line of headings that never matches in one pass', () => {
+    expect(headingsMatch(`\n${'a|'.repeat(5000)}a x`)).toBeNull();
   });
 });

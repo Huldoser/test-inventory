@@ -157,14 +157,14 @@ function declares(manifest: string, framework: Framework): boolean {
 
 /**
  * The runner a project uses, for a scan without `framework`: the one whose package a package.json in the root or a
- * folder below it lists, or whose config is there. Only when none is found there do the package.json files above the
+ * folder below it, outside `ignore`, lists, or whose config is there. Only when none is found there do the package.json files above the
  * root count, as a monorepo may declare its runner once at its top. Throws an `OptionsError` when the project uses
  * none of them or several, naming what it found.
  */
-export function detectFramework(root: string): Framework {
+export function detectFramework(root: string, ignore: readonly string[]): Framework {
   const below = globSync(['**/package.json', '**/*.config.*'], {
     cwd: root,
-    ignore: ['**/node_modules/**', '**/.git/**'],
+    ignore: ['**/node_modules/**', '**/.git/**', ...ignore],
   });
   const manifests = below.filter((file) => path.basename(file) === 'package.json').map((file) => path.join(root, file));
   const above = folders(root)

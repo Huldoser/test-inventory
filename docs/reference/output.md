@@ -346,8 +346,9 @@ root would use for it: of the configs in its folder and the folders above it, up
 runs it, and for Vitest `projects` the project that does. When none runs it, it uses the nearest one, and a file with
 tests gets a `file-not-run` warning, as the runner doesn't collect them. In each folder, the config is
 `playwright.config.*` for Playwright, and `vitest.config.*` for Vitest, or `vite.config.*` when there is no
-`vitest.config.*`. For Jest it is `jest.config.*`, else `package.json`, which Jest reads as a config also without a
-`jest` key; from Jest 30 a `jest` key that is a string is the path to the config. Without any of them up to the root,
+`vitest.config.*`. For Jest it is `jest.config.*`, else a `package.json` with a `jest` key, which from Jest 30 may be
+the path to the config; the root's `package.json` is a config also without one, as Jest started there reads it. Jest
+refuses to start with more than one config in a folder, which a `config-value-unknown` warning says. Without any of them up to the root,
 Jest's defaults apply from the root, and the files have no config.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
@@ -369,7 +370,8 @@ A config is read as code and never run, with the settings it imports from other 
 `use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
 config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
 `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
-a function, which Jest calls and awaits.
+a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`. A
+config that `require()`s a local file, as a shared base, reads what that file exports.
 
 | Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

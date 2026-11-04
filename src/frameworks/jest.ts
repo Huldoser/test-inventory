@@ -74,9 +74,6 @@ const CHAINS: Record<Kind, ReadonlySet<string>> = {
 };
 const MODIFIERS = new Set(['only', 'skip', 'todo', 'concurrent', 'failing', 'each']);
 
-/** The start of a tagged-template table: a line break, then names split by `|` on one line, as `jest-each` reads it. */
-const HEADINGS = /^\n\s*[^\s]+\s*(\|\s*[^\s]+\s*)*\n/;
-
 export class JestAdapter extends SuiteAdapter {
   constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) {
     super(parsed, file, readModule, JEST, MODIFIERS);
@@ -341,7 +338,42 @@ function groups(source: string): string[] {
 
 /** The names in the first line of a tagged-template table; null when Jest refuses it. */
 function templateHeadings(template: TemplateLiteral): string[] | null {
-  const first = template.quasis[0].value.cooked ?? '';
-  const match = HEADINGS.exec(first);
-  return match ? match[0].replaceAll(/\s/g, '').split('|') : null;
+  const match = headingsMatch(template.quasis[0].value.cooked ?? '');
+  return match === null ? null : match.replaceAll(/\s/g, '').split('|');
+}
+
+/**
+ * What jest-each's heading pattern, `/^\n\s*[^\s]+\s*(\|\s*[^\s]+\s*)*\n/`, matches at the start of a table's first
+ * string. The pattern backtracks exponentially on a long run of `|` it can't match, which a scanned file could hang the
+ * scan with, so its tries are worked out once per position, from the end. `heading[i]` is where the match ends when a
+ * heading, `\s*[^\s]+\s*`, starts at `i`, and `rest[i]` where it ends when the heading before ends at `i`: on a `|`,
+ * another heading first, else the line break. The pattern tries the whole word first, with its spaces given back one by
+ * one, then shorter words, of which only one that ends before a `|` can go on.
+ */
+export function headingsMatch(text: string): string | null {
+  if (!text.startsWith('\n')) return null;
+  const isSpace = (index: number) => /\s/.test(text[index]);
+  const heading: (number | null)[] = new Array<number | null>(text.length + 1).fill(null);
+  const rest: (number | null)[] = new Array<number | null>(text.length + 1).fill(null);
+  let nextWord = text.length;
+  let whole: number | null = null;
+  let shorter: number | null = null;
+  for (let index = text.length - 1; index >= 1; index--) {
+    if (isSpace(index)) {
+      heading[index] = nextWord < text.length ? heading[nextWord] : null;
+    } else if (index + 1 === text.length || isSpace(index + 1)) {
+      // The last character of a word: the whole word, with the spaces after it, longest first.
+      whole = null;
+      for (let end = nextWord; end > index && whole === null; end--) whole = rest[end];
+      shorter = null;
+      heading[index] = whole;
+    } else {
+      if (shorter === null && text[index + 1] === '|') shorter = heading[index + 2];
+      heading[index] = whole ?? shorter;
+    }
+    if (!isSpace(index)) nextWord = index;
+    rest[index] = (text[index] === '|' ? heading[index + 1] : null) ?? (text[index] === '\n' ? index + 1 : null);
+  }
+  const found = heading[1];
+  return found === null ? null : text.slice(0, found);
 }

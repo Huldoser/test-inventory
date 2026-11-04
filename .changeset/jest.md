@@ -12,7 +12,8 @@ as `test.only.concurrent`, `test('title')` without a function or an async descri
 
 Without globs, the test files come from the Jest config, read as Jest reads it: `jest.config.*`, else `package.json`,
 with `roots`, `testMatch`, `testRegex`, the ignore patterns, `moduleFileExtensions`, `projects` named by
-`displayName`, `testTimeout` and `injectGlobals`; without any config, Jest's defaults apply. `framework` in the output
+`displayName`, `testTimeout` and `injectGlobals`, also through Jest 30.3's `defineConfig()` and `mergeConfig()`;
+without any config, Jest's defaults apply. `framework` in the output
 can now be `jest`, an open set, so `schemaVersion` stays 1.
 
 The `cases-not-expanded` message no longer names Vitest, as Jest tables can get it too.
