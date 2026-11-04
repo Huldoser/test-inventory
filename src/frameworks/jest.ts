@@ -1,5 +1,5 @@
-import type { Argument, CallExpression, Expression, TemplateLiteral } from 'oxc-parser';
-import { isFunctionNode, propertyName, unwrap } from '../ast.ts';
+import type { Argument, CallExpression, Expression, Node, TemplateLiteral } from 'oxc-parser';
+import { isFunctionNode, propertyName, returnValues, unwrap, type FunctionNode } from '../ast.ts';
 import { jestKeysTitle, jestRowTitle } from '../case-titles.ts';
 import type { ApiCall, CallContext, ModuleReader, Problem, StateSetting, TableCase, Title } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
@@ -9,6 +9,7 @@ import type { Value } from '../values.ts';
 import { requiredModule } from './bindings.ts';
 import {
   atLeast,
+  findFunction,
   hookFunction,
   namedFunction,
   problem,
@@ -180,21 +181,22 @@ export class JestAdapter extends SuiteAdapter {
     const fn = isFunctionNode(body) ? body : null;
     const table = links.find((link) => link.name === 'each') ?? null;
     const line = this.file.source.line(call.start);
-    const declared = (): ApiCall => {
+    const declared = (given: FunctionNode | null = fn): ApiCall => {
       const base = {
         title,
         states: this.states(flags, line),
         isOnly: flags.has('only'),
         mode: flags.has('concurrent') && !flags.has('skip') ? ('parallel' as const) : null,
         details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
-        fn,
-        hashed: fn ?? namedFunction(this.file, context.scopes, body),
+        fn: given,
+        hashed: given ?? namedFunction(this.file, context.scopes, body),
         isParameterized: table !== null,
         caseCount: table ? this.caseCount(table, context, problems) : null,
         cases: table ? this.tableCases(table, title, context) : null,
         problems,
       };
-      const timeout = spread || kind === 'describe' ? undefined : args.at(2);
+      // With the function given third, after an argument that isn't one, there is no timeout to read.
+      const timeout = spread || kind === 'describe' || given !== fn ? undefined : args.at(2);
       if (timeout && timeout.type !== 'SpreadElement') {
         const option = { node: timeout, resolved: this.file.values.resolve(timeout, context.scopes) };
         const value = readCount(this.file, 'timeout', option, problems);
@@ -213,6 +215,14 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, declared);
     }
+    const head = snippet(text(this.file, eachHead(call)));
+    if (!spread && args.length < 2 && table && kind === 'test') {
+      // jest-each fails on the missing body inside its own try, and registers one test that throws instead.
+      const message = `${head}() has no test body, so Jest registers one test titled '${title.text}' that always fails.`;
+      problems.push({ ...problem('test-without-body', call, message, head), level: 'warning' });
+      const one = declared();
+      return { ...one, caseCount: 1, cases: null } as ApiCall;
+    }
     if (!spread && args.length < 2) {
       const what = kind === 'test' ? 'test body' : 'function';
       const refusal = problem(
@@ -220,6 +230,24 @@ export class JestAdapter extends SuiteAdapter {
         call,
         `${callee}() has no ${what}, so Jest fails to load the file and runs none of its tests.`,
         callee,
+      );
+      return refused(call, refusal, context, declared);
+    }
+    if (body !== undefined && isNotFunction(body)) {
+      const refusal = problem(
+        'test-without-body',
+        call,
+        `${callee}() takes its function second, and ${snippet(text(this.file, body))} is not one, so Jest fails the file.`,
+        callee,
+      );
+      return refused(call, refusal, context, () => declared(findFunction(args, 2)));
+    }
+    if (kind === 'describe' && table && this.isInvalidTable(table, context)) {
+      const refusal = problem(
+        'describe-throws',
+        call,
+        `${head}() has an empty table or one that isn't a table, so its describe throws, and Jest fails the file.`,
+        head,
       );
       return refused(call, refusal, context, declared);
     }
@@ -231,7 +259,34 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, declared);
     }
+    if (kind === 'describe' && fn) {
+      const returned = describeReturns(fn);
+      if (returned) {
+        const refusal = problem(
+          returned === 'promise' ? 'async-describe' : 'describe-throws',
+          call,
+          returned === 'promise'
+            ? 'The describe callback returns a promise, and Jest throws when a describe returns one, so it fails the file.'
+            : 'The describe callback returns a value, and Jest throws when a describe returns anything, so it fails the file.',
+        );
+        return refused(call, refusal, context, declared);
+      }
+    }
     return declared();
+  }
+
+  /** Whether a table makes `describe.each` throw, as jest-each does on an empty array or a value that isn't a table. */
+  private isInvalidTable(table: Link, context: CallContext): boolean {
+    if (table.template) {
+      const headings = templateHeadings(table.template);
+      const values = table.template.expressions.length;
+      return headings === null || values === 0 || values % headings.length !== 0;
+    }
+    const cases = (table.args as Argument[]).at(0);
+    if (!cases) return true;
+    if (cases.type === 'SpreadElement') return false;
+    const resolved = this.file.values.resolve(cases, context.scopes);
+    return resolved.ok ? !Array.isArray(resolved.value) || resolved.value.length === 0 : false;
   }
 
   /** Jest's order: `todo` and `skip` set the test's mode, `only` runs it, and `failing` applies when it runs. */
@@ -256,6 +311,9 @@ export class JestAdapter extends SuiteAdapter {
     }
     const cases = (table.args as Argument[]).at(0);
     if (!cases) return 1;
+    const resolved = cases.type === 'SpreadElement' ? null : this.file.values.resolve(cases, context.scopes);
+    // A table that isn't an array makes Jest register one test that fails, as an empty one does.
+    if (resolved?.ok && !Array.isArray(resolved.value)) return 1;
     const length = this.arrayLength(cases, context);
     if (length === null) {
       const source = snippet(text(this.file, cases));
@@ -376,4 +434,53 @@ export function headingsMatch(text: string): string | null {
   }
   const found = heading[1];
   return found === null ? null : text.slice(0, found);
+}
+
+/** The `test.each` of a `test.each(table)(...)` call, as written. */
+function eachHead(call: CallExpression): Node {
+  const callee = unwrap(call.callee);
+  if (callee.type === 'CallExpression') return callee.callee;
+  return callee.type === 'TaggedTemplateExpression' ? callee.tag : callee;
+}
+
+/** A value that can't be a function, which Jest refuses as a test's or describe's second argument. */
+function isNotFunction(node: Argument): boolean {
+  const value = unwrap(node as Expression);
+  return ['Literal', 'ObjectExpression', 'ArrayExpression', 'TemplateLiteral'].includes(value.type);
+}
+
+/** Expressions that are a value whatever they hold. */
+const VALUES = new Set([
+  'Literal',
+  'ObjectExpression',
+  'ArrayExpression',
+  'TemplateLiteral',
+  'ArrowFunctionExpression',
+  'FunctionExpression',
+  'ClassExpression',
+]);
+
+/** Array methods whose result is a new array, which a describe callback returns when written as `() => list.map(...)`. */
+const ARRAY_RESULTS = new Set(['map', 'filter', 'flatMap', 'concat', 'slice']);
+
+/**
+ * What a describe callback returns that Jest refuses: a promise, or a value the code shows. A call to anything else,
+ * such as a helper that registers tests, is taken to return nothing.
+ */
+function describeReturns(fn: FunctionNode): 'promise' | 'value' | null {
+  for (const { expression } of returnValues(fn) ?? []) {
+    const value = unwrap(expression);
+    if (value.type === 'NewExpression' && value.callee.type === 'Identifier' && value.callee.name === 'Promise') {
+      return 'promise';
+    }
+    if (value.type === 'CallExpression') {
+      const callee = unwrap(value.callee);
+      if (callee.type !== 'MemberExpression') continue;
+      if (callee.object.type === 'Identifier' && callee.object.name === 'Promise') return 'promise';
+      if (ARRAY_RESULTS.has(propertyName(callee) ?? '')) return 'value';
+      continue;
+    }
+    if (VALUES.has(value.type)) return 'value';
+  }
+  return null;
 }

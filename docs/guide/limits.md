@@ -27,8 +27,10 @@ A config is read as code, never run. A setting computed at run time, as from `pr
 installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config
 the runner is pointed to with `--config` is not known from the files, nor a config built by a function the config
 calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })` or Next.js's `createJestConfig(config)`. A Jest
-`preset` is a package, so its settings are not read; when it may choose the test files and the config doesn't set
-`testMatch` or `testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. Jest's
+`preset` that is a package is not read; when it may choose the test files and the config doesn't set `testMatch` or
+`testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. A config Jest refuses to start
+with, such as one whose `moduleFileExtensions` leaves out `js` or whose `roots` don't exist, is read as written, and a
+config that sets its keys one by one, as `module.exports.testMatch = [...]`, is not read. Jest's
 `moduleNameMapper`, `modulePaths` and `moduleDirectories` are not read, so imports they map are not followed for
 `dependencyHash`.
 
@@ -295,6 +297,11 @@ Some of what the hash takes is more than the test needs, so a change can change 
 
 When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
 `hasUnfollowedDependencies` without a warning.
+
+## Variables assigned again
+
+A variable that holds a test function keeps the value it is declared with: after `let it = test; it = test.skip;`,
+`it('settles a trade', fn)` is read as an active test, while the runner skips it.
 
 ## What a scan never sees
 

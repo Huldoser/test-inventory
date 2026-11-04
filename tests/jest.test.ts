@@ -508,3 +508,222 @@ describe('headingsMatch', () => {
     expect(headingsMatch(`\n${'a|'.repeat(5000)}a x`)).toBeNull();
   });
 });
+
+describe('Jest behaviour checked against Jest 29.7 and 30.5', () => {
+  it('runs a describe.only inside a skipped describe, as its own mode wins over the one around it', () => {
+    const inventory = scanJest(`
+describe.skip('closed venues', () => {
+  describe.only('reopened', () => {
+    test('settles a trade', () => {});
+  });
+  test('marks the book', () => {});
+});
+xdescribe('halted', () => {
+  fdescribe('resumed', () => {
+    test('nets a fill', () => {});
+  });
+});
+`);
+    expect(states(inventory)).toEqual([
+      ['closed venues > reopened > settles a trade', 'active', true],
+      ['closed venues > marks the book', 'skip', false],
+      ['halted > resumed > nets a fill', 'active', true],
+    ]);
+  });
+
+  it('skips a todo or a .only inside a skipped describe, and the .only focuses nothing', () => {
+    const inventory = scanJest(`
+describe.skip('closed venues', () => {
+  test.todo('nets open positions');
+  test.only('books a fill', () => {});
+});
+test('marks the book', () => {});
+`);
+    expect(states(inventory)).toEqual([
+      ['closed venues > nets open positions', 'skip', false],
+      ['closed venues > books a fill', 'skip', false],
+      ['marks the book', 'active', false],
+    ]);
+    expect(inventory.summary.onlyCount).toBe(0);
+    expect(codes(inventory)).toEqual(['only-in-skipped-describe']);
+  });
+
+  it('leaves the other tests of a describe.only out of focus when one of them uses .only', () => {
+    const inventory = scanJest(`
+describe.only('netting', () => {
+  test.only('nets two fills', () => {});
+  test('nets a cancelled fill', () => {});
+  test.failing('nets across accounts', () => {});
+});
+describe.only('fees', () => {
+  test('charges the minimum', () => {});
+});
+`);
+    expect(states(inventory)).toEqual([
+      ['netting > nets two fills', 'active', true],
+      ['netting > nets a cancelled fill', 'active', false],
+      ['netting > nets across accounts', 'expectedToFail', false],
+      ['fees > charges the minimum', 'active', true],
+    ]);
+  });
+
+  it('reports a describe callback that returns a value or a promise, which fails the file', () => {
+    const inventory = scanJest(`
+describe('quotes', () => SYMBOLS.map((symbol) => test(\`quotes \${symbol}\`, () => {})));
+describe('fees', () => {
+  test('charges the minimum', () => {});
+  return 42;
+});
+describe('venues', () => Promise.resolve());
+describe('netting', () => test('nets two fills', () => {}));
+describe('ledger', () => registerLedgerTests());
+describe('custodian', () => new Promise((resolve) => resolve()));
+describe('calendar', function () {
+  return { holidays: [] };
+});
+describe('blotter', () => blotter.register());
+describe('desk', () => class Desk {});
+describe('venues by kind', () => registrars[kind]());
+describe('venues held', () => venues);
+`);
+    const refusals = inventory.diagnostics.filter((item) => item.code.includes('describe'));
+    expect(refusals.map((item) => [item.code, item.lineStart])).toEqual([
+      ['describe-throws', 2],
+      ['describe-throws', 3],
+      ['async-describe', 7],
+      ['async-describe', 10],
+      ['describe-throws', 11],
+      ['describe-throws', 15],
+    ]);
+    expect(inventory.tests.every((test) => test.state === 'notLoaded')).toBe(true);
+  });
+
+  it('reads the @jest/globals module required in place', () => {
+    const inventory = scanJest(`
+require('@jest/globals').test('settles a trade', () => {});
+require('@jest/globals').describe.skip('trade desk', () => {
+  test('books a fill', () => {});
+  test.skip('books a refund', () => {});
+});
+require('@jest/globals').expect(1).toBe(1);
+require('@jest/globals')();
+`);
+    expect(states(inventory)).toEqual([
+      ['settles a trade', 'active', false],
+      ['trade desk > books a fill', 'skip', false],
+      ['trade desk > books a refund', 'skip', false],
+    ]);
+    expect(inventory.tests[2].stateSource).toBe('test');
+  });
+
+  it('reads a test function chosen with &&, || or ??', () => {
+    const inventory = scanJest(`
+const onCi = process.env.CI && test.skip || test;
+const fallback = process.env.BROKER_TEST || test;
+const parked = test.skip ?? test;
+const chained = test && test.skip;
+const either = process.env.CI ? test : process.env.FALLBACK && test.skip;
+const neither = process.env.A || process.env.B;
+const halfway = process.env.CI ? test : helperFor('desk');
+onCi('settles a trade', () => {});
+chained('voids a trade', () => {});
+either('amends a trade', () => {});
+neither('cancels a trade', () => {});
+const both = process.env.A && process.env.B;
+both('reprices a trade', () => {});
+halfway('books a trade', () => {});
+fallback('books a fill', () => {});
+parked('nets a fill', () => {});
+`);
+    expect(states(inventory)).toEqual([
+      ['settles a trade', 'active', false],
+      ['voids a trade', 'skip', false],
+      ['amends a trade', 'active', false],
+      ['books a fill', 'active', false],
+      ['nets a fill', 'skip', false],
+    ]);
+  });
+
+  it('keeps a file loaded when a call Jest refuses is reached only under a condition', () => {
+    const inventory = scanJest(`
+if (process.env.LEGACY) {
+  test.only.skip('books a fill', () => {});
+  test('reads the old calendar');
+}
+test('settles a trade', () => {});
+`);
+    expect(codes(inventory)).toEqual(['invalid-chain', 'test-without-body']);
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([['settles a trade', 'active']]);
+  });
+
+  it('lists one failing test for .each without a body, and keeps the file loaded', () => {
+    const inventory = scanJest(`
+test.each([[1], [2]])('rounds %i lots');
+test('settles a trade', () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state, test.caseCount])).toEqual([
+      ['rounds %i lots', 'active', 1],
+      ['settles a trade', 'active', null],
+    ]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      [
+        'test-without-body',
+        'warning',
+        "test.each() has no test body, so Jest registers one test titled 'rounds %i lots' that always fails.",
+      ],
+    ]);
+  });
+
+  it('reports a describe.each with an empty or invalid table, which fails the file', () => {
+    const inventory = scanJest(`
+describe.each([])('venue %s', () => {
+  test('settles a trade', () => {});
+});
+describe.each('NYSE')('exchange %s', () => {
+  test('books a fill', () => {});
+});
+describe.each\`
+  venue
+\`('venue $venue', () => {
+  test('nets a fill', () => {});
+});
+describe.each\`
+  venue | days
+  \${'NYSE'}
+\`('venue $venue', () => {
+  test('nets a cancel', () => {});
+});
+describe.each()('desk %s', () => {
+  test('voids a trade', () => {});
+});
+describe.each(...desks)('desk %s', () => {
+  test('amends a trade', () => {});
+});
+describe.each(DESKS)('desk %s', () => {
+  test('cancels a trade', () => {});
+});
+`);
+    expect(codes(inventory)).toEqual([
+      'describe-throws',
+      'describe-throws',
+      'describe-throws',
+      'describe-throws',
+      'describe-throws',
+      'unresolved-cases',
+      'unresolved-cases',
+    ]);
+    expect(inventory.tests.every((test) => test.state === 'notLoaded')).toBe(true);
+  });
+
+  it('reports a second argument that is not a function, which fails the file', () => {
+    const inventory = scanJest(`
+test('kills the session', { timeout: 10_000 }, async () => {});
+test('settles a trade', 5000, () => {});
+describe('fees', {}, () => {
+  test('charges the minimum', () => {});
+});
+`);
+    expect(codes(inventory)).toEqual(['test-without-body', 'test-without-body', 'test-without-body']);
+    expect(inventory.tests.every((test) => test.state === 'notLoaded')).toBe(true);
+  });
+});

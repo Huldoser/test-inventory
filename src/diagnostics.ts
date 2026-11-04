@@ -22,6 +22,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'test-without-body': 'error',
   'describe-not-called': 'error',
   'async-describe': 'error',
+  'describe-throws': 'error',
   'nested-test': 'warning',
   'tag-without-at': 'error',
   'removed-api': 'error',
@@ -56,7 +57,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
 export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   playwright: new Set(['test-without-body', 'tag-without-at', 'invalid-chain', 'duplicate-title']),
   vitest: new Set(['invalid-chain', 'removed-api', 'undefined-tag']),
-  jest: new Set(['invalid-chain', 'test-without-body', 'async-describe']),
+  jest: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
 };
 
 export function toDiagnostic(

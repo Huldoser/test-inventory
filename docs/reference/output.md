@@ -346,10 +346,11 @@ root would use for it: of the configs in its folder and the folders above it, up
 runs it, and for Vitest `projects` the project that does. When none runs it, it uses the nearest one, and a file with
 tests gets a `file-not-run` warning, as the runner doesn't collect them. In each folder, the config is
 `playwright.config.*` for Playwright, and `vitest.config.*` for Vitest, or `vite.config.*` when there is no
-`vitest.config.*`. For Jest it is `jest.config.*`, else a `package.json` with a `jest` key, which from Jest 30 may be
-the path to the config; the root's `package.json` is a config also without one, as Jest started there reads it. Jest
-refuses to start with more than one config in a folder, which a `config-value-unknown` warning says. Without any of them up to the root,
-Jest's defaults apply from the root, and the files have no config.
+`vitest.config.*`. Jest started at the root reads only the config there: `jest.config.*`, else `package.json`,
+which Jest reads also without a `jest` key, and from Jest 30 a `jest` key that is a string is the path to the config.
+Other configs count only through its `projects`. Jest refuses to start with more than one config in a folder, which a
+`config-value-unknown` warning says. Without a config in the root, Jest's defaults apply from the root, and the files
+have no config.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
@@ -363,7 +364,8 @@ those. For Jest: the files under `roots` with an extension in `moduleFileExtensi
 match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with each version's defaults
 and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders, globs and config files, each with the config
 Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own files then count
-only when an entry names its folder. A `preset` is a package, which the scan doesn't read.
+only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written as a path,
+such as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package isn't.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and

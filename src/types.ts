@@ -65,6 +65,7 @@ export type DiagnosticCode =
   | 'test-without-body'
   | 'describe-not-called'
   | 'async-describe'
+  | 'describe-throws'
   | 'nested-test'
   | 'tag-without-at'
   | 'removed-api'

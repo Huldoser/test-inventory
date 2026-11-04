@@ -351,6 +351,11 @@ export abstract class SuiteAdapter implements Adapter {
   ): { kind: Kind; index: number; modifiers?: Link[] } | null {
     const { base, links: chainLinks } = chain;
     const { scopes, inBody } = lookup;
+    // `require('@jest/globals').test(...)`: the module itself, called in place.
+    if (base.type === 'CallExpression' && this.dialect.isModule(base)) {
+      const start = this.dialect.starts.get(chainLinks.at(0)?.name ?? '');
+      return start ? { kind: start.kind, index: 1, modifiers: links(start.links) } : null;
+    }
     if (base.type === 'CallExpression') {
       const returned = this.returned(base, chainLinks, args, lookup);
       return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
@@ -405,14 +410,38 @@ export abstract class SuiteAdapter implements Adapter {
   }
 
   private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {
+    const functions = this.choices(expression, lookup)?.functions ?? [];
+    if (functions.length === 0) return null;
+    // Only the modifiers every choice has apply.
+    return functions.slice(1).reduce<TestFunction | null>((common, item) => shared(common, item), functions[0]);
+  }
+
+  /**
+   * The test functions a value may hold, and whether it may also hold something else, as `process.env.CI` may. A test
+   * function is never falsy, so `test.skip || test` and `test.skip ?? test` hold `test.skip`, while
+   * `process.env.CI && test.skip || test` may hold either. Both branches of `?:` have to be test functions.
+   */
+  private choices(expression: Expression, lookup: Lookup): { functions: TestFunction[]; mayBeOther: boolean } | null {
     const node = unwrap(expression);
     if (node.type === 'ConditionalExpression') {
-      // `isCI ? describe.concurrent : describe`: only the modifiers both branches have apply.
-      return shared(this.aliasOf(node.consequent, lookup), this.aliasOf(node.alternate, lookup));
+      const [yes, no] = [this.choices(node.consequent, lookup), this.choices(node.alternate, lookup)];
+      if (!yes || !no) return null;
+      return { functions: [...yes.functions, ...no.functions], mayBeOther: yes.mayBeOther || no.mayBeOther };
+    }
+    if (node.type === 'LogicalExpression') {
+      const [left, right] = [this.choices(node.left, lookup), this.choices(node.right, lookup)];
+      const isFunction = left !== null && !left.mayBeOther;
+      if (node.operator === '&&') return isFunction ? right : { functions: right?.functions ?? [], mayBeOther: true };
+      if (isFunction) return left;
+      return {
+        functions: [...(left?.functions ?? []), ...(right?.functions ?? [])],
+        mayBeOther: right?.mayBeOther ?? true,
+      };
     }
     const chain = readChain(node);
     const resolved = chain ? this.resolve(chain, [], lookup) : null;
-    return resolved?.links.every((link) => this.isAliasLink(resolved.kind, link)) ? resolved : null;
+    const isAlias = resolved?.links.every((link) => this.isAliasLink(resolved.kind, link));
+    return resolved && isAlias ? { functions: [resolved], mayBeOther: false } : null;
   }
 
   /**

@@ -478,6 +478,16 @@ class ConfigCode {
 
   /** What a module an import names exports under a name; null when the module doesn't export it. */
   private fromModule(frame: ConfigFrame, specifier: string, name: string, site: Site): Setting | null {
+    if (specifier.endsWith('.json')) {
+      // A JSON file, required or imported with `with { type: 'json' }`, is its value.
+      const module = frame.readModule(specifier);
+      if ('reason' in module) return unknown(site);
+      const value = attemptJson(module.code);
+      if (value === null) return unknown(site);
+      if (!this.followed.includes(module.relativeFilePath)) this.followed.push(module.relativeFilePath);
+      const setting = fromValue(value.json);
+      return name === 'default' ? setting : child(setting, name);
+    }
     const module = this.open(frame, specifier);
     if (!module) return unknown(site);
     return this.once(`${module.relativeFilePath}\0${name}`, site, () => this.exported(module, name, site));
@@ -567,9 +577,10 @@ class ConfigCode {
         items.push(this.evaluate(element, frame, scopes));
         continue;
       }
+      // A spread the scan can't work out is one unknown item, so the items it can are kept.
       const spreadList = this.evaluate(element.argument, frame, scopes);
-      if (spreadList.kind !== 'list') return unknown({ frame, node: element });
-      items.push(...spreadList.items);
+      if (spreadList.kind === 'list') items.push(...spreadList.items);
+      else items.push(unknown({ frame, node: element }));
     }
     return { kind: 'list', items };
   }
@@ -822,7 +833,7 @@ export class Configs {
    * reads it; below the root it is a package, whose tests the root's config runs. Jest refuses to start with more than
    * one config in the folder, which is reported.
    */
-  private jestConfigIn(folder: string): ConfigFile | null {
+  private jestConfigIn(folder: string, anyManifest = false): ConfigFile | null {
     const names = this.names().filter((item) => existsSync(path.join(folder, item)));
     const manifest = path.join(folder, 'package.json');
     const key = existsSync(manifest) ? jestKey(manifest) : undefined;
@@ -831,13 +842,28 @@ export class Configs {
     if (names.length > 1) {
       const listed = `${names.slice(0, -1).join(', ')} and ${names.at(-1) as string}`;
       const message = `Jest finds more than one config in this folder, ${listed}, and refuses to start; the scan reads ${names[0]}.`;
-      this.diagnostics.push(
-        fileDiagnostic('config-value-unknown', this.relative(path.join(folder, names[0])), message),
-      );
+      const relativeFilePath = this.relative(path.join(folder, names[0]));
+      if (!this.reported.has(`${relativeFilePath}\0${message}`)) {
+        this.reported.add(`${relativeFilePath}\0${message}`);
+        this.diagnostics.push(fileDiagnostic('config-value-unknown', relativeFilePath, message));
+      }
     }
     if (names.length > 0 && names[0] !== KEY) return this.at(path.join(folder, names[0]));
     if (typeof key === 'string' && atLeast(this.version, 30, 0)) return this.at(path.resolve(folder, key));
-    return key !== undefined || (folder === this.root && existsSync(manifest)) ? this.at(manifest) : null;
+    return key !== undefined || ((anyManifest || folder === this.root) && existsSync(manifest))
+      ? this.at(manifest)
+      : null;
+  }
+
+  /**
+   * The config Jest finds for a folder its `projects` names: from the folder up to the root, the first `jest.config`
+   * file or `package.json`, which Jest reads there also without a `jest` key.
+   */
+  projectConfig(folder: string): ConfigFile | null {
+    for (let current = folder; ; current = path.dirname(current)) {
+      const config = this.jestConfigIn(current, true);
+      if (config || current === this.root || path.dirname(current) === current) return config;
+    }
   }
 
   private read(file: string): ConfigFile {
@@ -910,4 +936,13 @@ function jestKeyOf(packageJson: Value): Value {
   const key = (packageJson as Record<string, Value> | null)?.jest;
   if (!key) return undefined;
   return key;
+}
+
+/** A JSON text's value; null when it isn't JSON. */
+function attemptJson(text: string): { json: Value } | null {
+  try {
+    return { json: JSON.parse(text) as Value };
+  } catch {
+    return null;
+  }
 }

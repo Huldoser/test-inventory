@@ -535,3 +535,210 @@ describe('Jest globals and setup files', () => {
     expect(before.dependencyHash).not.toBe(after.dependencyHash);
   });
 });
+
+describe('Jest configs checked against jest --listTests 29.7 and 30.5', () => {
+  it('runs each projects folder with its own package.json, also without a jest key', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { projects: ['<rootDir>/packages/*'] };\n",
+      'packages/ledger/package.json': JSON.stringify({ name: 'ledger' }),
+      'packages/ledger/post.test.js': TEST,
+      'packages/fees/package.json': JSON.stringify({ name: 'fees' }),
+      'packages/fees/src/minimum.test.js': TEST,
+      'tools/release.test.js': TEST,
+      'settle.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(files(inventory)).toEqual(['packages/fees/src/minimum.test.js', 'packages/ledger/post.test.js']);
+    expect(inventory.configs.map((config) => [config.relativeFilePath, config.projects])).toEqual([
+      ['packages/fees/package.json', [{ name: '', testDir: 'packages/fees', dependencies: [] }]],
+      ['packages/ledger/package.json', [{ name: '', testDir: 'packages/ledger', dependencies: [] }]],
+    ]);
+  });
+
+  it("reads <rootDir> in an inline project's rootDir as the config's folder", async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { projects: [{ rootDir: '<rootDir>/packages/fees' }] };\n",
+      'packages/fees/minimum.test.js': TEST,
+      'settle.test.js': TEST,
+    });
+    expect(files(await scan({ root, framework: 'jest' }))).toEqual(['packages/fees/minimum.test.js']);
+  });
+
+  it('runs the config itself when projects is empty', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': 'module.exports = { projects: [] };\n',
+      'src/fees.test.js': TEST,
+    });
+    expect(files(await scan({ root, framework: 'jest' }))).toEqual(['src/fees.test.js']);
+  });
+
+  it('reads only the config Jest starts with in the root, and those its projects name', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { testPathIgnorePatterns: ['/node_modules/', '/sub/'] };\n",
+      'sub/jest.config.js': 'module.exports = {};\n',
+      'sub/legacy.test.js': TEST,
+      'settle.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(files(inventory)).toEqual(['settle.test.js']);
+    const withPatterns = await scan({ root, framework: 'jest', patterns: ['**/*.test.js'] });
+    expect(withPatterns.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['settle.test.js', 'jest.config.js'],
+      ['sub/legacy.test.js', 'jest.config.js'],
+    ]);
+    expect(withPatterns.diagnostics.map((item) => item.code)).toEqual(['file-not-run']);
+  });
+
+  it('replaces <rootDir> anywhere in an ignore pattern, as Jest does', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js':
+        "module.exports = { testPathIgnorePatterns: ['/node_modules/', 'nothing|<rootDir>/legacy'] };\n",
+      'legacy/fees.test.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    expect(files(await scan({ root, framework: 'jest' }))).toEqual(['src/fees.test.js']);
+  });
+
+  it('reads a JSON base config, required, spread or imported', async () => {
+    const configs = {
+      'jest.config.js': "module.exports = require('./jest.base.json');\n",
+      'jest.config.cjs': "module.exports = { ...require('./jest.base.json'), displayName: 'unit' };\n",
+      'jest.config.mjs': "import base from './jest.base.json' with { type: 'json' };\nexport default base;\n",
+    };
+    for (const [name, code] of Object.entries(configs)) {
+      const root = project({
+        'package.json': JEST_PACKAGE,
+        'jest.base.json': '{ "testMatch": ["**/*.check.js"] }\n',
+        [name]: code,
+        'src/fees.check.js': TEST,
+        'src/fees.test.js': TEST,
+      });
+      expect(files(await scan({ root, framework: 'jest' }))).toEqual(['src/fees.check.js']);
+    }
+  });
+
+  it('reads a named key of a JSON file, and reports one that is missing or not JSON', async () => {
+    const named = project({
+      'package.json': JEST_PACKAGE,
+      'jest.base.json': '{ "testMatch": ["**/*.check.js"] }\n',
+      'jest.config.mjs':
+        "import { testMatch } from './jest.base.json' with { type: 'json' };\nexport default { testMatch };\n",
+      'src/fees.check.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    expect(files(await scan({ root: named, framework: 'jest' }))).toEqual(['src/fees.check.js']);
+    const bases: Record<string, string>[] = [{}, { 'jest.base.json': '{ testMatch: [] }' }];
+    for (const base of bases) {
+      const root = project({
+        'package.json': JEST_PACKAGE,
+        ...base,
+        'jest.config.js': "module.exports = { ...require('./jest.base.json') };\n",
+        'src/fees.test.js': TEST,
+      });
+      const inventory = await scan({ root, framework: 'jest', patterns: ['src/*.js'] });
+      expect(inventory.diagnostics.map((item) => item.code)).toContain('config-value-unknown');
+    }
+  });
+
+  it('reads two keys of the same JSON file', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.base.json': '{ "testMatch": ["**/*.check.js"], "testTimeout": 20000 }\n',
+      'jest.config.js':
+        "module.exports = { testMatch: require('./jest.base.json').testMatch, testTimeout: require('./jest.base.json').testTimeout };\n",
+      'src/fees.check.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.timeout])).toEqual([
+      ['src/fees.check.js', 20000],
+    ]);
+    expect(inventory.configs[0].extends).toEqual(['jest.base.json']);
+  });
+
+  it('reports a local preset that is missing, and keeps the config when the preset is not an object', async () => {
+    const missing = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { preset: './jest.preset.js' };\n",
+      'src/fees.test.js': TEST,
+    });
+    expect(messages(await scan({ root: missing, framework: 'jest' }))).toEqual([
+      "config-value-unknown: The config's preset './jest.preset.js' doesn't exist, so Jest fails to start.",
+    ]);
+    const computed = project({
+      'package.json': JEST_PACKAGE,
+      'jest.preset.js': 'module.exports = makePreset();\n',
+      'jest.config.js': "module.exports = { preset: '<rootDir>/jest.preset.js', testMatch: ['**/*.check.js'] };\n",
+      'src/fees.check.js': TEST,
+    });
+    expect(files(await scan({ root: computed, framework: 'jest' }))).toEqual(['src/fees.check.js']);
+  });
+
+  it('finds the config of a projects folder from its parent, and of one outside the root from nothing', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { displayName: 'all', projects: ['<rootDir>/packages/fees', '..'] };\n",
+      'packages/fees/src/minimum.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.tests.map((test) => test.projects)).toEqual([['all', 'all']]);
+  });
+
+  it('reports two configs in the root once, also when projects name the root', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' }, jest: {} }),
+      'jest.config.js': "module.exports = { projects: ['<rootDir>'] };\n",
+      'src/fees.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown']);
+  });
+
+  it('reads testMatch: null beside testRegex as Jest does, as no testMatch', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { testMatch: null, testRegex: '/__tests__/.*\\\\.test\\\\.js$' };\n",
+      'src/__tests__/fees.test.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(files(inventory)).toEqual(['src/__tests__/fees.test.js']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('keeps the ignore patterns it can work out when one entry is unknown', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js':
+        "module.exports = { testPathIgnorePatterns: ['/node_modules/', '/fixtures/', ...(process.env.BUNDLE ? ['/bundled/'] : [])] };\n",
+      'fixtures/order.test.js': TEST,
+      'bundled/order.test.js': TEST,
+      'src/fees.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(files(inventory)).toEqual(['bundled/order.test.js', 'src/fees.test.js']);
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown']);
+  });
+
+  it('reads a preset that is a local file, under the settings of the config', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.preset.js':
+        "module.exports = { testMatch: ['**/*.check.js'], testTimeout: 120000, testPathIgnorePatterns: ['/dist/'] };\n",
+      'packages/fees/jest.config.js': "module.exports = { preset: '../../jest.preset.js', displayName: 'fees' };\n",
+      'jest.config.js': "module.exports = { projects: ['<rootDir>/packages/*'] };\n",
+      'packages/fees/src/minimum.check.js': TEST,
+      'packages/fees/dist/minimum.check.js': TEST,
+      'packages/fees/src/minimum.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.timeout, test.projects])).toEqual([
+      ['packages/fees/src/minimum.check.js', 120000, ['fees']],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+});

@@ -1,6 +1,6 @@
 import type { CallExpression, FunctionBody, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
-import { REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
+import { LEVELS, REJECTS_FILE, toDiagnostic } from './diagnostics.ts';
 import {
   anySlow,
   eitherCondition,
@@ -333,6 +333,8 @@ class RecordBuilder {
   private readonly diagnostics: Diagnostic[] = [];
   /** The line of the first problem for which the runner refuses the file; null when it loads. */
   private rejectedAt: number | null = null;
+  /** Jest: the describes with a test of their own that uses `.only`, which then keep their mode from their others. */
+  private focused = new Set<Scope>();
 
   constructor(parsed: ParsedFile, options: RecordOptions) {
     this.parsed = parsed;
@@ -353,7 +355,11 @@ class RecordBuilder {
     ];
     const rejecting = [...problems, ...testProblems, ...duplicates.map((item) => item.problem)].filter(
       (item) =>
-        REJECTS_FILE[this.options.framework].has(item.code) && item.code !== 'undefined-tag' && item.afterLoad !== true,
+        REJECTS_FILE[this.options.framework].has(item.code) &&
+        item.code !== 'undefined-tag' &&
+        item.afterLoad !== true &&
+        // A warning of a code that rejects files, as for Jest's .each without a body, leaves the file loading.
+        (item.level ?? LEVELS[item.code]) === 'error',
     );
     // Each of these problems points at the code that causes it. Vitest meets the tags in the order they are listed.
     const firstTag = undefinedUses.find((use) => use.isSure)?.problem;
@@ -361,6 +367,7 @@ class RecordBuilder {
       this.parsed.source.line((item.node as Span).start),
     );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
+    this.focused = new Set(extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope));
     const suites = extraction.suites.map((suite) => this.suite(suite));
     const tests = extraction.tests.map((test) => this.test(test, suites));
     for (const item of problems) {
@@ -494,6 +501,30 @@ class RecordBuilder {
     return merged;
   }
 
+  /**
+   * A Jest test's state, as jest-circus decides it: a describe takes its own `.only` or `.skip`, else the mode around
+   * it; a test without a mode of its own takes its describe's, unless that describe is `.only` and has a test of its
+   * own that uses `.only`. A skipped describe skips every test in it, a todo or a `.only` too, and a `.only` there
+   * focuses nothing.
+   */
+  private jestState(pending: PendingTest, scopes: Scope[]): { chosen: Chosen | null; isOnly: boolean } {
+    const { declaration } = pending;
+    const marked = scopes.find((scope) => scope.isOnly || scope.states.some((setting) => setting.state === 'skip'));
+    const skippedBy = marked && !marked.isOnly ? marked.states.find((setting) => setting.state === 'skip') : undefined;
+    const own = (state: State) => declaration.states.find((setting) => setting.state === state);
+    const passesOnly = marked?.isOnly === true && !this.focused.has(pending.scope);
+    if (skippedBy) {
+      return {
+        chosen: own('skip')
+          ? { setting: own('skip') as StateSetting, source: 'test' }
+          : { setting: skippedBy, source: 'suite' },
+        isOnly: false,
+      };
+    }
+    const setting = own('skip') ?? own('todo') ?? own('expectedToFail');
+    return { chosen: setting ? { setting, source: 'test' } : null, isOnly: declaration.isOnly || passesOnly };
+  }
+
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
     const dependencies = this.options.dependencies(pending);
@@ -515,16 +546,19 @@ class RecordBuilder {
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
-    const chosen = chooseState([
-      ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
-      ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
-      ...scopes.flatMap((scope) =>
-        scope.states.map((setting) => ({
-          setting,
-          source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
-        })),
-      ),
-    ]);
+    const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
+    const chosen = jest
+      ? jest.chosen
+      : chooseState([
+          ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
+          ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
+          ...scopes.flatMap((scope) =>
+            scope.states.map((setting) => ({
+              setting,
+              source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
+            })),
+          ),
+        ]);
     // When the runner refuses the file, no test in it runs, whatever else is written.
     const rejected = this.rejectedAt !== null;
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
@@ -541,7 +575,9 @@ class RecordBuilder {
     for (const values of [fromTags?.meta, ...describes.map((scope) => scope.details.meta), declaration.details.meta]) {
       Object.assign(meta, values);
     }
-    const isOnly = declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
+    const isOnly = jest
+      ? jest.isOnly
+      : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments
