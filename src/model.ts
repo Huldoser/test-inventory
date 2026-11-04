@@ -92,9 +92,10 @@ interface Declaration {
   problems: Problem[];
 }
 
-/** One case of a `.each` or `.for` table: the items its title is formatted with, and the arguments its callback gets. */
+/** One case of a `.each` or `.for` table: the title the runner gives it, and the arguments its callback gets. */
 export interface TableCase {
-  items: Value[];
+  /** Null when the scan can't format it the way the runner does, as for a title that shows an object. */
+  title: string | null;
   args: Value[];
 }
 
@@ -145,6 +146,8 @@ export type ApiCall =
       settings: RunSettings;
       /** Source text of the first argument. */ argument: string | null;
       problems: Problem[];
+      /** Jest's `jest.retryTimes()`, which applies to every test of the file; a later call replaces it. */
+      fileWide?: boolean;
     }
   | {
       kind: 'hook';

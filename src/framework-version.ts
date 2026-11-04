@@ -3,10 +3,13 @@ import path from 'node:path';
 import { globSync } from 'tinyglobby';
 import type { Framework } from './types.ts';
 
-const PACKAGES: Record<Framework, string> = { playwright: '@playwright/test', vitest: 'vitest' };
+const PACKAGES: Record<Framework, string> = { playwright: '@playwright/test', vitest: 'vitest', jest: 'jest' };
+
+/** Each framework's name in messages. */
+export const FRAMEWORK_NAMES: Record<Framework, string> = { playwright: 'Playwright', vitest: 'Vitest', jest: 'Jest' };
 
 /** Oldest supported version of each framework. */
-export const OLDEST: Record<Framework, [number, number]> = { playwright: [1, 42], vitest: [3, 0] };
+export const OLDEST: Record<Framework, [number, number]> = { playwright: [1, 42], vitest: [3, 0], jest: [29, 0] };
 
 /** Where the framework version came from. */
 export interface DetectedVersion {

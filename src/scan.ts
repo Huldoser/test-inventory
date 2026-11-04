@@ -9,7 +9,7 @@ import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
-import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
+import { detectFrameworkVersion, FRAMEWORK_NAMES, OLDEST } from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
@@ -35,7 +35,7 @@ function versionDiagnostics(
   source: string,
   range: string | null,
 ): Diagnostic[] {
-  const name = framework === 'playwright' ? 'Playwright' : 'Vitest';
+  const name = FRAMEWORK_NAMES[framework];
   if (version === null) {
     return [
       fileDiagnostic(
@@ -137,7 +137,7 @@ function noFiles(
   if ([...placements.values()].some((placement) => placement.config)) {
     return 'No test files were found from the configs in the root.';
   }
-  const name = framework === 'playwright' ? 'Playwright' : 'Vitest';
+  const name = FRAMEWORK_NAMES[framework];
   return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
 }
 
@@ -253,7 +253,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  const missingGlobals = globalsCheck(root, configs, (file) => placements.get(file) as Placement);
+  const missingGlobals =
+    framework === 'vitest' ? globalsCheck(root, configs, (file) => placements.get(file) as Placement) : () => null;
   let globals: Diagnostic | null = null;
   for (const { absolutePath, relativeFilePath } of globalsFiles) {
     const message = missingGlobals(absolutePath);

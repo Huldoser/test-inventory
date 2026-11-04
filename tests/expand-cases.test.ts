@@ -94,7 +94,7 @@ describe.each([[{ venue: 'NASDAQ' }]])('routes to %o', () => {});
     expect(inventory.diagnostics.map((item) => [item.code, item.message])).toEqual([
       [
         'cases-not-expanded',
-        "The cases of the table are listed as one record, since the title shows an array or object, which the scan doesn't format the way Vitest does.",
+        "The cases of the table are listed as one record, since the title shows a value the scan doesn't format the way the runner does.",
       ],
       [
         'cases-not-expanded',
@@ -108,7 +108,7 @@ describe.each([[{ venue: 'NASDAQ' }]])('routes to %o', () => {});
       ['unresolved-cases', 'The cases of .each() could not be counted; caseCount is null.'],
       [
         'cases-not-expanded',
-        "The cases of the table are listed as one record, since the title shows an array or object, which the scan doesn't format the way Vitest does.",
+        "The cases of the table are listed as one record, since the title shows a value the scan doesn't format the way the runner does.",
       ],
     ]);
   });

@@ -56,6 +56,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
 export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   playwright: new Set(['test-without-body', 'tag-without-at', 'invalid-chain', 'duplicate-title']),
   vitest: new Set(['invalid-chain', 'removed-api', 'undefined-tag']),
+  jest: new Set(['invalid-chain', 'test-without-body', 'async-describe']),
 };
 
 export function toDiagnostic(

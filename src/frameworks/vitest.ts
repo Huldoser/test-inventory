@@ -1,12 +1,4 @@
-import type {
-  Argument,
-  CallExpression,
-  Expression,
-  Node,
-  Program,
-  TemplateLiteral,
-  VariableDeclarator,
-} from 'oxc-parser';
+import type { Argument, CallExpression, Expression, Node, Program, TemplateLiteral } from 'oxc-parser';
 import {
   childNodes,
   isFunctionNode,
@@ -17,7 +9,6 @@ import {
   type FunctionNode,
 } from '../ast.ts';
 import type {
-  Adapter,
   ApiCall,
   CallContext,
   Condition,
@@ -29,41 +20,19 @@ import type {
   StateOption,
   StateSetting,
   TableCase,
+  Title,
 } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { HookCounts, MetaValue } from '../types.ts';
+import { vitestCaseTitle } from '../case-titles.ts';
 import type { Value } from '../values.ts';
-import {
-  allDeclarators,
-  bindAll,
-  exportName,
-  followImport,
-  followModule,
-  moduleImports,
-  ModuleFunctions,
-  requiredModule,
-  type Exported,
-  type FollowImport,
-  type Framework,
-  type ModuleImport,
-  type TestObjects,
-} from './bindings.ts';
 import {
   atLeast,
   hookFunction,
-  isTestName,
-  localTestObject,
-  looksLikeDeclaration,
-  mayDeclareTests,
-  mayHoldTestObject,
-  origin,
   problem,
   readChain,
   readCondition,
-  returnedFunction,
-  returnedTestObject,
-  boundMembers,
   destructuredNames,
   takesWhole,
   readCount,
@@ -72,44 +41,18 @@ import {
   isTitleLiteral,
   readReason,
   namedFunction,
+  origin,
   unresolvedOption,
   unresolvedOptions,
   readTitle,
   refused,
   text,
-  type Chain,
   type FileContext,
   type Link,
   type OptionValue,
 } from './common.ts';
+import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
-type Kind = 'test' | 'describe';
-
-/** A test or describe function and the links after it, as in `test.skipIf(isCI)`. */
-interface TestFunction {
-  kind: Kind;
-  links: Link[];
-}
-
-/** What a test function chosen at run time, as in `isCI ? it.skip : it`, is either way: only the links both have. */
-function shared(a: TestFunction | null, b: TestFunction | null): TestFunction | null {
-  if (!a || a.kind !== b?.kind) return null;
-  const same = (link: Link, index: number) => {
-    const other = b.links.at(index);
-    return other?.name === link.name && !link.args && !link.template && !other.args && !other.template;
-  };
-  const differs = a.links.findIndex((link, index) => !same(link, index));
-  return { kind: a.kind, links: differs === -1 ? a.links : a.links.slice(0, differs) };
-}
-
-// Maps rather than object literals, so names such as `constructor` don't match inherited properties.
-const KINDS = new Map<string, Kind>([
-  ['test', 'test'],
-  ['it', 'test'],
-  ['describe', 'describe'],
-  ['suite', 'describe'],
-]);
-const MISMATCHED_SOURCES = new Set(['@playwright/test', 'playwright/test', '@jest/globals']);
 const MODIFIERS: Record<Kind, Set<string>> = {
   test: new Set(['concurrent', 'sequential', 'only', 'skip', 'todo', 'fails']),
   describe: new Set(['concurrent', 'sequential', 'shuffle', 'skip', 'only', 'todo']),
@@ -135,7 +78,25 @@ function isHook(name: string): name is keyof HookCounts {
 /** First members of chains that never declare a test, even when Vitest refuses the rest of the chain. */
 const NOT_DECLARING = new Set([...HOOKS.keys(), ...DERIVATIONS]);
 /** First members that show a name imported from a local file is used as Vitest's `test`. */
-const TEST_MEMBERS = new Set([...MODIFIERS.test, ...MODIFIERS.describe, ...TABLES, ...CONDITIONS, ...KINDS.keys()]);
+const TEST_MEMBERS = [...MODIFIERS.test, ...MODIFIERS.describe, ...TABLES, ...CONDITIONS];
+
+const VITEST: Dialect = {
+  name: 'Vitest',
+  source: 'vitest',
+  mismatched: new Set(['@playwright/test', 'playwright/test', '@jest/globals']),
+  starts: new Map([
+    ['test', { kind: 'test', links: [] }],
+    ['it', { kind: 'test', links: [] }],
+    ['describe', { kind: 'describe', links: [] }],
+    ['suite', { kind: 'describe', links: [] }],
+  ]),
+  hooks: new Set(HOOKS.keys()),
+  derivations: DERIVATIONS,
+  carriesKinds: true,
+  isModule: isImportMetaVitest,
+  defaultImport: "Vitest has no default export; import { test, describe } from 'vitest' instead.",
+  required: 'Vitest cannot be loaded with require(); tests that use it are missing.',
+};
 /** Calls Vitest moves to the top of the file before running it: `vi.mock`, `vi.unmock` and `vi.hoisted`. */
 const HOISTED_OBJECTS = new Set(['vi', 'vitest']);
 const HOISTED_METHODS = new Set(['mock', 'unmock', 'hoisted']);
@@ -186,9 +147,6 @@ function hoistedValue(call: CallExpression, parents: readonly Node[]): Node {
   return parent?.type === 'AwaitExpression' ? parent : call;
 }
 
-/** Where a chain's names are looked up. */
-type Lookup = Pick<CallContext, 'scopes' | 'inBody' | 'returnsOf'>;
-
 /** The names through which a test or hook body can skip its test: `context.skip()` or a destructured `skip()`. */
 /** The names a test or hook function gives its context, and the context functions it takes out of it. */
 interface ContextNames {
@@ -226,194 +184,11 @@ interface PassedSkip {
   covered: boolean;
 }
 
-/** The names a file binds to Vitest's `test`, `describe`, hooks and namespace. */
-class VitestBindings implements TestObjects {
-  readonly kinds = new Map<string, Kind>();
-  readonly hooks = new Map<string, keyof HookCounts>();
-  readonly namespaces = new Set<string>();
-  /** Names `bench` is imported as from Vitest 5, which no longer exports it. */
-  readonly benches = new Set<string>();
-  /** The import specifiers and declarators that bind those names, to tell them from local names that shadow them. */
-  readonly declarations = new Set<Node>();
-  readonly problems: Problem[] = [];
-  /** Names imported from other modules, which may be test objects there. */
-  private readonly imported: Map<string, ModuleImport>;
-  private readonly follow: FollowImport;
-  /** The module's functions and the variables they may build test objects in; see `ModuleFunctions`. */
-  private readonly functions: ModuleFunctions;
-
-  constructor(program: Program, version: [number, number] | null, follow: FollowImport) {
-    this.imported = moduleImports(program, (source) => source === 'vitest' || MISMATCHED_SOURCES.has(source));
-    this.follow = follow;
-    this.functions = new ModuleFunctions(program, this.imported, follow);
-    for (const statement of program.body) {
-      if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
-      const source = statement.source.value;
-      if (MISMATCHED_SOURCES.has(source)) {
-        this.problems.push(
-          problem('framework-mismatch', statement, `The file imports '${source}', but the scan is for Vitest.`),
-        );
-      }
-      if (source !== 'vitest') continue;
-      for (const specifier of statement.specifiers) {
-        this.declarations.add(specifier);
-        if (specifier.type === 'ImportNamespaceSpecifier') {
-          this.namespaces.add(specifier.local.name);
-        } else if (specifier.type === 'ImportDefaultSpecifier') {
-          this.problems.push(
-            problem(
-              'invalid-import',
-              specifier,
-              "Vitest has no default export; import { test, describe } from 'vitest' instead.",
-            ),
-          );
-        } else {
-          this.bindImported(exportName(specifier.imported), specifier.local.name, version);
-        }
-      }
-    }
-    const declarators = allDeclarators(program);
-    for (const declarator of declarators) {
-      if (declarator.init && requiredModule(declarator.init) === 'vitest') {
-        this.problems.push(
-          problem(
-            'invalid-import',
-            declarator,
-            'Vitest cannot be loaded with require(); tests that use it are missing.',
-          ),
-        );
-      }
-    }
-    bindAll(declarators, (declarator) => {
-      const bound = this.bind(declarator);
-      if (bound) this.declarations.add(declarator);
-      return bound;
-    });
-    this.functions.keep(declarators.filter((declarator) => !this.declarations.has(declarator)));
-  }
-
-  isTestName(name: string): boolean {
-    return this.kinds.has(name) || this.importsTestObject(name) || this.holdsTestObject(name);
-  }
-
-  /**
-   * `followsCalls` is cleared where a call is not followed to what it returns: while the names are bound, so that only
-   * a value asked about is followed, as following reads other modules, and in the scanned file, whose calls the walk
-   * follows in their scopes.
-   */
-  isTestObject(expression: Expression, followsCalls = true): boolean {
-    const node = unwrap(expression);
-    if (node.type === 'Identifier') {
-      const { name } = node;
-      return (
-        this.kinds.get(name) === 'test' || this.importsTestObject(name) || (followsCalls && this.holdsTestObject(name))
-      );
-    }
-    if (node.type === 'MemberExpression') {
-      return KINDS.get(propertyName(node) ?? '') === 'test' && this.isNamespace(node.object);
-    }
-    // `process.env.CI ? vitestTest : skippedTest` is a test object either way.
-    if (node.type === 'ConditionalExpression') {
-      return this.isTestObject(node.consequent, followsCalls) || this.isTestObject(node.alternate, followsCalls);
-    }
-    if (node.type !== 'CallExpression') return false;
-    const callee = unwrap(node.callee);
-    // `defineBrokerTest()`, a function that returns a test object.
-    if (callee.type === 'Identifier') return followsCalls && this.returnsTestObject(callee.name);
-    return (
-      callee.type === 'MemberExpression' &&
-      DERIVATIONS.has(propertyName(callee) ?? '') &&
-      this.isTestObject(callee.object, followsCalls)
-    );
-  }
-
-  returnsTestObject(name: string): boolean {
-    return this.functions.returnsTestObject(name, (expression) => this.isTestObject(expression));
-  }
-
-  private holdsTestObject(name: string): boolean {
-    return this.functions.holdsTestObject(name, (expression) => this.isTestObject(expression));
-  }
-
-  reexports(source: string, imported: string, exported: Exported): boolean {
-    if (source !== 'vitest') return this.follow(source, imported, exported);
-    return exported === 'test object' && KINDS.has(imported);
-  }
-
-  /** Whether a name is imported from another module that exports it as a test object, as `base` from './base'. */
-  private importsTestObject(name: string): boolean {
-    const from = this.imported.get(name);
-    return from !== undefined && this.follow(from.source, from.imported);
-  }
-
-  isNamespace(expression: Expression): boolean {
-    const node = unwrap(expression);
-    return node.type === 'Identifier' && this.namespaces.has(node.name);
-  }
-
-  private bindImported(imported: string, local: string, version: [number, number] | null): void {
-    const kind = KINDS.get(imported);
-    if (kind) {
-      this.kinds.set(local, kind);
-    } else if (isHook(imported)) {
-      this.hooks.set(local, imported);
-    } else if (imported === 'bench' && atLeast(version, 5, 0)) {
-      this.benches.add(local);
-    }
-  }
-
-  private bind(declarator: VariableDeclarator): boolean {
-    const { id, init } = declarator;
-    if (!init) return false;
-    if (id.type === 'Identifier' && this.isTestObject(init, false)) {
-      this.kinds.set(id.name, 'test');
-      return true;
-    }
-    if (id.type !== 'ObjectPattern' || !isImportMetaVitest(init)) return false;
-    // In-source tests: const { it, describe } = import.meta.vitest
-    for (const property of id.properties) {
-      if (property.type === 'RestElement' || property.value.type !== 'Identifier') continue;
-      const key = propertyKey(property);
-      const kind = KINDS.get(key ?? '');
-      if (kind) this.kinds.set(property.value.name, kind);
-      if (key !== null && isHook(key)) this.hooks.set(property.value.name, key);
-    }
-    return true;
-  }
-}
-
-export class VitestAdapter implements Adapter {
-  readonly problems: Problem[];
-  readonly fileTags: string[] = [];
-  readonly fileTagSpans: Span[] = [];
-  usesGlobals = false;
-  private readonly file: FileContext;
-  private readonly readModule: ModuleReader | null;
-  private readonly bindings: VitestBindings;
-  private readonly imports: Map<string, ModuleImport>;
-  private readonly followed = new Map<string, { exported: boolean; problem: Problem | null }>();
-  private readonly reported = new Set<string>();
-  /** Variables and names of functions read as test objects on trust, each reported once. */
-  private readonly assumed = new Set<Node | string>();
-  private readonly aliases = new Map<Node, TestFunction | null>();
-  /** Describe callbacks and the name of their first parameter, which Vitest calls with its `test`. */
-  private readonly suiteParameters = new Map<Node, string>();
+export class VitestAdapter extends SuiteAdapter {
   private warnedAboutTags = false;
 
   constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) {
-    this.file = file;
-    this.readModule = readModule;
-    // A test object the file builds from an imported one, as in `const it = base.extend({...})`, is followed quietly:
-    // a call through the import itself is what reports an import that can't be followed.
-    const followed = new Map<string, boolean>();
-    this.bindings = new VitestBindings(parsed.program, file.version, (source, imported, exported = 'test object') => {
-      const key = `${source}\0${exported}\0${imported}`;
-      if (!followed.has(key)) {
-        followed.set(key, followModule(source, imported, readModule, this.framework(), exported).exported);
-      }
-      return followed.get(key) === true;
-    });
-    this.problems = [...this.bindings.problems];
+    super(parsed, file, readModule, VITEST, TEST_MEMBERS);
     if (atLeast(file.version, 5, 0)) {
       for (const call of nestedHoistedCalls(parsed.program)) {
         const callee = snippet(text(this.file, call.callee));
@@ -427,7 +202,6 @@ export class VitestAdapter implements Adapter {
         );
       }
     }
-    this.imports = moduleImports(parsed.program, (source) => source === 'vitest' || MISMATCHED_SOURCES.has(source));
     if (atLeast(file.version, 4, 1)) {
       // Vitest's own pattern, over the whole text as Vitest reads it, so the same tags come out.
       for (const match of parsed.source.text.matchAll(/(\/\/|\*)\s*@module-tag\s+([\w\-/]+)\b/g)) {
@@ -439,6 +213,10 @@ export class VitestAdapter implements Adapter {
     }
   }
 
+  protected isAliasLink(kind: Kind, link: Link): boolean {
+    return MODIFIERS[kind].has(link.name) || TABLES.has(link.name) || CONDITIONS.has(link.name);
+  }
+
   classify(call: CallExpression, context: CallContext): ApiCall | null {
     return (
       this.benchCall(call, context) ??
@@ -448,18 +226,11 @@ export class VitestAdapter implements Adapter {
     );
   }
 
-  testFunction(
-    expression: Expression,
-    scopes: readonly Node[],
-    returnsOf: CallContext['returnsOf'],
-  ): TestFunction | null {
-    return this.aliasOf(expression, { scopes, inBody: false, returnsOf });
-  }
-
   /** A call to `bench` imported from Vitest 5, which is undefined there, so the call throws. */
   private benchCall(call: CallExpression, context: CallContext): ApiCall | null {
     const base = readChain(call.callee)?.base;
-    if (base?.type !== 'Identifier' || !this.bindings.benches.has(base.name)) return null;
+    if (base?.type !== 'Identifier' || this.bindings.members.get(base.name) !== 'bench') return null;
+    if (!atLeast(this.file.version, 5, 0)) return null;
     const declaration = this.file.values.declarationOf(base.name, context.scopes);
     if (declaration === null || !this.bindings.declarations.has(declaration)) return null;
     const callee = snippet(text(this.file, call.callee));
@@ -502,188 +273,7 @@ export class VitestAdapter implements Adapter {
     return refused(call, refusal, context, () => this.declaration(call, kind, [], context));
   }
 
-  /**
-   * The function a chain calls and the links after it, or null when it isn't one of Vitest's. An import that can't be
-   * followed is reported only outside test and hook bodies, where a call can declare tests.
-   */
-  private resolve(chain: Chain, args: readonly Argument[], lookup: Lookup): TestFunction | null {
-    const start = this.start(chain, args, lookup);
-    if (!start) return null;
-    let kind = start.kind;
-    let links = [...(start.modifiers ?? []), ...chain.links.slice(start.index)];
-    // A test object derived inline, as in `test.extend({ ... }).skip(...)`.
-    links = links.slice(links.findLastIndex((link) => DERIVATIONS.has(link.name) && link.args !== null) + 1);
-    // Vitest's test object also carries `describe` and `suite`, and they carry `test` and `it`.
-    while (links.length > 0 && KINDS.has(links[0].name) && !links[0].args) {
-      kind = KINDS.get(links[0].name) as Kind;
-      links = links.slice(1);
-    }
-    return { kind, links };
-  }
-
-  private start(
-    chain: Chain,
-    args: readonly Argument[],
-    lookup: Lookup,
-  ): { kind: Kind; index: number; modifiers?: Link[] } | null {
-    const { base, links } = chain;
-    const { scopes, inBody } = lookup;
-    if (base.type === 'CallExpression') {
-      const returned = this.returned(base, links, args, lookup);
-      return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
-    }
-    if (base.type !== 'Identifier') return null;
-    // A name the file doesn't declare is one of Vitest's globals; a local variable or parameter with the same name,
-    // such as `(test) => test.result()`, is not Vitest's.
-    const declaration = this.file.values.declarationOf(base.name, scopes);
-    if (declaration === null) {
-      const global = KINDS.get(base.name);
-      if (global) this.usesGlobals = true;
-      return global ? { kind: global, index: 0 } : null;
-    }
-    // A parameter's declaration is its function: `describe('market orders', (test) => { test(...) })`.
-    if (this.suiteParameters.get(declaration) === base.name) return { kind: 'test', index: 0 };
-    const followed =
-      this.imports.get(base.name)?.node === declaration &&
-      this.worthFollowing(base.name, links, args) &&
-      this.follow(base.name, !inBody && mayDeclareTests(base.name, links));
-    if (!followed && !this.bindings.declarations.has(declaration)) {
-      const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, base.name, lookup) : null;
-      if (alias) return { kind: alias.kind, index: 0, modifiers: alias.links };
-      return this.assumeLocal(declaration, base.name, links, args)
-        ? { kind: KINDS.get(base.name) ?? 'test', index: 0 }
-        : null;
-    }
-    if (this.bindings.namespaces.has(base.name)) {
-      const kind = KINDS.get(links.at(0)?.name ?? '');
-      return kind ? { kind, index: 1 } : null;
-    }
-    const kind = this.bindings.kinds.get(base.name);
-    return kind ? { kind, index: 0 } : null;
-  }
-
-  /**
-   * The function and modifiers a variable holds, as in `const skipOnCi = test.skipIf(isCI)`, with the member `name`
-   * takes when it is destructured, as in `const { beforeEach } = test`. The members Vitest reads through `this`, such as
-   * `each` and `skipIf`, return a test function only when called, so their calls are never read through a variable.
-   */
-  private alias(declarator: VariableDeclarator, name: string, lookup: Lookup): TestFunction | null {
-    const destructured = boundMembers(declarator.id, name);
-    if (!destructured) return null;
-    let alias = this.aliases.get(declarator);
-    if (alias === undefined) {
-      // Set first, so a variable defined through itself ends the lookup.
-      this.aliases.set(declarator, null);
-      alias = declarator.init ? this.aliasOf(declarator.init, lookup) : null;
-      this.aliases.set(declarator, alias);
-    }
-    const links = destructured.map((member) => ({ name: member, args: null, template: null }));
-    return alias && { kind: alias.kind, links: [...alias.links, ...links] };
-  }
-
-  private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {
-    const node = unwrap(expression);
-    if (node.type === 'ConditionalExpression') {
-      // `isCI ? describe.concurrent : describe`: only the modifiers both branches have apply.
-      return shared(this.aliasOf(node.consequent, lookup), this.aliasOf(node.alternate, lookup));
-    }
-    const chain = readChain(node);
-    const resolved = chain ? this.resolve(chain, [], lookup) : null;
-    const allowed = (link: Link) =>
-      resolved !== null &&
-      (MODIFIERS[resolved.kind].has(link.name) || TABLES.has(link.name) || CONDITIONS.has(link.name));
-    return resolved?.links.every(allowed) ? resolved : null;
-  }
-
-  /**
-   * The function a call returns, as `conditionalTest({ min: 22 })` returns `it` or `it.skip`: what all the values the
-   * function returns have in common, as for a variable chosen by a condition. When the function can't be found, a call
-   * named like a test object is read as one on trust, with a warning; see `returnedTestObject`.
-   */
-  private returned(
-    call: CallExpression,
-    links: Link[],
-    args: readonly Argument[],
-    lookup: Lookup,
-  ): TestFunction | null {
-    const callee = unwrap(call.callee);
-    if (callee.type !== 'Identifier') return null;
-    const returns = lookup.returnsOf(callee.name, lookup.scopes);
-    if (returns) return returnedFunction(returns, shared);
-    if (!isTestName(callee.name) || !this.looksLikeTest(links, args)) return null;
-    if (!this.assumed.has(callee.name)) {
-      this.assumed.add(callee.name);
-      this.problems.push(returnedTestObject(this.file, call));
-    }
-    return { kind: KINDS.get(callee.name) ?? 'test', links: [] };
-  }
-
-  /** Whether a local variable is read as a test object it could be; see `localTestObject`. */
-  private assumeLocal(declaration: Node, name: string, links: Link[], args: readonly Argument[]): boolean {
-    if (declaration.type !== 'VariableDeclarator' || !mayHoldTestObject(declaration) || !isTestName(name)) return false;
-    if (!this.looksLikeTest(links, args)) return false;
-    if (!this.assumed.has(declaration)) {
-      this.assumed.add(declaration);
-      this.problems.push(localTestObject(this.file, name, declaration));
-    }
-    return true;
-  }
-
-  private looksLikeTest(links: Link[], args: readonly Argument[]): boolean {
-    return links.length === 0 ? looksLikeDeclaration(args) : TEST_MEMBERS.has(links[0].name);
-  }
-
-  /**
-   * Whether a call through an imported name is worth following to the module: shaped like a test, or any call with a
-   * title and a body through a name that reads like a test function, as `it.effect('title', fn)` on a test object that
-   * a package extends.
-   */
-  private worthFollowing(name: string, links: Link[], args: readonly Argument[]): boolean {
-    return this.looksLikeTest(links, args) || (isTestName(name) && looksLikeDeclaration(args));
-  }
-
-  /** Vitest as followed modules are read, with the rules of the scanned version. */
-  private framework(): Framework {
-    const version = this.file.version;
-    return {
-      name: 'Vitest',
-      isSource: (source) => source === 'vitest',
-      testObjects: (program, follow) => new VitestBindings(program, version, follow),
-    };
-  }
-
-  /** Follows the import of `name` once, and reports it once when it can't be followed and `report` is set. */
-  private follow(name: string, report: boolean): boolean {
-    const imported = this.imports.get(name) as ModuleImport;
-    let result = this.followed.get(name);
-    if (!result) {
-      result = followImport(name, imported, this.readModule, this.file, this.framework());
-      this.followed.set(name, result);
-      if (result.exported) {
-        this.bindings.kinds.set(name, KINDS.get(imported.imported) ?? 'test');
-        this.bindings.declarations.add(imported.node);
-      }
-    }
-    if (report && result.problem && !this.reported.has(name)) {
-      this.reported.add(name);
-      this.problems.push(result.problem);
-    }
-    return result.exported;
-  }
-
-  /** Hooks called directly, such as `beforeEach(...)` imported from Vitest or used as a global. */
-  private hookCall(call: CallExpression, context: CallContext): ApiCall | null {
-    const callee = unwrap(call.callee);
-    if (callee.type !== 'Identifier') return null;
-    const declaration = this.file.values.declarationOf(callee.name, context.scopes);
-    const hook =
-      declaration === null
-        ? isHook(callee.name) && callee.name
-        : this.bindings.declarations.has(declaration) && this.bindings.hooks.get(callee.name);
-    return hook ? this.hook(call, hook, context) : null;
-  }
-
-  private hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
+  protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
     const fn = hookFunction(this.file, context.scopes, call.arguments);
     const index = HOOKS.get(name) as number | null;
     return {
@@ -864,7 +454,7 @@ export class VitestAdapter implements Adapter {
       hashed: fn ?? namedFunction(this.file, context.scopes, body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(call, table, context, problems) : null,
-      cases: table ? this.tableCases(table, context) : null,
+      cases: table ? this.tableCases(table, title, context) : null,
       problems,
     };
     let declared: ApiCall;
@@ -1070,7 +660,7 @@ export class VitestAdapter implements Adapter {
    * array into the callback's arguments when every case is one, and `.for` passes each case whole. A tagged template
    * gives one object per row, keyed by the names in its first line.
    */
-  private tableCases(table: Link, context: CallContext): TableCase[] | null {
+  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | null {
     let cases: Value[];
     if (table.template) {
       const values = table.template.expressions.map((item) => this.file.values.resolve(item, context.scopes));
@@ -1089,32 +679,19 @@ export class VitestAdapter implements Adapter {
       if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
       cases = resolved.value;
     }
+    const caseTitle = (items: Value[], index: number) =>
+      title.isDynamic ? null : vitestCaseTitle(title.text, items, index, this.file.version);
     if (table.name === 'for') {
-      return cases.map((item) => ({
-        items: item === null || item === undefined ? [] : Array.isArray(item) ? item : [item],
+      return cases.map((item, index) => ({
+        title: caseTitle(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index),
         args: [item],
       }));
     }
     const arraysOnly = cases.every((item) => Array.isArray(item));
-    return cases.map((item) => {
+    return cases.map((item, index) => {
       const items = Array.isArray(item) ? item : [item];
-      return { items, args: arraysOnly ? items : [item] };
+      return { title: caseTitle(items, index), args: arraysOnly ? items : [item] };
     });
-  }
-
-  private arrayLength(node: Argument | undefined, context: CallContext): number | null {
-    if (node === undefined || node.type === 'SpreadElement') return null;
-    const resolved = this.file.values.resolve(node, context.scopes);
-    if (resolved.ok && Array.isArray(resolved.value)) return resolved.value.length;
-    const expression = unwrap(node);
-    // The cases may hold values that can't be worked out, such as functions, while the list itself is written out.
-    if (
-      expression.type === 'ArrayExpression' &&
-      expression.elements.every((element) => element?.type !== 'SpreadElement')
-    ) {
-      return expression.elements.length;
-    }
-    return null;
   }
 
   private tagsUsed(node: Span): void {

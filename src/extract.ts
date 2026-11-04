@@ -28,7 +28,6 @@ import type {
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
-import { vitestCaseTitle } from './case-titles.ts';
 import { isScopeNode, type Resolved, type Value, type Values } from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
@@ -1211,6 +1210,15 @@ class Walker {
    * called instead.
    */
   private runSetting(call: CallExpression, api: Extract<ApiCall, { kind: 'run' }>, context: Context): void {
+    if (api.fileWide) {
+      for (const item of api.problems) this.report(item);
+      // Called by a function or while tests run, it changes only the tests that run after it.
+      if (context.declaredIn !== null || context.test || context.hookScope) return;
+      const { settings, problems } = this.guardedRun(call, api.settings, api.argument, context.guards);
+      for (const item of problems) this.report(item);
+      mergeRun(this.fileScope.details.run, settings);
+      return;
+    }
     if (context.declaredIn !== null && !context.test) {
       for (const item of api.problems) this.report(item);
       if (context.helper)
@@ -1254,10 +1262,17 @@ class Walker {
         ),
       };
     }
-    if (settings.timeout !== undefined && guard !== null) {
-      const message = `Option timeout: ${argument as string} is set only when ${guard}; it is not applied.`;
+    const unapplied = (key: string) => {
+      const message = `Option ${key}: ${argument as string} is set only when ${guard as string}; it is not applied.`;
       problems.push(problem('unresolved-option', call, message, snippet(this.text(call))));
+    };
+    if (settings.timeout !== undefined && guard !== null) {
+      unapplied('timeout');
       delete settings.timeout;
+    }
+    if (settings.retry !== undefined && guard !== null) {
+      unapplied('retry');
+      delete settings.retry;
     }
     return { settings, problems };
   }
@@ -1488,11 +1503,9 @@ class Walker {
     if (!declaration.cases) return single("the scan can't work out every value in it");
     const title = declaration.title;
     if (!title || title.isDynamic) return single("the scan can't work out the title");
-    const titles = declaration.cases.map((item, index) =>
-      vitestCaseTitle(title.text, item.items, index, this.options.version),
-    );
+    const titles = declaration.cases.map((item) => item.title);
     if (titles.some((text) => text === null)) {
-      return single("the title shows an array or object, which the scan doesn't format the way Vitest does");
+      return single("the title shows a value the scan doesn't format the way the runner does");
     }
     if (declaration.kind === 'describe' && this.expands(null, declaration.cases, context) === 'limit') {
       return single(

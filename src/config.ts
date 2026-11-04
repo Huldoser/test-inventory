@@ -43,6 +43,7 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   vitest: ['vitest.config', 'vite.config'].flatMap((name) =>
     ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'].map((extension) => name + extension),
   ),
+  jest: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts', '.json'].map((extension) => `jest.config${extension}`),
 };
 
 /** Methods that change the object or list they are called on. */

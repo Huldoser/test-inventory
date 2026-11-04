@@ -98,7 +98,8 @@
           "type": "string",
           "enum": [
             "playwright",
-            "vitest"
+            "vitest",
+            "jest"
           ]
         },
         {

@@ -7,6 +7,7 @@ import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
+import { JestAdapter } from './frameworks/jest.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { buildRecords, fileRecord, type CommentsMode, type FileConfig, type FileRecords } from './records.ts';
@@ -45,6 +46,13 @@ export interface FileResult extends FileRecords {
 const TYPE_TEST = /\.(test|spec)-d\.[cm]?[jt]sx?$/;
 const BENCHMARK = /\.(bench|benchmark)\.[cm]?[jt]sx?$/;
 
+const ADAPTERS: Record<Framework, (parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) => Adapter> =
+  {
+    playwright: (parsed, file, readModule) => new PlaywrightAdapter(parsed.program, file, readModule),
+    vitest: (parsed, file, readModule) => new VitestAdapter(parsed, file, readModule),
+    jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
+  };
+
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */
 function frame(
   parsed: ParsedFile,
@@ -55,10 +63,7 @@ function frame(
 ): Frame {
   const values = new Values(exports.reader(readModule));
   const file: FileContext = { source: parsed.source, values, version: settings.version };
-  const adapter: Adapter =
-    settings.framework === 'playwright'
-      ? new PlaywrightAdapter(parsed.program, file, readModule)
-      : new VitestAdapter(parsed, file, readModule);
+  const adapter = ADAPTERS[settings.framework](parsed, file, readModule);
   return { parsed, adapter, values: file.values, readModule, relativeFilePath };
 }
 

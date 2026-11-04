@@ -19,13 +19,13 @@ export interface Io {
   stdin?: Readable;
 }
 
-export const HELP = `Usage: test-inventory [glob...] --framework <playwright|vitest> [options]
+export const HELP = `Usage: test-inventory [glob...] --framework <playwright|vitest|jest> [options]
 
 Lists the tests in the matching files as JSON, read from the source code without running them. Without globs, the
-test files are those the Playwright or Vitest configs in the root and the folders below it run.
+test files are those the Playwright, Vitest or Jest configs in the root and the folders below it run.
 
 Options:
-  --framework <name>           playwright or vitest (required)
+  --framework <name>           playwright, vitest or jest (required)
   --root <dir>                 project root; paths in the output are relative to it (default: current directory)
   --ignore <glob>              leave out matching files; can be repeated (node_modules is always left out)
   --framework-version <x.y.z>  apply the rules of this framework version instead of the one in the project
@@ -160,7 +160,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
     io.stdout.write(`${toolVersion}\n`);
     return FINISHED;
   }
-  if (values.framework === undefined) return fail('--framework is required: playwright or vitest.');
+  if (values.framework === undefined) return fail('--framework is required: playwright, vitest or jest.');
   const format = values.format ?? 'json';
   if (!FORMATS.includes(format)) return fail('--format must be json or jsonl.');
   if (format === 'jsonl' && values.pretty) return fail('--pretty indents JSON, so it does not go with --format jsonl.');

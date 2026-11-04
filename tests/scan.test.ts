@@ -1777,7 +1777,7 @@ describe('scan options', () => {
     [[], 'options must be an object.'],
     [{ patterns: [], framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
     [{ patterns: [''], framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
-    [{ patterns: ['tests'], framework: 'jest' }, 'options.framework must be "playwright" or "vitest".'],
+    [{ patterns: ['tests'], framework: 'cypress' }, 'options.framework must be "playwright", "vitest" or "jest".'],
     [
       { patterns: ['tests'], framework: 'vitest', ignore: 'node_modules' },
       'options.ignore must be an array of glob patterns.',
@@ -1819,7 +1819,7 @@ describe('scanSource options', () => {
     ],
     [
       { code: '', relativeFilePath: 'a.spec.ts', framework: 'cypress' },
-      'options.framework must be "playwright" or "vitest".',
+      'options.framework must be "playwright", "vitest" or "jest".',
     ],
   ])('rejects %j', (options, message) => {
     expect(() => scanSource(options as never)).toThrow(new TypeError(message));

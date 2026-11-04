@@ -42,6 +42,7 @@ const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
     ['test', 'browser', 'expect', 'toMatchScreenshot', 'resolveScreenshotPath'],
     ['test', 'browser', 'expect', 'toMatchScreenshot', 'screenshotDirectory'],
   ],
+  jest: [['snapshotResolver']],
 };
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
@@ -51,6 +52,7 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
     ['test', 'setupFiles'],
     ['test', 'globalSetup'],
   ],
+  jest: [['setupFiles'], ['setupFilesAfterEnv'], ['globalSetup'], ['globalTeardown']],
 };
 
 const UNKNOWN_PROJECTS =

@@ -43,7 +43,7 @@ export interface ScanSourceOptions {
   expandCases?: boolean;
 }
 
-const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest'];
+const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest', 'jest'];
 const COMMENTS: readonly CommentsMode[] = ['all', 'non-active', 'none'];
 // A prerelease and build metadata each appear once, so a long input can't make the match backtrack for long.
 const VERSION = /^v?(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -61,7 +61,7 @@ export function checkObject(value: unknown, name: string): Record<string, unknow
 }
 
 export function checkFramework(value: unknown, option: string): Framework {
-  if (!FRAMEWORKS.includes(value as Framework)) throw invalid(option, '"playwright" or "vitest"');
+  if (!FRAMEWORKS.includes(value as Framework)) throw invalid(option, '"playwright", "vitest" or "jest"');
   return value as Framework;
 }
 
