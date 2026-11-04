@@ -1,5 +1,56 @@
 # test-inventory
 
+## 0.8.0
+
+### Minor Changes
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - `--framework` (library: `framework`) is now optional. Without it, the scan takes the runner the project uses: the one
+  whose package a `package.json` in the root or below it lists, or whose config file is there, else one a `package.json`
+  above the root lists. A project with several runners, or none, gets a usage error (a `TypeError` in the library) that
+  names what it found.
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - Jest 29 and 30: `--framework jest` (library: `framework: 'jest'`) lists the tests of Jest files with the same keys as
+  Playwright and Vitest tests. It reads Jest's globals, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` among them,
+  imports and `require()` of `@jest/globals`, the chains Jest has, such as `test.concurrent.only.each`, `.failing` as
+  `expectedToFail`, the timeout passed third, `jest.retryTimes()` as `retries` for every test of the file (from 30.5,
+  with `entireDescribe`, of its describe) and `waitBeforeRetry` as `retryDelay`, and `@group` pragmas as tags, as
+  jest-runner-groups reads them. `--expand-cases` titles each case as jest-each 29 and 30 do. Calls Jest refuses, such
+  as `test.only.concurrent`, `test('title')` without a function or an async describe, mark the file's tests `notLoaded`.
+
+  Without globs, the test files come from the Jest config, read as Jest reads it: `jest.config.*`, else `package.json`,
+  with `roots`, `testMatch`, `testRegex`, the ignore patterns, `moduleFileExtensions`, `projects` named by
+  `displayName`, `testTimeout` and `injectGlobals`, also through Jest 30.3's `defineConfig()` and `mergeConfig()`;
+  without any config, Jest's defaults apply. `framework` in the output
+  can now be `jest`, an open set, so `schemaVersion` stays 1.
+
+  The `cases-not-expanded` message no longer names Vitest, as Jest tables can get it too.
+
+### Patch Changes
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - `require()` of a local file is followed as an import is: tables, titles and other values it exports, with
+  `module.exports` or `exports.name`, are read, and helper functions it exports that declare tests are followed. A
+  helper function a shared file imports and exports again, as an `index.js` of helpers does, is followed to where it is
+  written, instead of getting an `unresolved-test-import` error. A helpers file may export a test function it takes from
+  the runner's globals, as `export const pendingTest = xit`, or from the framework's module, with its modifiers.
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - A call the runner refuses, such as `test.only.skip(...)`, that is only reached under a condition no longer marks every
+  test of its file `notLoaded`, as the file loads unless the condition holds; the call is still reported. A test function
+  chosen with `&&`, `||` or `??`, as in `const onCi = process.env.CI && test.skip || test`, is read like one chosen with
+  `?:`. In a config, a list with a spread the scan can't work out keeps the items it can.
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - A config that `require()`s a local file, as a CommonJS config does with a shared base, now reads what that file
+  exports, as an `import` of it already did, and a JSON file, required or imported, is read as its value.
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - A table or loop gets its `caseCount` when its length is known even if one of its values isn't, as in
+  `[NaN, Infinity].forEach(...)` or a table with a call in a row. A test or describe titled by a function or class
+  written in place, as `describe(function OrderBook() {}, ...)`, takes its name, as the runners do. Code the parser
+  fails to hand over, such as a JSX name written as a Unicode escape, gets a `parse-error` instead of an
+  `internal-error`.
+
+- [#75](https://github.com/Huldoser/test-inventory/pull/75) [`f6690bb`](https://github.com/Huldoser/test-inventory/commit/f6690bbe5e49ce048ec4169f21bed23f702942d1) - `dependencyHash` is faster on large projects: the files a test file and its describes reach are put together once for
+  all their tests, and a workspace's packages are found once, not once per folder that imports one. A scan of the Nx
+  repository with 17,571 tests went from 19.4 to 11.9 seconds. Hashes are unchanged.
+
 ## 0.7.0
 
 ### Minor Changes
