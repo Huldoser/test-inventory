@@ -13,6 +13,12 @@ export const EXAMPLES: { name: string; framework: Framework; patterns: string[] 
   { name: 'watchlist-vue', framework: 'vitest', patterns: ['tests/unit/**/*.spec.ts'] },
   { name: 'chart-browser', framework: 'vitest', patterns: ['src/**/*.test.ts'] },
   { name: 'trading-monorepo', framework: 'vitest', patterns: ['packages/*/src/**/*.test.ts'] },
+  {
+    name: 'settlement-service',
+    framework: 'jest',
+    patterns: ['src/**/*.test.js', 'src/__tests__/*.js', 'tests/**/*.test.js'],
+  },
+  { name: 'trading-e2e-puppeteer', framework: 'jest', patterns: ['e2e/**/*.e2e.js'] },
 ];
 
 export function goldenPath(name: string): string {
