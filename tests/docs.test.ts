@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { declarations, typeNames } from '../docs/.vitepress/declarations.ts';
 import { HELP } from '../src/cli.ts';
 import { LEVELS } from '../src/diagnostics.ts';
+import { FRAMEWORK_NAMES, OLDEST } from '../src/framework-version.ts';
 import type { Inventory } from '../src/index.ts';
 import { EXAMPLES, fixtures, goldenPath, readGolden } from './examples.ts';
 import { schema } from './helpers.ts';
@@ -238,5 +239,53 @@ describe('reference pages', () => {
     const spans = [...text.replace(/^```[\s\S]*?^```/gm, '').matchAll(/`([^`]+)`/g)].map((match) => match[1]);
     const missing = [...keys].filter((key) => !spans.some((span) => new RegExp(`\\b${key}\\b`).test(span)));
     expect(missing).toEqual([]);
+  });
+});
+
+describe('runners', () => {
+  const read = (file: string) => readFileSync(path.join(repository, file), 'utf8');
+  const frameworks = Object.entries(FRAMEWORK_NAMES);
+
+  it('are each named on the pages that say what the scan reads', () => {
+    const general = [
+      'README.md',
+      'CONTRIBUTING.md',
+      'docs/index.md',
+      'docs/about.md',
+      'docs/guide/getting-started.md',
+      'docs/guide/why.md',
+      'docs/guide/cli.md',
+      'docs/guide/ci.md',
+      'docs/guide/runners.md',
+      'docs/guide/examples.md',
+      'docs/reference/output.md',
+    ];
+    const missing = general.flatMap((page) =>
+      frameworks.filter(([, name]) => !read(page).includes(name)).map(([, name]) => `${page}: ${name}`),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('each have a section in the syntax reference and a column in the comparison with the runners', () => {
+    const syntax = read('docs/reference/syntax.md');
+    const comparison = read('docs/guide/runners.md')
+      .split('\n')
+      .find((line) => line.startsWith('|') && line.includes('test-inventory')) as string;
+    for (const [framework, name] of frameworks) {
+      expect(syntax, name).toMatch(new RegExp(`^## ${name}$`, 'm'));
+      expect(comparison, name).toContain(`\`${framework} `);
+    }
+  });
+
+  it('are given with the oldest version supported, as is Node.js', () => {
+    const { engines } = JSON.parse(read('package.json')) as { engines: { node: string } };
+    const node = `Node.js ${engines.node.replace('>=', '')}`;
+    for (const page of ['README.md', 'docs/guide/getting-started.md']) {
+      const text = read(page).replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+      expect(text, page).toContain(node);
+      for (const [framework, name] of frameworks) {
+        expect(text, `${page}: ${name}`).toContain(`${name} ${OLDEST[framework as keyof typeof OLDEST].join('.')}`);
+      }
+    }
   });
 });

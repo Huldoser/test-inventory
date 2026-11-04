@@ -238,7 +238,8 @@ npx test-inventory "tests/unit/**/*.spec.ts" --framework vitest --output invento
 ```
 
 A name that a file uses but never imports or declares is read as a Vitest global. The scan then looks for
-`test.globals: true` in the config the file uses, the nearest one in its folder or a folder above, or for
+`test.globals: true` in the config the file uses, the outermost one in its folder or a folder above that runs it, or
+for
 `vitest/globals` in a tsconfig in those folders, and warns with `globals-not-enabled` when there is neither. Here
 `vitest.config.ts` turns them on:
 

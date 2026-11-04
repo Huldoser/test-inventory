@@ -82,11 +82,13 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 Values, a custom `test` object, and a function that declares tests, as described under
 [tests in helper functions](#tests-in-helper-functions), are followed through imports found through:
 
-- a relative path, as in `../fixtures`;
+- a relative path, as in `../fixtures`; a `.js` or `.jsx` extension also finds the `.ts` or `.tsx` file, as
+  TypeScript does;
 - a path alias from `compilerOptions.paths` or `baseUrl` in the tsconfig nearest the importing file, with every file
   it `extends`, packages such as `@trading/tsconfig` included. Without a `tsconfig.json`, the nearest
   `tsconfig.base.json` is used, as in an Nx workspace; a solution-style tsconfig takes them from the projects it
-  `references`;
+  `references`. When no file of a matching pattern exists, the import goes on to the usual lookup, as in
+  TypeScript;
 - an `imports` entry in the nearest `package.json`, as in `#fixtures`;
 - a workspace package whose `exports`, `types` or `main` point to TypeScript source, or to build output with the
   source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
@@ -127,7 +129,8 @@ onNode(22)('streams quotes over HTTP/3', async () => {});
 
 What it returns may be called in place, as here, or kept in a variable, as in `const quoteTest = onNode(22)`. When the
 function returns a different one on different runs, only the modifiers they all have apply, as for a variable chosen
-by a condition such as `isCI ? it.skip : it`: this test is listed as `active`, not as a conditional skip. A function
+by a condition such as `isCI ? it.skip : it`, or with `&&`, `||` or `??`, as in `isCI && it.skip || it`: this test
+is listed as `active`, not as a conditional skip. A function
 that returns what another such function does is followed too, as in `const fastTest = () => onNode(22)`.
 
 A test object made by a function the scan cannot follow, as from an installed package, is read on trust, with one
@@ -161,8 +164,8 @@ test('streams AAPL quotes', async ({ page }) => {
 ```
 
 When the file exports the function, or nothing in the file calls it by name, the scan can't tell which tests it
-affects, and a `state-in-helper` warning says the call was not applied. That includes a function passed as a value,
-as in `test.beforeEach(skipWithoutMarketData)`.
+affects, and a `state-in-helper` warning says the call was not applied. A function the file declares and passes by
+name to a hook or a test, as in `test.beforeEach(skipWithoutMarketData)`, is read as if its code were written there.
 
 ## Tests in helper functions
 
@@ -301,7 +304,7 @@ Some of what the hash takes is more than the test needs, so a change can change 
 - Importing a module runs the code of every module it imports, as a barrel file does for each module it re-exports,
   so all of that is in the hash, whichever export the test uses.
 - A Vue or Svelte single-file component is taken whole, by its text, with every module its `<script>` blocks import,
-  types too, as its markup may use any of them and Vue builds the props of `defineProps<Props>()` from the types.
+  except blocks whose `type` isn't JavaScript, such as `application/ld+json`, and types too, as its markup may use any of them and Vue builds the props of `defineProps<Props>()` from the types.
 
 When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
 `hasUnfollowedDependencies` without a warning.

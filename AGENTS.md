@@ -34,6 +34,9 @@ Notes for coding agents working in this repository. People should read CONTRIBUT
 - Test examples use the made-up trading app. No toy titles like `test('a')`.
 - Vitest reads `@module-tag` from the text of test files, so build that word from parts inside `tests/*.test.ts`.
 - Changesets: breaking changes are `minor` before 1.0; never `major`.
+- Docs describe the code on `main` on every page that touches a behaviour: when you change one, search `docs/` and
+  `README.md` for the old behaviour (runner lists, versions, defaults, rules) and update each place, not just one.
 - `npm run release` commits, pushes and opens a pull request. Run it only when a maintainer asks for that release, after
+  checking that the docs describe every pending changeset (CONTRIBUTING.md, Releases, step 1) and after
   `npm run release -- --dry-run`. It leaves the checkout on the release branch, so switch back to `main` afterwards. If
   it fails or is refused, stop and report; never run its steps by hand.

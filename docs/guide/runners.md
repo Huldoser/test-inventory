@@ -8,16 +8,17 @@ The runners can list their tests too: `playwright test --list --reporter=json`, 
 30.4, `jest --collectTests`. They load the test files, and so run the code at the top level of every file.
 test-inventory reads the files without running them.
 
-|                                | test-inventory                       | `playwright test --list`     | `vitest list`                   |
-| ------------------------------ | ------------------------------------ | ---------------------------- | ------------------------------- |
-| Runs code from the test files  | No                                   | Yes, top level and describes | Yes, or parses them in Vitest 5 |
-| Needs the runner installed     | No                                   | Yes                          | Yes                             |
-| Loops and `.each` tables       | One record, with the number of cases | One test per iteration       | One test per case               |
-| Skipped and todo tests         | Listed, with the state               | Listed                       | Left out                        |
-| Skip conditions                | Kept as source text                  | Evaluated at load time       | Not shown                       |
-| Tags                           | As written, `@smoke`                 | Without the `@`, `smoke`     | Not shown                       |
-| Stable id and body hash        | Yes                                  | No                           | No                              |
-| One schema for every framework | Yes                                  | No                           | No                              |
+|                                | test-inventory                       | `playwright test --list`     | `vitest list`                   | `jest --collectTests`                      |
+| ------------------------------ | ------------------------------------ | ---------------------------- | ------------------------------- | ------------------------------------------ |
+| Runs code from the test files  | No                                   | Yes, top level and describes | Yes, or parses them in Vitest 5 | Yes, top level and describes               |
+| Needs the runner installed     | No                                   | Yes                          | Yes                             | Yes, Jest 30.4 or newer                    |
+| Loops and `.each` tables       | One record, with the number of cases | One test per iteration       | One test per case               | One test per iteration, per case from 30.5 |
+| Skipped and todo tests         | Listed, with the state               | Listed                       | Left out                        | Listed, with the state                     |
+| Skip conditions                | Kept as source text                  | Evaluated at load time       | Not shown                       | Evaluated at load time                     |
+| Tags                           | As written, `@smoke`                 | Without the `@`, `smoke`     | Not shown                       | Not shown                                  |
+| Line of each test              | Yes                                  | Yes                          | Yes                             | No                                         |
+| Stable id and body hash        | Yes                                  | No                           | No                              | No                                         |
+| One schema for every framework | Yes                                  | No                           | No                              | No                                         |
 
 ## Matching records with the runners' lists
 
@@ -39,8 +40,8 @@ runner does.
 
 Jest 30.4 added `--collectTests`, which lists the tests without running them; from 30.5 it lists each case of a `.each`
 table. It loads the test files and calls their describe callbacks, so Jest has to be installed and the files'
-top-level code runs. `jest --listTests` lists only the files. Jest 29 has neither, so the only way to see its tests
-there is to run them.
+top-level code runs. Its entries have no line (`location` is `null`), so they match records by file and full title.
+`jest --listTests` lists only the files. Jest 29 has neither, so the only way to see its tests there is to run them.
 
 ## Checked in CI
 

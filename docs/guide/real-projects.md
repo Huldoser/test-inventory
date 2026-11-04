@@ -35,6 +35,8 @@ that the projects' runners never load.
 | [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                         | Vitest     |   142 |  2,216 |
 | [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end | Playwright |   714 |  2,188 |
 | [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit       | Vitest     |   853 | 10,124 |
+| [jestjs/jest](https://github.com/jestjs/jest) `7261444`, unit and end to end                        | Jest       |   495 |  4,675 |
+| [prettier/prettier](https://github.com/prettier/prettier) `d5d30c1`, unit                           | Jest       |    23 |     63 |
 
 No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings about values the scan can't work out
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The
@@ -65,6 +67,12 @@ errors and the larger warning counts have these causes:
   which runs there with `globals: true`. The framework version is unknown because the repository is Vitest itself.
 - **Sentry end to end.** One `framework-mismatch`: a Vitest file inside a Playwright test app. One `nested-test`: a
   `test.skip` written inside another test's body, which Playwright never collects.
+- **Jest's own suite.** 5 `unresolved-test-import` errors: property tests import `it` from `@fast-check/jest`, an
+  installed package. 7 `test-without-body` and `invalid-chain` errors come from jest-jasmine2's tests of those very
+  errors, which call `it('test1')` or `it.todo('test1', () => {})` inside `expect(() => ...)` in a test body. Those
+  calls run in the test, not while the file loads, so the file's tests stay `active`, though the errors say Jest
+  fails the file. The `unsupported-framework-version` warning is because the repository is Jest itself, whose version
+  there is `0.0.0-use.local`.
 
 ## Compared with the runners
 

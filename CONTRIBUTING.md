@@ -31,7 +31,7 @@ Mode turned on or a terminal run as administrator.
 ## How the code is laid out
 
 - `src/types.ts` is the output format. `schema/v1.json` is generated from it; a test fails when it is out of date.
-- `src/frameworks/` reads Playwright and Vitest calls. `src/extract.ts` walks a file and `src/records.ts` turns what it
+- `src/frameworks/` reads Playwright, Vitest and Jest calls. `src/extract.ts` walks a file and `src/records.ts` turns what it
   found into records.
 - `tests/fixtures/` holds realistic projects of a made-up trading app, one per common setup: Playwright end-to-end
   tests, a Node.js service, React, Vue, browser mode and a monorepo. `tests/examples.ts` lists them, and
@@ -65,7 +65,13 @@ is ticked, or a maintainer adds the `no docs` label. A release pull request, whi
 - `<!-- types: ScanOptions, Framework -->`: no block is written. The docs build puts those declarations there, with
   their comments, as they are in `src/`, so the docs never show a type that differs from the code.
 
-It also checks that the reference pages list every diagnostic, command line option and output key.
+It also checks that the reference pages list every diagnostic, command line option and output key, and that every
+runner has its section in the syntax reference, its column in the comparison with the runners, its name on the pages
+that say what the scan reads, and its oldest supported version where the versions are given.
+
+The checks can't read prose. A change belongs on every page that describes the behaviour it changes, not only one:
+search the docs for the old behaviour, such as a list of runners, a version, a default or a rule, and update each
+place. The docs describe the code on `main`, whatever version introduced a rule.
 
 ## Changesets
 
@@ -84,16 +90,18 @@ When the output changes, follow the versioning rules on the [output page](https:
 Releases are made from `main`. Changesets collect there until a maintainer releases them; nothing is published until a
 release pull request is merged.
 
-1. On an up-to-date `main` with no local changes, run `npm run release`. It checks that `main` matches GitHub and that
+1. Read each pending changeset in `.changeset/` and check that the docs describe it, on every page it touches, as
+   the Docs section above says. Fix what's missing in a pull request first.
+2. On an up-to-date `main` with no local changes, run `npm run release`. It checks that `main` matches GitHub and that
    changesets are waiting, makes a `release-x.y.z` branch, runs `changeset version`, updates the lockfile, commits
    "Release x.y.z", pushes the branch and opens the pull request, with gh when it is installed and otherwise through a
    link it prints. `changeset version` reads a GitHub token to link each change to its pull request: `GITHUB_TOKEN`
    when it is set, otherwise the one gh is logged in with. `npm run release -- --dry-run` shows the steps first.
-2. Review the new `CHANGELOG.md` entry and the version in the pull request, and squash merge it when the checks pass.
-3. The push to `main` starts the Release workflow. It builds, tests and packs the package, publishes it to npm with
+3. Review the new `CHANGELOG.md` entry and the version in the pull request, and squash merge it when the checks pass.
+4. The push to `main` starts the Release workflow. It builds, tests and packs the package, publishes it to npm with
    provenance, pushes the `vx.y.z` tag, creates the GitHub release and deploys the docs. Merging is the approval: only
    `main` may use the `npm` environment, and the ruleset on `main` requires a pull request with passing checks.
-4. npm lists the new version a few minutes after the run publishes it. Check with
+5. npm lists the new version a few minutes after the run publishes it. Check with
    `npm view test-inventory@x.y.z --prefer-online`. Until then it finds nothing; don't re-run the publish job, as npm
    already has the version.
 
@@ -103,7 +111,7 @@ The same steps by hand, if the script can't be used:
 2. Run `GITHUB_TOKEN=$(gh auth token) npx changeset version`. It raises the version in `package.json`, writes
    `CHANGELOG.md` and deletes the changesets it used. The token is set for this one command and stored nowhere.
 3. Run `npm install --package-lock-only` so that `package-lock.json` has the new version too.
-4. Commit as "Release x.y.z", push, and open a pull request, then continue from step 2 above.
+4. Commit as "Release x.y.z", push, and open a pull request, then continue from step 3 above.
 
 npm publishes with trusted publishing: the package's trusted publisher on npmjs.com names this repository, `release.yml`
 and the `npm` environment, and allows `npm publish`. It must exist before a release pull request is merged, or the

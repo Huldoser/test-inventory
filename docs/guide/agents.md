@@ -18,12 +18,13 @@ code from the project, writes nothing and opens no network connections.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.5 --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.6 --framework playwright
 ```
 
-`--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. Given only
-`--framework`, it scans the test files the project's configs run; globs before it pick the files instead, as on the
-[command line](/guide/cli). The setup for Cursor and VS Code, the
+`--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. It scans the test
+files the project's configs run, with the runner `--framework` names: `playwright`, `vitest` or `jest`. Without
+`--framework`, it uses the runner the project uses, and an agent names one when the project has several. Globs pick
+the files instead, as on the [command line](/guide/cli). The setup for Cursor and VS Code, the
 options and the security notes are in the server's [README](https://github.com/Huldoser/test-inventory-mcp#setup).
 
 | Tool               | Answers                                                                                                                             |
@@ -40,7 +41,7 @@ does on the command line. Every tool also takes `expandCases`, which lists each 
 each pass of a loop as its own test, with the name the runner gives it, as `--expand-cases` does.
 
 The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.5` gets fixes only.
+`test-inventory-mcp@0.6` gets fixes only.
 
 ## Command line
 

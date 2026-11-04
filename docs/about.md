@@ -22,8 +22,8 @@ project, run the checks and add a changeset.
 
 ## The examples
 
-Every example in these docs comes from a made-up trading app: a web app with Playwright tests, and a strategy
-engine, an order service, a React dashboard, a Vue watchlist, a chart tested in the browser and a monorepo, all with
-Vitest. They live in [`tests/fixtures`](https://github.com/Huldoser/test-inventory/tree/main/tests/fixtures), the
+Every example in these docs comes from a made-up trading app: a web app with Playwright tests; a strategy engine,
+an order service, a React dashboard, a Vue watchlist, a chart tested in the browser and a monorepo, all with Vitest;
+and a settlement service and browser tests driven by Puppeteer, with Jest. They live in [`tests/fixtures`](https://github.com/Huldoser/test-inventory/tree/main/tests/fixtures), the
 [examples](/guide/examples) page shows each one, and every output in these docs is produced by scanning them, which
 the test suite checks.
