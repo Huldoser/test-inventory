@@ -185,7 +185,7 @@ function exactly(name: string): RegExp {
 /** The runner names a title stands for: `.each` titles with `%s` or `$name` become patterns that match any value. */
 function titlePattern(test: TestRecord, inTable: boolean): RegExp {
   const escaped = test.fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const formatted = test.isParameterized || inTable ? escaped.replace(/%[sdifjoO#%]|\\\$[\w.]+/g, '.*') : escaped;
+  const formatted = test.isParameterized || inTable ? escaped.replace(/%[sdifjoOp#%]|\\\$[\w.]+/g, '.*') : escaped;
   return new RegExp(`^${formatted}$`, 's');
 }
 
