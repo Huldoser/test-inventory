@@ -86,13 +86,13 @@ Jest 29.0 and newer.
 
 ### Where test comes from
 
-| Form                       | Example                                                                                                                                                 |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Globals                    | `describe`, `it`, `test`, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` used without an import or declaration                                      |
-| Named import, also renamed | `import { test, it, describe, xit } from '@jest/globals'`                                                                                               |
-| The module                 | `import * as globals from '@jest/globals'`, a default import (with Babel or TypeScript), or `require('@jest/globals')`, whole, destructured or in place |
-| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies                                                                 |
-| Local helpers file         | `import { it } from './helpers'`, followed as for Vitest, and functions that return a test function                                                     |
+| Form                       | Example                                                                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals                    | `describe`, `it`, `test`, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` used without an import or declaration                                                                      |
+| Named import, also renamed | `import { test, it, describe, xit } from '@jest/globals'`                                                                                                                               |
+| The module                 | `import * as globals from '@jest/globals'`, a default import (with Babel or TypeScript), or `require('@jest/globals')`, whole, destructured or in place                                 |
+| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies                                                                                                 |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, a global it exports, as `export const pendingTest = xit`, and functions that return a test function |
 
 `fit` and `fdescribe` are `.only`; `xit`, `xtest` and `xdescribe` are `.skip`. As in Jest, a describe's own `.only` or
 `.skip` wins over the one around it, a skipped describe skips every test in it, a todo or a `.only` too, and in a

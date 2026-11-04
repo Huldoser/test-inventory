@@ -55,7 +55,8 @@ can read: string and number literals, constants, enums, arrays and objects built
 concatenation, template strings, arithmetic, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
 `Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
 array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
-included:
+included. A function or class written in place as a title, as in `describe(function OrderBook() {}, ...)`, gives its
+name, as the runners read it:
 
 ```ts
 import { TAGS } from '../../test-data/tags';
@@ -91,6 +92,10 @@ Values, a custom `test` object, and a function that declares tests, as described
   source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
   install, from the `workspaces` of `package.json` and from `pnpm-workspace.yaml`. Patterns and links that lead out of
   the workspace folder are not followed.
+
+CommonJS is followed the same way: `const { SYMBOLS } = require('../data/symbols')` and
+`const symbols = require('../data/symbols')` of a local file read what it exports with `module.exports = { ... }`,
+`module.exports = function registerSettlement(desk) {...}` or `exports.SYMBOLS = [...]`.
 
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
 `export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
@@ -184,7 +189,8 @@ Playwright lists two tests here, and so does the scan: `buy orders > buy rejects
 `short sells > short rejects a zero quantity`, which is skipped. Both have `isInFunction: true` and the line of the
 `test()` call.
 
-A function imported from another file is followed the same way, through the imports above. Its records give the call
+A function imported from another file is followed the same way, through the imports above, also when a shared file
+imports it and exports it again, as an `index.js` of helpers does. Its records give the call
 in the scanned file as their location, since that is the line that registers the tests, and `declaredAt` gives the
 file and line where the helper writes the test.
 
@@ -199,7 +205,7 @@ Such a test is listed where it is written. Tests in a callback passed to another
 ## Loops and tables are one record
 
 A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true`. When the loop goes over values
-the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
+the scan can count, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
 registers the test on every pass, `caseCount` says how many tests the runner registers. Otherwise `caseCount` is `null`
 and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
 or `throw` in it, and a test under a condition inside the loop, such as one in a helper after
@@ -207,7 +213,9 @@ or `throw` in it, and a test under a condition inside the loop, such as one in a
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
-work out the table.
+count its rows. A list written out, its spreads, a constant the file doesn't change, and `Object.keys()`,
+`Object.values()` and `Object.entries()` of an object written out can be counted even when one of their values can't
+be worked out, as in `[NaN, Infinity].forEach(...)` or a table with a call in a row.
 
 With `--expand-cases` (library: `expandCases: true`), each case of a table and each pass of a loop whose values the
 scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The
