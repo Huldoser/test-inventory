@@ -168,12 +168,14 @@ function are joined, and `stateLine` is the line of the call inside the function
 file are followed too. A function that is exported, or that nothing in the file calls, changes no record and gets a
 `state-in-helper` warning.
 
-When a file has a problem that makes the runner refuse to load it, such as a Playwright test without a body or a
-Vitest call to an API that the version removed, every
+When a file has a problem that makes the runner refuse to load it, such as a Playwright test without a body, a
+Vitest call to an API that the version removed or an async Jest describe, every
 test in it is `notLoaded`: `stateSource` is `file`, `stateLine` is the line of the first such problem, and
 `condition` and `reason` are `null`. The [diagnostic](/reference/diagnostics#files-the-runner-refuses-to-load) says
 why. Everything else about the tests stays as written, so fixing the file brings their states back. A refused call
-that declares a test or describe is listed without the part that fails, so its tests are `notLoaded` too.
+that declares a test or describe is listed without the part that fails, so its tests are `notLoaded` too. A refused
+call reached only under a condition is reported but leaves the states as they are, since the file loads unless the
+condition holds.
 
 ### Run settings
 
@@ -373,7 +375,8 @@ A config is read as code and never run, with the settings it imports from other 
 config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
 `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
 a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`. A
-config that `require()`s a local file, as a shared base, reads what that file exports.
+config that `require()`s a local file, as a shared base, reads what that file exports, and a JSON file, required or
+imported, is read as its value.
 
 | Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -412,7 +415,8 @@ Besides which files it runs, the scan reads Vitest's `test.globals` and Jest's `
 project, for the `globals-not-enabled` warning. A setting it reads but can't work out, such as one computed from
 `process.env` or taken from an installed package, gets a `config-value-unknown` warning that names it, and the config
 is taken to run the file. For Jest's `testPathIgnorePatterns` and `modulePathIgnorePatterns`, which only leave files
-out, the files the other settings pick are kept instead.
+out, the entries the scan can read still apply, also beside a spread it can't work out, and the files the other
+settings pick are kept.
 
 ::: details TypeScript
 

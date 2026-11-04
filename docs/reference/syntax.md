@@ -126,4 +126,6 @@ for tables of objects and tagged templates. A title that shows an object through
 - Tests in loops, conditions and plain functions are listed with `isInLoop`, `isInCondition` and `isInFunction`.
 - A test or describe declared inside a test body or a hook is not listed, with a `nested-test` warning.
 - TypeScript wrappers such as `test!.skip(...)` and `(test as any).only(...)` are read through.
+- A test function kept in a variable may be chosen with `?:`, `&&`, `||` or `??`, as in
+  `const onCi = process.env.CI && test.skip || test`: only what every choice shares applies.
 - `.js`, `.mjs` and `.cjs` files may contain JSX.

@@ -127,7 +127,8 @@ onNode(22)('streams quotes over HTTP/3', async () => {});
 
 What it returns may be called in place, as here, or kept in a variable, as in `const quoteTest = onNode(22)`. When the
 function returns a different one on different runs, only the modifiers they all have apply, as for a variable chosen
-by a condition such as `isCI ? it.skip : it`: this test is listed as `active`, not as a conditional skip. A function
+by a condition such as `isCI ? it.skip : it`, or with `&&`, `||` or `??`, as in `isCI && it.skip || it`: this test
+is listed as `active`, not as a conditional skip. A function
 that returns what another such function does is followed too, as in `const fastTest = () => onNode(22)`.
 
 A test object made by a function the scan cannot follow, as from an installed package, is read on trust, with one

@@ -164,8 +164,9 @@ export interface Summary {
 }
 
 /**
- * A Playwright or Vitest config that scanned files use: the nearest one in a file's folder or a folder above it, up to
- * the root, as the runner started in that folder would. Read as code, never run.
+ * A Playwright, Vitest or Jest config that scanned files use: the nearest one in a file's folder or a folder above it,
+ * up to the root, as the runner started in that folder would; for Jest, the one at the root and the projects it names.
+ * Read as code, never run.
  */
 export interface ConfigRecord {
   /** Path from the project root, with `/` separators. */
