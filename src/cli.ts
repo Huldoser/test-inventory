@@ -8,7 +8,7 @@ import { checkFields, filterInventory, matcher, pickTestFields, type InventoryFi
 import { writeInventory, writeInventoryLines, type Output } from './json.ts';
 import { OptionsError, toPosixPath } from './options.ts';
 import { scan } from './scan.ts';
-import type { TestRecord, TestState } from './types.ts';
+import type { Framework, TestRecord, TestState } from './types.ts';
 import { toolVersion } from './version.ts';
 
 export interface Io {
@@ -19,13 +19,13 @@ export interface Io {
   stdin?: Readable;
 }
 
-export const HELP = `Usage: test-inventory [glob...] --framework <playwright|vitest|jest> [options]
+export const HELP = `Usage: test-inventory [glob...] [options]
 
 Lists the tests in the matching files as JSON, read from the source code without running them. Without globs, the
 test files are those the Playwright, Vitest or Jest configs in the root and the folders below it run.
 
 Options:
-  --framework <name>           playwright, vitest or jest (required)
+  --framework <name>           playwright, vitest or jest (default: the one the project uses)
   --root <dir>                 project root; paths in the output are relative to it (default: current directory)
   --ignore <glob>              leave out matching files; can be repeated (node_modules is always left out)
   --framework-version <x.y.z>  apply the rules of this framework version instead of the one in the project
@@ -160,7 +160,6 @@ export async function run(argv: string[], io: Io): Promise<number> {
     io.stdout.write(`${toolVersion}\n`);
     return FINISHED;
   }
-  if (values.framework === undefined) return fail('--framework is required: playwright, vitest or jest.');
   const format = values.format ?? 'json';
   if (!FORMATS.includes(format)) return fail('--format must be json or jsonl.');
   if (format === 'jsonl' && values.pretty) return fail('--pretty indents JSON, so it does not go with --format jsonl.');
@@ -191,7 +190,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
     if (fields !== undefined) checkFields(fields);
     inventory = await scan({
       patterns: positionals.length > 0 ? positionals : undefined,
-      framework: values.framework as 'playwright',
+      framework: values.framework as Framework | undefined,
       root,
       ignore: values.ignore ?? [],
       frameworkVersion: values['framework-version'],

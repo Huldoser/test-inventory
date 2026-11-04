@@ -10,7 +10,11 @@ export interface ScanOptions {
    * a dot too. Without them, the test files are those the configs in the root and the folders below it run.
    */
   patterns?: string[];
-  framework: Framework;
+  /**
+   * The runner whose tests are listed. Without it, the one the project uses: whose package a package.json lists, or
+   * whose config is in the root or below. With none of them or several, the scan throws a `TypeError` that names them.
+   */
+  framework?: Framework;
   /** The project root. Paths in the output are relative to it. Defaults to the current directory. */
   root?: string;
   /** Glob patterns to leave out, in addition to `node_modules` and `.git`. */

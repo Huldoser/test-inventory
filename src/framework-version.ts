@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { globSync } from 'tinyglobby';
+import { OptionsError } from './options.ts';
 import type { Framework } from './types.ts';
 
 const PACKAGES: Record<Framework, string> = { playwright: '@playwright/test', vitest: 'vitest', jest: 'jest' };
@@ -135,4 +136,56 @@ function detectIn(root: string, all: string[], name: string): DetectedVersion | 
     if (declared) return { ...declared, source: source(folder, 'package.json') };
   }
   return null;
+}
+
+/** Config file names of each runner. A Vite config alone doesn't count, as Vite apps without Vitest have one. */
+const CONFIG_NAMES: Record<Framework, RegExp> = {
+  playwright: /^playwright\.config\.[cm]?[jt]s$/,
+  vitest: /^vitest\.config\.[cm]?[jt]s$/,
+  jest: /^jest\.config\.([cm]?[jt]s|json)$/,
+};
+
+/** Whether a package.json lists a runner, or for Jest has a `jest` key, its config. */
+function declares(manifest: string, framework: Framework): boolean {
+  const json = readJson(manifest) as Record<string, Record<string, unknown> | undefined> | null;
+  const fields = ['devDependencies', 'dependencies', 'peerDependencies', 'optionalDependencies'];
+  return (
+    fields.some((field) => json?.[field]?.[PACKAGES[framework]] !== undefined) ||
+    (framework === 'jest' && json?.jest !== undefined)
+  );
+}
+
+/**
+ * The runner a project uses, for a scan without `framework`: the one whose package a package.json in the root or a
+ * folder below it lists, or whose config is there. Only when none is found there do the package.json files above the
+ * root count, as a monorepo may declare its runner once at its top. Throws an `OptionsError` when the project uses
+ * none of them or several, naming what it found.
+ */
+export function detectFramework(root: string): Framework {
+  const below = globSync(['**/package.json', '**/*.config.*'], {
+    cwd: root,
+    ignore: ['**/node_modules/**', '**/.git/**'],
+  });
+  const manifests = below.filter((file) => path.basename(file) === 'package.json').map((file) => path.join(root, file));
+  const above = folders(root)
+    .slice(1)
+    .map((folder) => path.join(folder, 'package.json'));
+  const all = ['playwright', 'vitest', 'jest'] as const;
+  let found: Framework[] = all.filter(
+    (framework) =>
+      below.some((file) => CONFIG_NAMES[framework].test(path.basename(file))) ||
+      manifests.some((manifest) => declares(manifest, framework)),
+  );
+  if (found.length === 0) found = all.filter((framework) => above.some((manifest) => declares(manifest, framework)));
+  if (found.length === 1) return found[0];
+  if (found.length === 0) {
+    throw new OptionsError(
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest or jest, and no config of theirs is in the root or below.',
+    );
+  }
+  const names = found.map((framework) => FRAMEWORK_NAMES[framework]);
+  const values = found.map((framework) => `"${framework}"`);
+  throw new OptionsError(
+    `options.framework is needed, as the project uses ${names.slice(0, -1).join(', ')} and ${names.at(-1) as string}: scan it once with each of ${values.join(', ')}.`,
+  );
 }

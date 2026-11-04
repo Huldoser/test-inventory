@@ -9,7 +9,7 @@ import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
-import { detectFrameworkVersion, FRAMEWORK_NAMES, OLDEST } from './framework-version.ts';
+import { detectFramework, detectFrameworkVersion, FRAMEWORK_NAMES, OLDEST } from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
@@ -161,7 +161,6 @@ function noFiles(
 export async function scan(options: ScanOptions): Promise<Inventory> {
   const checked = checkObject(options, 'options');
   const patterns = checked.patterns === undefined ? null : checkStrings(checked.patterns, 'options.patterns', true);
-  const framework = checkFramework(checked.framework, 'options.framework');
   const ignore = checkStrings(checked.ignore, 'options.ignore', false);
   const comments = checkComments(checked.comments, 'options.comments');
   const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
@@ -172,6 +171,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const root = path.resolve(checked.root ?? process.cwd());
   if (!existsSync(root) || !statSync(root).isDirectory())
     throw invalid('options.root', `a directory, and ${root} is not one`);
+  const framework =
+    checked.framework === undefined ? detectFramework(root) : checkFramework(checked.framework, 'options.framework');
 
   // Without patterns, the configs choose among all JavaScript and TypeScript files.
   const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
