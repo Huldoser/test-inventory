@@ -489,19 +489,51 @@ test('books the cash leg', () => {});
 });
 
 describe('headingsMatch', () => {
-  // jest-each's own pattern, which the scan doesn't run, as it can take exponential time.
-  const JEST_HEADINGS = /^\n\s*[^\s]+\s*(\|\s*[^\s]+\s*)*\n/;
+  /**
+   * jest-each's heading pattern, `^\n\s*[^\s]+\s*(\|\s*[^\s]+\s*)*\n`, written out as the backtracking a regular
+   * expression engine does, in its order: the longest word first, its spaces given back one by one, then shorter words;
+   * after a heading, another one after a `|` before the line break. It takes exponential time, so only short texts.
+   */
+  function jestHeadings(text: string): string | null {
+    if (!text.startsWith('\n')) return null;
+    const isSpace = (index: number) => index < text.length && /\s/.test(text[index]);
+    const rest = (at: number): number | null =>
+      (text[at] === '|' ? heading(at + 1) : null) ?? (text[at] === '\n' ? at + 1 : null);
+    const heading = (at: number): number | null => {
+      let start = at;
+      while (isSpace(start)) start++;
+      let end = start;
+      while (end < text.length && !isSpace(end)) end++;
+      for (let word = end; word > start; word--) {
+        let spaces = word;
+        if (word === end) while (isSpace(spaces)) spaces++;
+        for (let after = spaces; after >= word; after--) {
+          const found = rest(after);
+          if (found !== null) return found;
+        }
+      }
+      return null;
+    };
+    const found = heading(1);
+    return found === null ? null : text.slice(0, found);
+  }
 
   it('matches what jest-each matches, for every first line of up to 9 characters of names, |, spaces and line breaks', () => {
     const differences: string[] = [];
     const visit = (text: string) => {
-      const expected = JEST_HEADINGS.exec(text)?.[0] ?? null;
-      if (headingsMatch(text) !== expected) differences.push(JSON.stringify(text));
+      if (headingsMatch(text) !== jestHeadings(text)) differences.push(JSON.stringify(text));
       if (text.length < 10) for (const char of ['a', '|', ' ', '\n']) visit(text + char);
     };
     visit('\n');
     expect(differences).toEqual([]);
     expect(headingsMatch('symbol | side\n')).toBeNull();
+    // Results of jest-each's own pattern, run once on these lines.
+    expect(['\na| |\n', '\na |b\n', '\na b\n', '\n||\n'].map(headingsMatch)).toEqual([
+      '\na| |\n',
+      '\na |b\n',
+      null,
+      '\n||\n',
+    ]);
   });
 
   it('reads a long line of headings that never matches in one pass', () => {

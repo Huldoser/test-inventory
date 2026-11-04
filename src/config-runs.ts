@@ -600,9 +600,11 @@ export class ConfigRuns {
         return [this.unknownProject(config, unknownAt(item), 'projects')];
       }
       const entry = replaceRootDir(rootDir, item.value);
-      // Jest globs from where it is started, and keeps an entry that matches nothing as a path.
-      const matches = picomatch.scan(entry).isGlob
-        ? globSync(entry, { cwd: this.configs.root, absolute: true, onlyFiles: false, expandDirectories: false })
+      // Jest globs from where it is started, with `\` as a separator on Windows, and keeps an entry that matches nothing
+      // as a path.
+      const pattern = posix(path.isAbsolute(entry) ? path.relative(this.configs.root, entry) : entry);
+      const matches = picomatch.scan(pattern).isGlob
+        ? globSync(pattern, { cwd: this.configs.root, absolute: true, onlyFiles: false, expandDirectories: false })
         : [];
       // Jest leaves out a matched file it can't require, such as a README.
       const requirable = matches.filter(
