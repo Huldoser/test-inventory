@@ -1,5 +1,5 @@
-import type { Expression, Node, TSEnumDeclaration } from 'oxc-parser';
-import { childNodes, isFunctionNode, propertyName, unwrap, type FunctionNode } from './ast.ts';
+import type { CallExpression, Expression, Node, TSEnumDeclaration } from 'oxc-parser';
+import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from './ast.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -445,6 +445,54 @@ export class Values {
     return resolved.ok ? resolved : { ok: false, importedFrom: source };
   }
 
+  /**
+   * How many items a list has when not all its values are known, as `[NaN, Infinity]`: a list written out, its spreads
+   * included, held in a constant the module doesn't change, or the keys, values or entries of an object written out;
+   * null otherwise. `seen` stops at a constant defined through itself.
+   */
+  lengthOf(node: Expression, scopes: readonly Node[], seen = new Set<string>()): number | null {
+    const resolved = this.resolve(node, scopes);
+    if (resolved.ok) return Array.isArray(resolved.value) ? resolved.value.length : null;
+    const expression = unwrap(node);
+    if (expression.type === 'Identifier') {
+      const binding = this.lookup(expression.name, scopes)?.binding;
+      if (binding?.kind !== 'const' || seen.has(expression.name)) return null;
+      if (this.changedAtLoad(binding.scopes[0]).has(expression.name)) return null;
+      return this.lengthOf(binding.init, binding.scopes, new Set([...seen, expression.name]));
+    }
+    if (expression.type === 'CallExpression' && isObjectListing(expression)) {
+      const target = expression.arguments[0] as Expression;
+      return this.keyCount(target, scopes, seen);
+    }
+    if (expression.type !== 'ArrayExpression') return null;
+    let length = 0;
+    for (const element of expression.elements) {
+      const inner = element?.type === 'SpreadElement' ? this.lengthOf(element.argument, scopes, seen) : 1;
+      if (inner === null) return null;
+      length += inner;
+    }
+    return length;
+  }
+
+  /** How many keys an object written out has, held in a constant the module doesn't change; null otherwise. */
+  private keyCount(node: Expression, scopes: readonly Node[], seen: Set<string>): number | null {
+    const expression = unwrap(node);
+    if (expression.type === 'Identifier') {
+      const binding = this.lookup(expression.name, scopes)?.binding;
+      if (binding?.kind !== 'const' || seen.has(expression.name)) return null;
+      if (this.changedAtLoad(binding.scopes[0]).has(expression.name)) return null;
+      return this.keyCount(binding.init, binding.scopes, new Set([...seen, expression.name]));
+    }
+    if (expression.type !== 'ObjectExpression') return null;
+    const keys = new Set<string>();
+    for (const property of expression.properties) {
+      const key = property.type === 'Property' ? propertyKey(property) : null;
+      if (key === null) return null;
+      keys.add(key);
+    }
+    return keys.size;
+  }
+
   /** What a name refers to where it is used; `scopes` lists the scope nodes around the use, outermost first. */
   resolveName(name: string, scopes: readonly Node[]): Resolved {
     const found = this.lookup(name, scopes);
@@ -801,4 +849,17 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
       break;
   }
   return bindings;
+}
+
+/** `Object.keys(x)`, `Object.values(x)` or `Object.entries(x)`, which list as many items as `x` has keys. */
+function isObjectListing(call: CallExpression): boolean {
+  const callee = unwrap(call.callee);
+  return (
+    callee.type === 'MemberExpression' &&
+    callee.object.type === 'Identifier' &&
+    callee.object.name === 'Object' &&
+    ['keys', 'values', 'entries'].includes(propertyName(callee) as string) &&
+    call.arguments.length === 1 &&
+    call.arguments[0].type !== 'SpreadElement'
+  );
 }

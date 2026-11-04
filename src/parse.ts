@@ -216,10 +216,24 @@ export function parseFile(fileName: string, code: string): ParsedFile {
       error: { message, start: tooDeep, end: tooDeep + 1 },
     };
   }
-  const result = parseSync(fileName, text, parserOptions(fileName));
+  let result: ReturnType<typeof parseSync>;
+  let program: ReturnType<typeof parseSync>['program'];
+  try {
+    result = parseSync(fileName, text, parserOptions(fileName));
+    // The tree is handed over when it is first read.
+    program = result.program;
+  } catch (error) {
+    // The parser can fail to hand over the tree of invalid code, as for a JSX name written as a Unicode escape.
+    return {
+      source: new SourceText(text),
+      program: parseSync(fileName, '', parserOptions(fileName)).program,
+      comments: [],
+      error: { message: (error as Error).message, start: 0, end: 0 },
+    };
+  }
   return {
     source: new SourceText(text),
-    program: result.program,
+    program,
     comments: result.comments,
     error: firstError(result.errors),
   };

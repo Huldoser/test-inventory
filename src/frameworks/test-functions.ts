@@ -532,19 +532,9 @@ export abstract class SuiteAdapter implements Adapter {
     return hook ? this.hook(call, hook, context) : null;
   }
 
-  /** The number of items of a table written as an array, or held in a value the scan can work out. */
+  /** The number of items of a table, also when not all its values are known; see `Values.lengthOf`. */
   protected arrayLength(node: Argument | undefined, context: CallContext): number | null {
     if (node === undefined || node.type === 'SpreadElement') return null;
-    const resolved = this.file.values.resolve(node, context.scopes);
-    if (resolved.ok && Array.isArray(resolved.value)) return resolved.value.length;
-    const expression = unwrap(node);
-    // The cases may hold values that can't be worked out, such as functions, while the list itself is written out.
-    if (
-      expression.type === 'ArrayExpression' &&
-      expression.elements.every((element) => element?.type !== 'SpreadElement')
-    ) {
-      return expression.elements.length;
-    }
-    return null;
+    return this.file.values.lengthOf(node, context.scopes);
   }
 }

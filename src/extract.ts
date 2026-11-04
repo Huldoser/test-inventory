@@ -617,14 +617,18 @@ class Walker {
         return;
       case 'ForInStatement':
       case 'ForOfStatement': {
-        const values = leavesEarly(node.body) ? null : this.loopValues(node);
+        const leaves = leavesEarly(node.body);
+        const values = leaves ? null : this.loopValues(node);
         const expands = values ? this.expands(node, values, context) : 'no';
         if (values && expands === 'yes') {
           this.expandLoop(node, values, context);
           return;
         }
+        // For `for...in`, the keys are what `Object.keys()` lists.
+        const listed = node.type === 'ForOfStatement' && !leaves ? node.right : null;
+        const count = values?.length ?? (listed ? this.frame.values.lengthOf(listed, this.scopes.slice(0, -1)) : null);
         this.walkUnexpanded(node, expands === 'limit', () => {
-          this.visitChildren(node, this.inLoop(context, values?.length ?? null));
+          this.visitChildren(node, this.inLoop(context, count));
         });
         return;
       }
@@ -840,7 +844,8 @@ class Walker {
     const list = resolved.ok && Array.isArray(resolved.value) ? resolved.value : null;
     for (const arg of call.arguments) {
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        const values = leavesEarly(arg.body as Node) ? null : list;
+        const leaves = leavesEarly(arg.body as Node);
+        const values = leaves ? null : list;
         const expands = values ? this.expands(null, values, context) : 'no';
         if (values && expands === 'yes') {
           // The callback gets each element, its index and the array.
@@ -851,8 +856,9 @@ class Walker {
             });
           }
         } else {
+          const count = values?.length ?? (leaves ? null : this.frame.values.lengthOf(callee.object, this.scopes));
           this.walkUnexpanded(call, expands === 'limit', () => {
-            this.visitCallback(arg, this.inLoop(context, values?.length ?? null));
+            this.visitCallback(arg, this.inLoop(context, count));
           });
         }
       } else {

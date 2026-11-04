@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { headingsMatch } from '../src/frameworks/jest.ts';
+import { parseFile } from '../src/parse.ts';
+import { Values } from '../src/values.ts';
 import { codes, onlyTest, scanJest, testNamed, titles } from './helpers.ts';
 import type { Inventory } from '../src/index.ts';
 
@@ -757,5 +759,91 @@ describe('fees', {}, () => {
 `);
     expect(codes(inventory)).toEqual(['test-without-body', 'test-without-body', 'test-without-body']);
     expect(inventory.tests.every((test) => test.state === 'notLoaded')).toBe(true);
+  });
+});
+
+describe('board follow-ups for the Jest release', () => {
+  it('reports code the parser fails to hand over as a parse-error (TI-75)', () => {
+    const code = "<\\u{2F804}></\\u{2F804}>;\ntest('books a fill', () => {});\n";
+    const inventory = scanJest(code, { relativeFilePath: 'tests/markup.test.jsx' });
+    expect(inventory.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      ['parse-error', 'The file could not be parsed: Bad Unicode escape in JSON at position 185 (line 2 column 177)'],
+    ]);
+  });
+
+  it('counts a table or loop whose length is known when one of its values is not (TI-73)', () => {
+    const inventory = scanJest(`
+const SOURCES = [['List', List([1])], ['Set', makeSet()], ...[['Map', new Map()]]];
+const HANDLERS = { onSubmit: () => submit(), onReset: () => reset() };
+const LIMITS = [NaN, Infinity];
+LIMITS.push(0);
+it.each(SOURCES)('counts a %s', () => {});
+[NaN, Infinity, -Infinity].forEach((price) => test(\`rejects \${price}\`, () => {}));
+Object.entries(HANDLERS).forEach(([name]) => test(\`handles \${name}\`, () => {}));
+for (const quote of [quoteOf('AAPL'), , quoteOf('MSFT')]) test('prices a quote', () => {});
+for (const limit of LIMITS) test('checks a limit', () => {});
+it.each(...tables)('spreads %s', () => {});
+let SETTINGS = { lot: 100 };
+const COPIED = { ...SETTINGS };
+const COMPUTED = { [venueKey]: 'NYSE' };
+const VENUES = { nyse: 1 };
+VENUES.lse = 2;
+const FIRST = SECOND;
+const SECOND = FIRST;
+for (const source of [Object.keys(SETTINGS), Object.keys(COPIED), Object.keys(COMPUTED), Object.keys(VENUES),
+  Object.keys(FIRST), Object.keys(settingsOf()), Object.keys(...lists)]) {
+  source.forEach(() => test('reads a setting', () => {}));
+}
+`);
+    expect(inventory.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['counts a %s', 3],
+      ['`rejects ${price}`', 3],
+      ['`handles ${name}`', 2],
+      ['prices a quote', 3],
+      ['checks a limit', null],
+      ['spreads %s', null],
+      ['reads a setting', null],
+    ]);
+    const values = new Values();
+    const program = parseFile(
+      'settings.ts',
+      `
+let SETTINGS = { lot: 100 };
+const COPIED = { ...SETTINGS };
+const COMPUTED = { [venueKey]: 'NYSE' };
+const VENUES = { nyse: 1 };
+VENUES.lse = 2;
+const FIRST = SECOND;
+const SECOND = FIRST;
+const HANDLERS = { onSubmit: () => submit() };
+`,
+    ).program;
+    const count = (code: string) => {
+      const [statement] = parseFile('count.ts', code).program.body;
+      return statement.type === 'ExpressionStatement' ? values.lengthOf(statement.expression, [program]) : undefined;
+    };
+    expect(
+      [
+        'Object.keys(SETTINGS)',
+        'Object.keys(COPIED)',
+        'Object.keys(COMPUTED)',
+        'Object.keys(VENUES)',
+        'Object.keys(FIRST)',
+        'Object.keys(settingsOf())',
+        'Object.keys(...lists)',
+        'Object.entries(HANDLERS)',
+      ].map(count),
+    ).toEqual([null, null, null, null, null, null, null, 1]);
+  });
+
+  it('titles a describe or test by a function or class written in place, as Jest and Vitest do (TI-74)', () => {
+    const inventory = scanJest(`
+describe(function OrderBook() {}, () => {
+  test(class Matcher {}, () => {});
+  test(function () {}, () => {});
+});
+`);
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(['OrderBook > Matcher', 'OrderBook > ']);
+    expect(codes(inventory)).toEqual(['empty-title']);
   });
 });
