@@ -230,7 +230,8 @@ export class SuiteBindings implements TestObjects {
       const node = unwrap(init);
       let start: Start | undefined;
       if (node.type === 'Identifier') start = this.starts.get(node.name);
-      else if (node.type === 'MemberExpression') start = this.dialect.starts.get(propertyName(node) ?? '');
+      // A member is a test object only when it names one of the starts.
+      else if (node.type === 'MemberExpression') start = this.dialect.starts.get(propertyName(node) as string);
       this.starts.set(id.name, start ?? TEST);
       return true;
     }

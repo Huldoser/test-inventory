@@ -17,7 +17,7 @@ import { destructuredNames, problem, takesWhole } from './frameworks/common.ts';
 import { shortHash, hashNodes } from './hash.ts';
 import type { ModuleReader, ModuleSource, Problem, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
-import { snippet, type SourceText } from './source.ts';
+import { snippet, SourceText } from './source.ts';
 import type { Framework } from './types.ts';
 import { bindingNames, isScopeNode, Values } from './values.ts';
 
@@ -846,7 +846,8 @@ export class DependencyGraph {
 
   /** A place in a module the scan can't follow, as a unit that marks the tests that reach it. */
   private placeUnit(module: Module, at: Span, message: string, isQuiet = false): Unit {
-    const { source } = module.parsed as ParsedFile;
+    // A JSON config, such as Jest's package.json, is taken by its text.
+    const source = module.parsed?.source ?? new SourceText(module.text as string);
     const unit = this.newUnit(module, [], new Map(), false);
     unit.edges = new Set();
     const text = snippet(source.slice(at.start, at.end)) || null;
@@ -880,7 +881,9 @@ export class DependencyGraph {
     if ('module' in gap) {
       const module = this.moduleOf(gap.module);
       // The path a setup key names, where the config writes it.
-      const at = gap.text === null ? null : literalIn((module.parsed as ParsedFile).program, gap.text);
+      let at: Span | null = null;
+      if (gap.text !== null && module.parsed) at = literalIn(module.parsed.program, gap.text);
+      else if (gap.text !== null) at = jsonStringIn(module.text as string, gap.text);
       return this.placeUnit(module, at ?? { start: 0, end: 0 }, gap.message, gap.isQuiet);
     }
     const module = this.newModule(gap.relativeFilePath, null, null, new Values(), null);
@@ -1577,6 +1580,13 @@ function literalIn(node: Node, value: string): Span | null {
     if (found) return found;
   }
   return null;
+}
+
+/** Where a JSON file writes a string, as `"./setup.js"`; null when it doesn't. */
+function jsonStringIn(text: string, value: string): Span | null {
+  const written = JSON.stringify(value);
+  const start = text.indexOf(written);
+  return start === -1 ? null : { start, end: start + written.length };
 }
 
 /**

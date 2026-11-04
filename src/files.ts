@@ -108,12 +108,13 @@ export async function findFiles(
     const absolutePath = path.resolve(root, match);
     const realPath = realpathSync(absolutePath);
     const linked = realPath !== path.join(realRoot, match);
-    if (linked && framework === 'playwright') {
+    if (linked && framework !== 'vitest') {
+      const name = framework === 'jest' ? 'Jest' : 'Playwright';
       diagnostics.push(
         fileDiagnostic(
           'symlink-ignored',
           match,
-          'The file is reached through a symbolic link, which Playwright does not follow.',
+          `The file is reached through a symbolic link, which ${name} does not follow.`,
         ),
       );
       continue;

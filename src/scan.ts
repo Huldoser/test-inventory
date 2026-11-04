@@ -4,7 +4,7 @@ import path from 'node:path';
 import { glob } from 'tinyglobby';
 import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
-import { Configs } from './config.ts';
+import { Configs, settingAt } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
@@ -66,6 +66,17 @@ function versionDiagnostics(
       `Only the range "${range}" was found for ${name}, so the rules of the newest ${major}.x release apply.`,
     ),
   ];
+}
+
+/** Why Jest gives a file that uses its globals none: a project that runs it sets `injectGlobals` to false. */
+function jestGlobals(placement: Placement): string | null {
+  const off = placement.projects?.find(({ settings }) => {
+    const setting = settingAt(settings, ['injectGlobals']);
+    return setting?.kind === 'value' && setting.value === false;
+  });
+  if (!off) return null;
+  const config = off.config.record.relativeFilePath;
+  return `The file uses describe, it or test without importing them, but ${config} sets injectGlobals to false, so Jest doesn't define them; import them from '@jest/globals'.`;
 }
 
 /** For a pattern that names a folder, which matches no file, a pattern that matches the test files in it. */
@@ -254,7 +265,9 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     results.push({ ...result, file: { ...result.file, config } });
   }
   const missingGlobals =
-    framework === 'vitest' ? globalsCheck(root, configs, (file) => placements.get(file) as Placement) : () => null;
+    framework === 'jest'
+      ? (file: string) => jestGlobals(placements.get(file) as Placement)
+      : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;
   for (const { absolutePath, relativeFilePath } of globalsFiles) {
     const message = missingGlobals(absolutePath);

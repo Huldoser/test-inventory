@@ -38,16 +38,19 @@ xdescribe('fails', () => {
   it('reads names imported from @jest/globals, also renamed, and the f and x aliases imported', () => {
     const inventory = scanJest(`
 import { describe as group, test as check, xit as later, fit as focus } from '@jest/globals';
+const parked = later;
 group('netting', () => {
   check('nets two fills', () => {});
   later('nets a cancelled fill', () => {});
   focus('nets across accounts', () => {});
+  parked('nets a busted trade', () => {});
 });
 `);
     expect(states(inventory)).toEqual([
       ['netting > nets two fills', 'active', false],
       ['netting > nets a cancelled fill', 'skip', false],
       ['netting > nets across accounts', 'active', true],
+      ['netting > nets a busted trade', 'skip', false],
     ]);
   });
 
@@ -58,12 +61,14 @@ import jestGlobals from '@jest/globals';
 const required = require('@jest/globals');
 const { it: settles, xdescribe: parked } = require('@jest/globals');
 const [unused] = require('@jest/globals');
+const either = process.env.CI ? required.it : required.test;
 const fee = required.xtest;
 globals.describe('cash', () => {
   globals.test('books a payment', () => {});
   jestGlobals.it.skip('books a refund', () => {});
   fee('books a fee', () => {});
   settles('books a dividend', () => {});
+  either('books an interest payment', () => {});
 });
 parked('corporate actions', () => {
   settles('books a split', () => {});
@@ -74,6 +79,7 @@ parked('corporate actions', () => {
       ['cash > books a refund', 'skip', false],
       ['cash > books a fee', 'skip', false],
       ['cash > books a dividend', 'active', false],
+      ['cash > books an interest payment', 'active', false],
       ['corporate actions > books a split', 'skip', false],
     ]);
     expect(inventory.diagnostics).toEqual([]);
