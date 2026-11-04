@@ -1,0 +1,12 @@
+{
+  "name": "trading-e2e-puppeteer",
+  "private": true,
+  "scripts": {
+    "test:e2e": "jest"
+  },
+  "devDependencies": {
+    "jest": "29.7.0",
+    "jest-puppeteer": "11.0.0",
+    "puppeteer": "25.16.0"
+  }
+}

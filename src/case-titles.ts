@@ -1,3 +1,4 @@
+import { format } from 'node:util';
 import type { Value } from './values.ts';
 
 /**
@@ -234,4 +235,113 @@ function loupeTruncate(text: string, length: number): string {
   let end = length - 1;
   if (end > 0 && isHighSurrogate(text[end - 1])) end -= 1;
   return `${text.slice(0, end)}…`;
+}
+
+/** The text Jest puts in place of `%%` and of `%` in string values while it formats a title. */
+const JEST_ESCAPE = '@@__JEST_EACH_PLACEHOLDER_ESCAPE__@@';
+const JEST_PLACEHOLDER = /%[#Odfijops]/;
+/** The placeholders `util.format` takes an argument for. */
+const NODE_PLACEHOLDER = /%[sdifjoOc]/;
+
+/**
+ * The title Jest gives one row of a `.each` table of arrays, or of single values, read from `jest-each` 29.0, 29.7,
+ * 30.0 and 30.5: `%#` and from 30.0 `%$` for the row's index, then one placeholder per item, in order. `%p` shows the
+ * item with pretty-format and the others with Node's `util.format`, which Jest calls too. Items left over are dropped.
+ * Null when an item is an array or object that `util.format` would show, which differs between Node versions.
+ */
+export function jestRowTitle(
+  template: string,
+  row: readonly Value[],
+  index: number,
+  version: readonly [number, number] | null,
+): string | null {
+  const isJest30 = version === null || version[0] >= 30;
+  const replacesWithFunction = version === null || version[0] > 30 || (version[0] === 30 && version[1] >= 5);
+  let text = template.replaceAll('%%', JEST_ESCAPE).replace('%#', String(index));
+  if (isJest30) text = text.replace('%$', String(index + 1));
+  for (const item of row) {
+    const placeholder = JEST_PLACEHOLDER.exec(text);
+    if (placeholder === null) continue;
+    const value = typeof item === 'string' ? item.replaceAll('%', JEST_ESCAPE) : item;
+    if (placeholder[0] === '%p') {
+      const pretty = prettyFormatMin(value);
+      // Before 30.5, `$&` and the like in the value are read as replacement patterns, as JavaScript's `replace` does.
+      text = replacesWithFunction ? text.replace('%p', () => pretty) : text.replace('%p', pretty);
+    } else if (placeholder[0] === '%j' && replacesWithFunction) {
+      const json = value === undefined ? 'undefined' : JSON.stringify(value);
+      text = text.replace('%j', () => json);
+    } else if (isPrimitive(value) || (placeholder[0] === '%j' && NODE_PLACEHOLDER.exec(text)?.[0] === '%j')) {
+      text = format(text, value);
+    } else {
+      return null;
+    }
+  }
+  return text.replaceAll(JEST_ESCAPE, '%');
+}
+
+/**
+ * The title Jest gives one case of a `.each` table of objects, or one row of a tagged-template table: `$name` and
+ * `$name.path` for the case's values, and `$#` for its index. `keepsEscapes` is set for a tagged template, where `%%`
+ * stays as written. Null when Jest fails the table, as when a path goes through `null` before 30.0.
+ */
+export function jestKeysTitle(
+  template: string,
+  item: Record<string, Value>,
+  index: number,
+  version: readonly [number, number] | null,
+  keepsEscapes: boolean,
+): string | null {
+  let text: string;
+  try {
+    text = interpolateKeys(template, item, version);
+  } catch {
+    return null;
+  }
+  const title = text.replace('$#', String(index));
+  return keepsEscapes ? title : title.replaceAll('%%', '%');
+}
+
+/** Jest's `interpolateVariables`, which throws where Jest's does. */
+function interpolateKeys(
+  template: string,
+  item: Record<string, Value>,
+  version: readonly [number, number] | null,
+): string {
+  const [major, minor] = version ?? [Infinity, 0];
+  const show = (value: unknown) => (isPrimitive(value as Value) ? String(value) : prettyFormatMin(value as Value));
+  if (major === 29 && minor < 4) {
+    // Each match of each key is replaced in turn, as text, so a value can hold the next key's match.
+    const matches = Object.keys(item).flatMap((key) => template.match(new RegExp(`\\$${key}[\\.\\w]*`, 'g')) ?? []);
+    return matches.reduce((title, match) => title.replace(match, show(keyPath(item, match, false))), template);
+  }
+  let keys = Object.keys(item);
+  if (major > 30 || (major === 30 && minor >= 5)) {
+    keys = keys.filter((key) => key.length > 0).sort((a, b) => b.length - a.length);
+    if (keys.length === 0) return template;
+    keys = keys.map((key) => key.replaceAll(/[$()*+.?[\\\]^{|}]/g, '\\$&'));
+  }
+  const pattern = new RegExp(`\\$(${keys.join('|')})[.\\w]*`, 'g');
+  return template.replaceAll(pattern, (match) => show(keyPath(item, match, major >= 30)));
+}
+
+/** The value a `$name.path` match leads to, as Jest's `getPath` reads it; from 30.0 `null` and `undefined` end it. */
+function keyPath(item: Value, match: string, endsAtNull: boolean): unknown {
+  let value: unknown = item;
+  for (const key of match.slice(1).split('.')) {
+    if (endsAtNull && (value === null || value === undefined)) return String(value);
+    // Throws on `null` and `undefined` before 30.0, as Jest's does.
+    if (!key || !Object.prototype.hasOwnProperty.call(value, key)) return value;
+    value = (value as Record<string, unknown>)[key];
+  }
+  return endsAtNull && (value === null || value === undefined) ? String(value) : value;
+}
+
+/** pretty-format with `{ min: true, maxDepth: 1 }`, as Jest shows a value in a title. */
+function prettyFormatMin(value: Value, depth = 0): string {
+  if (typeof value === 'string') return `"${value.replaceAll(/"|\\/g, '\\$&')}"`;
+  if (isPrimitive(value)) return Object.is(value, -0) ? '-0' : String(value);
+  if (depth >= 1) return Array.isArray(value) ? '[Array]' : '[Object]';
+  if (Array.isArray(value)) return `[${value.map((item) => prettyFormatMin(item, depth + 1)).join(', ')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${prettyFormatMin(key)}: ${prettyFormatMin(value[key], depth + 1)}`).join(', ')}}`;
 }

@@ -1,5 +1,5 @@
 ---
-description: The Playwright and Vitest imports, calls and modifiers a scan reads.
+description: The Playwright, Vitest and Jest imports, calls and modifiers a scan reads.
 ---
 
 # Supported syntax
@@ -80,7 +80,48 @@ Vitest 3.0 and newer.
 | `vi.mock`, `vi.unmock`, `vi.hoisted` below the top level of the file                                       | A `removed-api` error from Vitest 5, except in files with in-source tests.                                                  |
 | Any other chain, such as `test.fixme`                                                                      | An `invalid-chain` error.                                                                                                   |
 
-## In both
+## Jest
+
+Jest 29.0 and newer.
+
+### Where test comes from
+
+| Form                       | Example                                                                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals                    | `describe`, `it`, `test`, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` used without an import or declaration                                                                      |
+| Named import, also renamed | `import { test, it, describe, xit } from '@jest/globals'`                                                                                                                               |
+| The module                 | `import * as globals from '@jest/globals'`, a default import (with Babel or TypeScript), or `require('@jest/globals')`, whole, destructured or in place                                 |
+| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies                                                                                                 |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, a global it exports, as `export const pendingTest = xit`, and functions that return a test function |
+
+`fit` and `fdescribe` are `.only`; `xit`, `xtest` and `xdescribe` are `.skip`. As in Jest, a describe's own `.only` or
+`.skip` wins over the one around it, a skipped describe skips every test in it, a todo or a `.only` too, and in a
+`describe.only` that has a test with its own `.only`, its other tests are left out of focus. A file that uses the globals while its
+config sets `injectGlobals: false` gets a `globals-not-enabled` warning.
+
+### Calls
+
+| Call                                                                               | Read as                                                                                                                                 |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `test(title, fn)`, `test(title, fn, timeout)`                                      | A test, with `timeout` when the third argument is a number the scan can work out.                                                       |
+| `test.todo(title)`                                                                 | A todo. With more than a title, an `invalid-chain` error: Jest fails the file.                                                          |
+| `test(title)`, `describe(title)` without a function                                | A `test-without-body` error: Jest fails the file.                                                                                       |
+| `.only`, `.skip`, `.concurrent`, `.failing`, `.each`, on the paths Jest has        | `test.concurrent.only.each` exists, `test.only.concurrent` doesn't and is an `invalid-chain` error. `.failing` is `expectedToFail`.     |
+| `.each(table)`, also as a tagged template                                          | One parameterized record, with `caseCount`; one record per case with `--expand-cases`, titled as jest-each titles it.                   |
+| `describe`, `describe.only`, `describe.skip`, `describe.each`                      | A describe. An async callback is an `async-describe` error: Jest fails the file.                                                        |
+| `test.each(table)(title)` without a function                                       | One test that always fails, as Jest registers, with a `test-without-body` warning; the file still loads.                                |
+| `test(title, 42, fn)`, `describe(title, {}, fn)`                                   | A `test-without-body` error: Jest takes the function second, and fails the file.                                                        |
+| A describe callback that returns a value, or a `describe.each` with an empty table | A `describe-throws` error: Jest fails the file. A callback that returns a promise is an `async-describe` error.                         |
+| `jest.retryTimes(n)`                                                               | `retries` on every test of the file: the last call made while the file loads wins, also from inside a describe.                         |
+| `jest.retryTimes(n, { entireDescribe: true })`                                     | From Jest 30.5, `retries` on the tests of the describe it is called in.                                                                 |
+| `jest.retryTimes(n, { waitBeforeRetry })`                                          | From Jest 30.0, the wait between retries as `retryDelay`.                                                                               |
+| `@group name` in a comment                                                         | A tag on every test in the file, as jest-runner-groups reads it: any line of the file that starts with `@group`, after a comment's `*`. |
+
+Jest's `.each` titles take `%p`, `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%#`, from Jest 30 `%$`, and `$name.path` and `$#`
+for tables of objects and tagged templates. A title that shows an object through `%s` or `%o` stays one record with
+`--expand-cases`, as Node.js prints objects differently from one version to the next.
+
+## In every runner
 
 - Tests in loops, conditions and plain functions are listed with `isInLoop`, `isInCondition` and `isInFunction`.
 - A test or describe declared inside a test body or a hook is not listed, with a `nested-test` warning.

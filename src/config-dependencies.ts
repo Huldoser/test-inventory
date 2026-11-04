@@ -42,6 +42,7 @@ const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
     ['test', 'browser', 'expect', 'toMatchScreenshot', 'resolveScreenshotPath'],
     ['test', 'browser', 'expect', 'toMatchScreenshot', 'screenshotDirectory'],
   ],
+  jest: [['snapshotResolver']],
 };
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
@@ -51,6 +52,7 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
     ['test', 'setupFiles'],
     ['test', 'globalSetup'],
   ],
+  jest: [['setupFiles'], ['setupFilesAfterEnv'], ['globalSetup'], ['globalTeardown']],
 };
 
 const UNKNOWN_PROJECTS =
@@ -124,7 +126,9 @@ export class ConfigDependencies {
       const found = written(settings, keys);
       for (const item of found ? listOf(found.setting) : []) {
         if (item.kind === 'value' && typeof item.value === 'string') {
-          const read = this.setupFile(root, item.value);
+          // Jest's `<rootDir>` at the start of a path is the project's root.
+          const file = item.value.startsWith('<rootDir>') ? `.${item.value.slice(9)}` : item.value;
+          const read = this.setupFile(root, file);
           if (read && !('reason' in read)) modules.add(read);
           else if (read) {
             const message = `${key} names '${item.value}', which ${read.reason}, so dependencyHash doesn't cover it.`;
@@ -156,13 +160,13 @@ export class ConfigDependencies {
         ? projects
         : [{ settings: placement.settings as Setting, root: folder, container: null }];
       // Vitest runs the global setup of the config it starts with for every project, extending it or not.
-      setup(own, config.settings, folder, ['test', 'globalSetup']);
+      if (this.framework === 'vitest') setup(own, config.settings, folder, ['test', 'globalSetup']);
       for (const project of running) {
         // A file several projects run may be run by one from another config, which the file runs with too; the config
         // reader has read that config, so it can be read.
         const written = 'config' in project ? (this.module(project.config.file) as ModuleSource) : own;
         modules.add(written);
-        for (const keys of SETUP_KEYS.vitest) setup(written, project.settings, project.root, keys);
+        for (const keys of SETUP_KEYS[this.framework]) setup(written, project.settings, project.root, keys);
         const { container } = project;
         const outer = container && this.module(container.file);
         if (container && outer) {

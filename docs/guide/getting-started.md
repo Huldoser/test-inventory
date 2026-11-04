@@ -1,5 +1,5 @@
 ---
-description: Install test-inventory and list the tests of a Playwright or Vitest suite as JSON, without running them.
+description: Install test-inventory and list the tests of a Playwright, Vitest or Jest suite as JSON, without running them.
 ---
 
 # Getting started
@@ -7,8 +7,9 @@ description: Install test-inventory and list the tests of a Playwright or Vitest
 test-inventory reads JavaScript and TypeScript test files and lists the tests in them as JSON. It parses the code
 and never runs it, so it needs no browsers, no build and no configuration of the test runner.
 
-0.1 supports [Playwright](https://playwright.dev) 1.42 and newer and [Vitest](https://vitest.dev) 3.0 and newer. It
-needs Node.js 22.12 or newer, and runs on Linux, macOS and Windows, on x64 and Arm.
+It supports [Playwright](https://playwright.dev) 1.42 and newer, [Vitest](https://vitest.dev) 3.0 and newer and
+[Jest](https://jestjs.io) 29.0 and newer. It needs Node.js 22.12 or newer, and runs on Linux, macOS and Windows, on
+x64 and Arm.
 
 ## Install
 
@@ -109,9 +110,27 @@ npx test-inventory "tests/**/*.{test,test-d}.ts" "src/**/*.ts" --framework vites
 Include the source files when they contain [in-source tests](https://vitest.dev/guide/in-source), and the
 `*.test-d.ts` files for [type tests](https://vitest.dev/guide/testing-types).
 
+## Scan a Jest suite
+
+In a project that uses only Jest, no options are needed: the scan finds Jest in `package.json` and the test files
+from the Jest config, or from Jest's defaults when there is none.
+
+```sh
+npx test-inventory --output inventory.json
+```
+
+With globs, name the runner:
+
+<!-- scan: settlement-service -->
+
+```sh
+npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" --framework jest --output inventory.json
+```
+
 ## Next
 
-- [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode and a monorepo.
+- [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest and
+  Puppeteer.
 - The [command line](/guide/cli) options.
 - [Query recipes](/guide/recipes) and [CI recipes](/guide/ci).
 - The [MCP server and other ways in](/guide/agents) for AI agents.
@@ -121,4 +140,4 @@ Include the source files when they contain [in-source tests](https://vitest.dev/
 ---
 
 If test-inventory turns out to be useful to you, [sponsoring its development](https://github.com/sponsors/Huldoser) pays
-for the time that keeps it current with new Playwright and Vitest versions.
+for the time that keeps it current with new Playwright, Vitest and Jest versions.

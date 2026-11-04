@@ -10,7 +10,11 @@ export interface ScanOptions {
    * a dot too. Without them, the test files are those the configs in the root and the folders below it run.
    */
   patterns?: string[];
-  framework: Framework;
+  /**
+   * The runner whose tests are listed. Without it, the one the project uses: whose package a package.json lists, or
+   * whose config is in the root or below. With none of them or several, the scan throws a `TypeError` that names them.
+   */
+  framework?: Framework;
   /** The project root. Paths in the output are relative to it. Defaults to the current directory. */
   root?: string;
   /** Glob patterns to leave out, in addition to `node_modules` and `.git`. */
@@ -43,7 +47,7 @@ export interface ScanSourceOptions {
   expandCases?: boolean;
 }
 
-const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest'];
+const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest', 'jest'];
 const COMMENTS: readonly CommentsMode[] = ['all', 'non-active', 'none'];
 // A prerelease and build metadata each appear once, so a long input can't make the match backtrack for long.
 const VERSION = /^v?(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -61,7 +65,7 @@ export function checkObject(value: unknown, name: string): Record<string, unknow
 }
 
 export function checkFramework(value: unknown, option: string): Framework {
-  if (!FRAMEWORKS.includes(value as Framework)) throw invalid(option, '"playwright" or "vitest"');
+  if (!FRAMEWORKS.includes(value as Framework)) throw invalid(option, '"playwright", "vitest" or "jest"');
   return value as Framework;
 }
 

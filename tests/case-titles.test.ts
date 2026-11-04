@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { vitestCaseTitle } from '../src/case-titles.ts';
+import { jestKeysTitle, jestRowTitle, vitestCaseTitle } from '../src/case-titles.ts';
 import type { Value } from '../src/values.ts';
 
 const LONG = 'a limit order for one hundred shares of AAPL at the bid';
@@ -794,5 +794,102 @@ describe('vitestCaseTitle', () => {
   it('takes the newest rules without a version', () => {
     const titles = ROWS.map(([template, items, index]) => vitestCaseTitle(template, items, index, null));
     expect(titles).toEqual(TITLES['5.0'][40]);
+  });
+});
+
+/**
+ * Rows of `.each` tables of arrays or single values, with the titles the real jest-each 30.5.2 gives them; see the
+ * workspace notes for the script that compares the two.
+ */
+const JEST_ROWS: [template: string, row: Value[], index: number, title: string | null][] = [
+  ['routes %s to %s', ['buy', 'XNAS'], 0, 'routes buy to XNAS'],
+  ['case %# number %$ is %s', ['second'], 1, 'case 1 number 2 is second'],
+  ['100%% at %#', [1], 0, '100% at 0'],
+  ['prices %d %i %f', ['2.75', '2.75', '2.75'], 0, 'prices 2.75 2 2.75'],
+  ['prices %d %i %f', [-0, -0, -0], 1, 'prices -0 0 0'],
+  ['json %j and %o and %O', ['say "hi"', "it's", 'plain'], 0, 'json "say \\"hi\\"" and "it\'s" and \'plain\''],
+  ['more %s %s %s', ['only one'], 0, 'more only one %s %s'],
+  ['fewer %s', ['AAPL', 'extra', 3], 0, 'fewer AAPL'],
+  ['50% %s and %%s', ['AAPL', 'MSFT'], 0, '50% AAPL and %s'],
+  ['pretty %p and %p', ['quote " and \\ back', null], 0, 'pretty "quote \\" and \\\\ back" and null'],
+  ['pretty %p and %p', [undefined, true], 1, 'pretty undefined and true'],
+  ['pretty %p and %p', [-0, 12.5], 2, 'pretty -0 and 12.5'],
+  [
+    'pretty object %p',
+    [{ side: 'buy', qty: 100, legs: [1, 2], venue: { mic: 'XNAS' } }],
+    0,
+    'pretty object {"legs": [Array], "qty": 100, "side": "buy", "venue": [Object]}',
+  ],
+  ['pretty object %p', [[1, [2, 3], { a: 1 }]], 1, 'pretty object [1, [Array], [Object]]'],
+  ['dollar %p', ['$& and $1'], 0, 'dollar "$& and $1"'],
+  ['percent in value %s %s', ['10%', 'off %s'], 0, 'percent in value 10% off %s'],
+  ['json object %j', [{ side: 'buy', qty: [1] }], 0, 'json object {"side":"buy","qty":[1]}'],
+  ['json undefined %j', [undefined], 0, 'json undefined undefined'],
+  ['inspects an object %s', [{ symbol: 'AAPL' }], 0, null],
+];
+
+describe('jestRowTitle', () => {
+  it('gives the titles of jest-each 30.5', () => {
+    const titles = JEST_ROWS.map(([template, row, index]) => jestRowTitle(template, row, index, [30, 5]));
+    expect(titles).toEqual(JEST_ROWS.map(([, , , title]) => title));
+  });
+
+  it('takes the newest rules without a version', () => {
+    expect(jestRowTitle('case %$ is %p', ['$&'], 0, null)).toBe('case 1 is "$&"');
+  });
+
+  it('leaves %$ as written before Jest 30', () => {
+    expect(jestRowTitle('case %# number %$ is %s', ['first'], 0, [29, 7])).toBe('case 0 number %$ is first');
+  });
+
+  it('reads replacement patterns in a %p value before Jest 30.5, as replace() does with a string', () => {
+    expect(jestRowTitle('dollar %p', ['$& and $1'], 0, [30, 4])).toBe('dollar "%p and $1"');
+  });
+
+  it('formats %j through util.format before Jest 30.5', () => {
+    expect(jestRowTitle('json %j', [{ side: 'buy' }], 0, [29, 7])).toBe('json {"side":"buy"}');
+    expect(jestRowTitle('%s then %j', [{ side: 'buy' }], 0, [29, 7])).toBeNull();
+  });
+});
+
+describe('jestKeysTitle', () => {
+  const order = { symbol: 'AAPL', venue: { mic: 'XNAS' }, legs: ['AAPL', 'MSFT'] };
+
+  it('gives the titles of jest-each 30.5', () => {
+    expect(jestKeysTitle('settles $symbol on $venue.mic ($#)', order, 1, [30, 5], false)).toBe(
+      'settles AAPL on XNAS (1)',
+    );
+    expect(jestKeysTitle('paths $legs.0 $legs.length $symbol.length $venue.missing', order, 0, [30, 5], false)).toBe(
+      'paths AAPL 2 4 {"mic": "XNAS"}',
+    );
+    expect(jestKeysTitle('nulls $order.side $none', { order: null, none: undefined }, 0, [30, 5], false)).toBe(
+      'nulls null undefined',
+    );
+    expect(jestKeysTitle('escaped 100%% for $symbol', order, 0, [30, 5], false)).toBe('escaped 100% for AAPL');
+    expect(jestKeysTitle('template 100%% for $symbol', order, 0, [30, 5], true)).toBe('template 100%% for AAPL');
+  });
+
+  it('prefers the longest key and escapes keys from Jest 30.5', () => {
+    const item = { a: 1, 'a-b': 2, 'c(': 3 };
+    expect(jestKeysTitle('$a-b and $c(', item, 0, [30, 5], false)).toBe('2 and 3');
+    expect(jestKeysTitle('$a-b', { a: 1, 'a-b': 2 }, 0, [30, 0], false)).toBe('1-b');
+    expect(jestKeysTitle('$c(', { 'c(': 3 }, 0, [30, 0], false)).toBeNull();
+  });
+
+  it('replaces only $# in a case without keys from Jest 30.5', () => {
+    expect(jestKeysTitle('case $# of $symbol', {}, 2, [30, 5], false)).toBe('case 2 of $symbol');
+    expect(jestKeysTitle('case $#', {}, 2, [30, 0], false)).toBe('case {}#');
+  });
+
+  it('fails the table on a path through null before Jest 30', () => {
+    expect(jestKeysTitle('settles $order.side', { order: null }, 0, [29, 7], false)).toBeNull();
+    expect(jestKeysTitle('settles $order.side', { order: null }, 0, [30, 0], false)).toBe('settles null');
+  });
+
+  it('replaces each key in turn before Jest 29.4, so a value can hold the next key', () => {
+    const item = { first: '$second', second: 'MSFT' };
+    expect(jestKeysTitle('$first and $second', item, 0, [29, 3], false)).toBe('MSFT and $second');
+    expect(jestKeysTitle('$first and $second', item, 0, [29, 4], false)).toBe('$second and MSFT');
+    expect(jestKeysTitle('$venue', order, 0, [29, 0], false)).toBe('{"mic": "XNAS"}');
   });
 });

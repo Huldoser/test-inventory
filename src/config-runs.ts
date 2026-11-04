@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
@@ -26,6 +26,17 @@ import {
 const PLAYWRIGHT_TEST_MATCH = '**/*.@(spec|test).?(c|m)[jt]s?(x)';
 /** A file Vitest takes as a project config, by name. */
 const VITEST_CONFIG = /^(vitest|vite)(\..*)?\.config\./;
+/** Jest's default `testMatch` before 30.0, and from 30.0, which also matches `.mjs`, `.cjs`, `.mts` and `.cts`. */
+const JEST_TEST_MATCH = {
+  29: ['**/__tests__/**/*.[jt]s?(x)', '**/?(*.)+(spec|test).[tj]s?(x)'],
+  30: ['**/__tests__/**/*.?([mc])[jt]s?(x)', '**/?(*.)+(spec|test).?([mc])[jt]s?(x)'],
+};
+/** The extensions a file a Jest `projects` glob matches needs to be read as a config. */
+const JEST_CONFIG_EXTENSIONS = ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts', '.json'];
+/** Jest's default `moduleFileExtensions` before 30.0; 30.0 adds `mts` and `cts`. */
+const JEST_EXTENSIONS = ['js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'json', 'node'];
+/** Presets that leave Jest's choice of test files as it is, so the scan needs nothing from them. */
+const NEUTRAL_PRESETS = /^(ts-jest(\/.*)?|jest-puppeteer)$/;
 /** Vitest 3's workspace files, which list its projects in place of `test.projects`. */
 const VITEST_WORKSPACES = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'json'].map(
   (extension) => `vitest.workspace.${extension}`,
@@ -210,6 +221,8 @@ export class ConfigRuns {
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
+  /** The project Jest runs with when no config is found up to the root. */
+  private jestDefaults: Project | null = null;
   /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
   private readonly expanding = new Map<ConfigFile, string>();
 
@@ -231,7 +244,9 @@ export class ConfigRuns {
   }
 
   private place(file: string): Omit<Placement, 'tags'> {
-    const around = this.configs.around(file);
+    // Jest started at the root reads the config there only, and the others through its `projects`.
+    const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
+    const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
     for (const config of around) {
       const running = this.projectsOf(config).flatMap((project) => {
         const runs = project.runs?.(file);
@@ -249,6 +264,12 @@ export class ConfigRuns {
       return { config: unknown.config, settings: unknown.settings, runs: null, projects: null };
     }
     const nearest = around.at(-1) ?? null;
+    if (nearest === null && this.framework === 'jest') {
+      // Jest then reads a package.json above the root, taken to have no `jest` key: its defaults apply from the root.
+      this.jestDefaults ??= this.jestProject(this.noConfig(), emptySettings(), this.configs.root, emptySettings());
+      const runs = this.jestDefaults.runs as (file: string) => Run | false;
+      return { config: null, settings: null, runs: runs(file), projects: null };
+    }
     return {
       config: nearest,
       settings: nearest?.settings ?? null,
@@ -302,7 +323,9 @@ export class ConfigRuns {
   private projectsOf(config: ConfigFile): Project[] {
     let projects = this.projects.get(config);
     if (!projects) {
-      projects = this.framework === 'playwright' ? this.playwrightProjects(config) : this.vitestProjects(config);
+      if (this.framework === 'playwright') projects = this.playwrightProjects(config);
+      else if (this.framework === 'jest') projects = this.jestProjects(config);
+      else projects = this.vitestProjects(config);
       this.projects.set(config, projects);
     }
     return projects;
@@ -550,10 +573,191 @@ export class ConfigRuns {
     return rules;
   }
 
+  /** A config for the defaults of a runner started where no config is found. */
+  private noConfig(): ConfigFile {
+    const file = path.join(this.configs.root, 'package.json');
+    return { file, record: { relativeFilePath: 'package.json', extends: [] }, settings: emptySettings() };
+  }
+
+  /**
+   * Jest's projects: the config itself, or the entries of its `projects`. A path or glob there names a folder, whose
+   * config is the one Jest finds from it, or a config file; an object is a project whose `rootDir` defaults to the
+   * config's folder. The config's own test files then count only when an entry names its folder.
+   */
+  private jestProjects(config: ConfigFile): Project[] {
+    const folder = path.dirname(config.file);
+    const list = settingAt(config.settings, ['projects']);
+    const isEmpty = list?.kind === 'list' && list.items.length === 0;
+    if (list === null || isUnset(list) || isEmpty) {
+      return [this.jestProject(config, config.settings, folder, config.settings)];
+    }
+    if (list.kind !== 'list') return [this.unknownProject(config, unknownAt(list), 'projects')];
+    const rootDir = jestRootDir(config.settings, folder);
+    if (typeof rootDir !== 'string') return [this.unknownProject(config, rootDir, 'rootDir')];
+    return list.items.flatMap((item) => {
+      if (item.kind === 'object') return [this.jestProject(config, item, folder, config.settings)];
+      if (item.kind !== 'value' || typeof item.value !== 'string') {
+        return [this.unknownProject(config, unknownAt(item), 'projects')];
+      }
+      const entry = replaceRootDir(rootDir, item.value);
+      // Jest globs from where it is started, with `\` as a separator on Windows, and keeps an entry that matches nothing
+      // as a path.
+      const pattern = posix(path.isAbsolute(entry) ? path.relative(this.configs.root, entry) : entry);
+      const matches = picomatch.scan(pattern).isGlob
+        ? globSync(pattern, { cwd: this.configs.root, absolute: true, onlyFiles: false, expandDirectories: false })
+        : [];
+      // Jest leaves out a matched file it can't require, such as a README.
+      const requirable = matches.filter(
+        (match) =>
+          statSync(match).isDirectory() || JEST_CONFIG_EXTENSIONS.some((extension) => match.endsWith(extension)),
+      );
+      const targets = matches.length > 0 ? requirable : [path.resolve(this.configs.root, entry)];
+      // Jest fails on an entry that names nothing, so it adds no project here.
+      return targets.sort().flatMap((target) => {
+        if (!existsSync(target)) return [];
+        const isFile = statSync(target).isFile();
+        const nested = isFile ? this.configs.at(target) : this.configs.projectConfig(target);
+        if (!nested || nested === config) return [this.jestProject(config, config.settings, folder, config.settings)];
+        return [this.jestProject(nested, nested.settings, path.dirname(nested.file), config.settings)];
+      });
+    });
+  }
+
+  /**
+   * The files a Jest project runs, as Jest's SearchSource picks them: under one of `roots`, with an extension in
+   * `moduleFileExtensions`, not left out by `modulePathIgnorePatterns`, matching `testMatch` or `testRegex`, and not
+   * `testPathIgnorePatterns`. Paths and patterns are matched with `/`, and `<rootDir>` stands for `rootDir`. `global`
+   * is the config Jest is started with, whose `testTimeout` applies to every project in Jest 29.
+   */
+  private jestProject(config: ConfigFile, written: Setting, folder: string, global: Setting): Project {
+    const rootDir = jestRootDir(written, folder);
+    if (typeof rootDir !== 'string') return this.unknownProject(config, rootDir, 'rootDir');
+    const settings = this.withPreset(config, written, rootDir);
+    const isJest30 = this.version === null || this.version[0] >= 30;
+    const lists: Record<string, string[] | RegExp[]> = {};
+    const defaults: [string, string[]][] = [
+      ['roots', ['<rootDir>']],
+      ['testMatch', isJest30 ? JEST_TEST_MATCH[30] : JEST_TEST_MATCH[29]],
+      ['testRegex', []],
+      ['testPathIgnorePatterns', ['/node_modules/']],
+      ['modulePathIgnorePatterns', []],
+      ['moduleFileExtensions', isJest30 ? [...JEST_EXTENSIONS, 'mts', 'cts'] : JEST_EXTENSIONS],
+    ];
+    for (const [key, fallback] of defaults) {
+      const setting = settingAt(settings, [key]);
+      const found = isJestSet(setting) ? patterns(setting, key === 'testRegex') : fallback;
+      // A list of paths left out only takes files away, so the entries the scan can read are still a good guess.
+      if (!Array.isArray(found) && key.endsWith('IgnorePatterns')) {
+        this.configs.reportUnknown(found, key, 'the scan may list test files that Jest leaves out');
+        const items = setting?.kind === 'list' ? setting.items : [];
+        lists[key] = items.flatMap((item) =>
+          item.kind === 'value' && typeof item.value === 'string' ? [item.value] : [],
+        );
+        continue;
+      }
+      if (!Array.isArray(found)) return this.unknownProject(config, found, key);
+      lists[key] = found as string[];
+    }
+    const testRegex = (lists.testRegex as (string | RegExp)[]).map((item) =>
+      typeof item === 'string' ? regExp(item, '') : item,
+    );
+    const invalid = (lists.testRegex as (string | RegExp)[]).find((_, index) => testRegex[index] === null);
+    const testMatchSetting = settingAt(settings, ['testMatch']);
+    let refusal: string | null = null;
+    if (invalid !== undefined) {
+      refusal = `The config's testRegex '${String(invalid)}' is not a regular expression, so Jest fails to start.`;
+    } else if (testRegex.length > 0 && isJestSet(testMatchSetting)) {
+      refusal = 'The config sets both testMatch and testRegex, which Jest refuses, so it runs no tests.';
+    }
+    const roots = (lists.roots as string[])
+      .map((item) => replaceRootDir(rootDir, item))
+      .map((root) => path.resolve(rootDir, root));
+    const escaped = posix(rootDir).replaceAll(/([!()*?[\\\]{}])/g, '\\$1');
+    const testMatch =
+      testRegex.length > 0 ? [] : (lists.testMatch as string[]).map((glob) => posix(replaceRootDir(escaped, glob)));
+    const isTestMatch = jestGlobs(testMatch);
+    // A pattern is a regular expression, in which Jest replaces every `<rootDir>`; escapes stay as written.
+    const joined = (key: string) => {
+      const items = (lists[key] as string[]).map((item) => item.replaceAll('<rootDir>', posix(rootDir)));
+      if (items.length === 0) return null;
+      const expression = regExp(items.join('|'), '');
+      refusal ??= expression ? null : `The config's ${key} is not a regular expression, so Jest fails to start.`;
+      return expression;
+    };
+    const ignored = joined('testPathIgnorePatterns');
+    const moduleIgnored = joined('modulePathIgnorePatterns');
+    if (refusal) this.configs.reportConfig(config, refusal);
+    const extensions = new Set(lists.moduleFileExtensions as string[]);
+    const preset = settingAt(written, ['preset']);
+    const isPackage = preset?.kind === 'value' && typeof preset.value === 'string' && !isLocalPreset(preset.value);
+    if (isPackage && !NEUTRAL_PRESETS.test(String(preset.value))) {
+      const message = `The config's preset '${preset.value}' is a package the scan doesn't read, and it may set which files are tests; the scan takes Jest's defaults for what the config doesn't set.`;
+      if (testMatchSetting === null && testRegex.length === 0) this.configs.reportConfig(config, message);
+    }
+    const displayName = settingAt(settings, ['displayName']);
+    const named = displayName?.kind === 'object' ? settingAt(displayName, ['name']) : displayName;
+    const name = named?.kind === 'value' && typeof named.value === 'string' ? named.value : '';
+    const about: ProjectAbout = {
+      name,
+      testDir: rootDir,
+      dependencies: [],
+      settings,
+      root: rootDir,
+      container: null,
+      config,
+      grep: null,
+      grepRoot: rootDir,
+      runsByDefault: true,
+      defaults: {
+        // A project's own testTimeout counts from Jest 30; before, only the config Jest is started with sets it.
+        timeout: (isJest30 ? settingAt(settings, ['testTimeout']) : null) ?? settingAt(global, ['testTimeout']),
+        retry: null,
+        repeatEach: null,
+        repeats: null,
+        parallel: null,
+        tags: null,
+      },
+    };
+    return {
+      config,
+      settings,
+      about,
+      unknown: null,
+      runs: (file) => {
+        const unix = posix(file);
+        if (refusal || !extensions.has(path.extname(file).slice(1))) return false;
+        if (!roots.some((root) => isInside(root, file)) || moduleIgnored?.test(unix)) return false;
+        if (testMatch.length > 0 && !isTestMatch(unix)) return false;
+        if (ignored?.test(unix)) return false;
+        return testRegex.length === 0 || testRegex.some((expression) => matches(expression as RegExp, unix))
+          ? 'test'
+          : false;
+      },
+    };
+  }
+
   /**
    * The projects of a Vitest config, the one the runner starts with or, in Vitest 5, a config another lists, whose name
    * then goes around the names of its projects.
    */
+  /**
+   * A project's settings over those of its `preset` when that is a local file, as `'../../jest.preset.js'`, which Jest
+   * finds from `rootDir`: the project's own settings win, as Jest merges them. A preset that is a package isn't read.
+   */
+  private withPreset(config: ConfigFile, settings: Setting, rootDir: string): Setting {
+    const preset = settingAt(settings, ['preset']);
+    if (preset?.kind !== 'value' || typeof preset.value !== 'string' || !isLocalPreset(preset.value)) return settings;
+    const target = path.resolve(rootDir, replaceRootDir(rootDir, preset.value));
+    const file = ['', '.js', '.json', '.cjs'].map((extension) => target + extension).find(isFileAt);
+    if (!file) {
+      this.configs.reportConfig(config, `The config's preset '${preset.value}' doesn't exist, so Jest fails to start.`);
+      return settings;
+    }
+    const base = this.configs.at(file).settings;
+    if (base.kind !== 'object' || settings.kind !== 'object') return settings;
+    return { ...settings, keys: new Map([...base.keys, ...settings.keys]) };
+  }
+
   private vitestProjects(config: ConfigFile, container: string | null = null): Project[] {
     const folder = path.dirname(config.file);
     const list = settingAt(config.settings, ['test', 'projects']);
@@ -1089,4 +1293,55 @@ function agreedTags(projects: ProjectAbout[] | null): VitestTags | null {
   const [first, ...others] = (projects ?? []).map(({ defaults }) => defaults.tags);
   const text = JSON.stringify(first ?? null);
   return first && others.every((tags) => JSON.stringify(tags) === text) ? first : null;
+}
+
+/**
+ * Jest's `rootDir`: the config's folder, or the folder the config sets, from its folder, where an inline project's
+ * `<rootDir>` is the config's folder too; unknown when it can't tell.
+ */
+function jestRootDir(settings: Setting, folder: string): string | Unknown {
+  const setting = settingAt(settings, ['rootDir']);
+  if (setting === null || isUnset(setting)) return folder;
+  return setting.kind === 'value' && typeof setting.value === 'string'
+    ? path.resolve(folder, replaceRootDir(folder, setting.value))
+    : unknownAt(setting);
+}
+
+/** Jest's `replaceRootDirInPath`: `<rootDir>` at the start of a path stands for the project's `rootDir`. */
+function replaceRootDir(rootDir: string, item: string): string {
+  return item.startsWith('<rootDir>') ? path.join(rootDir, item.slice('<rootDir>'.length)) : item;
+}
+
+/**
+ * Jest's `globsToMatcher`: a path matches a glob that isn't negated and no negated glob leaves it out, or, when every
+ * glob is negated, none leaves it out. Globs match the absolute path, dot files too.
+ */
+function jestGlobs(globs: string[]): (file: string) => boolean {
+  const matchers = globs.map((glob) => {
+    const isMatch = picomatch(glob, { dot: true }, true);
+    return { isMatch, negated: isMatch.state.negated || Boolean(isMatch.state.negatedExtglob) };
+  });
+  return (file) => {
+    let kept: boolean | undefined;
+    for (const { isMatch, negated } of matchers) {
+      const matched = isMatch(file);
+      if (!matched && negated) kept = false;
+      else if (matched && !negated) kept = true;
+    }
+    return matchers.every(({ negated }) => negated) ? kept !== false : kept === true;
+  };
+}
+
+/** Whether a Jest setting is given: `null` and `undefined` leave Jest's default, as a `testMatch: null` beside `testRegex`. */
+function isJestSet(setting: Setting | null): setting is Setting {
+  return setting !== null && !isUnset(setting) && !(setting.kind === 'value' && setting.value === null);
+}
+
+/** A Jest preset written as a path, which Jest reads from the project, rather than a package's name. */
+function isLocalPreset(preset: string): boolean {
+  return /^(\.{1,2}\/|\/|<rootDir>)/.test(preset);
+}
+
+function isFileAt(file: string): boolean {
+  return existsSync(file) && statSync(file).isFile();
 }

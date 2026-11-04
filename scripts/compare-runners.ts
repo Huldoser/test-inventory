@@ -1,7 +1,7 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
-// runner list the tests (Playwright) or run them with its JSON reporter (Vitest), and compares tests, states and tags
+// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest), and compares tests, states and tags
 // with the inventory, scanned once as it is by default and once with expandCases, whose cases must have the runner's
 // names. Differences described in tests/compare/expected-differences.json are allowed; any other difference fails the
 // run.
@@ -16,8 +16,8 @@ interface RunnerTest {
   line: number;
   name: string;
   /**
-   * Playwright: the status the runner expects before running anything (`passed`, `failed` or `skipped`). Vitest:
-   * `ran`, `skipped` or `todo`, from running the tests.
+   * Playwright: the status the runner expects before running anything (`passed`, `failed` or `skipped`). Vitest and
+   * Jest: `ran`, `skipped` or `todo`, from running the tests.
    */
   status: string;
   /** Without the `@` Playwright tags start with. */
@@ -50,6 +50,11 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
     fixture: 'strategy-engine',
     patterns: ['tests/**/*.{test,test-d}.ts', 'src/**/*.ts'],
     packages: (version) => ({ vitest: version, typescript: '~6.0.3', '@types/node': '^22.12.0' }),
+  },
+  jest: {
+    fixture: 'settlement-service',
+    patterns: ['src/**/*.test.js', 'src/__tests__/*.js', 'tests/**/*.test.js'],
+    packages: (version) => ({ jest: version }),
   },
 };
 
@@ -140,6 +145,35 @@ function vitestTests(work: string): RunnerTest[] {
   });
 }
 
+interface JestReport {
+  testResults: {
+    name: string;
+    assertionResults: { ancestorTitles: string[]; title: string; status: string; location?: { line: number } | null }[];
+  }[];
+}
+
+/** Runs the tests with Jest's JSON output, which lists every test with its state and, asked to, its line. */
+function jestTests(work: string): RunnerTest[] {
+  const output = path.join(work, 'jest-report.json');
+  try {
+    run('npx', ['jest', '--json', `--outputFile=${output}`, '--testLocationInResults'], work);
+  } catch {
+    // A failing test makes Jest exit with 1; the report still lists every test.
+  }
+  const report = JSON.parse(readFileSync(output, 'utf8')) as JestReport;
+  return report.testResults.flatMap((file) =>
+    file.assertionResults.map((test) => ({
+      file: posix(path.relative(work, file.name)),
+      line: test.location?.line ?? 0,
+      name: [...test.ancestorTitles, test.title].join(' > '),
+      status:
+        test.status === 'todo' ? 'todo' : ['skipped', 'pending', 'disabled'].includes(test.status) ? 'skipped' : 'ran',
+      // Jest reports no tags; jest-runner-groups only picks the files to run.
+      tags: [],
+    })),
+  );
+}
+
 function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
@@ -151,7 +185,7 @@ function exactly(name: string): RegExp {
 /** The runner names a title stands for: `.each` titles with `%s` or `$name` become patterns that match any value. */
 function titlePattern(test: TestRecord, inTable: boolean): RegExp {
   const escaped = test.fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const formatted = test.isParameterized || inTable ? escaped.replace(/%[sdifjoO#%]|\\\$[\w.]+/g, '.*') : escaped;
+  const formatted = test.isParameterized || inTable ? escaped.replace(/%[sdifjoOp#%]|\\\$[\w.]+/g, '.*') : escaped;
   return new RegExp(`^${formatted}$`, 's');
 }
 
@@ -176,7 +210,7 @@ function inDescribeTable(inventory: Inventory, test: TestRecord): boolean {
 /** The status the runner should report for a record; null when a condition decides it. */
 function expectedStatus(test: TestRecord, framework: Framework): string | null {
   if (test.isConditional) return null;
-  if (framework === 'vitest') return test.isTodo ? 'todo' : test.isSkipped ? 'skipped' : 'ran';
+  if (framework !== 'playwright') return test.isTodo ? 'todo' : test.isSkipped ? 'skipped' : 'ran';
   if (test.isSkipped || test.isFixme) return 'skipped';
   return test.isExpectedToFail ? 'failed' : 'passed';
 }
@@ -218,7 +252,8 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
       for (const item of wrong) differences.push({ kind: 'name', ...at, detail: `${test.fullName} / ${item.name}` });
     }
     const status = expectedStatus(test, framework);
-    const tags = test.tags.map(withoutAt).sort().join(', ');
+    // Jest reports no tags, so its are not compared.
+    const tags = framework === 'jest' ? '' : test.tags.map(withoutAt).sort().join(', ');
     for (const item of candidates) {
       if (status !== null && item.status !== status) {
         differences.push({ kind: 'state', ...at, detail: `${test.fullName}: ${test.state} / ${item.status}` });
@@ -250,10 +285,11 @@ function isExpected(
 }
 
 async function main(): Promise<void> {
-  const [framework, version = ''] = process.argv.slice(2);
-  if ((framework !== 'playwright' && framework !== 'vitest') || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest> <version>');
+  const [name, version = ''] = process.argv.slice(2);
+  if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest> <version>');
   }
+  const framework = name as Framework;
   const project = PROJECTS[framework];
   const work = mkdtempSync(path.join(tmpdir(), `test-inventory-${framework}-${version}-`));
   try {
@@ -265,7 +301,8 @@ async function main(): Promise<void> {
     );
     run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], work);
 
-    const listed = framework === 'playwright' ? playwrightTests(work) : vitestTests(work);
+    const listers = { playwright: playwrightTests, vitest: vitestTests, jest: jestTests };
+    const listed = listers[framework](work);
     const rules = JSON.parse(
       readFileSync(path.join(repository, 'tests/compare/expected-differences.json'), 'utf8'),
     ) as ExpectedDifference[];

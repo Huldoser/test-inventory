@@ -10,10 +10,10 @@ such as `isInLoop`; each section says when one does not.
 
 ## Config files are read only in part
 
-`playwright.config.*` and `vitest.config.*` can change which tests run and how. The scan finds the config each file
-uses and lists it in [`configs`](/reference/output#configs), and reads from it which files and projects run each test,
-Vitest's `test.globals`, the run settings and modes it gives the tests, Playwright's `forbidOnly`, and the tags Vitest
-defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
+`playwright.config.*`, `vitest.config.*` and Jest's `jest.config.*` or `package.json` can change which tests run and
+how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
+which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
+it gives the tests, Playwright's `forbidOnly`, and the tags Vitest defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
 out is still listed, with that project missing from its `projects`.
 
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
@@ -26,7 +26,13 @@ title; only a pattern that depends on that order can tell them apart.
 A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
 installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config
 the runner is pointed to with `--config` is not known from the files, nor a config built by a function the config
-calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`.
+calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })` or Next.js's `createJestConfig(config)`. A Jest
+`preset` that is a package is not read; when it may choose the test files and the config doesn't set `testMatch` or
+`testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. A config Jest refuses to start
+with, such as one whose `moduleFileExtensions` leaves out `js` or whose `roots` don't exist, is read as written, and a
+config that sets its keys one by one, as `module.exports.testMatch = [...]`, is not read. Jest's
+`moduleNameMapper`, `modulePaths` and `moduleDirectories` are not read, so imports they map are not followed for
+`dependencyHash`.
 
 A run setting the config sets under a condition, as `retries: process.env.CI ? 2 : 0`, is `null` with its source
 `config`, since the scan doesn't know where the tests will run; `retriesConfigText` and the other `ConfigText` keys
@@ -34,8 +40,9 @@ quote it. When the scan can't work out the tags a Vitest config defines, a file 
 `config-may-change-state` warning, as a tag can skip a test or change how it runs.
 
 Calls that change settings while tests run are not read: `testInfo.setTimeout()` and
-`testInfo.slow()`, Vitest's `vi.setConfig()`, and calls in an imported function passed to a hook by name, as in
-`test.beforeEach(slowOnCI)` with `slowOnCI` from another file.
+`testInfo.slow()`, Vitest's `vi.setConfig()`, Jest's `jest.setTimeout()` and a `jest.retryTimes()` in a test, hook or
+function, and calls in an imported function passed to a hook by name, as in `test.beforeEach(slowOnCI)` with
+`slowOnCI` from another file.
 
 `expectCount`, `steps` and `fixtures` read the test function only. Assertions and steps in page objects and helpers,
 and fixtures that other fixtures or automatic fixtures set up, are not in them. A test or hook function passed by name
@@ -48,7 +55,8 @@ can read: string and number literals, constants, enums, arrays and objects built
 concatenation, template strings, arithmetic, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
 `Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
 array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
-included:
+included. A function or class written in place as a title, as in `describe(function OrderBook() {}, ...)`, gives its
+name, as the runners read it:
 
 ```ts
 import { TAGS } from '../../test-data/tags';
@@ -84,6 +92,10 @@ Values, a custom `test` object, and a function that declares tests, as described
   source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
   install, from the `workspaces` of `package.json` and from `pnpm-workspace.yaml`. Patterns and links that lead out of
   the workspace folder are not followed.
+
+CommonJS is followed the same way: `const { SYMBOLS } = require('../data/symbols')` and
+`const symbols = require('../data/symbols')` of a local file read what it exports with `module.exports = { ... }`,
+`module.exports = function registerSettlement(desk) {...}` or `exports.SYMBOLS = [...]`.
 
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
 `export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
@@ -177,7 +189,8 @@ Playwright lists two tests here, and so does the scan: `buy orders > buy rejects
 `short sells > short rejects a zero quantity`, which is skipped. Both have `isInFunction: true` and the line of the
 `test()` call.
 
-A function imported from another file is followed the same way, through the imports above. Its records give the call
+A function imported from another file is followed the same way, through the imports above, also when a shared file
+imports it and exports it again, as an `index.js` of helpers does. Its records give the call
 in the scanned file as their location, since that is the line that registers the tests, and `declaredAt` gives the
 file and line where the helper writes the test.
 
@@ -192,7 +205,7 @@ Such a test is listed where it is written. Tests in a callback passed to another
 ## Loops and tables are one record
 
 A test declared in a loop, `forEach` or `map` is listed once, with `isInLoop: true`. When the loop goes over values
-the scan can work out, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
+the scan can count, as in `for (const symbol of WATCHED_SYMBOLS)` or `Object.keys(FEES).forEach(...)`, and
 registers the test on every pass, `caseCount` says how many tests the runner registers. Otherwise `caseCount` is `null`
 and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
 or `throw` in it, and a test under a condition inside the loop, such as one in a helper after
@@ -200,7 +213,9 @@ or `throw` in it, and a test under a condition inside the loop, such as one in a
 In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
 Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
-work out the table.
+count its rows. A list written out, its spreads, a constant the file doesn't change, and `Object.keys()`,
+`Object.values()` and `Object.entries()` of an object written out can be counted even when one of their values can't
+be worked out, as in `[NaN, Infinity].forEach(...)` or a table with a call in a row.
 
 With `--expand-cases` (library: `expandCases: true`), each case of a table and each pass of a loop whose values the
 scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The
@@ -291,9 +306,18 @@ Some of what the hash takes is more than the test needs, so a change can change 
 When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
 `hasUnfollowedDependencies` without a warning.
 
+## Variables assigned again
+
+A variable that holds a test function keeps the value it is declared with: after `let it = test; it = test.skip;`,
+`it('settles a trade', fn)` is read as an active test, while the runner skips it.
+
 ## What a scan never sees
 
 Tests created inside a function from an installed package, or from a file the scan can't read, as in
 `registerOrderTests(orderTicket)`, are not listed, and nothing in the output says so: the call does not look like a
-test. When a call does look like a test and goes
+test. The same goes for a function a setup file puts on `globalThis`, as Jest projects often do, and for packages
+that write the tests for you, such as `babel-plugin-tester`. When a call does look like a test and goes
 through an import that can't be followed, an `unresolved-test-import` error says tests are missing.
+
+Files with Flow type annotations, which React and React Native projects compile with Babel before Jest runs them,
+can't be parsed: they get a `parse-error`, and their tests are missing.

@@ -14,7 +14,7 @@ type Position = number;
 type Hash = string;
 
 /** @inline */
-export type Framework = 'playwright' | 'vitest';
+export type Framework = 'playwright' | 'vitest' | 'jest';
 
 /**
  * The state the runner applies to a test, after describes and file-level calls are taken into account. `notLoaded`:
@@ -65,6 +65,7 @@ export type DiagnosticCode =
   | 'test-without-body'
   | 'describe-not-called'
   | 'async-describe'
+  | 'describe-throws'
   | 'nested-test'
   | 'tag-without-at'
   | 'removed-api'
@@ -294,7 +295,10 @@ export interface SuiteRecord {
   /** Source text of the `test.slow()` condition; null when unconditional or not slow. */
   slowCondition: string | null;
   retries: Count | null;
-  /** Vitest only: milliseconds between retries, from the `retry` object (4.1). */
+  /**
+   * Milliseconds between retries: Vitest's from the `retry` object (4.1), Jest's from `waitBeforeRetry` of
+   * `jest.retryTimes()` (30.0); null otherwise.
+   */
   retryDelay: Count | null;
   /** Vitest only: source text of the `retry` object's `condition`, a RegExp or a function. */
   retryCondition: string | null;
@@ -392,7 +396,10 @@ export interface TestRecord {
   slowCondition: string | null;
   /** How many times the runner retries the test when it fails; null when the file sets none. */
   retries: Count | null;
-  /** Vitest only: milliseconds between retries, from the `retry` object (4.1). */
+  /**
+   * Milliseconds between retries: Vitest's from the `retry` object (4.1), Jest's from `waitBeforeRetry` of
+   * `jest.retryTimes()` (30.0); null otherwise.
+   */
   retryDelay: Count | null;
   /** Vitest only: source text of the `retry` object's `condition`, a RegExp or a function. */
   retryCondition: string | null;

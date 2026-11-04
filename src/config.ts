@@ -29,7 +29,7 @@ import {
   requiredModule,
   starReexport,
 } from './frameworks/bindings.ts';
-import { problem } from './frameworks/common.ts';
+import { atLeast, problem } from './frameworks/common.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
@@ -43,6 +43,7 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   vitest: ['vitest.config', 'vite.config'].flatMap((name) =>
     ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'].map((extension) => name + extension),
   ),
+  jest: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts', '.json'].map((extension) => `jest.config${extension}`),
 };
 
 /** Methods that change the object or list they are called on. */
@@ -341,7 +342,7 @@ class ConfigCode {
   exported(frame: ConfigFrame, name: string, site: Site): Setting | null {
     const { program } = frame.parsed;
     const own = ownExport(program, name);
-    if (own?.kind === 'default') return this.evaluate(own.value, frame, [program]);
+    if (own?.kind === 'default') return this.config(own.value, frame, [program]);
     if (own) {
       const at = { frame, node: own.statement };
       const found =
@@ -353,7 +354,7 @@ class ConfigCode {
     if (name === 'default') {
       // `export *` passes on every name but the default.
       const commonJs = program.body.map(moduleExportsValue).find((value) => value !== null);
-      return commonJs ? this.evaluate(commonJs, frame, [program]) : null;
+      return commonJs ? this.config(commonJs, frame, [program]) : null;
     }
     for (const statement of program.body) {
       const source = starReexport(statement);
@@ -361,6 +362,20 @@ class ConfigCode {
       if (found) return found;
     }
     return null;
+  }
+
+  /** A module's default export, which Jest calls when it is a function, and awaits. */
+  private config(node: Expression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
+    if (this.framework !== 'jest') return this.evaluate(node, frame, scopes);
+    let fn: Node = unwrap(node);
+    let around = scopes;
+    if (fn.type === 'Identifier') {
+      const constant = frame.values.constantOf(fn.name, scopes);
+      if (constant) [fn, around] = [unwrap(constant.init), constant.scopes];
+    }
+    return fn.type === 'FunctionDeclaration' || isFunctionNode(fn)
+      ? this.returned(fn, frame, around)
+      : this.evaluate(node, frame, scopes);
   }
 
   /** Works out an expression; `scopes` are the scope nodes around it, outermost first. */
@@ -415,9 +430,10 @@ class ConfigCode {
       const setting = this.once(constant.init, site, () => this.evaluate(constant.init, frame, constant.scopes));
       return this.changed(setting, frame, declaration as Node);
     }
-    if (declaration?.type !== 'ImportSpecifier' && declaration?.type !== 'ImportDefaultSpecifier') return null;
-    const imported = declaration.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
-    const source = frame.values.importSource(name, scopes) as string;
+    // An import, or a local file loaded with `require()`, which reads as one.
+    const source = frame.values.importSource(name, scopes);
+    const imported = frame.values.importedName(name, scopes);
+    if (source === null || imported === null) return null;
     if (source === 'vitest/config' || source === 'vitest/node') {
       const defaults = this.vitestDefaults(imported, site);
       if (defaults) return defaults;
@@ -463,6 +479,16 @@ class ConfigCode {
 
   /** What a module an import names exports under a name; null when the module doesn't export it. */
   private fromModule(frame: ConfigFrame, specifier: string, name: string, site: Site): Setting | null {
+    if (specifier.endsWith('.json')) {
+      // A JSON file, required or imported with `with { type: 'json' }`, is its value.
+      const module = frame.readModule(specifier);
+      if ('reason' in module) return unknown(site);
+      const value = attemptJson(module.code);
+      if (value === null) return unknown(site);
+      if (!this.followed.includes(module.relativeFilePath)) this.followed.push(module.relativeFilePath);
+      const setting = fromValue(value.json);
+      return name === 'default' ? setting : child(setting, name);
+    }
     const module = this.open(frame, specifier);
     if (!module) return unknown(site);
     return this.once(`${module.relativeFilePath}\0${name}`, site, () => this.exported(module, name, site));
@@ -552,9 +578,10 @@ class ConfigCode {
         items.push(this.evaluate(element, frame, scopes));
         continue;
       }
+      // A spread the scan can't work out is one unknown item, so the items it can are kept.
       const spreadList = this.evaluate(element.argument, frame, scopes);
-      if (spreadList.kind !== 'list') return unknown({ frame, node: element });
-      items.push(...spreadList.items);
+      if (spreadList.kind === 'list') items.push(...spreadList.items);
+      else items.push(unknown({ frame, node: element }));
     }
     return { kind: 'list', items };
   }
@@ -588,6 +615,12 @@ class ConfigCode {
    */
   private call(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
     const site = { frame, node: call };
+    // `require('./jest.base.js')` of a local file, as CommonJS configs build on a shared one, is its default export.
+    const required = requiredModule(call);
+    const isGlobal = frame.values.declarationOf('require', scopes) === null;
+    if (required !== null && isGlobal && /^\.\.?\//.test(required)) {
+      return this.fromModule(frame, required, 'default', site) ?? unknown(site);
+    }
     const origin = this.origin(unwrap(call.callee), frame, scopes);
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
@@ -599,7 +632,18 @@ class ConfigCode {
     const name = isPackage && CONFIG_FUNCTIONS.has(origin.name) ? origin.name : null;
     const { arguments: given } = call;
     const needed = name === 'mergeConfig' ? 2 : 1;
-    if (name === null || given.length < needed || given.some((arg) => arg.type === 'SpreadElement')) {
+    // Jest exports defineConfig() and mergeConfig() from 30.3; neither takes a project.
+    const isJest =
+      origin !== null &&
+      ['jest', 'jest-config'].includes(origin.source) &&
+      name !== 'defineProject' &&
+      atLeast(this.version, 30, 3);
+    if (
+      name === null ||
+      (this.framework === 'jest' && !isJest) ||
+      given.length < needed ||
+      given.some((arg) => arg.type === 'SpreadElement')
+    ) {
       return unknown(site);
     }
     const args = given as Expression[];
@@ -607,8 +651,8 @@ class ConfigCode {
       const [base, over] = args.map((arg) => this.evaluate(arg, frame, scopes));
       return mergeDeep(base, over);
     }
-    if (this.framework === 'vitest') {
-      // Vitest's defineConfig() and defineProject() return the config they are given, or the one a function returns.
+    if (this.framework !== 'playwright') {
+      // Vitest's and Jest's defineConfig() return the config they are given, or the one a function returns.
       return isFunctionNode(args[0]) ? this.returned(args[0], frame, scopes) : this.evaluate(args[0], frame, scopes);
     }
     // Playwright's defineConfig() merges the configs it is given, each over the ones before it.
@@ -672,7 +716,8 @@ export interface ConfigFile {
 /** Finds and reads the configs of one scan, and collects what it can't work out in them as diagnostics. */
 export class Configs {
   readonly diagnostics: Diagnostic[] = [];
-  private readonly root: string;
+  /** The project root, where the runner is taken to be started. */
+  readonly root: string;
   private readonly framework: Framework;
   private readonly readerFor: (fromFile: string) => ModuleReader;
   private readonly inFolders = new Map<string, ConfigFile | null>();
@@ -749,16 +794,77 @@ export class Configs {
     this.diagnostics.push(toDiagnostic(found, frame.relativeFilePath, frame.parsed.source));
   }
 
+  /** Reports, once, a config the runner reads in a way the scan doesn't follow, or refuses. */
+  reportConfig(config: ConfigFile, message: string): void {
+    const id = `${config.record.relativeFilePath}\0${message}`;
+    if (this.reported.has(id)) return;
+    this.reported.add(id);
+    this.diagnostics.push(fileDiagnostic('config-value-unknown', config.record.relativeFilePath, message));
+  }
+
   /** The config the runner started in a folder would use; null when the folder has none. */
   inFolder(folder: string): ConfigFile | null {
     let config = this.inFolders.get(folder);
     if (config === undefined) {
       // The runners take a config that exists, without checking that it is a file they can read.
-      const name = CONFIG_FILES[this.framework].find((item) => existsSync(path.join(folder, item)));
-      config = name ? this.at(path.join(folder, name)) : null;
+      if (this.framework === 'jest') {
+        config = this.jestConfigIn(folder);
+      } else {
+        const name = this.names().find((item) => existsSync(path.join(folder, item)));
+        config = name ? this.at(path.join(folder, name)) : null;
+      }
       this.inFolders.set(folder, config);
     }
     return config;
+  }
+
+  /** Config file names, in the order the runner looks for them; Jest reads `.cts` from 30.0 and `.mts` from 30.4. */
+  private names(): string[] {
+    if (this.framework !== 'jest') return CONFIG_FILES[this.framework];
+    return CONFIG_FILES.jest.filter(
+      (name) =>
+        (!name.endsWith('.cts') || atLeast(this.version, 30, 0)) &&
+        (!name.endsWith('.mts') || atLeast(this.version, 30, 4)),
+    );
+  }
+
+  /**
+   * The config Jest takes in a folder: a `jest.config` file, else the `package.json` with a `jest` key, which from 30.0
+   * may be the path to the config. A `package.json` without one is a config only in the root, as Jest started there
+   * reads it; below the root it is a package, whose tests the root's config runs. Jest refuses to start with more than
+   * one config in the folder, which is reported.
+   */
+  private jestConfigIn(folder: string, anyManifest = false): ConfigFile | null {
+    const names = this.names().filter((item) => existsSync(path.join(folder, item)));
+    const manifest = path.join(folder, 'package.json');
+    const key = existsSync(manifest) ? jestKey(manifest) : undefined;
+    const KEY = 'the jest key in package.json';
+    if (key !== undefined) names.push(KEY);
+    if (names.length > 1) {
+      const listed = `${names.slice(0, -1).join(', ')} and ${names.at(-1) as string}`;
+      const message = `Jest finds more than one config in this folder, ${listed}, and refuses to start; the scan reads ${names[0]}.`;
+      const relativeFilePath = this.relative(path.join(folder, names[0]));
+      if (!this.reported.has(`${relativeFilePath}\0${message}`)) {
+        this.reported.add(`${relativeFilePath}\0${message}`);
+        this.diagnostics.push(fileDiagnostic('config-value-unknown', relativeFilePath, message));
+      }
+    }
+    if (names.length > 0 && names[0] !== KEY) return this.at(path.join(folder, names[0]));
+    if (typeof key === 'string' && atLeast(this.version, 30, 0)) return this.at(path.resolve(folder, key));
+    return key !== undefined || ((anyManifest || folder === this.root) && existsSync(manifest))
+      ? this.at(manifest)
+      : null;
+  }
+
+  /**
+   * The config Jest finds for a folder its `projects` names: from the folder up to the root, the first `jest.config`
+   * file or `package.json`, which Jest reads there also without a `jest` key.
+   */
+  projectConfig(folder: string): ConfigFile | null {
+    for (let current = folder; ; current = path.dirname(current)) {
+      const config = this.jestConfigIn(current, true);
+      if (config || current === this.root || path.dirname(current) === current) return config;
+    }
   }
 
   private read(file: string): ConfigFile {
@@ -774,6 +880,18 @@ export class Configs {
     } catch (error) {
       const message = `The config could not be read: ${readFailure(error)}, ${none}`;
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
+    }
+    if (file.endsWith('.json')) {
+      let value: Value;
+      try {
+        value = JSON.parse(code) as Value;
+      } catch (error) {
+        const message = `The config could not be parsed: ${(error as Error).message}, ${none}`;
+        return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
+      }
+      // Jest reads a package.json without a `jest` key as an empty config.
+      const settings = path.basename(file) === 'package.json' ? jestKeyOf(value) : value;
+      return { file, record: { relativeFilePath, extends: [] }, settings: fromValue(settings ?? {}) };
     }
     const parsed = parseFile(relativeFilePath, code);
     if (parsed.error) {
@@ -802,5 +920,30 @@ export class Configs {
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
     }
     return { file, record: { relativeFilePath, extends: config.followed }, settings };
+  }
+}
+
+/** The `jest` key of a package.json; undefined when it has none, or can't be read. */
+function jestKey(file: string): Value {
+  try {
+    return jestKeyOf(JSON.parse(readFileSync(file, 'utf8')) as Value);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The `jest` key of a parsed package.json; undefined for a value Jest reads as no config, as `false` or `""` are. */
+function jestKeyOf(packageJson: Value): Value {
+  const key = (packageJson as Record<string, Value> | null)?.jest;
+  if (!key) return undefined;
+  return key;
+}
+
+/** A JSON text's value; null when it isn't JSON. */
+function attemptJson(text: string): { json: Value } | null {
+  try {
+    return { json: JSON.parse(text) as Value };
+  } catch {
+    return null;
   }
 }

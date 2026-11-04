@@ -1,5 +1,5 @@
-import type { Expression, Node, TSEnumDeclaration } from 'oxc-parser';
-import { childNodes, isFunctionNode, propertyName, unwrap, type FunctionNode } from './ast.ts';
+import type { CallExpression, Expression, Node, TSEnumDeclaration } from 'oxc-parser';
+import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from './ast.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -341,6 +341,12 @@ export class Values {
     return binding?.kind === 'const' ? { init: binding.init, scopes: binding.scopes } : null;
   }
 
+  /** The name a module exports that a name imported from it stands for, `default` for a default import; null otherwise. */
+  importedName(name: string, scopes: readonly Node[]): string | null {
+    const binding = this.lookup(name, scopes)?.binding;
+    return binding?.kind === 'import' ? binding.imported : null;
+  }
+
   /** The module a name is imported from where it is used; null when it isn't an import. */
   importSource(name: string, scopes: readonly Node[]): string | null {
     const binding = this.lookup(name, scopes)?.binding;
@@ -443,6 +449,54 @@ export class Values {
   private imported(source: string, name: string | null): Resolved {
     const resolved = name !== null && this.imports ? this.imports(source, name) : UNRESOLVED;
     return resolved.ok ? resolved : { ok: false, importedFrom: source };
+  }
+
+  /**
+   * How many items a list has when not all its values are known, as `[NaN, Infinity]`: a list written out, its spreads
+   * included, held in a constant the module doesn't change, or the keys, values or entries of an object written out;
+   * null otherwise. `seen` stops at a constant defined through itself.
+   */
+  lengthOf(node: Expression, scopes: readonly Node[], seen = new Set<string>()): number | null {
+    const resolved = this.resolve(node, scopes);
+    if (resolved.ok) return Array.isArray(resolved.value) ? resolved.value.length : null;
+    const expression = unwrap(node);
+    if (expression.type === 'Identifier') {
+      const binding = this.lookup(expression.name, scopes)?.binding;
+      if (binding?.kind !== 'const' || seen.has(expression.name)) return null;
+      if (this.changedAtLoad(binding.scopes[0]).has(expression.name)) return null;
+      return this.lengthOf(binding.init, binding.scopes, new Set([...seen, expression.name]));
+    }
+    if (expression.type === 'CallExpression' && isObjectListing(expression)) {
+      const target = expression.arguments[0] as Expression;
+      return this.keyCount(target, scopes, seen);
+    }
+    if (expression.type !== 'ArrayExpression') return null;
+    let length = 0;
+    for (const element of expression.elements) {
+      const inner = element?.type === 'SpreadElement' ? this.lengthOf(element.argument, scopes, seen) : 1;
+      if (inner === null) return null;
+      length += inner;
+    }
+    return length;
+  }
+
+  /** How many keys an object written out has, held in a constant the module doesn't change; null otherwise. */
+  private keyCount(node: Expression, scopes: readonly Node[], seen: Set<string>): number | null {
+    const expression = unwrap(node);
+    if (expression.type === 'Identifier') {
+      const binding = this.lookup(expression.name, scopes)?.binding;
+      if (binding?.kind !== 'const' || seen.has(expression.name)) return null;
+      if (this.changedAtLoad(binding.scopes[0]).has(expression.name)) return null;
+      return this.keyCount(binding.init, binding.scopes, new Set([...seen, expression.name]));
+    }
+    if (expression.type !== 'ObjectExpression') return null;
+    const keys = new Set<string>();
+    for (const property of expression.properties) {
+      const key = property.type === 'Property' ? propertyKey(property) : null;
+      if (key === null) return null;
+      keys.add(key);
+    }
+    return keys.size;
   }
 
   /** What a name refers to where it is used; `scopes` lists the scope nodes around the use, outermost first. */
@@ -738,7 +792,30 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
         // `declare const it: TestAPI` only types a global; the name still refers to it.
         if (statement.declare) break;
         for (const declarator of statement.declarations) {
-          if (statement.kind === 'const' && declarator.id.type === 'Identifier' && declarator.init) {
+          const required = declarator.init ? localRequire(declarator.init) : null;
+          if (required !== null && declarator.id.type === 'Identifier') {
+            // `const symbols = require('./symbols')` stands for what the module exports, as a default import does.
+            bindings.set(declarator.id.name, {
+              kind: 'import',
+              source: required,
+              imported: 'default',
+              declaration: declarator,
+            });
+          } else if (required !== null && declarator.id.type === 'ObjectPattern') {
+            for (const property of declarator.id.properties) {
+              const key = property.type === 'Property' ? propertyKey(property) : null;
+              if (key !== null && property.type === 'Property' && property.value.type === 'Identifier') {
+                bindings.set(property.value.name, {
+                  kind: 'import',
+                  source: required,
+                  imported: key,
+                  declaration: declarator,
+                });
+              } else {
+                other(bindingNames(property.type === 'Property' ? property.value : property), declarator);
+              }
+            }
+          } else if (statement.kind === 'const' && declarator.id.type === 'Identifier' && declarator.init) {
             bindings.set(declarator.id.name, { kind: 'const', init: declarator.init, scopes, declaration: declarator });
           } else {
             other(bindingNames(declarator.id), declarator);
@@ -801,4 +878,27 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
       break;
   }
   return bindings;
+}
+
+/** `Object.keys(x)`, `Object.values(x)` or `Object.entries(x)`, which list as many items as `x` has keys. */
+function isObjectListing(call: CallExpression): boolean {
+  const callee = unwrap(call.callee);
+  return (
+    callee.type === 'MemberExpression' &&
+    callee.object.type === 'Identifier' &&
+    callee.object.name === 'Object' &&
+    ['keys', 'values', 'entries'].includes(propertyName(callee) as string) &&
+    call.arguments.length === 1 &&
+    call.arguments[0].type !== 'SpreadElement'
+  );
+}
+
+/** The local file `require('./symbols')` loads, as an import of it; null for a package or any other expression. */
+function localRequire(expression: Expression): string | null {
+  const node = unwrap(expression);
+  if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'require')
+    return null;
+  const [argument] = node.arguments;
+  const isLocal = argument.type === 'Literal' && typeof argument.value === 'string' && /^\.\.?\//.test(argument.value);
+  return isLocal ? argument.value : null;
 }

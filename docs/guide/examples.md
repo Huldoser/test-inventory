@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo and Jest.
 ---
 
 # Examples
@@ -388,3 +388,120 @@ package's test files, so it gives no `globals-not-enabled` warning:
 
 To scan one package, pass it as the root: `--root packages/risk`. The framework version is read from
 `node_modules` in the root or a folder above it, so a package of a monorepo gets the version installed at the top.
+
+## A Jest service
+
+`settlement-service` settles trades with a custodian and is tested with Jest, in plain CommonJS. Its config splits the
+tests into two projects:
+
+<!-- code: settlement-service/jest.config.js -->
+
+```js
+// jest.config.js
+module.exports = {
+  testTimeout: 10000,
+  projects: [
+    { displayName: 'unit', testMatch: ['<rootDir>/src/**/*.test.js', '<rootDir>/src/__tests__/**/*.js'] },
+    { displayName: 'integration', testMatch: ['<rootDir>/tests/integration/**/*.test.js'] },
+  ],
+};
+```
+
+The integration tests retry, and tag the file for jest-runner-groups:
+
+<!-- code: settlement-service/tests/integration/custodian.test.js -->
+
+```js
+// tests/integration/custodian.test.js
+/**
+ * @group integration/custodian
+ */
+const { settlementDate } = require('../../src/calendar');
+
+jest.retryTimes(2);
+// ...
+describe('settlement instructions', () => {
+  test('sends a delivery-versus-payment instruction', async () => {
+    // ...
+  }, 30_000);
+```
+
+<!-- scan: settlement-service -->
+
+```sh
+npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" --framework jest --output inventory.json
+```
+
+Without the globs and `--framework`, the scan finds the same files from the config, and Jest from `package.json`.
+`jest.retryTimes()` applies to every test of the file, the `@group` is a tag, and the third argument is the timeout:
+
+<!-- output: settlement-service -->
+
+```json
+{
+  "fullName": "settlement instructions > sends a delivery-versus-payment instruction",
+  "projects": ["integration"],
+  "tags": ["integration/custodian"],
+  "timeout": 30000,
+  "timeoutSource": "test",
+  "retries": 2,
+  "retriesSource": "file"
+}
+```
+
+A table of objects is one record with its `caseCount`, with the config's `testTimeout`; `--expand-cases` lists each
+case, titled as Jest titles it:
+
+<!-- output: settlement-service -->
+
+```json
+{
+  "fullName": "netting > moves $cash in cash for a $side of $quantity at $price",
+  "isParameterized": true,
+  "caseCount": 2,
+  "projects": ["unit"],
+  "timeout": 10000,
+  "timeoutSource": "config"
+}
+```
+
+## Puppeteer on Jest
+
+Puppeteer has no test runner of its own; its end-to-end suites run on Jest through the `jest-puppeteer` preset, which
+gives the tests a `page` and `browser`, and `expect(page)` matchers:
+
+<!-- code: trading-e2e-puppeteer/e2e/order-ticket.e2e.js -->
+
+```js
+// e2e/order-ticket.e2e.js
+describe('order ticket', () => {
+  beforeEach(async () => {
+    await page.goto(`${BASE_URL}/trade/AAPL`);
+  });
+  // ...
+  it.each([
+    ['0', 'Quantity must be at least 1'],
+    ['-5', 'Quantity must be at least 1'],
+    ['1000001', 'Quantity is above the 1,000,000 share limit'],
+  ])('rejects a quantity of %s', async (quantity, message) => {
+```
+
+<!-- scan: trading-e2e-puppeteer -->
+
+```sh
+npx test-inventory "e2e/**/*.e2e.js" --framework jest --output inventory.json
+```
+
+The preset only sets up the browser, so the scan reads the file as any Jest file, with no warning about it:
+
+<!-- output: trading-e2e-puppeteer -->
+
+```json
+{
+  "fullName": "order ticket > rejects a quantity of %s",
+  "caseCount": 3,
+  "tags": ["e2e/order-ticket"],
+  "timeout": 30000,
+  "timeoutSource": "config"
+}
+```

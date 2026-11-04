@@ -8,7 +8,7 @@ import {
   unwrap,
   type FunctionNode,
 } from './ast.ts';
-import { exportName } from './frameworks/bindings.ts';
+import { commonJsExport, exportName } from './frameworks/bindings.ts';
 import { problem, readCount } from './frameworks/common.ts';
 import type {
   Adapter,
@@ -28,7 +28,6 @@ import type {
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
-import { vitestCaseTitle } from './case-titles.ts';
 import { isScopeNode, type Resolved, type Value, type Values } from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
@@ -618,14 +617,18 @@ class Walker {
         return;
       case 'ForInStatement':
       case 'ForOfStatement': {
-        const values = leavesEarly(node.body) ? null : this.loopValues(node);
+        const leaves = leavesEarly(node.body);
+        const values = leaves ? null : this.loopValues(node);
         const expands = values ? this.expands(node, values, context) : 'no';
         if (values && expands === 'yes') {
           this.expandLoop(node, values, context);
           return;
         }
+        // For `for...in`, the keys are what `Object.keys()` lists.
+        const listed = node.type === 'ForOfStatement' && !leaves ? node.right : null;
+        const count = values?.length ?? (listed ? this.frame.values.lengthOf(listed, this.scopes.slice(0, -1)) : null);
         this.walkUnexpanded(node, expands === 'limit', () => {
-          this.visitChildren(node, this.inLoop(context, values?.length ?? null));
+          this.visitChildren(node, this.inLoop(context, count));
         });
         return;
       }
@@ -841,7 +844,8 @@ class Walker {
     const list = resolved.ok && Array.isArray(resolved.value) ? resolved.value : null;
     for (const arg of call.arguments) {
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        const values = leavesEarly(arg.body as Node) ? null : list;
+        const leaves = leavesEarly(arg.body as Node);
+        const values = leaves ? null : list;
         const expands = values ? this.expands(null, values, context) : 'no';
         if (values && expands === 'yes') {
           // The callback gets each element, its index and the array.
@@ -852,8 +856,9 @@ class Walker {
             });
           }
         } else {
+          const count = values?.length ?? (leaves ? null : this.frame.values.lengthOf(callee.object, this.scopes));
           this.walkUnexpanded(call, expands === 'limit', () => {
-            this.visitCallback(arg, this.inLoop(context, values?.length ?? null));
+            this.visitCallback(arg, this.inLoop(context, count));
           });
         }
       } else {
@@ -949,9 +954,12 @@ class Walker {
         context.test?.problems.push(...api.problems.map((item) => this.here(item)));
         return true;
       case 'invalid': {
-        const afterLoad = context.test !== null || context.hookScope !== null || context.helper !== null;
+        // Code that runs after the file loads, or only when a condition holds, can't be sure to stop it loading.
+        const afterLoad =
+          context.test !== null || context.hookScope !== null || context.helper !== null || context.isInCondition;
         this.report(afterLoad ? { ...api.problem, afterLoad } : api.problem);
-        return api.declaration ? this.handle(call, api.declaration, context) : true;
+        // Under a condition, the call either never runs or fails the file, so it declares nothing either way.
+        return api.declaration && !context.isInCondition ? this.handle(call, api.declaration, context) : true;
       }
       case 'other':
         return false;
@@ -1059,10 +1067,9 @@ class Walker {
 
   /** The function a name imported from a local module stands for, in the file that writes it; null otherwise. */
   private importedFunction(name: string, scopes: readonly Node[], from = this.frame): Callee | null {
-    const declaration = from.values.declarationOf(name, scopes);
     const source = from.values.importSource(name, scopes);
     if (source === null) return null;
-    const imported = declaration?.type === 'ImportSpecifier' ? exportName(declaration.imported) : 'default';
+    const imported = from.values.importedName(name, scopes) as string;
     const frame = this.openFrom(from, source);
     return frame ? this.exportedFunction(frame, imported, new Set(), 0) : null;
   }
@@ -1085,13 +1092,16 @@ class Walker {
     if (searched.has(key) || depth >= MAX_DEPTH) return null;
     searched.add(key);
     const { program } = frame.parsed;
-    const local = (localName: string): Callee | null => {
-      const fn = this.functionIn(frame, localName, [program]);
-      return fn ? { fn, frame } : null;
-    };
     const from = (source: string, exported: string): Callee | null => {
       const module = this.openFrom(frame, source);
       return module ? this.exportedFunction(module, exported, searched, depth + 1) : null;
+    };
+    const local = (localName: string): Callee | null => {
+      const fn = this.functionIn(frame, localName, [program]);
+      if (fn) return { fn, frame };
+      // A name the module imports and exports again, as `import helper from './a'; export { helper }`.
+      const source = frame.values.importSource(localName, [program]);
+      return source === null ? null : from(source, frame.values.importedName(localName, [program]) as string);
     };
     for (const statement of program.body) {
       if (statement.type === 'ExportDefaultDeclaration' && name === 'default') {
@@ -1120,7 +1130,11 @@ class Walker {
         return statement.source ? from(statement.source.value, localName) : local(localName);
       }
     }
-    return null;
+    // A CommonJS module: `module.exports = { registerSettlement }` or `exports.registerSettlement = function () {}`.
+    const commonJs = commonJsExport(program, name);
+    const value = commonJs ? unwrap(commonJs) : null;
+    if (value?.type === 'Identifier') return local(value.name);
+    return isFunctionNode(value) ? { fn: value, frame } : null;
   }
 
   /**
@@ -1211,6 +1225,15 @@ class Walker {
    * called instead.
    */
   private runSetting(call: CallExpression, api: Extract<ApiCall, { kind: 'run' }>, context: Context): void {
+    if (api.fileWide) {
+      for (const item of api.problems) this.report(item);
+      // Called by a function or while tests run, it changes only the tests that run after it.
+      if (context.declaredIn !== null || context.test || context.hookScope) return;
+      const { settings, problems } = this.guardedRun(call, api.settings, api.argument, context.guards);
+      for (const item of problems) this.report(item);
+      mergeRun(this.fileScope.details.run, settings);
+      return;
+    }
     if (context.declaredIn !== null && !context.test) {
       for (const item of api.problems) this.report(item);
       if (context.helper)
@@ -1254,10 +1277,17 @@ class Walker {
         ),
       };
     }
-    if (settings.timeout !== undefined && guard !== null) {
-      const message = `Option timeout: ${argument as string} is set only when ${guard}; it is not applied.`;
+    const unapplied = (key: string) => {
+      const message = `Option ${key}: ${argument as string} is set only when ${guard as string}; it is not applied.`;
       problems.push(problem('unresolved-option', call, message, snippet(this.text(call))));
+    };
+    if (settings.timeout !== undefined && guard !== null) {
+      unapplied('timeout');
       delete settings.timeout;
+    }
+    if (settings.retry !== undefined && guard !== null) {
+      unapplied('retry');
+      delete settings.retry;
     }
     return { settings, problems };
   }
@@ -1488,11 +1518,9 @@ class Walker {
     if (!declaration.cases) return single("the scan can't work out every value in it");
     const title = declaration.title;
     if (!title || title.isDynamic) return single("the scan can't work out the title");
-    const titles = declaration.cases.map((item, index) =>
-      vitestCaseTitle(title.text, item.items, index, this.options.version),
-    );
+    const titles = declaration.cases.map((item) => item.title);
     if (titles.some((text) => text === null)) {
-      return single("the title shows an array or object, which the scan doesn't format the way Vitest does");
+      return single("the title shows a value the scan doesn't format the way the runner does");
     }
     if (declaration.kind === 'describe' && this.expands(null, declaration.cases, context) === 'limit') {
       return single(

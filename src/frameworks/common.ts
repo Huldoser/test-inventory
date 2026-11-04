@@ -267,6 +267,15 @@ export function readTitle(
   if (value === null && options.functionNames && expression?.type === 'Identifier') {
     value = file.values.isFunction(expression.name, scopes) ? expression.name : null;
   }
+  // A function or class written in place gives its name, as `describe(function OrderBook() {}, ...)` does.
+  const written = expression && unwrap(expression);
+  if (
+    value === null &&
+    options.functionNames &&
+    (written?.type === 'FunctionExpression' || written?.type === 'ClassExpression')
+  ) {
+    value = written.id?.name ?? '';
+  }
   if (value !== null) {
     const withoutTags = options.stripTags ? value.replace(/@\S+/g, ' ').replace(/\s+/g, ' ').trim() : value;
     return { title: { text: value, withoutTags, isDynamic: false }, problem: null };

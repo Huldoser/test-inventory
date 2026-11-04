@@ -17,7 +17,7 @@ import { destructuredNames, problem, takesWhole } from './frameworks/common.ts';
 import { shortHash, hashNodes } from './hash.ts';
 import type { ModuleReader, ModuleSource, Problem, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
-import { snippet, type SourceText } from './source.ts';
+import { snippet, SourceText } from './source.ts';
 import type { Framework } from './types.ts';
 import { bindingNames, isScopeNode, Values } from './values.ts';
 
@@ -124,6 +124,23 @@ interface Reach {
   /** The fixtures the units' code asks for; null when some of it asks for all. */
   asks: string[] | null;
   snapshots: SnapshotUse[];
+}
+
+/** What several reaches cover together, by file. */
+interface Merged {
+  files: string[];
+  /** Each file's hashes, sorted. */
+  byFile: Map<string, string[]>;
+  /** Each file's part of the text the dependency hash is taken of. */
+  parts: Map<string, string>;
+}
+
+const NOTHING_MERGED: Merged = { files: [], byFile: new Map(), parts: new Map() };
+
+/** What the describes around a test and the helper call that registers it reach, with the file's code. */
+interface Context {
+  reach: Reach;
+  merged: Merged;
 }
 
 /** A fixture one `extend()` call defines, and the fixtures it asks for; null when it takes them whole. */
@@ -578,13 +595,14 @@ export class DependencyGraph {
   }
 
   /**
-   * Everything a test's roots reach on top of `base`, the code its file runs when loaded, which all its tests share,
-   * with the fixtures it needs of each test object reached: the hash, the files, and whether all of it could be
-   * followed.
+   * Everything a test's roots reach on top of `bases`, such as the code its file runs when loaded, which all its tests
+   * share, with the fixtures it needs of each test object reached: the hash, the files, and whether all of it could be
+   * followed. `shared` is what the bases cover, put together once for the many tests that share them.
    */
   dependencies(
     roots: Unit[],
     bases: Reach[],
+    shared: Merged,
     needs: FixtureNeeds,
     snapshots: (uses: SnapshotUse[]) => Unit[],
     report: (place: Place) => void,
@@ -658,11 +676,13 @@ export class DependencyGraph {
       this.reported.add(key);
       report(place);
     }
-    const files = [...new Set(reached.flatMap((item) => [...item.byFile.keys()]))].sort();
+    const added = hashesByFile(reached.slice(bases.length));
+    const files = [...new Set([...shared.files, ...added.keys()])].sort();
     const parts = files.map((file) => {
-      return [file, reached.flatMap((item) => item.byFile.get(file) ?? []).sort()];
+      const own = added.get(file);
+      return own ? part(file, [...(shared.byFile.get(file) ?? []), ...own]) : (shared.parts.get(file) as string);
     });
-    return { hash: shortHash(JSON.stringify(parts)), files, isComplete: places.length === 0 };
+    return { hash: shortHash(`[${parts.join(',')}]`), files, isComplete: places.length === 0 };
   }
 
   private newModule(
@@ -846,7 +866,8 @@ export class DependencyGraph {
 
   /** A place in a module the scan can't follow, as a unit that marks the tests that reach it. */
   private placeUnit(module: Module, at: Span, message: string, isQuiet = false): Unit {
-    const { source } = module.parsed as ParsedFile;
+    // A JSON config, such as Jest's package.json, is taken by its text.
+    const source = module.parsed?.source ?? new SourceText(module.text as string);
     const unit = this.newUnit(module, [], new Map(), false);
     unit.edges = new Set();
     const text = snippet(source.slice(at.start, at.end)) || null;
@@ -880,7 +901,9 @@ export class DependencyGraph {
     if ('module' in gap) {
       const module = this.moduleOf(gap.module);
       // The path a setup key names, where the config writes it.
-      const at = gap.text === null ? null : literalIn((module.parsed as ParsedFile).program, gap.text);
+      let at: Span | null = null;
+      if (gap.text !== null && module.parsed) at = literalIn(module.parsed.program, gap.text);
+      else if (gap.text !== null) at = jsonStringIn(module.text as string, gap.text);
       return this.placeUnit(module, at ?? { start: 0, end: 0 }, gap.message, gap.isQuiet);
     }
     const module = this.newModule(gap.relativeFilePath, null, null, new Values(), null);
@@ -1518,6 +1541,34 @@ export class DependencyGraph {
   }
 }
 
+/** The hashes of several reaches by file, in the order the reaches come. */
+function hashesByFile(reaches: Reach[]): Map<string, string[]> {
+  const byFile = new Map<string, string[]>();
+  for (const item of reaches) {
+    for (const [file, hashes] of item.byFile) byFile.set(file, [...(byFile.get(file) ?? []), ...hashes]);
+  }
+  return byFile;
+}
+
+/** A file and its hashes, sorted, as text: the hash is taken of these parts, in the order of the files. */
+function part(file: string, hashes: string[]): string {
+  return JSON.stringify([file, hashes.sort()]);
+}
+
+/** What `merged` covers with what one more reach adds, the parts of the files it adds hashes to written again. */
+function combine(merged: Merged, reach: Reach): Merged {
+  if (reach.byFile.size === 0) return merged;
+  const byFile = new Map(merged.byFile);
+  const parts = new Map(merged.parts);
+  for (const [file, hashes] of reach.byFile) {
+    const all = [...(merged.byFile.get(file) ?? []), ...hashes];
+    parts.set(file, part(file, all));
+    byFile.set(file, all);
+  }
+  const files = [...new Set([...merged.files, ...reach.byFile.keys()])].sort();
+  return { files, byFile, parts };
+}
+
 /** Whether an identifier refers to a binding, rather than naming a property, a label or a member. */
 function isReference(key: string | null, parent: Node | null): boolean {
   switch (parent?.type) {
@@ -1577,6 +1628,13 @@ function literalIn(node: Node, value: string): Span | null {
     if (found) return found;
   }
   return null;
+}
+
+/** Where a JSON file writes a string, as `"./setup.js"`; null when it doesn't. */
+function jsonStringIn(text: string, value: string): Span | null {
+  const written = JSON.stringify(value);
+  const start = text.indexOf(written);
+  return start === -1 ? null : { start, end: start + written.length };
 }
 
 /**
@@ -1707,11 +1765,12 @@ export function fileDependencies(
     ...runsWith.gaps.map((gap) => graph.gapUnit(gap)),
   ];
   const base = graph.reach([load, ...config]);
+  const baseMerged = combine(NOTHING_MERGED, base);
   // The describes around a test and the helper call that registers it are shared by the tests there, often thousands
   // for one helper call, so what they reach is walked once for all of them.
-  const contexts = new Map<Scope, Map<Node | null, Reach>>();
-  const contextOf = (scope: Scope, registeredBy: Node | null): Reach => {
-    const byCall = contexts.get(scope) ?? new Map<Node | null, Reach>();
+  const contexts = new Map<Scope, Map<Node | null, Context>>();
+  const contextOf = (scope: Scope, registeredBy: Node | null): Context => {
+    const byCall = contexts.get(scope) ?? new Map<Node | null, Context>();
     contexts.set(scope, byCall);
     let context = byCall.get(registeredBy);
     if (!context) {
@@ -1719,7 +1778,8 @@ export function fileDependencies(
       for (let around: Scope | null = scope; around; around = around.parent) {
         if (around.suite) roots.push(...suiteUnit(around.suite));
       }
-      context = graph.reach(roots, [base]);
+      const reach = graph.reach(roots, [base]);
+      context = { reach, merged: combine(baseMerged, reach) };
       byCall.set(registeredBy, context);
     }
     return context;
@@ -1766,6 +1826,7 @@ export function fileDependencies(
       needs.names.push(...scope.setupFixtures);
       needs.all ||= scope.takesAllFixtures;
     }
-    return graph.dependencies(roots, [base, contextOf(test.scope, test.registeredBy)], needs, snapshots, report);
+    const context = contextOf(test.scope, test.registeredBy);
+    return graph.dependencies(roots, [base, context.reach], context.merged, needs, snapshots, report);
   };
 }

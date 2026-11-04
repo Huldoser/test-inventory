@@ -98,7 +98,8 @@
           "type": "string",
           "enum": [
             "playwright",
-            "vitest"
+            "vitest",
+            "jest"
           ]
         },
         {
@@ -607,7 +608,7 @@
               "type": "null"
             }
           ],
-          "description": "Vitest only: milliseconds between retries, from the `retry` object (4.1)."
+          "description": "Milliseconds between retries: Vitest's from the `retry` object (4.1), Jest's from `waitBeforeRetry` of `jest.retryTimes()` (30.0); null otherwise."
         },
         "retryCondition": {
           "type": [
@@ -1025,7 +1026,7 @@
               "type": "null"
             }
           ],
-          "description": "Vitest only: milliseconds between retries, from the `retry` object (4.1)."
+          "description": "Milliseconds between retries: Vitest's from the `retry` object (4.1), Jest's from `waitBeforeRetry` of `jest.retryTimes()` (30.0); null otherwise."
         },
         "retryCondition": {
           "type": [
@@ -1449,6 +1450,7 @@
             "test-without-body",
             "describe-not-called",
             "async-describe",
+            "describe-throws",
             "nested-test",
             "tag-without-at",
             "removed-api",

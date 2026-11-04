@@ -4,12 +4,12 @@ import path from 'node:path';
 import { glob } from 'tinyglobby';
 import { ConfigDependencies } from './config-dependencies.ts';
 import { ConfigRuns, fileConfig, type Placement } from './config-runs.ts';
-import { Configs } from './config.ts';
+import { Configs, settingAt } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
-import { detectFrameworkVersion, OLDEST } from './framework-version.ts';
+import { detectFramework, detectFrameworkVersion, FRAMEWORK_NAMES, OLDEST } from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
@@ -35,7 +35,7 @@ function versionDiagnostics(
   source: string,
   range: string | null,
 ): Diagnostic[] {
-  const name = framework === 'playwright' ? 'Playwright' : 'Vitest';
+  const name = FRAMEWORK_NAMES[framework];
   if (version === null) {
     return [
       fileDiagnostic(
@@ -66,6 +66,17 @@ function versionDiagnostics(
       `Only the range "${range}" was found for ${name}, so the rules of the newest ${major}.x release apply.`,
     ),
   ];
+}
+
+/** Why Jest gives a file that uses its globals none: a project that runs it sets `injectGlobals` to false. */
+function jestGlobals(placement: Placement): string | null {
+  const off = placement.projects?.find(({ settings }) => {
+    const setting = settingAt(settings, ['injectGlobals']);
+    return setting?.kind === 'value' && setting.value === false;
+  });
+  if (!off) return null;
+  const config = off.config.record.relativeFilePath;
+  return `The file uses describe, it or test without importing them, but ${config} sets injectGlobals to false, so Jest doesn't define them; import them from '@jest/globals'.`;
 }
 
 /** For a pattern that names a folder, which matches no file, a pattern that matches the test files in it. */
@@ -137,7 +148,7 @@ function noFiles(
   if ([...placements.values()].some((placement) => placement.config)) {
     return 'No test files were found from the configs in the root.';
   }
-  const name = framework === 'playwright' ? 'Playwright' : 'Vitest';
+  const name = FRAMEWORK_NAMES[framework];
   return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
 }
 
@@ -150,7 +161,6 @@ function noFiles(
 export async function scan(options: ScanOptions): Promise<Inventory> {
   const checked = checkObject(options, 'options');
   const patterns = checked.patterns === undefined ? null : checkStrings(checked.patterns, 'options.patterns', true);
-  const framework = checkFramework(checked.framework, 'options.framework');
   const ignore = checkStrings(checked.ignore, 'options.ignore', false);
   const comments = checkComments(checked.comments, 'options.comments');
   const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
@@ -161,6 +171,10 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const root = path.resolve(checked.root ?? process.cwd());
   if (!existsSync(root) || !statSync(root).isDirectory())
     throw invalid('options.root', `a directory, and ${root} is not one`);
+  const framework =
+    checked.framework === undefined
+      ? detectFramework(root, ignore)
+      : checkFramework(checked.framework, 'options.framework');
 
   // Without patterns, the configs choose among all JavaScript and TypeScript files.
   const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
@@ -253,7 +267,10 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  const missingGlobals = globalsCheck(root, configs, (file) => placements.get(file) as Placement);
+  const missingGlobals =
+    framework === 'jest'
+      ? (file: string) => jestGlobals(placements.get(file) as Placement)
+      : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;
   for (const { absolutePath, relativeFilePath } of globalsFiles) {
     const message = missingGlobals(absolutePath);
