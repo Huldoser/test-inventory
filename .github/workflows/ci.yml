@@ -213,11 +213,11 @@ jobs:
           - framework: playwright
             version: 1.63.0
           - framework: playwright
-            version: 1.64.0
+            version: 1.64.1
           - framework: vitest
             version: 3.0.9
           - framework: vitest
-            version: 5.0.5
+            version: 5.1.0
           - framework: jest
             version: 29.7.0
           - framework: jest
