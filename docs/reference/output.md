@@ -362,7 +362,8 @@ config. Jasmine reads the first of `spec/support/jasmine.mjs`, from Jasmine 5,
 theirs. Cypress reads the first `cypress.config.*` in the root, and WebdriverIO the first of `wdio.conf.js`, `.ts`,
 `.mjs`, `.mts`, `.cjs` and `.cts` there, its `config` export; without one, they run no file unless they are given files.
 node:test has no config the scan reads: `node.config.json` holds no files, and Node.js reads it only with
-`--config-file`, so its files have no config.
+`--config-file`, so its files have no config. Bun reads `bunfig.toml` in the root, its `[test]` table; without one, its
+files have no config.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
@@ -413,7 +414,13 @@ path, and from Node.js 26.8 a folder, for the default patterns inside it; withou
 `**/*.test.*`, `**/*-test.*`, `**/*_test.*`, `**/test-*.*`, `**/test.*` and `**/test/**/*.*`, with the extensions `js`,
 `mjs` and `cjs`, and from Node.js 22.18, which strips types by default, `ts`, `mts` and `cts`. Dot folders and
 `node_modules` are left out. Scanned with globs, every file they match counts as run, as for the files given to
-`node --test`.
+`node --test`. For Bun: the files under `[test]
+root`, the root by default, whose name without its extension ends with `.test`, `_test`, `.spec` or `_spec`, with the
+extension `js`, `jsx`, `ts`, `tsx`, `mjs`, `cjs`, `mts` or `cts`, outside dot folders and `node_modules`, and from Bun
+1.3.11 outside the folders and files a `pathIgnorePatterns` glob matches, read whatever the version. `[test] retry`
+applies to every test, and the tests of the files a `concurrentTestGlob` glob matches run at once. A
+`pathIgnorePatterns` or `concurrentTestGlob` that isn't a string or a list of strings is reported, as Bun refuses the
+config. Scanned with globs, every file they match counts as run, as for the files given to `bun test`.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and

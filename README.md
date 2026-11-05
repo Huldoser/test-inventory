@@ -2,8 +2,8 @@
 
 Test metadata from source code, not from test results.
 
-test-inventory reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO and node:test test files and lists
-every test declaration as JSON: its title, file and lines, the describes around it, its tags and annotations, and
+test-inventory reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun test files and
+lists every test declaration as JSON: its title, file and lines, the describes around it, its tags and annotations, and
 whether it is active, skipped, fixme, todo, expected to fail or in a file the runner refuses to load, with the condition
 when the state only applies sometimes. Each test has an id that survives a move to another line and a hash of everything
 it runs, from its hooks and fixtures to its page objects, test data, snapshots and config, so it can also list the tests
@@ -18,7 +18,8 @@ npm install --save-dev test-inventory
 ```
 
 Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 3.0 or newer, Jest 29.0 or newer,
-Mocha 10.0 or newer, Jasmine 4.0 or newer, Cypress 13.0 or newer, WebdriverIO 9.0 or newer, node:test 22.0 or newer.
+Mocha 10.0 or newer, Jasmine 4.0 or newer, Cypress 13.0 or newer, WebdriverIO 9.0 or newer, node:test 22.0 or newer,
+Bun 1.2.23 or newer.
 
 ## Command line
 
@@ -29,8 +30,8 @@ npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventor
 ```
 
 Without the glob, the test files are those the project's Playwright, Vitest, Jest, Mocha, Jasmine, Cypress or
-WebdriverIO configs run, or for node:test the files `node --test` runs. Without `--framework`, the scan takes the runner
-the project uses, and asks for `--framework` when it uses several.
+WebdriverIO configs run, or for node:test and Bun the files `node --test` and `bun test` run. Without `--framework`, the
+scan takes the runner the project uses, and asks for `--framework` when it uses several.
 
 For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:
 

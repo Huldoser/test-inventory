@@ -287,6 +287,33 @@ which skips each test; `t.test()` in a helper function the test passes its conte
 body, which runs as a nested describe and gets a `nested-test` warning. A glob in a script is read as written, though
 `sh`, which npm runs scripts with, reads an unquoted `**` as `*`; quote it, as Node.js expands it then.
 
+## Bun
+
+Bun 1.2.23 and newer, which runs tests the way 1.3 and 1.4 do; see [framework version](/guide/cli#framework-version).
+
+### Where test comes from
+
+| Form               | Example                                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals            | `test`, `it`, `describe`, `xtest`, `xit`, `xdescribe` and the hooks, which `bun test` sets in its test files                                                                          |
+| Imports            | `import { describe, test } from 'bun:test'`, a namespace or default import, or `require('bun:test')`; imports from `@jest/globals` and `vitest` too, which Bun rewrites to `bun:test` |
+| Kept in a variable | `const later = test.skip`: only what both branches of a choice share applies                                                                                                          |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                        |
+
+### Calls
+
+| Call                                                                               | Read as                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test(title, fn, options)`, `test(title, options, fn)`                             | A test. Options are a number, the timeout, or `{ timeout, retry, repeats }`. Both `retry` and `repeats` are an `invalid-chain` error from Bun 1.3, which refuses them.                                                                                                                                                                                                                                                                                    |
+| `.skip`, `.todo`, `.failing`, `.only`, `.concurrent`, `.serial`                    | A skipped, todo or `expectedToFail` test, `isOnly`, or `isParallel`. A chain may hold them in any order, but only one of `skip`, `todo` and `failing`, one `only`, and one of `concurrent` and `serial`; another is an `invalid-chain` error: Bun fails the file. `skip` wins over `todo`, and `todo` over `failing`.                                                                                                                                     |
+| `.if(condition)`, `.skipIf`, `.todoIf`, `.failingIf`, `.concurrentIf`, `.serialIf` | A state under a condition: `if` skips when its condition is false, the others set theirs when it is true. They may repeat. A describe can't be `failing`, also through a `failingIf` whose condition holds.                                                                                                                                                                                                                                               |
+| `.each(table)`                                                                     | One record with `caseCount`, as for Jest; with `expandCases`, each case titled as Bun titles it: `%s` a string, `%d` and `%f` a number, `%i` an integer, `%j` and `%o` JSON, `%#` the index, `%%` a `%`, and `$key` a value of an object case, quoted before Bun 1.3. A value of another type leaves its placeholder as written, and once the values are used up, the rest stays as written. `%p`, and `$key` of an object, keep the cases as one record. |
+| `test(title)` without a function                                                   | A `test-without-body` error: Bun fails the file. `test.skip(title)` and `test.todo(title)` are allowed; `test.todo` with a function is todo too.                                                                                                                                                                                                                                                                                                          |
+| `beforeAll`, `afterAll`, `beforeEach`, `afterEach`                                 | Hooks.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+A `.only` makes Bun run only the focused tests of its file, and from 1.3 with `--only`, none of the files without one.
+The other tests of the file are listed as written, with `isOnly` on the focused ones.
+
 ## In every runner
 
 - Tests in loops, conditions and plain functions are listed with `isInLoop`, `isInCondition` and `isInFunction`.

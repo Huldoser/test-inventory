@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine, Cypress, WebdriverIO and node:test.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun.
 ---
 
 # Examples
@@ -787,5 +787,40 @@ the `test` script. A subtest is listed under its parent's title, with the id of 
   "isConditional": true,
   "condition": "!process.env.BOND_FEED",
   "reason": "no bond feed"
+}
+```
+
+## A Bun service
+
+`quote-gateway` tests a quote gateway with Bun's `bun test`, using Bun's own chains, as `test.skipIf(condition)`, and
+a `bunfig.toml` that runs its routing specs at once.
+
+<!-- code: quote-gateway/bunfig.toml -->
+
+```toml
+[test]
+root = "src"
+retry = 1
+concurrentTestGlob = "**/routing/*.spec.ts"
+```
+
+<!-- scan: quote-gateway -->
+
+```sh
+npx test-inventory "src/**/*.test.ts" "src/**/*.spec.ts" --framework bun --output inventory.json
+```
+
+Without the globs and `--framework`, the scan finds the same files from Bun's patterns under `[test] root`, and Bun from
+the `test` script. `skipIf` is a condition, and `[test] retry` applies to every test:
+
+<!-- output: quote-gateway -->
+
+```json
+{
+  "fullName": "spread > streams quotes from the venue",
+  "state": "skip",
+  "isConditional": true,
+  "condition": "!process.env.VENUE_URL",
+  "retries": 1
 }
 ```
