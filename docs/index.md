@@ -4,7 +4,7 @@ layout: home
 hero:
   name: test-inventory
   text: Test metadata from source code, not from test results.
-  tagline: Lists every test declaration in a Playwright, Vitest, Jest, Mocha, Jasmine or Cypress suite as JSON, and the tests a change can affect, by reading the code. Nothing is run.
+  tagline: Lists every test declaration in a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress or WebdriverIO suite as JSON, and the tests a change can affect, by reading the code. Nothing is run.
   image:
     light: /mark-light.svg
     dark: /mark-dark.svg

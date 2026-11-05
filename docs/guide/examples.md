@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine and Cypress.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine, Cypress and WebdriverIO.
 ---
 
 # Examples
@@ -695,5 +695,59 @@ Without the glob and `--framework`, the scan finds the same files from Cypress's
   "condition": "browser: '!electron'",
   "retries": 2,
   "tags": ["@orders"]
+}
+```
+
+## WebdriverIO end-to-end tests
+
+`broker-portal` checks a broker's client portal with WebdriverIO on Mocha. A number after a test's function is
+WebdriverIO's retry count, and `this.timeout()` sets the describe's timeout over the config's `mochaOpts.timeout`.
+
+<!-- code: broker-portal/test/specs/orders/ticket.e2e.js -->
+
+```js
+// test/specs/orders/ticket.e2e.js
+describe('client order ticket', function () {
+  this.timeout(90_000);
+  // ...
+  it('blocks an order above the buying power', async () => {
+  // ...
+  }, 2);
+  // ...
+  context('after the close', () => {
+    it('queues the order for the open', async function () {
+      if (!process.env.AFTER_HOURS) this.skip();
+```
+
+<!-- scan: broker-portal -->
+
+```sh
+npx test-inventory "test/specs/*.e2e.js" "test/specs/{orders,accounts}/*.e2e.js" --framework webdriverio --output inventory.json
+```
+
+Without the globs and `--framework`, the scan finds the files from `wdio.conf.js`, whose `specs` group the order specs
+into one worker and whose `exclude` leaves out the drafts, and WebdriverIO from `package.json`:
+
+<!-- output: broker-portal -->
+
+```json
+{
+  "fullName": "client order ticket > blocks an order above the buying power",
+  "state": "active",
+  "timeout": 90000,
+  "retries": 2
+}
+```
+
+A test that skips itself under a condition keeps the condition:
+
+<!-- output: broker-portal -->
+
+```json
+{
+  "fullName": "client order ticket > after the close > queues the order for the open",
+  "state": "skip",
+  "isConditional": true,
+  "condition": "!process.env.AFTER_HOURS"
 }
 ```

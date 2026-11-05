@@ -271,9 +271,11 @@ describe('runners', () => {
     const comparison = read('docs/guide/runners.md')
       .split('\n')
       .find((line) => line.startsWith('|') && line.includes('test-inventory')) as string;
+    // The command each runner is started with, where it isn't named after the framework.
+    const commands: Record<string, string> = { webdriverio: 'wdio' };
     for (const [framework, name] of frameworks) {
       expect(syntax, name).toMatch(new RegExp(`^## ${name}$`, 'm'));
-      expect(comparison, name).toContain(`\`${framework} `);
+      expect(comparison, name).toContain(`\`${commands[framework] ?? framework} `);
     }
   });
 

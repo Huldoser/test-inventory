@@ -358,8 +358,8 @@ lists of options such as `spec`, `extension` and `ignore` are joined, and the fi
 package.json is in `extends`. Without either, Mocha's defaults apply and the files have no
 config. Jasmine reads the first of `spec/support/jasmine.mjs`, from Jasmine 5,
 `.json` and `.js` in the root. Without one it runs no file, unless it is given files, as Karma and Angular give it
-theirs. Cypress reads the first `cypress.config.*` in the root, and without one
-runs no file unless it is given files.
+theirs. Cypress reads the first `cypress.config.*` in the root, and WebdriverIO the first of `wdio.conf.js`, `.ts`,
+`.mjs`, `.mts`, `.cjs` and `.cts` there, its `config` export; without one, they run no file unless they are given files.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
@@ -392,7 +392,15 @@ matches, by default `cypress/e2e/**/*.cy.{js,jsx,ts,tsx}` and `**/*.cy.{js,jsx,t
 pattern is matched against the whole path from the config's folder, so `*.draft.cy.js` leaves out only files in that
 folder. Component testing also leaves out the files e2e's `specPattern` matches. Scanned with globs, a file counts as
 run only where its testing type's `specPattern` takes it too, as `cypress run --spec` does. The testing type's
-`retries`, else the config's, applies to every test, its `runMode` when it is an object, as `cypress run` takes.
+`retries`, else the config's, applies to every test, its `runMode` when it is an object, as `cypress run` takes. For
+WebdriverIO: the files under the config's folder that a `specs` glob matches, also in the nested lists that group files
+into one worker, with an extension WebdriverIO takes, such as `.js` or `.ts`, without dot files and folders, less those
+`exclude` leaves out. As in WebdriverIO, a glob without a `/` matches a file's name at any depth; when every `exclude`
+entry holds a `/`, `\` or `*`, they are globs too, and otherwise each leaves out every file whose path contains it.
+`suites` run only with `--suite`, so they are not read. Scanned with globs, every file they match counts as run, less
+`exclude`, as files given with `--spec` replace `specs`. The config's `framework`, Mocha by default, or Jasmine, decides
+how the files are read, and its `mochaOpts.timeout`, `retries` and `ui`, or `jasmineOpts.defaultTimeoutInterval`, apply
+to every test. Cucumber runs feature files, which the scan doesn't read, and is reported.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
