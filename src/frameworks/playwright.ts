@@ -592,21 +592,26 @@ export class PlaywrightAdapter implements Adapter {
   /** The fixture functions of `test.extend({ ... })`, each given as a function or as `[function, options]`. */
   private checkExtendFixtures(call: CallExpression, context: CallContext): void {
     const argument = call.arguments.at(0);
-    if (argument && argument.type !== 'SpreadElement') this.checkFixtureObject(argument, context.scopes);
+    if (argument && argument.type !== 'SpreadElement') this.checkFixtureObject(argument, context.scopes, new Set());
   }
 
-  /** An object of fixtures, written in place or held in a constant, with the objects it spreads. */
-  private checkFixtureObject(expression: Expression, scopes: readonly Node[]): void {
+  /**
+   * An object of fixtures, written in place or held in a constant, with the objects it spreads; `seen` ends a constant
+   * that spreads itself, which throws at run time.
+   */
+  private checkFixtureObject(expression: Expression, scopes: readonly Node[], seen: Set<Node>): void {
     const node = unwrap(expression);
+    if (seen.has(node)) return;
+    seen.add(node);
     if (node.type === 'Identifier') {
       const constant = this.file.values.constantOf(node.name, scopes);
-      if (constant) this.checkFixtureObject(constant.init, constant.scopes);
+      if (constant) this.checkFixtureObject(constant.init, constant.scopes, seen);
       return;
     }
     if (node.type !== 'ObjectExpression') return;
     for (const property of node.properties) {
       if (property.type === 'SpreadElement') {
-        this.checkFixtureObject(property.argument, scopes);
+        this.checkFixtureObject(property.argument, scopes, seen);
         continue;
       }
       const value = unwrap(property.value);

@@ -1068,7 +1068,6 @@ function unknownAt(setting: Setting): Unknown {
   return setting.kind === 'unknown' ? setting : { kind: 'unknown', where: null };
 }
 
-/** A config's settings without `test.projects`, as an inline project inherits them; both are known objects. */
 /**
  * The root a config sets, `test.root` over Vite's `root`, as written; null when it sets none, and the setting and its
  * key when it can't be worked out.
@@ -1083,6 +1082,7 @@ function writtenRoot(settings: Setting): string | null | { setting: Unknown; key
   return null;
 }
 
+/** A config's settings without `test.projects`, as an inline project inherits them; both are known objects. */
 function withoutProjects(settings: Setting): Setting {
   const root = settings as ObjectSetting;
   const test = root.keys.get('test') as ObjectSetting;

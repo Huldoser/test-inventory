@@ -1287,6 +1287,42 @@ concurrent('books a trade', () => {});
     },
   );
 
+  it('takes a class passed as a test body or called like a helper as no function', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+class PlaceOrder { run() {} }
+class OrderBook { constructor() { test('matches two orders', () => {}); } }
+test('places a limit order', PlaceOrder);
+OrderBook();
+`);
+    expect(testNamed(inventory, 'places a limit order').state).toBe('active');
+    expect(codes(inventory)).toEqual([]);
+  });
+
+  it('reads describe functions kept in a variable, also chosen by a condition', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+const suiteOf = describe;
+const describeOnCi = process.env.CI ? describe.concurrent.skipIf(!process.env.BROKER_URL) : describe.concurrent;
+const testOnCi = process.env.CI ? test.concurrent : it.concurrent.skip;
+const mixed = process.env.CI ? it.skip : describe;
+const tableOnCi = process.env.CI ? describe.each([['AAPL']]) : describe.each([['MSFT']]);
+suiteOf('fees', () => {});
+describeOnCi('broker', () => {
+  testOnCi('sends an order', () => {});
+});
+mixed('rounds the fee', () => {});
+tableOnCi('quotes for %s', () => {});
+`);
+    expect(inventory.suites.map((suite) => [suite.title, suite.isSkipped, suite.isParallel])).toEqual([
+      ['fees', false, false],
+      ['broker', false, true],
+      ['quotes for %s', false, false],
+    ]);
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isParallel])).toEqual([
+      ['broker > sends an order', 'active', true],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('reads functions kept in a variable from globals, also derived with extend', () => {
     const inventory = scanVitest(`const skipOnCi = it.skipIf(process.env.CI);
 const brokerTest = it.extend({ broker: 'paper' });

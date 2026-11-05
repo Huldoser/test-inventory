@@ -341,8 +341,9 @@ export class Values {
    */
   functionOf(name: string, scopes: readonly Node[]): FunctionNode | null {
     const binding = this.lookup(name, scopes)?.binding;
-    if (binding?.kind === 'function') return binding.declaration as FunctionNode;
     const declaration = binding?.declaration;
+    // A class is bound like a function, but has no body to walk.
+    if (binding?.kind === 'function' && declaration?.type === 'FunctionDeclaration') return declaration;
     const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
     return isFunctionNode(init) ? init : null;
   }

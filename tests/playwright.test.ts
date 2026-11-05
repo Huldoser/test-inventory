@@ -318,6 +318,17 @@ test('amends an order', async (fixtures) => {});
     ]);
   });
 
+  it('takes a class passed as a test body as no function, and a fixture object that spreads itself as none', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+class Checkout { constructor({ page, ...rest }) {} }
+test('pays for an order', Checkout);
+const fixtures = { ...fixtures };
+const deskTest = test.extend(fixtures);
+`);
+    expect(inventory.tests.map((item) => [item.title, item.state])).toEqual([['pays for an order', 'active']]);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it('reads every form of test.extend() fixtures for a rest property (TI-36)', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 async function marketData({ page, ...fixtures }, use) { await use(page); }
