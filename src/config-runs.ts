@@ -479,21 +479,21 @@ export class ConfigRuns {
       this.configs.reportUnknown(unknown.unknown.setting, unknown.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
       return { config, settings: unknown.settings, runs: null, projects: null };
     }
+    // Cypress runs a file given to it only when its testing type's `specPattern` takes the file too.
     const running = projects.filter((project) => project.runs?.(file));
-    // Files given to Cypress run in the e2e project unless the component project's pattern takes them.
-    const placed = running.length > 0 || this.findsFiles ? running : projects.slice(0, 1);
     return {
       config,
       settings: config.settings,
-      runs: placed.length > 0 ? 'test' : false,
-      projects: placed.map((project) => project.about),
+      runs: running.length > 0 ? 'test' : false,
+      projects: running.map((project) => project.about),
     };
   }
 
   /**
    * Cypress's testing types as projects: `e2e`, and `component` when the config has it. Each runs the files under the
-   * config's folder that its `specPattern` matches, without those its `excludeSpecPattern` matches, by path or by name,
-   * and never those in `node_modules`; component testing also leaves out the e2e specs.
+   * config's folder that its `specPattern` matches, dot files left out, without those its `excludeSpecPattern` matches,
+   * dot files included, and those in `node_modules` unless a `specPattern` names it; component testing also leaves out
+   * the files e2e's `specPattern` matches. `cypress run` matches each pattern against the whole path, as globby does.
    */
   private cypressProjects(config: ConfigFile): Project[] {
     const folder = path.dirname(config.file);
@@ -501,9 +501,12 @@ export class ConfigRuns {
       ['e2e', ['cypress/e2e/**/*.cy.{js,jsx,ts,tsx}'], ['*.hot-update.js']],
     ];
     if (settingAt(config.settings, ['component']) !== null) {
-      types.push(['component', ['**/*.cy.{js,jsx,ts,tsx}'], ['/snapshots/*', '/image_snapshots/*']]);
+      types.push(['component', ['**/*.cy.{js,jsx,ts,tsx}'], ['**/__snapshots__/*', '**/__image_snapshots__/*']]);
     }
+    // Cypress takes a pattern written from the config's folder as one relative to it.
+    const relative = (glob: string) => posix(glob.startsWith(folder + path.sep) ? path.relative(folder, glob) : glob);
     const projects: Project[] = [];
+    let e2eSpecs: string[] = [];
     for (const [type, defaultSpecs, defaultExcludes] of types) {
       const lists: string[][] = [];
       for (const [key, fallback] of [
@@ -516,24 +519,15 @@ export class ConfigRuns {
         lists.push(found as string[]);
       }
       const [specs, excludes] = lists;
-      const isSpec = picomatch(
-        specs.map((glob) => posix(glob)),
-        { dot: true },
-      );
-      // Cypress matches an exclusion without a slash against the file's name, as minimatch's matchBase does.
-      const excluded = [...excludes.map((glob) => posix(glob)), '**/node_modules/**'];
-      const byName = picomatch(
-        excluded.filter((glob) => !glob.includes('/')),
-        { dot: true },
-      );
-      const byPath = picomatch(
-        excluded.filter((glob) => glob.includes('/')),
-        { dot: true },
-      );
-      const isExcluded = (relative: string) => byName(path.posix.basename(relative)) || byPath(relative);
-      const isE2e = projects[0]?.runs;
+      if (type === 'e2e') e2eSpecs = specs;
+      const isSpec = picomatch(specs.map(relative));
+      const excluded = [...excludes, ...(type === 'component' ? e2eSpecs : [])].map(relative);
+      if (!specs.some((glob) => glob.includes('node_modules'))) excluded.push('**/node_modules/**');
+      const isExcluded = picomatch(excluded, { dot: true });
       const retry = settingAt(config.settings, [type, 'retries']) ?? settingAt(config.settings, ['retries']);
-      const runMode = retry?.kind === 'object' ? settingAt(retry, ['runMode']) : retry;
+      const written = retry?.kind === 'object' ? settingAt(retry, ['runMode']) : retry;
+      // Cypress takes `null` as no retries set.
+      const runMode = written?.kind === 'value' && written.value === null ? null : written;
       const about: ProjectAbout = {
         name: type,
         testDir: folder,
@@ -553,9 +547,8 @@ export class ConfigRuns {
         about,
         unknown: null,
         runs: (file) => {
-          const relative = posix(path.relative(folder, file));
-          if (!isSpec(relative) || isExcluded(relative)) return false;
-          return type === 'component' && isE2e?.(file) ? false : 'test';
+          const from = posix(path.relative(folder, file));
+          return isSpec(from) && !isExcluded(from) ? 'test' : false;
         },
       });
     }

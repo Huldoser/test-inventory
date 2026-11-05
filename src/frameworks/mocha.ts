@@ -97,7 +97,10 @@ const UNITS: Record<string, number> = {
 };
 
 export class MochaAdapter extends SuiteAdapter {
-  /** Whether `this.timeout()` and `this.retries()` set the tests' settings, as in Mocha. */
+  /**
+   * Whether `this.timeout()` and `this.retries()` set the tests' settings, as in Mocha. Cypress reads neither, and its
+   * `retries()` throws.
+   */
   protected readonly readsContextSettings: boolean = true;
   /** What the runner does with a call it refuses while it loads the file, as the end of a sentence. */
   protected readonly refusedEffect: string = 'Mocha stops before it runs any test';
@@ -169,7 +172,13 @@ export class MochaAdapter extends SuiteAdapter {
       };
     }
     if (name !== 'timeout' && name !== 'retries') return null;
-    if (!this.readsContextSettings) return { kind: 'other' };
+    if (!this.readsContextSettings) {
+      // In a test or hook, the throw fails that test or hook only, when it runs.
+      if (name === 'timeout' || inTestOrHook) return { kind: 'other' };
+      const source = snippet(text(this.file, call));
+      const message = `${source} throws in ${this.dialect.name}, which takes retries in a describe's config, as describe(title, { retries: 2 }, fn), so ${this.refusedEffect}.`;
+      return { kind: 'invalid', problem: problem('describe-throws', call, message, source) };
+    }
     const argument = call.arguments.at(0);
     // Without an argument, `this.timeout()` only reads the timeout.
     if (!argument || (context.inBody && !context.inTest)) return { kind: 'other' };
@@ -188,11 +197,18 @@ export class MochaAdapter extends SuiteAdapter {
     const callee = unwrap(call.callee);
     if (callee.type !== 'MemberExpression') return null;
     const name = propertyName(callee);
-    if ((name !== 'timeout' && name !== 'retries') || !this.readsContextSettings) return null;
+    if (name !== 'timeout' && name !== 'retries') return null;
+    if (!this.readsContextSettings && name === 'timeout') return null;
     const target = unwrap(callee.object);
     if (target.type !== 'CallExpression') return null;
     const declared = this.classify(target, context);
     if (declared?.kind !== 'test' && declared?.kind !== 'describe') return null;
+    if (!this.readsContextSettings) {
+      if (context.inBody) return declared;
+      const source = snippet(text(this.file, callee));
+      const message = `${source}() throws in ${this.dialect.name}, which takes retries in the config before the function, as it(title, { retries: 2 }, fn), so ${this.refusedEffect}.`;
+      return { kind: 'invalid', problem: problem('invalid-chain', call, message, source), declaration: declared };
+    }
     if (declared.kind === 'describe' && (name === 'retries' || !atLeast(this.file.version, 12, 0))) return declared;
     const argument = call.arguments.at(0);
     const settings = argument ? this.setting(name, argument, context, declared.problems) : null;

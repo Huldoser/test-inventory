@@ -4,6 +4,11 @@
 const { appendFileSync } = require('node:fs');
 const path = require('node:path');
 
+// Cypress adds this to the title of a test or describe whose `browser` config leaves out the browser it runs in.
+const BROWSER_SKIP = ' (skipped due to browser)';
+const title = (runnable) =>
+  runnable.title.endsWith(BROWSER_SKIP) ? runnable.title.slice(0, -BROWSER_SKIP.length) : runnable.title;
+
 module.exports = function CompareReporter(runner) {
   runner.once('end', () => {
     const lines = [];
@@ -11,9 +16,9 @@ module.exports = function CompareReporter(runner) {
       const spec = suite.file || file;
       for (const test of suite.tests) {
         const pending = test.pending === true || test.state === 'pending';
-        lines.push(JSON.stringify({ file: spec, titles: [...titles, test.title], pending }));
+        lines.push(JSON.stringify({ file: spec, titles: [...titles, title(test)], pending }));
       }
-      for (const child of suite.suites) visit(child, [...titles, child.title], spec);
+      for (const child of suite.suites) visit(child, [...titles, title(child)], spec);
     };
     visit(runner.suite, [], null);
     appendFileSync(path.join(process.cwd(), 'cypress-tests.jsonl'), lines.map((line) => `${line}\n`).join(''));

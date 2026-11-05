@@ -17,7 +17,7 @@ describe('Cypress config files', () => {
         "import { defineConfig } from 'cypress';",
         'export default defineConfig({',
         '  retries: { runMode: 1, openMode: 0 },',
-        "  e2e: { baseUrl: 'http://localhost:3000', retries: { runMode: 2, openMode: 0 } },",
+        "  e2e: { baseUrl: 'http://localhost:3000', retries: { runMode: 2, openMode: 0 }, excludeSpecPattern: 'cypress/e2e/legacy/**' },",
         "  component: { devServer: { framework: 'react', bundler: 'vite' } },",
         '});',
         '',
@@ -26,7 +26,9 @@ describe('Cypress config files', () => {
       'cypress/e2e/blotter.cy.js': SPEC,
       'cypress/e2e/legacy.spec.js': SPEC,
       'cypress/e2e/watchlist.hot-update.js': SPEC,
+      'cypress/e2e/legacy/positions.cy.js': SPEC,
       'src/components/OrderTicket.cy.tsx': SPEC,
+      'src/components/__snapshots__/OrderTicket.cy.js': SPEC,
       'node_modules/broker-ui/Button.cy.js': SPEC,
     });
     const inventory = await scan({ root, framework: 'cypress' });
@@ -39,24 +41,36 @@ describe('Cypress config files', () => {
     expect(inventory.configs[0].projects?.map((item) => item.name)).toEqual(['e2e', 'component']);
   });
 
-  it("reads specPattern and excludeSpecPattern, which may match a file's name, and takes files given by glob", async () => {
+  it('reads specPattern and excludeSpecPattern against the whole path, and runs a given file only when specPattern takes it', async () => {
     const root = project({
       'package.json': CYPRESS_PACKAGE,
       'cypress.config.js': [
         'module.exports = {',
-        "  e2e: { specPattern: 'tests/e2e/**/*.spec.{js,ts}', excludeSpecPattern: ['*.draft.spec.ts', 'tests/e2e/legacy/**'] },",
+        "  e2e: { specPattern: 'tests/e2e/**/*.spec.{js,ts}', excludeSpecPattern: ['*.draft.spec.ts', 'tests/**/legacy/**', '**/*.wip.spec.ts'] },",
         '};',
         '',
       ].join('\n'),
       'tests/e2e/ticket.spec.ts': SPEC,
       'tests/e2e/margin.draft.spec.ts': SPEC,
+      'tests/e2e/fills.wip.spec.ts': SPEC,
       'tests/e2e/legacy/blotter.spec.js': SPEC,
+      'tests/e2e/.scratch.spec.ts': SPEC,
       'cypress/e2e/watchlist.cy.js': SPEC,
     });
     const found = await scan({ root, framework: 'cypress' });
-    expect(placed(found)).toEqual([['tests/e2e/ticket.spec.ts', ['e2e']]]);
-    const given = await scan({ root, framework: 'cypress', patterns: ['cypress/e2e/*.cy.js'] });
-    expect(placed(given)).toEqual([['cypress/e2e/watchlist.cy.js', ['e2e']]]);
+    expect(placed(found)).toEqual([
+      ['tests/e2e/margin.draft.spec.ts', ['e2e']],
+      ['tests/e2e/ticket.spec.ts', ['e2e']],
+    ]);
+    const given = await scan({
+      root,
+      framework: 'cypress',
+      patterns: ['cypress/e2e/*.cy.js', 'tests/e2e/ticket.spec.ts'],
+    });
+    expect(placed(given)).toEqual([
+      ['cypress/e2e/watchlist.cy.js', []],
+      ['tests/e2e/ticket.spec.ts', ['e2e']],
+    ]);
   });
 
   it("runs no file without a config, and can't tell the files when a pattern can't be worked out", async () => {
@@ -71,6 +85,29 @@ describe('Cypress config files', () => {
       patterns: ['cypress/e2e/*.cy.js'],
     });
     expect(placed(given)).toEqual([['cypress/e2e/ticket.cy.js', null]]);
+    const unsetRetries = await scan({
+      root: project({
+        'package.json': CYPRESS_PACKAGE,
+        'cypress.config.js': 'module.exports = { retries: { runMode: null, openMode: 1 } };\n',
+        'cypress/e2e/ticket.cy.js': SPEC,
+      }),
+      framework: 'cypress',
+    });
+    expect(unsetRetries.tests.map((test) => test.retries)).toEqual([null]);
+    expect(unsetRetries.diagnostics).toEqual([]);
+    const absolute = await scan({
+      root: project({
+        'package.json': CYPRESS_PACKAGE,
+        'cypress.config.js': [
+          "const path = require('node:path');",
+          "module.exports = { e2e: { specPattern: path.join(__dirname, 'tests/e2e/**/*.spec.js') } };",
+          '',
+        ].join('\n'),
+        'tests/e2e/ticket.spec.js': SPEC,
+      }),
+      framework: 'cypress',
+    });
+    expect(placed(absolute)).toEqual([['tests/e2e/ticket.spec.js', ['e2e']]]);
     const unknown = await scan({
       root: project({
         'package.json': CYPRESS_PACKAGE,

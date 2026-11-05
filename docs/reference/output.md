@@ -387,10 +387,12 @@ may be a string such as `'5s'`, and `retries` apply to every test. For Jasmine: 
 with globs, every file they match counts as run, as files given to Jasmine replace `spec_files`. `JASMINE_CONFIG_PATH`
 and `--config` are not read. For Cypress: its testing types are the projects, `e2e` and, when the
 config sets up component testing, `component`; each runs the files under the config's folder that its `specPattern`
-matches, by default `cypress/e2e/**/*.cy.{js,jsx,ts,tsx}` and `**/*.cy.{js,jsx,ts,tsx}`, without those its
-`excludeSpecPattern` matches by path, or by name for a pattern without a `/`, and never those in `node_modules`.
-Component testing leaves out the e2e specs. The testing type's `retries`, else the config's, applies to every test, its
-`runMode` when it is an object, as `cypress run` takes.
+matches, by default `cypress/e2e/**/*.cy.{js,jsx,ts,tsx}` and `**/*.cy.{js,jsx,ts,tsx}`, without dot files, those its
+`excludeSpecPattern` matches, and those in `node_modules` unless a `specPattern` names it. As in `cypress run`, each
+pattern is matched against the whole path from the config's folder, so `*.draft.cy.js` leaves out only files in that
+folder. Component testing also leaves out the files e2e's `specPattern` matches. Scanned with globs, a file counts as
+run only where its testing type's `specPattern` takes it too, as `cypress run --spec` does. The testing type's
+`retries`, else the config's, applies to every test, its `runMode` when it is an object, as `cypress run` takes.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and

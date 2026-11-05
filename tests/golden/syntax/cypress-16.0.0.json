@@ -1308,7 +1308,7 @@
     {
       "code": "removed-api",
       "level": "error",
-      "message": "Cypress 16 no longer takes env in a test's config; Cypress.expose() or cy.env() set it.",
+      "message": "Cypress 16 no longer takes env in a test's or describe's config, and fails each test it applies to when the test runs; expose: { KEY: value } sets a value the browser reads.",
       "relativeFilePath": "tests/cypress.cy.ts",
       "lineStart": 12,
       "columnStart": 38,

@@ -7,14 +7,15 @@ function settings(inventory: Inventory): [string, string, string | null, number 
 }
 
 describe('Cypress tests', () => {
-  it("reads Mocha's BDD calls with Cypress's test config: retries, browser and @cypress/grep tags", () => {
+  it("reads Mocha's BDD calls with Cypress's test config before the function: retries, browser and @cypress/grep tags", () => {
     const inventory = scanCypress(`
 describe('order ticket', { tags: '@smoke', retries: { runMode: 2, openMode: 0 } }, () => {
   beforeEach(() => {});
   it('places a market order', () => {});
   it('places a limit order', { retries: 3, tags: ['@orders', '@fast'] }, () => {});
   it('places a stop order', { browser: '!firefox' }, () => {});
-  it('cancels an order', { tags: '@orders' });
+  it('cancels an order');
+  it('amends an order', { tags: '@orders' });
   it.skip('replaces an order', () => {});
   context('blotter', { browser: ['chrome', 'edge'] }, () => {
     specify('lists fills', () => {});
@@ -25,7 +26,8 @@ describe('order ticket', { tags: '@smoke', retries: { runMode: 2, openMode: 0 } 
       ['order ticket > places a market order', 'active', null, 2, ['@smoke']],
       ['order ticket > places a limit order', 'active', null, 3, ['@smoke', '@orders', '@fast']],
       ['order ticket > places a stop order', 'skip', "browser: '!firefox'", 2, ['@smoke']],
-      ['order ticket > cancels an order', 'skip', null, 2, ['@smoke', '@orders']],
+      ['order ticket > cancels an order', 'skip', null, 2, ['@smoke']],
+      ['order ticket > amends an order', 'active', null, 2, ['@smoke']],
       ['order ticket > replaces an order', 'skip', null, 2, ['@smoke']],
       ['order ticket > blotter > lists fills', 'skip', "browser: ['chrome', 'edge']", 2, ['@smoke']],
     ]);
@@ -54,6 +56,11 @@ describe('watchlist', function () {
       ['pins a symbol', null, null],
     ]);
     expect(codes(inventory)).toEqual(['unresolved-option', 'unresolved-option']);
+    const unset = scanCypress(
+      "it('opens the blotter', { retries: null }, () => {});\nit('closes the blotter', { retries: { runMode: null } }, () => {});",
+    );
+    expect(unset.tests.map((test) => test.retries)).toEqual([null, null]);
+    expect(codes(unset)).toEqual([]);
   });
 
   it.each([
@@ -64,6 +71,31 @@ describe('watchlist', function () {
       frameworkVersion: version,
     });
     expect(codes(inventory)).toEqual(found);
+  });
+
+  it('reports this.retries() in a describe and .retries() after a test or describe, which throw and fail the spec', () => {
+    const inDescribe = scanCypress(
+      "describe('watchlist', function () {\n  this.retries(2);\n  it('adds a symbol', () => {});\n});",
+    );
+    expect(inDescribe.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      [
+        'describe-throws',
+        "this.retries(2) throws in Cypress, which takes retries in a describe's config, as describe(title, { retries: 2 }, fn), so Cypress fails the spec and runs none of its tests.",
+      ],
+    ]);
+    expect(onlyTest(inDescribe).state).toBe('notLoaded');
+    const chained = scanCypress(
+      "it('adds a symbol', () => {}).retries(2);\ndescribe('blotter', () => {\n  it('lists fills', () => {});\n}).retries(1);",
+    );
+    expect(chained.diagnostics.map((item) => [item.code, item.source])).toEqual([
+      ['invalid-chain', "it('adds a symbol', () => {}).retries"],
+      ['invalid-chain', "describe('blotter', () => { it('lists fills', () => {}); }).retries"],
+    ]);
+    expect(chained.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded']);
+    const inTest = scanCypress(
+      "it('adds a symbol', function () {\n  this.retries(2);\n  it('nested', () => {}).retries(1);\n});",
+    );
+    expect(codes(inTest)).toEqual(['nested-test']);
   });
 
   it('reports a chain that is not part of the API, which fails the spec', () => {

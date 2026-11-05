@@ -214,14 +214,15 @@ Cypress 13.0 and newer.
 
 Cypress reads tests and describes as Mocha does, with these differences:
 
-| Call                                                    | Read as                                                                                                                                        |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `it(title, config, fn)`, `describe(title, config, fn)`  | A test or describe with Cypress's test config, before its function. `it(title, config)` without a function is skipped, as a test without one.  |
-| `retries` in a test config                              | `retries`; for `{ runMode, openMode }`, `runMode`, which `cypress run` uses. A describe's passes to its tests.                                 |
-| `browser` in a test config                              | The test, or a describe's tests, skipped under a condition, `browser: '!firefox'` as written: Cypress runs them only in the browsers it names. |
-| `tags` in a test config                                 | `tags`, a string or a list, as `@cypress/grep` reads them. A describe's pass to its tests.                                                     |
-| `env` in a test config                                  | From Cypress 16, a `removed-api` error: Cypress 16 no longer takes it there.                                                                   |
-| `this.timeout()`, `this.retries()`, `it(...).timeout()` | Not read: Cypress sets retries in its test config, and has no test timeout, only command timeouts.                                             |
+| Call                                                                      | Read as                                                                                                                                                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `it(title, config, fn)`, `describe(title, config, fn)`                    | A test or describe with Cypress's test config, before its function. `it(title, config)` without a function is a test that runs and fails, as Cypress then gives Mocha the config as its function. |
+| `retries` in a test config                                                | `retries`; for `{ runMode, openMode }`, `runMode`, which `cypress run` uses. A describe's passes to its tests. `null` sets none.                                                                  |
+| `browser` in a test config                                                | The test, or a describe's tests, skipped under a condition, `browser: '!firefox'` as written: Cypress runs them only in the browsers it names.                                                    |
+| `tags` in a test config                                                   | `tags`, a string or a list, as `@cypress/grep` reads them. A describe's pass to its tests.                                                                                                        |
+| `env` in a test config                                                    | From Cypress 16, a `removed-api` error: Cypress 16 fails each test it applies to when the test runs.                                                                                              |
+| `this.retries()` in a describe, `.retries()` after `it()` or `describe()` | A `describe-throws` or `invalid-chain` error: Cypress throws while it loads the spec. In a test or hook, `this.retries()` fails only that test or hook, when it runs, and is not reported.        |
+| `this.timeout()`, `it(...).timeout()`                                     | Not read: Cypress has no test timeout, only command timeouts.                                                                                                                                     |
 
 A call Cypress refuses, as `it.concurrent()` or a describe without a function, fails its spec, and every test in the
 file is `notLoaded`; the other specs run.

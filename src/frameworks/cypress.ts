@@ -33,13 +33,10 @@ export class CypressAdapter extends MochaAdapter {
     body: Argument | undefined;
     options: Argument | null;
   } {
-    const second = args.at(1);
-    if (args.length >= 3) return { body: args.at(2), options: second as Argument };
-    // `it(title, { retries: 2 })` without a function is pending, as any test without one.
-    if (second?.type === 'ObjectExpression') {
-      return { body: undefined, options: second };
-    }
-    return { body: second, options: null };
+    // Cypress takes the config only before a function: `it(title, { retries: 2 })` gives Mocha the object as the test's
+    // function, so the test runs, and fails.
+    if (args.length >= 3) return { body: args.at(2), options: args.at(1) as Argument };
+    return { body: args.at(1), options: null };
   }
 
   /**
@@ -71,16 +68,25 @@ export class CypressAdapter extends MochaAdapter {
     const env = read.values.get('env');
     if (env && atLeast(this.file.version, 16, 0)) {
       const source = snippet(text(this.file, env.node));
-      const message = "Cypress 16 no longer takes env in a test's config; Cypress.expose() or cy.env() set it.";
+      const message =
+        "Cypress 16 no longer takes env in a test's or describe's config, and fails each test it applies to when the test runs; expose: { KEY: value } sets a value the browser reads.";
       problems.push(problem('removed-api', env.node, message, source));
     }
   }
 
-  /** A retry count, or `runMode` of `{ runMode, openMode }`, which `cypress run` uses. */
+  /**
+   * A retry count, or `runMode` of `{ runMode, openMode }`, which `cypress run` uses; null when it is `null`, which
+   * Cypress takes as no retries set, or can't be worked out.
+   */
   private retryCount(option: OptionValue, context: CallContext, problems: TestDeclaration['problems']): number | null {
     const node = unwrap(option.node);
-    if (node.type !== 'ObjectExpression') return readCount(this.file, 'retries', option, problems);
+    if (node.type !== 'ObjectExpression') return this.count('retries', option, problems);
     const runMode = readOptions(this.file, context.scopes, node).values.get('runMode');
-    return runMode ? readCount(this.file, 'retries.runMode', runMode, problems) : null;
+    return runMode ? this.count('retries.runMode', runMode, problems) : null;
+  }
+
+  private count(name: string, option: OptionValue, problems: TestDeclaration['problems']): number | null {
+    if (option.resolved.ok && option.resolved.value === null) return null;
+    return readCount(this.file, name, option, problems);
   }
 }
