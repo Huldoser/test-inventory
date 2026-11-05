@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import picomatch from 'picomatch';
 import { globSync } from 'tinyglobby';
 import {
@@ -14,6 +15,7 @@ import {
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
+import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
 import type { ConfigDefaults, FileConfig, TagDefinition, TagOptions, VitestTags } from './records.ts';
 import type { Framework, MetaValue, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
@@ -117,6 +119,20 @@ export interface Placement {
   /** The tags Playwright's config `tag` gives every test; null when the scan can't work them out. */
   tags: string[] | null;
 }
+
+/** The extensions of the spec files WebdriverIO takes. */
+const WEBDRIVERIO_EXTENSIONS = new Set([
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.mts',
+  '.es6',
+  '.ts',
+  '.tsx',
+  '.coffee',
+  '.cjs',
+  '.cts',
+]);
 
 const ASSUMED = 'the scan takes its files to be run';
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
@@ -249,6 +265,7 @@ export class ConfigRuns {
     if (this.framework === 'mocha') return this.placeMocha(file);
     if (this.framework === 'jasmine') return this.placeJasmine(file);
     if (this.framework === 'cypress') return this.placeCypress(file);
+    if (this.framework === 'webdriverio') return this.placeWebdriverIO(file);
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
@@ -471,7 +488,7 @@ export class ConfigRuns {
    * Without a config it runs nothing, unless it is given files.
    */
   private placeCypress(file: string): Omit<Placement, 'tags'> {
-    const config = this.configs.cypressConfig();
+    const config = this.configs.rootConfig();
     if (!config) return { config: null, settings: null, runs: this.findsFiles ? false : 'test', projects: null };
     const projects = this.projectsOf(config);
     const unknown = projects.find((project) => project.unknown);
@@ -555,6 +572,91 @@ export class ConfigRuns {
     return projects;
   }
 
+  /** WebdriverIO runs the files of the config in the root; without one, it runs nothing, unless it is given files. */
+  private placeWebdriverIO(file: string): Omit<Placement, 'tags'> {
+    const config = this.configs.rootConfig();
+    if (!config) return { config: null, settings: null, runs: this.findsFiles ? false : 'test', projects: null };
+    const [project] = this.projectsOf(config);
+    if (project.unknown) {
+      this.configs.reportUnknown(project.unknown.setting, project.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
+      return { config, settings: project.settings, runs: null, projects: null };
+    }
+    const runs = project.runs(file);
+    return { config, settings: project.settings, runs, projects: runs ? [project.about] : [] };
+  }
+
+  /**
+   * The files `wdio run` runs: those under the config's folder that a `specs` glob matches, also in the nested lists
+   * that group files into one worker, with one of WebdriverIO's extensions, less those `exclude` leaves out. Its globs
+   * leave out dot files and folders, and one without a `/` matches a file's name at any depth. When every `exclude` entry holds a
+   * `/`, `\` or `*`, they are globs too; otherwise each one leaves out every file whose URL contains it. Files given
+   * with `--spec` replace `specs`, so scanned with globs, every file they match counts as run, less `exclude`. The
+   * config's `mochaOpts.timeout` and `retries`, or `jasmineOpts.defaultTimeoutInterval`, apply to every test.
+   */
+  private webdriverioProject(config: ConfigFile): Project {
+    const folder = path.dirname(config.file);
+    const { settings } = config;
+    const lists: Record<string, string[]> = {};
+    for (const key of ['specs', 'exclude'] as const) {
+      const setting = settingAt(settings, [key]);
+      // A single glob is taken as a list of one; a nested list groups files into one worker.
+      const items =
+        setting?.kind === 'list' ? setting.items.flatMap((item) => (item.kind === 'list' ? item.items : [item])) : [];
+      const found =
+        setting === null || isUnset(setting)
+          ? []
+          : patterns({ kind: 'list', items: setting.kind === 'list' ? items : [setting] }, false);
+      if (!Array.isArray(found)) return this.unknownProject(config, found, key);
+      lists[key] = (found as string[]).map((glob) => posix(path.isAbsolute(glob) ? path.relative(folder, glob) : glob));
+    }
+    // As glob's matchBase does, a pattern without a slash matches at any depth, outside dot folders too.
+    const matcher = (globs: string[]) => picomatch(globs.map((glob) => (glob.includes('/') ? glob : `**/${glob}`)));
+    const isSpec = matcher(lists.specs);
+    const excludes = lists.exclude.filter((item) => !isSuiteName(settings, item));
+    const isGlob = excludes.every((item) => /[/\\*]/.test(item));
+    const isPathExcluded = matcher(excludes);
+    const isExcluded = (file: string) =>
+      isGlob
+        ? isPathExcluded(posix(path.relative(folder, file)))
+        : excludes.some((item) => pathToFileURL(file).href.includes(item));
+    const framework = settingAt(settings, ['framework']);
+    const isJasmine = framework?.kind === 'value' && framework.value === 'jasmine';
+    const options = settingAt(settings, [isJasmine ? 'jasmineOpts' : 'mochaOpts']) ?? emptySettings();
+    const duration = (key: 'timeout' | 'retries') => {
+      const setting = settingAt(options, [key]);
+      const value = setting?.kind === 'value' ? durationOf(setting.value, key) : null;
+      return value === null ? setting : { kind: 'value' as const, value };
+    };
+    // WebdriverIO takes a `defaultTimeoutInterval` of 0 as unset, and keeps its own, 60 seconds.
+    const interval = settingAt(options, ['defaultTimeoutInterval']);
+    const jasmineTimeout = interval?.kind === 'value' && !interval.value ? null : interval;
+    const about: ProjectAbout = {
+      name: '',
+      testDir: folder,
+      dependencies: [],
+      settings,
+      root: folder,
+      container: null,
+      config,
+      grep: null,
+      grepRoot: folder,
+      runsByDefault: true,
+      defaults: isJasmine
+        ? { ...NO_DEFAULTS, timeout: jasmineTimeout }
+        : { ...NO_DEFAULTS, timeout: duration('timeout'), retry: duration('retries') },
+    };
+    return {
+      config,
+      settings,
+      about,
+      unknown: null,
+      runs: (file) => {
+        if (!WEBDRIVERIO_EXTENSIONS.has(path.extname(file)) || isExcluded(file)) return false;
+        return !this.findsFiles || isSpec(posix(path.relative(folder, file))) ? 'test' : false;
+      },
+    };
+  }
+
   private projectsOf(config: ConfigFile): Project[] {
     let projects = this.projects.get(config);
     if (!projects) {
@@ -563,6 +665,7 @@ export class ConfigRuns {
       else if (this.framework === 'mocha') projects = [this.mochaProject(config, config.settings)];
       else if (this.framework === 'jasmine') projects = [this.jasmineProject(config)];
       else if (this.framework === 'cypress') projects = this.cypressProjects(config);
+      else if (this.framework === 'webdriverio') projects = [this.webdriverioProject(config)];
       else projects = this.vitestProjects(config);
       this.projects.set(config, projects);
     }
@@ -1658,4 +1761,48 @@ export function mochaInterface(placement: Placement, configs: Configs): MochaInt
   const message = `The config's ui '${String(ui.value)}' is an interface the scan doesn't read, so it reads the tests as Mocha's default, BDD.`;
   configs.reportConfig(config as ConfigFile, message);
   return 'bdd';
+}
+
+/**
+ * Whether an `exclude` entry names one of the config's `suites` rather than files: WebdriverIO leaves that suite out of
+ * a `--suite` run, and takes it as no exclusion otherwise.
+ */
+function isSuiteName(settings: Setting, item: string): boolean {
+  if (/[/\\*?]/.test(item) || /\.(js|ts|mjs|cjs|es6|feature)$/i.test(item)) return false;
+  const suites = settingAt(settings, ['suites']);
+  return suites?.kind === 'object' && suites.keys.has(item);
+}
+
+/** The interface WebdriverIO's `mochaOpts.ui` gives a file's tests, read as Mocha's `ui`. */
+export function webdriverioInterface(placement: Placement, configs: Configs): MochaInterface | undefined {
+  if (placement.config === null || webdriverioFramework(placement, null) === 'jasmine') return 'bdd';
+  const options = settingAt(placement.config.settings, ['mochaOpts']);
+  return mochaInterface(
+    { ...placement, config: { ...placement.config, settings: options ?? emptySettings() } },
+    configs,
+  );
+}
+
+/**
+ * The framework a WebdriverIO config runs the specs with: Mocha by default, or Jasmine. Cucumber runs feature files,
+ * which the scan doesn't read; that and a value the scan can't work out are reported on the config when `configs` is
+ * given, and the files are read as Mocha's.
+ */
+export function webdriverioFramework(placement: Placement, configs: Configs | null): WebdriverIOFramework {
+  const { config } = placement;
+  const framework = config ? settingAt(config.settings, ['framework']) : null;
+  if (framework === null || isUnset(framework)) return 'mocha';
+  if (framework.kind === 'value' && (framework.value === 'mocha' || framework.value === 'jasmine'))
+    return framework.value;
+  if (framework.kind !== 'value') {
+    configs?.reportUnknown(
+      unknownAt(framework),
+      'framework',
+      "the scan reads the tests as WebdriverIO's default, Mocha's",
+    );
+  } else {
+    const message = `The config's framework '${String(framework.value)}' is one the scan doesn't read, so it reads the tests as WebdriverIO's default, Mocha's.`;
+    configs?.reportConfig(config as ConfigFile, message);
+  }
+  return 'mocha';
 }

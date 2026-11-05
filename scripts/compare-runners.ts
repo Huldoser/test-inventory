@@ -8,6 +8,7 @@
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { scan, type Framework, type Inventory, type TestRecord } from '../src/index.ts';
 import { run } from './run.ts';
 
@@ -70,6 +71,15 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
     fixture: 'trading-ui-cypress',
     patterns: ['cypress/e2e/**/*.cy.js'],
     packages: (version) => ({ cypress: version }),
+  },
+  webdriverio: {
+    fixture: 'broker-portal',
+    patterns: ['test/specs/*.e2e.js', 'test/specs/{orders,accounts}/*.e2e.js'],
+    packages: (version) => ({
+      '@wdio/cli': version,
+      '@wdio/local-runner': version,
+      '@wdio/mocha-framework': version,
+    }),
   },
 };
 
@@ -265,6 +275,45 @@ function cypressTests(work: string): RunnerTest[] {
   });
 }
 
+/**
+ * WebdriverIO's tests, run with the fixture's config and a reporter of ours, in headless Chrome: a config next to the
+ * fixture's takes its settings, so the specs resolve from the same folder.
+ */
+function webdriverioTests(work: string): RunnerTest[] {
+  const output = path.join(work, 'wdio-tests.jsonl');
+  const reporter = pathToFileURL(path.join(repository, 'scripts/wdio-reporter.mjs')).href;
+  writeFileSync(
+    path.join(work, 'wdio.compare.conf.js'),
+    [
+      "import { config as base } from './wdio.conf.js';",
+      `import CompareReporter from ${JSON.stringify(reporter)};`,
+      'export const config = {',
+      '  ...base,',
+      "  logLevel: 'error',",
+      `  reporters: [[CompareReporter, { outputFile: ${JSON.stringify(output)} }]],`,
+      "  capabilities: [{ browserName: 'chrome', 'goog:chromeOptions': { args: ['--headless=new', '--no-sandbox'] } }],",
+      '};',
+      '',
+    ].join('\n'),
+  );
+  try {
+    run('npx', ['wdio', 'run', './wdio.compare.conf.js'], work);
+  } catch {
+    // A failing test makes WebdriverIO exit with 1; the reporter still wrote every test.
+  }
+  const lines = readFileSync(output, 'utf8').trim().split('\n');
+  return lines.map((line) => {
+    const test = JSON.parse(line) as { file: string; titles: string[]; pending: boolean };
+    return {
+      file: posix(path.relative(work, test.file)),
+      line: 0,
+      name: test.titles.join(' > '),
+      status: test.pending ? 'skipped' : 'ran',
+      tags: [],
+    };
+  });
+}
+
 function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
@@ -406,6 +455,7 @@ async function main(): Promise<void> {
       mocha: mochaTests,
       jasmine: jasmineTests,
       cypress: cypressTests,
+      webdriverio: webdriverioTests,
     };
     const listed = listers[framework](work);
     const rules = JSON.parse(

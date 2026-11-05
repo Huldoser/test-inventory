@@ -53,6 +53,11 @@ const IN_SPEC = Symbol('in a spec');
 const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
+  /** What the runner does with a call it refuses at the top level of a file, as the end of a sentence. */
+  protected readonly refusedEffect: string = 'Jasmine stops before it runs any spec';
+  /** Whether a number after a spec's timeout is a retry count, as WebdriverIO reads it. */
+  protected readonly trailingRetries: boolean = false;
+
   constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) {
     super(parsed, file, readModule, JASMINE, []);
   }
@@ -163,6 +168,13 @@ export class JasmineAdapter extends SuiteAdapter {
         const value = readCount(this.file, 'timeout', option, problems);
         if (value !== null) declared.details.run = { timeout: value };
       }
+      const retries = this.trailingRetries && !spread ? args.at(3) : undefined;
+      if (retries && retries.type !== 'SpreadElement') {
+        const option = { node: retries, resolved: this.file.values.resolve(retries, context.scopes) };
+        const count = readCount(this.file, 'retries', option, problems);
+        if (count !== null)
+          declared.details.run = { ...declared.details.run, retry: { count, delay: null, condition: null } };
+      }
       if (body === null || (body === undefined ? !flags.has('only') : isFunctionLike(body))) return declared;
       const reason = body === undefined ? `${callee}() has no function` : `${callee}() takes a function second`;
       return refused(call, this.refusal('test-without-body', call, reason, context), context, () => declared);
@@ -215,7 +227,7 @@ export class JasmineAdapter extends SuiteAdapter {
   ): Problem {
     const source = snippet(text(this.file, node));
     if (context.passedDown !== IN_DESCRIBE) {
-      return problem(code, node, `${what}, so Jasmine stops before it runs any spec.`, source);
+      return problem(code, node, `${what}, so ${this.refusedEffect}.`, source);
     }
     const message = `${what}, so the describe around it throws: Jasmine reports it as failed, and registers none of the specs written after this call in it.`;
     return { ...problem(code, node, message, source), afterLoad: true };

@@ -19,6 +19,7 @@ import {
   namedFunction,
   problem,
   readChain,
+  readCount,
   readTitle,
   refused,
   text,
@@ -104,6 +105,8 @@ export class MochaAdapter extends SuiteAdapter {
   protected readonly readsContextSettings: boolean = true;
   /** What the runner does with a call it refuses while it loads the file, as the end of a sentence. */
   protected readonly refusedEffect: string = 'Mocha stops before it runs any test';
+  /** Whether a number after a test's function is a retry count, as WebdriverIO reads it. */
+  protected readonly trailingRetries: boolean = false;
 
   constructor(
     parsed: ParsedFile,
@@ -295,6 +298,13 @@ export class MochaAdapter extends SuiteAdapter {
         takesAllFixtures: false,
         usesBench: false,
       };
+      // WebdriverIO retries the function that many times inside each of Mocha's attempts, so 0 leaves Mocha's retries.
+      const retries = this.trailingRetries && args.length >= 3 ? args.at(-1) : undefined;
+      if (retries && retries.type !== 'SpreadElement') {
+        const option = { node: retries, resolved: this.file.values.resolve(retries, context.scopes) };
+        const count = readCount(this.file, 'retries', option, problems);
+        if (count) test.details.run = { retry: { count, delay: null, condition: null } };
+      }
       if (options) this.withOptions?.(test, options, context);
       return test;
     }

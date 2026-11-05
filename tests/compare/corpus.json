@@ -263,5 +263,17 @@
       "files": 26,
       "tests": 113
     }
+  },
+  {
+    "name": "WebdriverIO end-to-end tests",
+    "repository": "https://github.com/webdriverio/webdriverio.git",
+    "commit": "7411de331721a3bcccbf8d246342785d46a4e652",
+    "license": "MIT",
+    "framework": "webdriverio",
+    "patterns": ["e2e/wdio/headless/**/*.e2e.ts"],
+    "expected": {
+      "files": 28,
+      "tests": 381
+    }
   }
 ]
