@@ -14,7 +14,8 @@ const url = `https://huldoser.github.io${base}`;
 
 export default defineConfig({
   title: 'test-inventory',
-  description: 'Test metadata from source code, not from test results.',
+  description:
+    'Lists every Playwright, Vitest and Jest test from the source code, without running it: its state and why, tags, an id that survives a move, a hash of everything it runs, and the tests a change can affect.',
   base,
   cleanUrls: true,
   lastUpdated: true,

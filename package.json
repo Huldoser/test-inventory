@@ -1,11 +1,12 @@
 {
   "name": "test-inventory",
   "version": "0.8.0",
-  "description": "Test metadata from source code, not from test results.",
+  "description": "Lists every Playwright, Vitest and Jest test from the source code, without running it: its state and why, tags, an id that survives a move, a hash of everything it runs, and the tests a change can affect.",
   "keywords": [
     "testing",
     "playwright",
     "vitest",
+    "jest",
     "test-suite",
     "test-inventory",
     "static-analysis",
