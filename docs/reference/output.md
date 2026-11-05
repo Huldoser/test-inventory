@@ -360,14 +360,16 @@ that `testMatch` matches and `testIgnore` doesn't, matched against the full path
 files under `test.dir`, `test.root` or `root` that `include` matches and `exclude` doesn't, with each version's
 defaults, `includeSource` files that hold in-source tests, `typecheck.include` when `typecheck.enabled` is on, and
 `benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root
-config as each version decides, or the config its `extends` names; a config file or folder it names is a project of
-its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config that lists projects runs only
-those. For Jest: the files under `roots` with an extension in `moduleFileExtensions` that `testMatch` or `testRegex`
-match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with each version's defaults
-and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders, globs and config files, each with the config
-Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own files then count
-only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written as a path,
-such as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package isn't.
+config as each version decides, or the config its `extends` names. It runs from the config's root unless it sets its
+own, which Vitest 5 resolves from the config's root and older versions from the config's folder. A config file or
+folder it names is a project of its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config
+that lists projects runs only those. For Jest: the files under `roots` with an extension in `moduleFileExtensions` that
+`testMatch` or `testRegex` match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with
+each version's defaults and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders, globs and config files,
+each with the config Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own
+files then count only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written
+as a path, such as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package
+isn't.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and

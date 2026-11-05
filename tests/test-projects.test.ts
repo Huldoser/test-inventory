@@ -435,6 +435,50 @@ describe('which projects run each test', () => {
     },
   );
 
+  it.each([
+    ['4.1.12', { 'prices an order': ['unit', 'flows'], 'settles a trade': ['flows'] }],
+    ['5.0.0', { 'prices an order': ['unit', 'flows'], 'settles a trade': [] }],
+  ])(
+    "resolves an inline project's own root from the config's folder before Vitest 5, from the config's root after (TI-39): %s",
+    async (version, expected) => {
+      const unit = (title: string) => `import { test } from 'vitest';\ntest('${title}', () => {});\n`;
+      const root = project({
+        'package.json': JSON.stringify({ name: 'desk', devDependencies: { vitest: version } }),
+        'vitest.config.ts': [
+          'export default {',
+          '  test: {',
+          "    root: 'packages/web',",
+          "    projects: [{ test: { name: 'unit' } }, { test: { name: 'flows', root: '.' } }],",
+          '  },',
+          '};',
+          '',
+        ].join('\n'),
+        'packages/web/src/order.test.ts': unit('prices an order'),
+        'tests/settle.test.ts': unit('settles a trade'),
+      });
+      const inventory = await scan({ root, framework: 'vitest', patterns: ['**/*.test.ts'] });
+      expect(projectsOf(inventory)).toEqual(expected);
+    },
+  );
+
+  it.each([
+    ['4.1.12', "root: process.env.WEB_ROOT, projects: [{ test: { name: 'unit' } }]"],
+    ['5.0.0', "root: 'packages/web', projects: [{ test: { name: 'flows', root: process.env.FLOWS_ROOT } }]"],
+    ['5.0.0', "root: process.env.WEB_ROOT, projects: [{ test: { name: 'flows', root: '.' } }]"],
+  ])(
+    "can't tell the projects when an inline project's root can't be worked out (TI-39): %s, %s",
+    async (version, test) => {
+      const root = project({
+        'package.json': JSON.stringify({ name: 'desk', devDependencies: { vitest: version } }),
+        'vitest.config.ts': `export default { test: { ${test} } };\n`,
+        'packages/web/src/order.test.ts': "import { test } from 'vitest';\ntest('prices an order', () => {});\n",
+      });
+      const inventory = await scan({ root, framework: 'vitest', patterns: ['**/*.test.ts'] });
+      expect(inventory.tests.map((item) => item.projects)).toEqual([null]);
+      expect(inventory.configs[0].projects).toBeNull();
+    },
+  );
+
   it('has no projects without a config, none when no project runs the test, and null when it cannot tell', async () => {
     const none = await scanned(
       { 'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n" },

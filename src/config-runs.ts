@@ -828,7 +828,23 @@ export class ConfigRuns {
     const ownTags = isVitest5 ? settingAt(entry, ['test', 'tags']) : null;
     const settings = mergeDeep(base, entry);
     const name = this.listedName(isVitest5 ? entry : settings, index, container);
-    return this.vitestProject(config, settings, folder, ownTags, name);
+    const root = this.inlineRoot(config, entry, folder);
+    if (typeof root !== 'string') return [this.unknownProject(config, root.setting, root.key)];
+    return this.vitestProject(config, settings, root, ownTags, name, true);
+  }
+
+  /**
+   * The folder an inline project runs from. Without a root of its own, every version runs it from the config's root;
+   * Vitest 5 also resolves its own root from there, where older versions resolve it from the config's folder.
+   */
+  private inlineRoot(config: ConfigFile, entry: Setting, folder: string): string | { setting: Unknown; key: string } {
+    const parent = writtenRoot(config.settings);
+    const parentRoot = typeof parent === 'string' ? path.resolve(folder, parent) : (parent ?? folder);
+    const own = writtenRoot(entry);
+    if (own === null) return parentRoot;
+    if (typeof own !== 'string') return own;
+    if (!atLeast(this.version, 5, 0)) return path.resolve(folder, own);
+    return typeof parentRoot === 'string' ? path.resolve(parentRoot, own) : parentRoot;
   }
 
   /**
@@ -855,7 +871,8 @@ export class ConfigRuns {
 
   /**
    * A Vitest project, with the name Vitest gives it: its files are found from `test.dir`, else `test.root` or `root`,
-   * else its folder. With browser mode on, each of `browser.instances` is a project of its own, named as Vitest names it.
+   * else its folder; with `isRoot`, `folder` is its root already. With browser mode on, each of `browser.instances` is
+   * a project of its own, named as Vitest names it.
    */
   private vitestProject(
     config: ConfigFile,
@@ -863,8 +880,9 @@ export class ConfigRuns {
     folder: string,
     ownTags: Setting | null,
     name: string,
+    isRoot = false,
   ): Project[] {
-    const project = this.vitestFiles(config, settings, folder, ownTags, name);
+    const project = this.vitestFiles(config, settings, folder, ownTags, name, isRoot);
     if (project.unknown) return [project];
     const enabled = settingAt(settings, ['test', 'browser', 'enabled']);
     if (enabled?.kind === 'unknown') return [this.unknownProject(config, enabled, 'test.browser.enabled')];
@@ -891,11 +909,12 @@ export class ConfigRuns {
     folder: string,
     ownTags: Setting | null,
     name: string,
+    isRoot: boolean,
   ): Project {
     let root = folder;
     let dir: string | null = null;
     let hasTestRoot = false;
-    for (const key of ['test.root', 'root', 'test.dir']) {
+    for (const key of isRoot ? ['test.dir'] : ['test.root', 'root', 'test.dir']) {
       const setting = settingAt(settings, key.split('.'));
       if (setting === null || isUnset(setting)) continue;
       if (setting.kind !== 'value' || typeof setting.value !== 'string') {
@@ -1047,6 +1066,20 @@ function unknownAt(setting: Setting): Unknown {
 }
 
 /** A config's settings without `test.projects`, as an inline project inherits them; both are known objects. */
+/**
+ * The root a config sets, `test.root` over Vite's `root`, as written; null when it sets none, and the setting and its
+ * key when it can't be worked out.
+ */
+function writtenRoot(settings: Setting): string | null | { setting: Unknown; key: string } {
+  for (const key of ['test.root', 'root']) {
+    const setting = settingAt(settings, key.split('.'));
+    if (setting === null || isUnset(setting)) continue;
+    if (setting.kind !== 'value' || typeof setting.value !== 'string') return { setting: unknownAt(setting), key };
+    return setting.value;
+  }
+  return null;
+}
+
 function withoutProjects(settings: Setting): Setting {
   const root = settings as ObjectSetting;
   const test = root.keys.get('test') as ObjectSetting;
