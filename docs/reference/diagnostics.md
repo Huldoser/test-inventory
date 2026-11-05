@@ -40,6 +40,7 @@ when tests may be missing from the output, and `warning` when a value is missing
 | `describe-throws`          | error                        | A Jest describe that throws while Jest collects it: its callback returns a value, as `() => symbols.map(...)` does, or its `.each` table is empty, isn't a table, or has no function. Jest fails the file.                                                                                                                     |
 | `tag-without-at`           | error                        | A Playwright tag that does not start with `@`, which makes Playwright fail to load the file and run no tests at all.                                                                                                                                                                                                           |
 | `removed-api`              | error                        | An API the framework version removed: Vitest 5 `sequential` and `bench`, `vi.mock`, `vi.unmock` or `vi.hoisted` below the top level of the file from Vitest 5, or options as the third argument from Vitest 4. Vitest fails the file.                                                                                          |
+| `invalid-fixture-argument` | error                        | A rest property among a Playwright function's fixture arguments, as `({ page, ...fixtures })` in a test, hook, condition or `test.extend` fixture. Playwright fails to load the file.                                                                                                                                          |
 | `duplicate-id`             | error                        | Two records in a file have the same id. Ids include a position among equal titles, so only a hash collision causes this.                                                                                                                                                                                                       |
 | `duplicate-title`          | warning, error in Playwright | Playwright: two tests in the file have the same title path, without anonymous describes, or a test in a loop has the same title path on each pass, so Playwright fails to load the file and runs no tests at all. Vitest and Jest: two tests in the same describe have the same title.                                         |
 | `state-in-helper`          | warning                      | A `test.skip()`, `test.fixme()`, `test.fail()` or `describe.configure()` is in a function that the file exports or never calls, so it is not applied to any record. Also given when a call in a test or hook reaches helpers more than 10,000 times, counting the calls inside them; the states set past that are not applied. |
@@ -70,8 +71,8 @@ when tests may be missing from the output, and `warning` when a value is missing
 
 Some problems make the runner fail while it loads a file:
 
-- Playwright: `test-without-body`, `tag-without-at`, `invalid-chain` and `duplicate-title`. Playwright then stops
-  before it runs any test, in this file or any other.
+- Playwright: `test-without-body`, `tag-without-at`, `invalid-chain`, `duplicate-title` and
+  `invalid-fixture-argument`. Playwright then stops before it runs any test, in this file or any other.
 - Vitest: `invalid-chain`, `removed-api` and `undefined-tag`. Vitest reports the file as failed and runs none of its tests; other
   files still run.
 - Jest: `invalid-chain`, `test-without-body`, `async-describe` and `describe-throws`. Jest reports the file as failed and runs none of its

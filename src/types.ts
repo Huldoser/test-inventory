@@ -69,6 +69,7 @@ export type DiagnosticCode =
   | 'nested-test'
   | 'tag-without-at'
   | 'removed-api'
+  | 'invalid-fixture-argument'
   | 'only-in-skipped-describe'
   | 'config-may-change-state'
   | 'undefined-tag'

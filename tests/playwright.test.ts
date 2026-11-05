@@ -294,6 +294,55 @@ test.skip.describe('margin calls', () => {
     expect(codes(inventory)).toEqual(Array(6).fill('invalid-chain'));
   });
 
+  it('reports a rest property in fixture arguments, which Playwright refuses, and lists the tests as not loaded (TI-36)', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const accountTest = test.extend({ account: async ({ page, ...fixtures }, use) => use(page) });
+test.beforeEach(async ({ page, ...fixtures }) => {});
+test.skip(({ browserName, ...rest }) => browserName === 'webkit', 'no WebKit');
+test('fills an order', async ({ page, ...fixtures }) => {});
+test('cancels an order', async ({ page: { mouse, ...pointer } }) => {
+  await test.step('opens the blotter', async ({ ...step }) => {});
+});
+test('amends an order', async (fixtures) => {});
+`);
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['fills an order', 'notLoaded'],
+      ['cancels an order', 'notLoaded'],
+      ['amends an order', 'notLoaded'],
+    ]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart, item.source])).toEqual([
+      ['invalid-fixture-argument', 2, '...fixtures'],
+      ['invalid-fixture-argument', 3, '...fixtures'],
+      ['invalid-fixture-argument', 4, '...rest'],
+      ['invalid-fixture-argument', 5, '...fixtures'],
+    ]);
+  });
+
+  it('reads every form of test.extend() fixtures for a rest property (TI-36)', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+async function marketData({ page, ...fixtures }, use) { await use(page); }
+const BASE_FIXTURES = { venue: async ({ ...fixtures }, use) => use('XNAS') };
+const deskTest = test.extend({
+  ...BASE_FIXTURES,
+  account: [async ({ page, ...fixtures }, use) => use(page), { scope: 'worker' }],
+  marketData,
+  ['broker']: async ({ page }, use) => use(page),
+  currency: 'USD',
+});
+const plainTest = test.extend();
+const sharedTest = test.extend(BASE_FIXTURES);
+let mutableFixtures = { venue: async ({ page }, use) => use('XLON') };
+const variableTest = test.extend(mutableFixtures);
+const builtTest = test.extend(fixturesFor('equities'));
+deskTest('fills an order', async ({ account }) => {});
+`);
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart])).toEqual([
+      ['invalid-fixture-argument', 2],
+      ['invalid-fixture-argument', 3],
+      ['invalid-fixture-argument', 6],
+    ]);
+  });
+
   it('reports step.skip before 1.50 and abort before 1.60', () => {
     const inventory = scanPlaywright(
       `${PLAYWRIGHT_IMPORT}

@@ -287,6 +287,7 @@ export class PlaywrightAdapter implements Adapter {
   private readonly imports: Map<string, ModuleImport>;
   private readonly followed = new Map<string, { exported: boolean; problem: Problem | null }>();
   private readonly reported = new Set<string>();
+  private readonly refusedRests = new Set<Node>();
   /** Variables and names of functions read as test objects on trust, each reported once. */
   private readonly assumed = new Set<Node | string>();
   private readonly aliases = new Map<Node, string[] | null>();
@@ -334,6 +335,7 @@ export class PlaywrightAdapter implements Adapter {
     if (key === 'describe.configure') return this.configure(call, context);
     if (HOOKS.has(key)) {
       const fn = hookFunction(this.file, context.scopes, call.arguments);
+      this.checkFixtureArguments(fn);
       return {
         kind: 'hook',
         name: key as keyof HookCounts,
@@ -344,6 +346,7 @@ export class PlaywrightAdapter implements Adapter {
       };
     }
     if (RUN_MEMBERS.has(key)) return this.runSetting(call, key, context);
+    if (key === 'extend') this.checkExtendFixtures(call, context);
     if (OTHER_MEMBERS.has(key)) return { kind: 'other' };
     return this.invalid(call, names, "is not part of Playwright's API", context);
   }
@@ -550,6 +553,7 @@ export class PlaywrightAdapter implements Adapter {
     const line = this.file.source.line(call.start);
     const fn = isFunctionNode(last) ? last : null;
     const hashed = fn ?? namedFunction(this.file, context.scopes, last);
+    this.checkFixtureArguments(hashed);
     return {
       kind: 'test',
       title,
@@ -570,6 +574,48 @@ export class PlaywrightAdapter implements Adapter {
     };
   }
 
+  /**
+   * Playwright reads which fixtures a function takes from its source, and refuses a rest property among them, as
+   * `({ page, ...fixtures })`, failing the whole run. A nested one, as `({ page: { mouse, ...rest } })`, is allowed.
+   */
+  private checkFixtureArguments(fn: FunctionNode | null): void {
+    const parameter = fn?.params[0];
+    const rest =
+      parameter?.type === 'ObjectPattern' ? parameter.properties.find((item) => item.type === 'RestElement') : null;
+    if (!rest || this.refusedRests.has(rest)) return;
+    this.refusedRests.add(rest);
+    const source = snippet(text(this.file, rest));
+    const message = `Playwright refuses the rest property ${source} in fixture arguments, so it fails to load the file and runs no tests at all.`;
+    this.problems.push(problem('invalid-fixture-argument', rest, message, source));
+  }
+
+  /** The fixture functions of `test.extend({ ... })`, each given as a function or as `[function, options]`. */
+  private checkExtendFixtures(call: CallExpression, context: CallContext): void {
+    const argument = call.arguments.at(0);
+    if (argument && argument.type !== 'SpreadElement') this.checkFixtureObject(argument, context.scopes);
+  }
+
+  /** An object of fixtures, written in place or held in a constant, with the objects it spreads. */
+  private checkFixtureObject(expression: Expression, scopes: readonly Node[]): void {
+    const node = unwrap(expression);
+    if (node.type === 'Identifier') {
+      const constant = this.file.values.constantOf(node.name, scopes);
+      if (constant) this.checkFixtureObject(constant.init, constant.scopes);
+      return;
+    }
+    if (node.type !== 'ObjectExpression') return;
+    for (const property of node.properties) {
+      if (property.type === 'SpreadElement') {
+        this.checkFixtureObject(property.argument, scopes);
+        continue;
+      }
+      const value = unwrap(property.value);
+      const fn = value.type === 'ArrayExpression' ? value.elements[0] : value;
+      if (isFunctionNode(fn)) this.checkFixtureArguments(fn);
+      else if (fn?.type === 'Identifier') this.checkFixtureArguments(this.file.values.functionOf(fn.name, scopes));
+    }
+  }
+
   /** `test.step(title, body)` in a test body; a title that can't be worked out is kept as source text. */
   private step(call: CallExpression, isSkipped: boolean, context: CallContext): ApiCall {
     const { title } = readTitle(this.file, context.scopes, call.arguments[0], {
@@ -581,6 +627,7 @@ export class PlaywrightAdapter implements Adapter {
 
   private modifier(call: CallExpression, state: State, context: CallContext): ApiCall {
     const [condition, description] = [call.arguments.at(0), call.arguments.at(1)];
+    if (isFunctionNode(condition)) this.checkFixtureArguments(condition);
     const problems: Problem[] = [];
     if (isTitleLiteral(condition)) {
       const callee = snippet(text(this.file, call.callee));
