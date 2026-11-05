@@ -1,10 +1,10 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
-// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha), and
-// compares tests, states and tags with the inventory, scanned once as it is by default and once with expandCases,
-// whose cases must have the runner's names. Differences described in tests/compare/expected-differences.json are allowed; any other difference fails the
-// run.
+// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha, Jasmine),
+// and compares tests, states and tags with the inventory, scanned once as it is by default and once with expandCases,
+// whose cases must have the runner's names. Differences described in tests/compare/expected-differences.json are
+// allowed; any other difference fails the run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -16,8 +16,8 @@ interface RunnerTest {
   line: number;
   name: string;
   /**
-   * Playwright: the status the runner expects before running anything (`passed`, `failed` or `skipped`). Vitest, Jest
-   * and Mocha: `ran`, `skipped` or `todo`, from running the tests.
+   * Playwright: the status the runner expects before running anything (`passed`, `failed` or `skipped`). The others:
+   * `ran`, `skipped` or `todo`, from running the tests.
    */
   status: string;
   /** Without the `@` Playwright tags start with. */
@@ -60,6 +60,11 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
     fixture: 'fix-gateway',
     patterns: ['test/**/*.spec.js'],
     packages: (version) => ({ mocha: version }),
+  },
+  jasmine: {
+    fixture: 'risk-service',
+    patterns: ['spec/*.spec.js', 'spec/limits/**/*.spec.js'],
+    packages: (version) => ({ jasmine: version }),
   },
 };
 
@@ -204,6 +209,30 @@ function mochaTests(work: string): RunnerTest[] {
   }));
 }
 
+/**
+ * Runs the specs with a reporter of our own, which lists every spec with its titles and file. Jasmine gives no line,
+ * so specs are matched by name; pending, excluded and not applicable specs didn't run.
+ */
+function jasmineTests(work: string): RunnerTest[] {
+  try {
+    run('npx', ['jasmine', `--reporter=${path.join(repository, 'scripts/jasmine-reporter.cjs')}`], work);
+  } catch {
+    // A failing spec makes Jasmine exit with 3; the reporter still wrote every spec.
+  }
+  const specs = JSON.parse(readFileSync(path.join(work, 'jasmine-tests.json'), 'utf8')) as {
+    file: string;
+    titles: string[];
+    status: string;
+  }[];
+  return specs.map((spec) => ({
+    file: posix(path.relative(work, spec.file)),
+    line: 0,
+    name: spec.titles.join(' > '),
+    status: ['passed', 'failed'].includes(spec.status) ? 'ran' : 'skipped',
+    tags: [],
+  }));
+}
+
 function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
@@ -289,8 +318,8 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
       for (const item of wrong) differences.push({ kind: 'name', ...at, detail: `${test.fullName} / ${item.name}` });
     }
     const status = expectedStatus(test, framework);
-    // Jest and Mocha report no tags, so theirs are not compared.
-    const tags = framework === 'jest' || framework === 'mocha' ? '' : test.tags.map(withoutAt).sort().join(', ');
+    // Jest, Mocha and Jasmine report no tags, so theirs are not compared.
+    const tags = ['jest', 'mocha', 'jasmine'].includes(framework) ? '' : test.tags.map(withoutAt).sort().join(', ');
     for (const item of candidates) {
       if (status !== null && item.status !== status) {
         differences.push({ kind: 'state', ...at, detail: `${test.fullName}: ${test.state} / ${item.status}` });
@@ -324,7 +353,7 @@ function isExpected(
 async function main(): Promise<void> {
   const [name, version = ''] = process.argv.slice(2);
   if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha> <version>');
+    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine> <version>');
   }
   const framework = name as Framework;
   const project = PROJECTS[framework];
@@ -338,7 +367,13 @@ async function main(): Promise<void> {
     );
     run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], work);
 
-    const listers = { playwright: playwrightTests, vitest: vitestTests, jest: jestTests, mocha: mochaTests };
+    const listers = {
+      playwright: playwrightTests,
+      vitest: vitestTests,
+      jest: jestTests,
+      mocha: mochaTests,
+      jasmine: jasmineTests,
+    };
     const listed = listers[framework](work);
     const rules = JSON.parse(
       readFileSync(path.join(repository, 'tests/compare/expected-differences.json'), 'utf8'),

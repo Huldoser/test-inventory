@@ -226,6 +226,10 @@ jobs:
             version: 10.8.2
           - framework: mocha
             version: 12.0.3
+          - framework: jasmine
+            version: 4.6.0
+          - framework: jasmine
+            version: 7.0.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

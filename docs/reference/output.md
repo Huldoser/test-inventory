@@ -356,30 +356,35 @@ have no config. Mocha reads one config for the whole run, the first of `.mocharc
 `.jsonc` and `.json` in the root or a folder above it, joined with the `mocha` key of the nearest package.json: the
 lists of options such as `spec`, `extension` and `ignore` are joined, and the file's value of any other key wins; that
 package.json is in `extends`. Without either, Mocha's defaults apply and the files have no
-config.
+config. Jasmine reads the first of `spec/support/jasmine.mjs`, from Jasmine 5,
+`.json` and `.js` in the root. Without one it runs no file, unless it is given files, as Karma and Angular give it
+theirs.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
 `.gitignore` files in the test folder leave out when no `testDir` is set or `respectGitIgnore` is on. For Vitest: the
 files under `test.dir`, `test.root` or `root` that `include` matches and `exclude` doesn't, with each version's
 defaults, `includeSource` files that hold in-source tests, `typecheck.include` when `typecheck.enabled` is on, and
-`benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root
-config as each version decides, or the config its `extends` names. It runs from the config's root unless it sets its
-own, which Vitest 5 resolves from the config's root and older versions from the config's folder. A config file or
-folder it names is a project of its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config
-that lists projects runs only those. For Jest: the files under `roots` with an extension in `moduleFileExtensions` that
-`testMatch` or `testRegex` match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with
-each version's defaults and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders, globs and config files,
-each with the config Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own
-files then count only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written
-as a path, such as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package
-isn't. For Mocha: from the root, each `spec` entry as a glob, a file, a file named without its extension, or a folder,
-whose files with one of the `extension`s, `js`, `cjs` and `mjs` by default, are taken, those in folders below too with
-`recursive`, without those `ignore` matches as written, so that a pattern starting with `./` matches nothing; and the
-`file` entries, which Mocha loads first, and to which `ignore` doesn't apply. An extension may have several parts, as
-`spec.js`. The default `spec` is `./test`. Scanned with globs, every file they match counts as run, without those
-`ignore` matches, as a project's scripts often give Mocha the spec on its command line, which no config shows. The
-config's `timeout`, which may be a string such as `'5s'`, and `retries` apply to every test.
+`benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root config
+as each version decides, or the config its `extends` names. It runs from the config's root unless it sets its own, which
+Vitest 5 resolves from the config's root and older versions from the config's folder. A config file or folder it names
+is a project of its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config that lists projects
+runs only those. For Jest: the files under `roots` with an extension in `moduleFileExtensions` that `testMatch` or
+`testRegex` match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with each version's
+defaults and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders, globs and config files, each with the
+config Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own files then count
+only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written as a path, such
+as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package isn't. For Mocha:
+from the root, each `spec` entry as a glob, a file, a file named without its extension, or a folder, whose files with
+one of the `extension`s, `js`, `cjs` and `mjs` by default, are taken, those in folders below too with `recursive`,
+without those `ignore` matches as written, so that a pattern starting with `./` matches nothing; and the `file` entries,
+which Mocha loads first, and to which `ignore` doesn't apply. An extension may have several parts, as `spec.js`. The
+default `spec` is `./test`. Scanned with globs, every file they match counts as run, without those `ignore` matches, as
+a project's scripts often give Mocha the spec on its command line, which no config shows. The config's `timeout`, which
+may be a string such as `'5s'`, and `retries` apply to every test. For Jasmine: the files under `spec_dir` that a
+`spec_files` glob matches, without those a glob starting with `!` matches. Without a config it runs no file; scanned
+with globs, every file they match counts as run, as files given to Jasmine replace `spec_files`. `JASMINE_CONFIG_PATH`
+and `--config` are not read.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
@@ -392,11 +397,11 @@ anchor or a multi-line string, is reported, and the scan reads none of that conf
 config that `require()`s a local file, as a shared base, reads what that file exports, and a JSON file, required or
 imported, is read as its value.
 
-| Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `relativeFilePath` | string        | The config, from the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `extends`          | array         | Files the config takes settings from through imports, such as a shared base config, in the order read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `projects`         | array or null | The config's projects, each `{ name, testDir, dependencies }`: Playwright's `projects`, or one project for a config without them, named after its `name`; Vitest's, named as Vitest names them: after `test.name`, else the `name` in the package.json of the project's folder, else the folder, or an inline project after its place among the inline ones, such as `0`; with each browser instance as a project, such as `unit (chromium)`; and in Vitest 5, a project of a config another config lists inside that config's name, such as `web (unit)`; Jest's, named by `displayName`, else empty; Mocha's one project, unnamed. `testDir` is the folder its files are found in. `null` when the scan can't work them out. |
+| Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relativeFilePath` | string        | The config, from the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `extends`          | array         | Files the config takes settings from through imports, such as a shared base config, in the order read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `projects`         | array or null | The config's projects, each `{ name, testDir, dependencies }`: Playwright's `projects`, or one project for a config without them, named after its `name`; Vitest's, named as Vitest names them: after `test.name`, else the `name` in the package.json of the project's folder, else the folder, or an inline project after its place among the inline ones, such as `0`; with each browser instance as a project, such as `unit (chromium)`; and in Vitest 5, a project of a config another config lists inside that config's name, such as `web (unit)`; Jest's, named by `displayName`, else empty; Mocha's and Jasmine's one project, unnamed. `testDir` is the folder its files are found in. `null` when the scan can't work them out. |
 
 In the monorepo, the risk package builds on a config the packages share:
 

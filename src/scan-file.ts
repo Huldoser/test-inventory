@@ -9,6 +9,7 @@ import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
 import { JestAdapter } from './frameworks/jest.ts';
 import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
+import { JasmineAdapter } from './frameworks/jasmine.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { buildRecords, fileRecord, type CommentsMode, type FileConfig, type FileRecords } from './records.ts';
@@ -57,6 +58,7 @@ const ADAPTERS: Record<
   vitest: (parsed, file, readModule) => new VitestAdapter(parsed, file, readModule),
   jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
   mocha: (parsed, file, readModule, settings) => new MochaAdapter(parsed, file, readModule, settings.mochaInterface),
+  jasmine: (parsed, file, readModule) => new JasmineAdapter(parsed, file, readModule),
 };
 
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */

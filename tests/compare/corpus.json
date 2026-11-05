@@ -239,5 +239,17 @@
       "files": 89,
       "tests": 1187
     }
+  },
+  {
+    "name": "Jasmine core specs",
+    "repository": "https://github.com/jasmine/jasmine.git",
+    "commit": "50eb76d23dccb91313993189903f49ef6539cad5",
+    "license": "MIT",
+    "framework": "jasmine",
+    "patterns": ["spec/core/**/*Spec.js"],
+    "expected": {
+      "files": 114,
+      "tests": 1778
+    }
   }
 ]

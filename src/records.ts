@@ -335,6 +335,8 @@ class RecordBuilder {
   private rejectedAt: number | null = null;
   /** Jest: the describes with a test of their own that uses `.only`, which then keep their mode from their others. */
   private focused = new Set<Scope>();
+  /** Jasmine: scopes with a focused spec or describe below them, whose own focus Jasmine gives up for the inner one. */
+  private focusedBelow = new Set<Scope>();
 
   constructor(parsed: ParsedFile, options: RecordOptions) {
     this.parsed = parsed;
@@ -368,6 +370,12 @@ class RecordBuilder {
     );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
     this.focused = new Set(extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope));
+    const focusedAt = [
+      ...extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope),
+      // A describe's scope is inside the file's, so it has a parent.
+      ...extraction.suites.filter((suite) => suite.declaration.isOnly).map((suite) => suite.scope.parent as Scope),
+    ];
+    this.focusedBelow = new Set(focusedAt.flatMap((scope) => outward(scope)));
     const suites = extraction.suites.map((suite) => this.suite(suite));
     const tests = extraction.tests.map((test) => this.test(test, suites));
     for (const item of problems) {
@@ -525,6 +533,16 @@ class RecordBuilder {
     return { chosen: setting ? { setting, source: 'test' } : null, isOnly: declaration.isOnly || passesOnly };
   }
 
+  /**
+   * Whether Jasmine runs a spec as focused: a `fit`, or a spec in an `fdescribe` with no focused spec or describe
+   * below it, as Jasmine runs only the innermost focus (checked with Jasmine 4.6.0 and 7.0.0).
+   */
+  private jasmineFocus(pending: PendingTest, scopes: Scope[]): boolean {
+    if (pending.declaration.isOnly) return true;
+    const nearest = scopes.find((scope) => scope.isOnly);
+    return nearest !== undefined && !this.focusedBelow.has(nearest);
+  }
+
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
     const dependencies = this.options.dependencies(pending);
@@ -547,16 +565,22 @@ class RecordBuilder {
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
     const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
+    const focused = this.options.framework === 'jasmine' ? this.jasmineFocus(pending, scopes) : null;
+    // A focused Jasmine spec runs inside an `xdescribe`, whose own skip doesn't reach it; `pending()` still does.
+    const declaredSkip = (scope: Scope, setting: StateSetting) =>
+      focused === true && scope.kind === 'describe' && suiteOf(scope).declaration.states.includes(setting);
     const chosen = jest
       ? jest.chosen
       : chooseState([
           ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
           ...scopes.flatMap((scope) =>
-            scope.states.map((setting) => ({
-              setting,
-              source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
-            })),
+            scope.states
+              .filter((setting) => !declaredSkip(scope, setting))
+              .map((setting) => ({
+                setting,
+                source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
+              })),
           ),
         ]);
     // When the runner refuses the file, no test in it runs, whatever else is written.
@@ -577,7 +601,7 @@ class RecordBuilder {
     }
     const isOnly = jest
       ? jest.isOnly
-      : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
+      : (focused ?? (declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true));
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments

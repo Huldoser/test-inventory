@@ -268,11 +268,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  // Mocha always sets its globals, and Playwright has none.
+  // Mocha and Jasmine always set their globals, and Playwright has none.
   const missingGlobals =
     framework === 'jest'
       ? (file: string) => jestGlobals(placements.get(file) as Placement)
-      : framework === 'mocha'
+      : framework === 'mocha' || framework === 'jasmine'
         ? () => null
         : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;

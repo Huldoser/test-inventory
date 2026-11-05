@@ -247,6 +247,7 @@ export class ConfigRuns {
 
   private place(file: string): Omit<Placement, 'tags'> {
     if (this.framework === 'mocha') return this.placeMocha(file);
+    if (this.framework === 'jasmine') return this.placeJasmine(file);
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
@@ -402,12 +403,75 @@ export class ConfigRuns {
     };
   }
 
+  /**
+   * Jasmine runs one set of files, from its config. Without one it runs none, unless it is given files: Karma and
+   * Angular projects give it theirs from their own configs, which the scan doesn't read, so their globs decide.
+   */
+  private placeJasmine(file: string): Omit<Placement, 'tags'> {
+    const config = this.configs.jasmineConfig();
+    if (!config) return { config: null, settings: null, runs: this.findsFiles ? false : 'test', projects: null };
+    const [project] = this.projectsOf(config);
+    if (project.unknown) {
+      this.configs.reportUnknown(project.unknown.setting, project.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
+      return { config, settings: project.settings, runs: null, projects: null };
+    }
+    const runs = project.runs(file);
+    return { config, settings: project.settings, runs, projects: runs ? [project.about] : [] };
+  }
+
+  /**
+   * The files Jasmine runs: those under `spec_dir`, from the root, that a `spec_files` glob matches, less those a glob
+   * starting with `!` matches. With globs, every file they match, as files given to Jasmine replace `spec_files`.
+   */
+  private jasmineProject(config: ConfigFile): Project {
+    const folder = this.configs.root;
+    const settings = config.settings;
+    const dirSetting = settingAt(settings, ['spec_dir']);
+    if (dirSetting?.kind === 'unknown') return this.unknownProject(config, dirSetting, 'spec_dir');
+    const specDir = dirSetting?.kind === 'value' && typeof dirSetting.value === 'string' ? dirSetting.value : '';
+    const filesSetting = settingAt(settings, ['spec_files']);
+    const found = filesSetting === null || isUnset(filesSetting) ? [] : patterns(filesSetting, false);
+    if (!Array.isArray(found)) return this.unknownProject(config, found, 'spec_files');
+    const globs = (found as string[]).map((glob) => ({ exclude: glob.startsWith('!'), glob: glob.replace(/^!/, '') }));
+    const matcher = (exclude: boolean) => {
+      const list = globs.filter((item) => item.exclude === exclude).map((item) => posix(path.join(specDir, item.glob)));
+      return list.length > 0 ? picomatch(list) : () => false;
+    };
+    const [included, excluded] = [matcher(false), matcher(true)];
+    const about: ProjectAbout = {
+      name: '',
+      testDir: path.resolve(folder, specDir),
+      dependencies: [],
+      settings,
+      root: folder,
+      container: null,
+      config,
+      grep: null,
+      grepRoot: folder,
+      runsByDefault: true,
+      defaults: NO_DEFAULTS,
+    };
+    return {
+      config,
+      settings,
+      about,
+      unknown: null,
+      runs: (file) => {
+        // Files given to Jasmine replace `spec_files`, its `!` globs included.
+        if (!this.findsFiles) return 'test';
+        const relative = posix(path.relative(folder, file));
+        return included(relative) && !excluded(relative) ? 'test' : false;
+      },
+    };
+  }
+
   private projectsOf(config: ConfigFile): Project[] {
     let projects = this.projects.get(config);
     if (!projects) {
       if (this.framework === 'playwright') projects = this.playwrightProjects(config);
       else if (this.framework === 'jest') projects = this.jestProjects(config);
       else if (this.framework === 'mocha') projects = [this.mochaProject(config, config.settings)];
+      else if (this.framework === 'jasmine') projects = [this.jasmineProject(config)];
       else projects = this.vitestProjects(config);
       this.projects.set(config, projects);
     }

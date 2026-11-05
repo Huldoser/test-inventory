@@ -44,6 +44,7 @@ const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
   ],
   jest: [['snapshotResolver']],
   mocha: [],
+  jasmine: [],
 };
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
@@ -56,6 +57,8 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
   jest: [['setupFiles'], ['setupFilesAfterEnv'], ['globalSetup'], ['globalTeardown']],
   // Mocha loads both before the tests: `require` for root hooks and global fixtures, `file` as test files.
   mocha: [['require'], ['file']],
+  // Jasmine's `helpers` are globs from `spec_dir`, which these paths from the config's folder don't cover.
+  jasmine: [],
 };
 
 const UNKNOWN_PROJECTS =

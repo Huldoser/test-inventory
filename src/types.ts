@@ -14,7 +14,7 @@ type Position = number;
 type Hash = string;
 
 /** @inline */
-export type Framework = 'playwright' | 'vitest' | 'jest' | 'mocha';
+export type Framework = 'playwright' | 'vitest' | 'jest' | 'mocha' | 'jasmine';
 
 /**
  * The state the runner applies to a test, after describes and file-level calls are taken into account. `notLoaded`:

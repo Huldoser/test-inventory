@@ -1,0 +1,10 @@
+{
+  "name": "risk-service",
+  "private": true,
+  "scripts": {
+    "test": "jasmine"
+  },
+  "devDependencies": {
+    "jasmine": "7.0.0"
+  }
+}

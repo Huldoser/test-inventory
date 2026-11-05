@@ -1,0 +1,8 @@
+{
+  "spec_dir": "spec",
+  "spec_files": ["**/*.spec.js", "!fixtures/**"],
+  "helpers": ["helpers/**/*.js"],
+  "env": {
+    "random": true
+  }
+}

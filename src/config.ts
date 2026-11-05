@@ -47,6 +47,8 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   ),
   jest: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts', '.json'].map((extension) => `jest.config${extension}`),
   mocha: ['.cjs', '.js', '.mjs', '.yaml', '.yml', '.jsonc', '.json'].map((extension) => `.mocharc${extension}`),
+  // From the root, which the jasmine command runs in; `.mjs` from Jasmine 5.
+  jasmine: ['.mjs', '.json', '.js'].map((extension) => `spec/support/jasmine${extension}`),
 };
 
 /** Methods that change the object or list they are called on. */
@@ -839,6 +841,16 @@ export class Configs {
     const key = manifest && manifestKey(manifest, 'mocha') !== undefined ? this.at(manifest) : null;
     this.mocha = rc && key ? joinMochaConfigs(rc, key) : (rc ?? key);
     return this.mocha;
+  }
+
+  /**
+   * The config the jasmine command reads, started in the root: the first of `spec/support/jasmine.mjs` (from Jasmine
+   * 5), `.json` and `.js` there; null without one.
+   */
+  jasmineConfig(): ConfigFile | null {
+    const names = CONFIG_FILES.jasmine.filter((name) => !name.endsWith('.mjs') || atLeast(this.version, 5, 0));
+    const name = names.find((item) => existsSync(path.join(this.root, item)));
+    return name ? this.at(path.join(this.root, name)) : null;
   }
 
   /** The config the runner started in a folder would use; null when the folder has none. */

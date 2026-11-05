@@ -100,7 +100,8 @@
             "playwright",
             "vitest",
             "jest",
-            "mocha"
+            "mocha",
+            "jasmine"
           ]
         },
         {
