@@ -581,11 +581,11 @@ export class VitestAdapter extends SuiteAdapter {
     const meta = options.values.get('meta');
     if (meta) details.meta = this.meta(meta, context, problems);
     for (const key of ['timeout', 'repeats'] as const) {
-      const option = options.values.get(key);
+      const option = given(key);
       const value = option ? readCount(this.file, key, option, problems) : null;
       if (value !== null) details.run[key] = value;
     }
-    const retry = options.values.get('retry');
+    const retry = given('retry');
     if (retry) this.retry(retry, details, context, problems);
     return result;
   }

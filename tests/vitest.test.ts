@@ -364,6 +364,18 @@ test.only('amends an order', { only: undefined }, () => {});
     ]);
   });
 
+  it('leaves out timeout, retry and repeats set to undefined from Vitest 5, without a warning (TI-38)', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+test('settles a trade', { timeout: undefined, retry: undefined, repeats: undefined }, () => {});
+`,
+      { frameworkVersion: '5.0.5' },
+    );
+    expect(codes(inventory)).toEqual([]);
+    const { timeout, retries, repeats } = onlyTest(inventory);
+    expect({ timeout, retries, repeats }).toEqual({ timeout: null, retries: null, repeats: null });
+  });
+
   it.each([
     ['{ skip: true }', { state: 'skip', isConditional: false }],
     ['{ skip: false, todo: true }', { state: 'todo' }],
