@@ -68,11 +68,11 @@ errors and the larger warning counts have these causes:
 - **Sentry end to end.** One `framework-mismatch`: a Vitest file inside a Playwright test app. One `nested-test`: a
   `test.skip` written inside another test's body, which Playwright never collects.
 - **Jest's own suite.** 5 `unresolved-test-import` errors: property tests import `it` from `@fast-check/jest`, an
-  installed package. 7 `test-without-body` and `invalid-chain` errors come from jest-jasmine2's tests of those very
-  errors, which call `it('test1')` or `it.todo('test1', () => {})` inside `expect(() => ...)` in a test body. Those
-  calls run in the test, not while the file loads, so the file's tests stay `active`, though the errors say Jest
-  fails the file. The `unsupported-framework-version` warning is because the repository is Jest itself, whose version
-  there is `0.0.0-use.local`.
+  installed package. 8 of the 9 `nested-test` warnings come from jest-jasmine2's tests of Jest's own errors, which
+  call `it('test1')` or `it.todo('test1', () => {})` inside `expect(() => ...)` in a test body; those calls run in the
+  test, not while the file loads, so the file's tests stay `active`. The ninth is a jest-circus test that declares a
+  test inside its body on purpose. The `unsupported-framework-version` warning is because the repository is Jest
+  itself, whose version there is `0.0.0-use.local`.
 
 ## Compared with the runners
 

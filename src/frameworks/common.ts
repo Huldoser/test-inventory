@@ -197,10 +197,17 @@ export function looksLikeDeclaration(args: readonly Argument[]): boolean {
 
 /**
  * A call the runner refuses. Shaped like a declaration outside any test or hook, it is also declared, without what
- * makes it fail, so that its tests, and those of a describe, are listed as not loaded rather than missing.
+ * makes it fail, so that its tests, and those of a describe, are listed as not loaded rather than missing. Inside a
+ * test or hook body, a test or describe is nested, whatever its arguments: the runner refuses it when the test runs,
+ * and the file still loads.
  */
 export function refused(call: CallExpression, refusal: Problem, context: CallContext, declare: () => ApiCall): ApiCall {
-  const declared = context.inBody || !looksLikeDeclaration(call.arguments) ? null : declare();
+  if (context.inBody) {
+    const nested = declare();
+    if (nested.kind === 'test' || nested.kind === 'describe') return nested;
+    return { kind: 'invalid', problem: refusal };
+  }
+  const declared = looksLikeDeclaration(call.arguments) ? declare() : null;
   // A declaration refused for a second reason as well, as for its options, is reported for the first.
   const found = declared?.kind === 'invalid' ? declared.declaration : declared;
   const declaration = found?.kind === 'test' || found?.kind === 'describe' ? found : undefined;
@@ -222,11 +229,7 @@ export function namedFunction(
   scopes: readonly Node[],
   node: Argument | undefined,
 ): FunctionNode | null {
-  if (node?.type !== 'Identifier') return null;
-  const declaration = file.values.declarationOf(node.name, scopes);
-  if (declaration?.type === 'FunctionDeclaration') return declaration;
-  const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
-  return isFunctionNode(init) ? init : null;
+  return node?.type === 'Identifier' ? file.values.functionOf(node.name, scopes) : null;
 }
 
 export function findFunction(args: readonly Argument[], from = 0): FunctionNode | null {

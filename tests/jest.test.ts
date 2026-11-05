@@ -266,6 +266,22 @@ describe('cut-off times');
     expect(onlyTest(inventory).state).toBe('notLoaded');
   });
 
+  it('reports a refused declaration inside a test body as nested, not as failing the file (TI-78)', () => {
+    const inventory = scanJest(`
+test('rejects an instruction without a body', () => {
+  expect(() => it('books the cash leg')).toThrow();
+  expect(() => it('books the securities leg', 'cash')).toThrow();
+  expect(() => it.todo('books the fee', () => {})).toThrow();
+});
+`);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level])).toEqual([
+      ['nested-test', 'warning'],
+      ['nested-test', 'warning'],
+      ['nested-test', 'warning'],
+    ]);
+    expect(onlyTest(inventory).state).toBe('active');
+  });
+
   it('reports an async describe callback, which fails the file', () => {
     const inventory = scanJest(`
 describe('cut-off times', async () => {
@@ -997,8 +1013,18 @@ export default function rootPropsTest(component) {
         "import { settlementTest } from '../shared';\nsettlementTest('settles equities', () => {});\n",
     });
     expect(result.tests).toEqual([['settles equities', 'active', null]]);
-    // The scan also warns of a nested test here, which is wrong: TI-77.
-    expect(result.codes).not.toContain('unresolved-test-import');
+    expect(result.codes).toEqual([]);
+  });
+
+  it('does not report a describe in a helper named like a test as nested in a test (TI-77)', async () => {
+    const result = await scanned({
+      'shared/settlement.js':
+        "export default function settlementTest(desk, body) {\n  describe(desk, () => { test('settles', body); });\n}\n",
+      'tests/settle.test.js':
+        "import settlementTest from '../shared/settlement';\nsettlementTest('equities', () => {});\n",
+    });
+    expect(result.tests).toEqual([['equities > settles', 'active', null]]);
+    expect(result.codes).toEqual([]);
   });
 
   it('reads a test function a helper takes from the globals, with its modifiers (TI-69)', async () => {
