@@ -21,6 +21,7 @@ export const EXAMPLES: { name: string; framework: Framework; patterns: string[] 
   { name: 'trading-e2e-puppeteer', framework: 'jest', patterns: ['e2e/**/*.e2e.js'] },
   { name: 'fix-gateway', framework: 'mocha', patterns: ['test/**/*.spec.js'] },
   { name: 'trading-e2e-mocha', framework: 'mocha', patterns: ['e2e/**/*.e2e.js'] },
+  { name: 'risk-service', framework: 'jasmine', patterns: ['spec/*.spec.js', 'spec/limits/**/*.spec.js'] },
 ];
 
 export function goldenPath(name: string): string {

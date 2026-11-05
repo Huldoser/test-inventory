@@ -9,7 +9,22 @@ const PACKAGES: Record<Framework, string> = {
   vitest: 'vitest',
   jest: 'jest',
   mocha: 'mocha',
+  // Karma and Angular projects list only jasmine-core, which the jasmine command depends on.
+  jasmine: 'jasmine-core',
 };
+
+/** The packages that give a framework's version, the first found. */
+function versionPackages(framework: Framework): string[] {
+  return framework === 'jasmine' ? [PACKAGES.jasmine, 'jasmine'] : [PACKAGES[framework]];
+}
+
+/**
+ * The packages that show a project runs a framework. For Jasmine, the jasmine command or Karma's adapter: jasmine-core
+ * alone is often left over in projects that moved to Jest, or comes with type packages.
+ */
+function runnerPackages(framework: Framework): string[] {
+  return framework === 'jasmine' ? ['jasmine', 'karma-jasmine'] : [PACKAGES[framework]];
+}
 
 /** Each framework's name in messages. */
 export const FRAMEWORK_NAMES: Record<Framework, string> = {
@@ -17,6 +32,7 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
   vitest: 'Vitest',
   jest: 'Jest',
   mocha: 'Mocha',
+  jasmine: 'Jasmine',
 };
 
 /** Oldest supported version of each framework. */
@@ -25,6 +41,7 @@ export const OLDEST: Record<Framework, [number, number]> = {
   vitest: [3, 0],
   jest: [29, 0],
   mocha: [10, 0],
+  jasmine: [4, 0],
 };
 
 /** Where the framework version came from. */
@@ -121,9 +138,11 @@ export function detectFrameworkVersion(
   framework: Framework,
   files: readonly string[],
 ): DetectedVersion | null {
+  for (const name of versionPackages(framework)) {
+    const found = detectIn(root, folders(root), name);
+    if (found) return found;
+  }
   const name = PACKAGES[framework];
-  const found = detectIn(root, folders(root), name);
-  if (found) return found;
   // In path order, then shallowest first; the sort is stable, so packages as deep stay in path order.
   const nested = globSync('**/package.json', { cwd: root, ignore: ['**/node_modules/**'] })
     .sort()
@@ -159,6 +178,8 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
   vitest: /^vitest\.config\.[cm]?[jt]s$/,
   jest: /^jest\.config\.([cm]?[jt]s|json)$/,
   mocha: /^\.mocharc\.([cm]?js|ya?ml|jsonc?)$/,
+  // Matched against the path, not only the name: Jasmine's config is in spec/support.
+  jasmine: /(^|\/)spec\/support\/jasmine\.(m?js|json)$/,
 };
 
 /** Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config. */
@@ -166,7 +187,7 @@ function declares(manifest: string, framework: Framework): boolean {
   const json = readJson(manifest) as Record<string, Record<string, unknown> | undefined> | null;
   const fields = ['devDependencies', 'dependencies', 'peerDependencies', 'optionalDependencies'];
   return (
-    fields.some((field) => json?.[field]?.[PACKAGES[framework]] !== undefined) ||
+    fields.some((field) => runnerPackages(framework).some((name) => json?.[field]?.[name] !== undefined)) ||
     ((framework === 'jest' || framework === 'mocha') && json?.[framework] !== undefined)
   );
 }
@@ -178,7 +199,7 @@ function declares(manifest: string, framework: Framework): boolean {
  * none of them or several, naming what it found.
  */
 export function detectFramework(root: string, ignore: readonly string[]): Framework {
-  const below = globSync(['**/package.json', '**/*.config.*', '**/.mocharc.*'], {
+  const below = globSync(['**/package.json', '**/*.config.*', '**/.mocharc.*', '**/spec/support/jasmine.*'], {
     cwd: root,
     ignore: ['**/node_modules/**', '**/.git/**', ...ignore],
   });
@@ -186,17 +207,17 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   const above = folders(root)
     .slice(1)
     .map((folder) => path.join(folder, 'package.json'));
-  const all = ['playwright', 'vitest', 'jest', 'mocha'] as const;
+  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
-      below.some((file) => CONFIG_NAMES[framework].test(path.basename(file))) ||
+      below.some((file) => CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) ||
       manifests.some((manifest) => declares(manifest, framework)),
   );
   if (found.length === 0) found = all.filter((framework) => above.some((manifest) => declares(manifest, framework)));
   if (found.length === 1) return found[0];
   if (found.length === 0) {
     throw new OptionsError(
-      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest or mocha, and no config of theirs is in the root or below.',
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha or jasmine, and no config of theirs is in the root or below.',
     );
   }
   const names = found.map((framework) => FRAMEWORK_NAMES[framework]);

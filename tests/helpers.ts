@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Ajv, type SchemaObject } from 'ajv';
 import { expect } from 'vitest';
 import { schemaPath } from '../scripts/schema.ts';
-import { scanSource, type Inventory, type ScanSourceOptions, type TestRecord } from '../src/index.ts';
+import { scanSource, type Framework, type Inventory, type ScanSourceOptions, type TestRecord } from '../src/index.ts';
 
 export const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as SchemaObject;
 
@@ -27,7 +27,7 @@ export function expectValidInventory(inventory: unknown): void {
 
 type Options = Partial<Omit<ScanSourceOptions, 'code' | 'framework'>>;
 
-function scan(code: string, framework: 'playwright' | 'vitest' | 'jest' | 'mocha', options: Options): Inventory {
+function scan(code: string, framework: Framework, options: Options): Inventory {
   const inventory = scanSource({
     code,
     framework,
@@ -52,6 +52,10 @@ export function scanJest(code: string, options: Options = {}): Inventory {
 
 export function scanMocha(code: string, options: Options = {}): Inventory {
   return scan(code, 'mocha', options);
+}
+
+export function scanJasmine(code: string, options: Options = {}): Inventory {
+  return scan(code, 'jasmine', options);
 }
 
 export function titles(inventory: Inventory): string[] {
