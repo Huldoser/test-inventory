@@ -238,13 +238,20 @@ jobs:
             version: 9.33.1
           - framework: webdriverio
             version: 10.1.0
+          - framework: node
+            version: '22'
+          - framework: node
+            version: '24'
+          - framework: node
+            version: '26'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          # node:test is compared on the Node.js line under test; the other runners on 24.
+          node-version: ${{ matrix.framework == 'node' && matrix.version || 24 }}
           cache: npm
       - run: npm ci
       - run: npm run compare -- ${{ matrix.framework }} ${{ matrix.version }}

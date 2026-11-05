@@ -330,6 +330,7 @@ class RecordBuilder {
   private readonly fileName: string;
   private readonly ordinals = new Map<string, number>();
   private readonly suiteIds = new Map<Scope, string>();
+  private readonly testIds = new Map<PendingTest, string>();
   private readonly diagnostics: Diagnostic[] = [];
   /** The line of the first problem for which the runner refuses the file; null when it loads. */
   private rejectedAt: number | null = null;
@@ -554,7 +555,15 @@ class RecordBuilder {
     const scopes = outward(pending.scope);
     const describes = scopes.filter((scope) => scope.kind === 'describe').reverse();
     const title = declaration.title;
-    const id = this.id([this.describeTitles(describes), title.withoutTags]);
+    const parents: PendingTest[] = [];
+    for (let parent = pending.parent; parent; parent = parent.parent) parents.unshift(parent);
+    const parentTitles = parents.map((parent) => parent.declaration.title.withoutTags);
+    const id = this.id(
+      parents.length > 0
+        ? [this.describeTitles(describes), parentTitles, title.withoutTags]
+        : [this.describeTitles(describes), title.withoutTags],
+    );
+    this.testIds.set(pending, id);
     const fileScope = scopes[scopes.length - 1];
     const tags = unique([
       ...(this.options.config?.configTags ?? []),
@@ -577,6 +586,10 @@ class RecordBuilder {
       : chooseState([
           ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
+          // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
+          ...parents.flatMap((parent) =>
+            parent.declaration.states.map((setting) => ({ setting, source: 'suite' as const })),
+          ),
           ...scopes.flatMap((scope) =>
             scope.states
               .filter((setting) => !declaredSkip(scope, setting))
@@ -591,7 +604,10 @@ class RecordBuilder {
       this.rejectedAt !== null && !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt);
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
     const setting = rejected ? null : (chosen?.setting ?? null);
-    const suitePath = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []);
+    const suitePath = [
+      ...describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []),
+      ...parents.map((parent) => parent.declaration.title.text),
+    ];
     const tagConcurrent = this.options.config?.tags?.concurrentBeatsTags ? undefined : fromTags?.concurrent;
     const tagMode: Mode | null = tagConcurrent === undefined ? null : tagConcurrent ? 'parallel' : 'default';
     const [mode = null] = tagged(
@@ -658,6 +674,7 @@ class RecordBuilder {
       dependencies: dependencies.files,
       hasUnfollowedDependencies: !dependencies.isComplete,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
+      parentTestId: pending.parent ? (this.testIds.get(pending.parent) as string) : null,
       suitePath,
       relativeFilePath: this.options.relativeFilePath,
       fileName: this.fileName,

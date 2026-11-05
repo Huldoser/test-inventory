@@ -4,7 +4,8 @@ import { globSync } from 'tinyglobby';
 import { OptionsError } from './options.ts';
 import type { Framework } from './types.ts';
 
-const PACKAGES: Record<Framework, string> = {
+/** The package of each runner; `node:test` ships with Node.js. */
+const PACKAGES: Record<Exclude<Framework, 'node'>, string> = {
   playwright: '@playwright/test',
   vitest: 'vitest',
   jest: 'jest',
@@ -16,7 +17,7 @@ const PACKAGES: Record<Framework, string> = {
 };
 
 /** The packages that give a framework's version, the first found. */
-function versionPackages(framework: Framework): string[] {
+function versionPackages(framework: Exclude<Framework, 'node'>): string[] {
   return framework === 'jasmine' ? [PACKAGES.jasmine, 'jasmine'] : [PACKAGES[framework]];
 }
 
@@ -24,7 +25,7 @@ function versionPackages(framework: Framework): string[] {
  * The packages that show a project runs a framework. For Jasmine, the jasmine command or Karma's adapter: jasmine-core
  * alone is often left over in projects that moved to Jest, or comes with type packages.
  */
-function runnerPackages(framework: Framework): string[] {
+function runnerPackages(framework: Exclude<Framework, 'node'>): string[] {
   return framework === 'jasmine' ? ['jasmine', 'karma-jasmine'] : [PACKAGES[framework]];
 }
 
@@ -37,6 +38,7 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
   jasmine: 'Jasmine',
   cypress: 'Cypress',
   webdriverio: 'WebdriverIO',
+  node: 'node:test',
 };
 
 /** Oldest supported version of each framework. */
@@ -48,6 +50,7 @@ export const OLDEST: Record<Framework, [number, number]> = {
   jasmine: [4, 0],
   cypress: [13, 0],
   webdriverio: [9, 0],
+  node: [22, 0],
 };
 
 /** Where the framework version came from. */
@@ -144,6 +147,7 @@ export function detectFrameworkVersion(
   framework: Framework,
   files: readonly string[],
 ): DetectedVersion | null {
+  if (framework === 'node') return nodeVersion(root);
   for (const name of versionPackages(framework)) {
     const found = detectIn(root, folders(root), name);
     if (found) return found;
@@ -178,6 +182,43 @@ function detectIn(root: string, all: string[], name: string): DetectedVersion | 
   return null;
 }
 
+/**
+ * The Node.js version a project pins, whose `node:test` runs its tests: the first of `.node-version`, `.nvmrc`, Volta's
+ * `node` and the lowest version `engines.node` allows, in the root, then in each folder above it. A pin without a
+ * minor, as `24`, or an alias, as `lts/*`, is a range or nothing.
+ */
+function nodeVersion(root: string): DetectedVersion | null {
+  const source = (folder: string, file: string) => path.relative(root, path.join(folder, file)).replaceAll('\\', '/');
+  for (const folder of folders(root)) {
+    for (const file of ['.node-version', '.nvmrc']) {
+      const pinned = readText(path.join(folder, file))?.trim() ?? '';
+      const found = /^v?(\d+)(?:\.(\d+)(?:\.(\d+))?)?$/.exec(pinned);
+      if (!found) continue;
+      const [major, minor, patch] = [found[1], found[2] as string | undefined, found[3] as string | undefined];
+      return {
+        version: `${major}.${minor ?? 0}.${patch ?? 0}`,
+        source: source(folder, file),
+        range: minor === undefined ? pinned : null,
+      };
+    }
+    const manifest = readJson(path.join(folder, 'package.json')) as {
+      volta?: { node?: unknown };
+      engines?: { node?: unknown };
+    } | null;
+    const volta = manifest?.volta?.node;
+    if (typeof volta === 'string' && /^\d+\.\d+\.\d+$/.test(volta)) {
+      return { version: volta, source: source(folder, 'package.json'), range: null };
+    }
+    const engines = manifest?.engines?.node;
+    const lowest = typeof engines === 'string' ? /\d+(\.\d+)?(\.\d+)?/.exec(engines) : null;
+    if (typeof engines === 'string' && lowest) {
+      const [major, minor = '0', patch = '0'] = lowest[0].split('.');
+      return { version: `${major}.${minor}.${patch}`, source: source(folder, 'package.json'), range: engines };
+    }
+  }
+  return null;
+}
+
 /** Config file names of each runner. A Vite config alone doesn't count, as Vite apps without Vitest have one. */
 const CONFIG_NAMES: Record<Framework, RegExp> = {
   playwright: /^playwright\.config\.[cm]?[jt]s$/,
@@ -188,12 +229,21 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
   jasmine: /(^|\/)spec\/support\/jasmine\.(m?js|json)$/,
   cypress: /^cypress\.config\.[cm]?[jt]s$/,
   webdriverio: /^wdio\.conf\.[cm]?[jt]s$/,
+  node: /^node\.config\.json$/,
 };
 
-/** Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config. */
+/**
+ * Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config, or for
+ * `node:test` has a script that runs `node --test`.
+ */
 function declares(manifest: string, framework: Framework): boolean {
   const json = readJson(manifest) as Record<string, Record<string, unknown> | undefined> | null;
   const fields = ['devDependencies', 'dependencies', 'peerDependencies', 'optionalDependencies'];
+  if (framework === 'node') {
+    return Object.values(json?.scripts ?? {}).some(
+      (script) => typeof script === 'string' && /(^|[\s;&|(])node\s+(?:[^;&|]*\s)?--test(?=[\s=]|$)/.test(script),
+    );
+  }
   return (
     fields.some((field) => runnerPackages(framework).some((name) => json?.[field]?.[name] !== undefined)) ||
     ((framework === 'jest' || framework === 'mocha') && json?.[framework] !== undefined)
@@ -208,7 +258,14 @@ function declares(manifest: string, framework: Framework): boolean {
  */
 export function detectFramework(root: string, ignore: readonly string[]): Framework {
   const below = globSync(
-    ['**/package.json', '**/*.config.*', '**/.mocharc.*', '**/spec/support/jasmine.*', '**/wdio.conf.*'],
+    [
+      '**/package.json',
+      '**/*.config.*',
+      '**/.mocharc.*',
+      '**/spec/support/jasmine.*',
+      '**/wdio.conf.*',
+      '**/node.config.json',
+    ],
     {
       cwd: root,
       ignore: ['**/node_modules/**', '**/.git/**', ...ignore],
@@ -218,7 +275,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   const above = folders(root)
     .slice(1)
     .map((folder) => path.join(folder, 'package.json'));
-  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress', 'webdriverio'] as const;
+  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress', 'webdriverio', 'node'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
       below.some((file) => CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) ||
@@ -228,7 +285,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   if (found.length === 1) return found[0];
   if (found.length === 0) {
     throw new OptionsError(
-      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli, and no config of theirs is in the root or below.',
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli or has a script that runs node --test, and no config of theirs is in the root or below.',
     );
   }
   const names = found.map((framework) => FRAMEWORK_NAMES[framework]);

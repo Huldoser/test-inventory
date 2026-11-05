@@ -47,6 +47,7 @@ const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
   jasmine: [],
   cypress: [],
   webdriverio: [],
+  node: [],
 };
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
@@ -68,6 +69,7 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
   ],
   // Mocha's `require` runs before the specs, as root hooks may.
   webdriverio: [['mochaOpts', 'require']],
+  node: [],
 };
 
 const UNKNOWN_PROJECTS =

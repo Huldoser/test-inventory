@@ -46,6 +46,7 @@ const TEST_KEYS = Object.keys({
   dependencies: true,
   hasUnfollowedDependencies: true,
   suiteId: true,
+  parentTestId: true,
   suitePath: true,
   relativeFilePath: true,
   fileName: true,

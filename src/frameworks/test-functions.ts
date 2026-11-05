@@ -77,6 +77,10 @@ export interface Dialect {
   defaultImport: string | null;
   /** Why `require()` of the module fails; null when the module can be required. */
   required: string | null;
+  /** What the module is when called, as `node:test`'s default export and `require()` are its `test`. */
+  callable?: Start;
+  /** Whether the functions must be imported, as the runner sets no globals; `starts` are then exports only. */
+  importOnly?: boolean;
 }
 
 /** What a test function chosen at run time, as in `isCI ? it.skip : it`, is either way: only the links both have. */
@@ -145,7 +149,7 @@ export class SuiteBindings implements TestObjects {
         if (specifier.type === 'ImportNamespaceSpecifier') {
           this.namespaces.add(specifier.local.name);
         } else if (specifier.type === 'ImportDefaultSpecifier') {
-          if (dialect.defaultImport === null) this.namespaces.add(specifier.local.name);
+          if (dialect.defaultImport === null) this.bindModule(specifier.local.name);
           else this.problems.push(problem('invalid-import', specifier, dialect.defaultImport));
         } else {
           this.bindMember(exportName(specifier.imported), specifier.local.name);
@@ -214,13 +218,14 @@ export class SuiteBindings implements TestObjects {
   startOf(expression: Expression): Start | null {
     const node = unwrap(expression);
     if (node.type === 'Identifier') {
-      const global = this.declared.has(node.name) ? undefined : this.dialect.starts.get(node.name);
+      const global =
+        this.declared.has(node.name) || this.dialect.importOnly ? undefined : this.dialect.starts.get(node.name);
       return this.starts.get(node.name) ?? global ?? null;
     }
     if (node.type !== 'MemberExpression') return null;
     const name = propertyName(node);
     if (name === null) return null;
-    if (this.isNamespace(node.object)) return this.dialect.starts.get(name) ?? null;
+    if (this.isNamespace(node.object)) return this.dialect.starts.get(name) ?? this.calledWith(name);
     const base = this.startOf(node.object);
     return base && this.dialect.modifiers.has(name) ? { kind: base.kind, links: [...base.links, name] } : null;
   }
@@ -234,7 +239,22 @@ export class SuiteBindings implements TestObjects {
     const node = unwrap(expression);
     if (node.type === 'Identifier') return this.starts.get(node.name) ?? null;
     if (node.type !== 'MemberExpression' || !this.isNamespace(node.object)) return null;
-    return this.dialect.starts.get(propertyName(node) ?? '') ?? null;
+    const name = propertyName(node) ?? '';
+    return this.dialect.starts.get(name) ?? this.calledWith(name);
+  }
+
+  /** A modifier on the module itself, as `test.skip` on `node:test`'s default export; null for any other member. */
+  private calledWith(name: string): Start | null {
+    const { callable } = this.dialect;
+    return callable && this.dialect.modifiers.has(name)
+      ? { kind: callable.kind, links: [...callable.links, name] }
+      : null;
+  }
+
+  /** A name the module is bound to: its namespace, and its `test` too when the module can be called. */
+  private bindModule(name: string): void {
+    this.namespaces.add(name);
+    if (this.dialect.callable) this.starts.set(name, this.dialect.callable);
   }
 
   exportedStart(name: string): Start | null {
@@ -283,7 +303,7 @@ export class SuiteBindings implements TestObjects {
     }
     if (!this.dialect.isModule(init)) return false;
     if (id.type === 'Identifier') {
-      this.namespaces.add(id.name);
+      this.bindModule(id.name);
       return true;
     }
     if (id.type !== 'ObjectPattern') return false;
@@ -398,10 +418,7 @@ export abstract class SuiteAdapter implements Adapter {
     const { base, links: chainLinks } = chain;
     const { scopes, inBody } = lookup;
     // `require('@jest/globals').test(...)`: the module itself, called in place.
-    if (base.type === 'CallExpression' && this.dialect.isModule(base)) {
-      const start = this.dialect.starts.get(chainLinks.at(0)?.name ?? '');
-      return start ? { kind: start.kind, index: 1, modifiers: links(start.links) } : null;
-    }
+    if (base.type === 'CallExpression' && this.dialect.isModule(base)) return this.member(chainLinks);
     if (base.type === 'CallExpression') {
       const returned = this.returned(base, chainLinks, args, lookup);
       return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
@@ -411,7 +428,7 @@ export abstract class SuiteAdapter implements Adapter {
     // name, such as `(test) => test.result()`, is not the framework's.
     const declaration = this.file.values.declarationOf(base.name, scopes);
     if (declaration === null) {
-      const global = this.dialect.starts.get(base.name);
+      const global = this.dialect.importOnly ? undefined : this.dialect.starts.get(base.name);
       if (!global) return null;
       this.usesGlobals = true;
       return { kind: global.kind, index: 0, modifiers: links(global.links) };
@@ -429,12 +446,20 @@ export abstract class SuiteAdapter implements Adapter {
         ? { kind: this.dialect.starts.get(base.name)?.kind ?? 'test', index: 0 }
         : null;
     }
-    if (this.bindings.namespaces.has(base.name)) {
-      const start = this.dialect.starts.get(chainLinks.at(0)?.name ?? '');
-      return start ? { kind: start.kind, index: 1, modifiers: links(start.links) } : null;
-    }
+    if (this.bindings.namespaces.has(base.name)) return this.member(chainLinks);
     const start = this.bindings.starts.get(base.name);
     return start ? { kind: start.kind, index: 0, modifiers: links(start.links) } : null;
+  }
+
+  /**
+   * What a chain on the framework's module starts with: the member it names, or for a module that can be called, as
+   * `node:test`'s, the module itself, as in `test.skip(...)`.
+   */
+  private member(chainLinks: readonly Link[]): { kind: Kind; index: number; modifiers?: Link[] } | null {
+    const start = this.dialect.starts.get(chainLinks.at(0)?.name ?? '');
+    if (start) return { kind: start.kind, index: 1, modifiers: links(start.links) };
+    const { callable } = this.dialect;
+    return callable ? { kind: callable.kind, index: 0, modifiers: links(callable.links) } : null;
   }
 
   /**

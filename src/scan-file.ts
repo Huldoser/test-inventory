@@ -10,6 +10,7 @@ import { VitestAdapter } from './frameworks/vitest.ts';
 import { JestAdapter } from './frameworks/jest.ts';
 import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
 import { CypressAdapter } from './frameworks/cypress.ts';
+import { NodeAdapter } from './frameworks/node.ts';
 import {
   WebdriverIOJasmineAdapter,
   WebdriverIOMochaAdapter,
@@ -72,6 +73,7 @@ const ADAPTERS: Record<
     settings.webdriverioFramework === 'jasmine'
       ? new WebdriverIOJasmineAdapter(parsed, file, readModule)
       : new WebdriverIOMochaAdapter(parsed, file, readModule, settings.mochaInterface),
+  node: (parsed, file, readModule) => new NodeAdapter(parsed, file, readModule),
 };
 
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */

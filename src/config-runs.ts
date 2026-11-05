@@ -227,6 +227,7 @@ export class ConfigRuns {
   /** The project Jest runs with when no config is found up to the root. */
   private jestDefaults: Project | null = null;
   private mochaDefaults: Project | null = null;
+  private nodeRuns: ((file: string) => boolean) | null = null;
   /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
   private readonly expanding = new Map<ConfigFile, string>();
 
@@ -252,6 +253,7 @@ export class ConfigRuns {
     if (this.framework === 'jasmine') return this.placeJasmine(file);
     if (this.framework === 'cypress') return this.placeCypress(file);
     if (this.framework === 'webdriverio') return this.placeWebdriverIO(file);
+    if (this.framework === 'node') return this.placeNode(file);
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
@@ -556,6 +558,35 @@ export class ConfigRuns {
       });
     }
     return projects;
+  }
+
+  /** `node --test` runs the files its arguments name, or without any, those its default patterns match; see `nodeFiles`. */
+  private placeNode(file: string): Omit<Placement, 'tags'> {
+    if (!this.findsFiles) return { config: null, settings: null, runs: 'test', projects: null };
+    this.nodeRuns ??= this.nodeFiles();
+    const runs = this.nodeRuns(posix(path.relative(this.configs.root, file)));
+    return { config: null, settings: null, runs: runs ? 'test' : false, projects: null };
+  }
+
+  /**
+   * The files `node --test` runs from the root, outside dot folders and `node_modules`: those the arguments of the
+   * package.json script that runs it give, the `test` script first, each a glob or a path, and from Node.js 26.8 a folder
+   * for the default patterns inside it; without arguments, the default patterns. They take TypeScript files too from
+   * Node.js 22.18, which strips types by default.
+   */
+  private nodeFiles(): (relative: string) => boolean {
+    const extensions = stripsTypes(this.version) ? 'cjs,mjs,js,cts,mts,ts' : 'cjs,mjs,js';
+    const defaults = ['**/*.test', '**/*-test', '**/*_test', '**/test-*', '**/test', '**/test/**/*'].map(
+      (glob) => `${glob}.{${extensions}}`,
+    );
+    const searchesFolders = atLeast(this.version, 26, 8);
+    const globs = nodeTestArguments(path.join(this.configs.root, 'package.json')).flatMap((argument) => {
+      const folder = path.resolve(this.configs.root, argument);
+      if (!searchesFolders || !existsSync(folder) || !statSync(folder).isDirectory()) return [argument];
+      return defaults.map((glob) => `${argument.replace(/\/+$/, '')}/${glob}`);
+    });
+    const isMatch = picomatch((globs.length > 0 ? globs : defaults).map((glob) => path.posix.normalize(posix(glob))));
+    return (relative) => isMatch(relative) && !relative.split('/').includes('node_modules');
   }
 
   /** WebdriverIO runs the files of the config in the root; without one, it runs nothing, unless it is given files. */
@@ -1824,4 +1855,67 @@ export function webdriverioFramework(placement: Placement, configs: Configs | nu
     configs?.reportConfig(config as ConfigFile, message);
   }
   return 'mocha';
+}
+
+/** Whether a Node.js version runs TypeScript files without a flag: from 22.18 on the 22 line, and from 23.6. */
+function stripsTypes(version: [number, number] | null): boolean {
+  if (version === null) return true;
+  const [major, minor] = version;
+  return major > 23 || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
+}
+
+/** Node.js options that take their value as the next argument, so it is not a file to test. */
+const NODE_VALUE_OPTIONS = new Set([
+  '--test-reporter',
+  '--test-reporter-destination',
+  '--test-name-pattern',
+  '--test-skip-pattern',
+  '--test-concurrency',
+  '--test-timeout',
+  '--test-shard',
+  '--test-isolation',
+  '--test-coverage-include',
+  '--test-coverage-exclude',
+  '--test-global-setup',
+  '--import',
+  '--require',
+  '-r',
+  '--loader',
+  '--experimental-loader',
+  '--env-file',
+  '--conditions',
+  '-C',
+  '--config-file',
+  '--experimental-config-file',
+]);
+
+/**
+ * The files and globs a package.json script gives `node --test`: the `test` script's, else those of the first script
+ * that runs it; none when no script runs it or it is given none.
+ */
+function nodeTestArguments(manifest: string): string[] {
+  let scripts: Record<string, unknown> = {};
+  try {
+    scripts = (JSON.parse(readFileSync(manifest, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
+  } catch {
+    return [];
+  }
+  const ordered = [scripts.test, ...Object.values(scripts)].filter((script) => typeof script === 'string');
+  for (const script of ordered) {
+    for (const command of script.split(/&&|\|\||[;|]/)) {
+      const words = [...command.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map(
+        (match) => (match[1] as string | undefined) ?? (match[2] as string | undefined) ?? match[3],
+      );
+      const node = words.findIndex((word) => word === 'node' || word.endsWith('/node'));
+      if (node === -1 || !words.slice(node + 1).includes('--test')) continue;
+      const files: string[] = [];
+      for (let index = node + 1; index < words.length; index++) {
+        const word = words[index];
+        if (NODE_VALUE_OPTIONS.has(word)) index++;
+        else if (!word.startsWith('-')) files.push(word);
+      }
+      return files;
+    }
+  }
+  return [];
 }

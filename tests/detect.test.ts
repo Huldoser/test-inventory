@@ -81,7 +81,7 @@ describe('framework detection', () => {
     const root = project({ 'package.json': JSON.stringify({ devDependencies: { ava: '6.4.1' } }), 'test/a.js': '' });
     await expect(scan({ root })).rejects.toThrow(
       new TypeError(
-        'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli, and no config of theirs is in the root or below.',
+        'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli or has a script that runs node --test, and no config of theirs is in the root or below.',
       ),
     );
   });
