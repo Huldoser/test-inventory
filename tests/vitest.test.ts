@@ -1208,8 +1208,10 @@ concurrentGroup('watchlists', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
-  it('does not read calls of destructured members that Vitest calls on the test object itself', () => {
-    const inventory = scanVitest(`${VITEST_IMPORT}
+  it('reports calls of destructured members that read the test object, which fail the file (TI-57)', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+test('books a trade', () => {});
 const { each, for: forEach, skipIf, runIf, extend } = test;
 each([['AAPL']])('quotes %s', () => {});
 forEach([['AAPL']])('quotes %s', () => {});
@@ -1217,35 +1219,73 @@ skipIf(process.env.CI)('sends an order', () => {});
 runIf(process.env.CI)('cancels an order', () => {});
 const withBroker = extend({ broker: 'paper' });
 withBroker('routes an order', () => {});
-`);
-    expect(inventory.tests).toEqual([]);
-    expect(inventory.diagnostics).toEqual([]);
+const { override } = test;
+override({ broker: 'live' });
+`,
+      { frameworkVersion: '5.1.0' },
+    );
+    expect(inventory.tests.map((item) => [item.title, item.state])).toEqual([['books a trade', 'notLoaded']]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart, item.message])).toEqual([
+      [
+        'invalid-chain',
+        4,
+        'each is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        5,
+        'forEach is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        6,
+        'skipIf is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        7,
+        'runIf is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        8,
+        'extend is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        11,
+        'override is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+    ]);
   });
 
-  it('reads describe functions kept in a variable, also chosen by a condition', () => {
-    const inventory = scanVitest(`${VITEST_IMPORT}
-const suiteOf = describe;
-const describeOnCi = process.env.CI ? describe.concurrent.skipIf(!process.env.BROKER_URL) : describe.concurrent;
-const testOnCi = process.env.CI ? test.concurrent : it.concurrent.skip;
-const mixed = process.env.CI ? it.skip : describe;
-const tableOnCi = process.env.CI ? describe.each([['AAPL']]) : describe.each([['MSFT']]);
-suiteOf('fees', () => {});
-describeOnCi('broker', () => {
-  testOnCi('sends an order', () => {});
-});
-mixed('rounds the fee', () => {});
-tableOnCi('quotes for %s', () => {});
-`);
-    expect(inventory.suites.map((suite) => [suite.title, suite.isSkipped, suite.isParallel])).toEqual([
-      ['fees', false, false],
-      ['broker', false, true],
-      ['quotes for %s', false, false],
-    ]);
-    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isParallel])).toEqual([
-      ['broker > sends an order', 'active', true],
-    ]);
-    expect(inventory.diagnostics).toEqual([]);
-  });
+  it.each([
+    ['3.2.4', ['each', 'describe.each']],
+    ['4.0.18', ['each', 'describe.each']],
+    ['4.1.12', ['each', 'extend', 'scoped', 'describe.each']],
+    ['5.0.0', ['each', 'extend', 'scoped', 'describe.each', 'describe.for']],
+  ])(
+    'reports the destructured members each Vitest version calls on the test object: %s (TI-57)',
+    (version, refused) => {
+      const inventory = scanVitest(
+        `${VITEST_IMPORT}
+const { each, extend, scoped } = test;
+const { each: eachDesk, for: forDesk } = describe;
+const { skip, concurrent } = test;
+each([1])('sizes lot %i', () => {});
+extend({});
+scoped({});
+eachDesk([1])('desk %i', () => { test('nets', () => {}); });
+forDesk([1])('book %i', () => { test('books', () => {}); });
+skip('skips a trade', () => {});
+concurrent('books a trade', () => {});
+`,
+        { frameworkVersion: version },
+      );
+      const members = ['each', 'extend', 'scoped', 'describe.each', 'describe.for'];
+      expect(inventory.diagnostics.map((item) => members[(item.lineStart ?? 0) - 5])).toEqual(refused);
+    },
+  );
 
   it('reads functions kept in a variable from globals, also derived with extend', () => {
     const inventory = scanVitest(`const skipOnCi = it.skipIf(process.env.CI);
