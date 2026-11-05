@@ -21,6 +21,7 @@ describe('golden output', () => {
     ['playwright', 'playwright.spec.ts', ['1.42.0', '1.49.0', '1.50.0', '1.57.0', '1.60.0', '1.63.0', '1.64.0']],
     ['vitest', 'vitest.test.ts', ['3.0.0', '4.0.0', '4.1.0', '5.0.0']],
     ['jest', 'jest.test.ts', ['29.0.0', '29.7.0', '30.0.0', '30.5.0']],
+    ['mocha', 'mocha.test.ts', ['10.0.0', '12.0.0']],
   ] as const)('of the %s syntax tour', (framework, file, versions) => {
     const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');
     it.each(versions)('matches for version %s', async (frameworkVersion) => {
@@ -41,6 +42,13 @@ describe('golden output', () => {
     const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');
     const inventory = scanSource({ code, relativeFilePath: `tests/${file}`, framework: 'jest' });
     await expect(golden(inventory)).toMatchFileSnapshot('golden/syntax/jest-rejected.json');
+  });
+
+  it('of forms for which Mocha stops before it runs any test', async () => {
+    const file = 'mocha-rejected.test.ts';
+    const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');
+    const inventory = scanSource({ code, relativeFilePath: `tests/${file}`, framework: 'mocha' });
+    await expect(golden(inventory)).toMatchFileSnapshot('golden/syntax/mocha-rejected.json');
   });
 
   it.each(['3.0.0', '4.0.0', '5.0.0'])(

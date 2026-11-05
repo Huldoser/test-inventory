@@ -65,6 +65,7 @@ export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   ]),
   vitest: new Set(['invalid-chain', 'removed-api', 'undefined-tag']),
   jest: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
+  mocha: new Set(['invalid-chain', 'test-without-body']),
 };
 
 export function toDiagnostic(

@@ -21,6 +21,7 @@ import {
 } from './ast.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { readFailure } from './files.ts';
+import { folders } from './framework-version.ts';
 import {
   exportName,
   moduleExportsValue,
@@ -36,6 +37,7 @@ import { snippet } from './source.ts';
 import type { ConfigRecord, Diagnostic, Framework, ProjectRecord } from './types.ts';
 import { isKey, isScopeNode, Values, type Value } from './values.ts';
 import { VITEST_INCLUDE, VITEST_TYPECHECK_INCLUDE, vitestExclude } from './vitest-defaults.ts';
+import { readYaml, YamlError } from './yaml.ts';
 
 /** Config file names in the order each runner looks for them in a folder. */
 const CONFIG_FILES: Record<Framework, string[]> = {
@@ -44,6 +46,7 @@ const CONFIG_FILES: Record<Framework, string[]> = {
     ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'].map((extension) => name + extension),
   ),
   jest: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts', '.json'].map((extension) => `jest.config${extension}`),
+  mocha: ['.cjs', '.js', '.mjs', '.yaml', '.yml', '.jsonc', '.json'].map((extension) => `.mocharc${extension}`),
 };
 
 /** Methods that change the object or list they are called on. */
@@ -724,6 +727,7 @@ export class Configs {
   private readonly readerFor: (fromFile: string) => ModuleReader;
   private readonly inFolders = new Map<string, ConfigFile | null>();
   private readonly files = new Map<string, ConfigFile>();
+  private mocha: ConfigFile | null | undefined;
   private readonly used = new Set<ConfigFile>();
   private readonly reported = new Set<string>();
   private readonly version: [number, number] | null;
@@ -817,6 +821,26 @@ export class Configs {
     this.diagnostics.push(fileDiagnostic('config-value-unknown', config.record.relativeFilePath, message));
   }
 
+  /**
+   * The config Mocha runs with, started in the root: the first `.mocharc` file from the root up, joined with the `mocha`
+   * key of the nearest package.json. Null without either.
+   */
+  mochaConfig(): ConfigFile | null {
+    if (this.mocha !== undefined) return this.mocha;
+    let rc: ConfigFile | null = null;
+    let manifest: string | null = null;
+    for (const folder of folders(this.root)) {
+      const name = rc ? undefined : CONFIG_FILES.mocha.find((item) => existsSync(path.join(folder, item)));
+      if (name) rc = this.at(path.join(folder, name));
+      if (manifest === null && existsSync(path.join(folder, 'package.json')))
+        manifest = path.join(folder, 'package.json');
+      if (rc && manifest) break;
+    }
+    const key = manifest && manifestKey(manifest, 'mocha') !== undefined ? this.at(manifest) : null;
+    this.mocha = rc && key ? joinMochaConfigs(rc, key) : (rc ?? key);
+    return this.mocha;
+  }
+
   /** The config the runner started in a folder would use; null when the folder has none. */
   inFolder(folder: string): ConfigFile | null {
     let config = this.inFolders.get(folder);
@@ -852,7 +876,7 @@ export class Configs {
   private jestConfigIn(folder: string, anyManifest = false): ConfigFile | null {
     const names = this.names().filter((item) => existsSync(path.join(folder, item)));
     const manifest = path.join(folder, 'package.json');
-    const key = existsSync(manifest) ? jestKey(manifest) : undefined;
+    const key = existsSync(manifest) ? manifestKey(manifest) : undefined;
     const KEY = 'the jest key in package.json';
     if (key !== undefined) names.push(KEY);
     if (names.length > 1) {
@@ -896,16 +920,21 @@ export class Configs {
       const message = `The config could not be read: ${readFailure(error)}, ${none}`;
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
     }
-    if (file.endsWith('.json')) {
+    if (/\.(jsonc?|ya?ml)$/.test(file)) {
       let value: Value;
       try {
-        value = JSON.parse(code) as Value;
+        // Mocha reads `.mocharc.json` with comments too.
+        const comments = file.endsWith('.jsonc') || path.basename(file).startsWith('.mocharc');
+        value = /\.ya?ml$/.test(file)
+          ? readYaml(code)
+          : (JSON.parse(comments ? withoutJsonComments(code) : code) as Value);
       } catch (error) {
-        const message = `The config could not be parsed: ${(error as Error).message}, ${none}`;
+        const at = error instanceof YamlError ? ` on line ${error.line}` : '';
+        const message = `The config could not be parsed${at}: ${(error as Error).message}, ${none}`;
         return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
       }
-      // Jest reads a package.json without a `jest` key as an empty config.
-      const settings = path.basename(file) === 'package.json' ? jestKeyOf(value) : value;
+      // Jest reads a package.json without a `jest` key as an empty config, and Mocha one without a `mocha` key.
+      const settings = path.basename(file) === 'package.json' ? manifestKeyOf(value, this.framework) : value;
       return { file, record: { relativeFilePath, extends: [] }, settings: fromValue(settings ?? {}) };
     }
     const parsed = parseFile(relativeFilePath, code);
@@ -938,20 +967,67 @@ export class Configs {
   }
 }
 
-/** The `jest` key of a package.json; undefined when it has none, or can't be read. */
-function jestKey(file: string): Value {
+/** The `jest` or `mocha` key of a package.json; undefined when it has none, or can't be read. */
+function manifestKey(file: string, framework: Framework = 'jest'): Value {
   try {
-    return jestKeyOf(JSON.parse(readFileSync(file, 'utf8')) as Value);
+    return manifestKeyOf(JSON.parse(readFileSync(file, 'utf8')) as Value, framework);
   } catch {
     return undefined;
   }
 }
 
-/** The `jest` key of a parsed package.json; undefined for a value Jest reads as no config, as `false` or `""` are. */
-function jestKeyOf(packageJson: Value): Value {
-  const key = (packageJson as Record<string, Value> | null)?.jest;
+/** Mocha's options that take a list, which it joins across a `.mocharc` file and package.json. */
+const MOCHA_LISTS = new Set([
+  'extension',
+  'file',
+  'global',
+  'ignore',
+  'exclude',
+  'node-option',
+  'reporter-option',
+  'require',
+  'spec',
+  'watch-files',
+  'watch-ignore',
+]);
+
+/**
+ * A `.mocharc` file and the `mocha` key of a package.json as Mocha joins them: a list option is the file's items and
+ * then the package.json's, a single value counting as a list of one; for any other key the file's value wins (checked
+ * with Mocha 10.8.2, 11.7.5 and 12.0.3).
+ */
+function joinMochaConfigs(rc: ConfigFile, key: ConfigFile): ConfigFile {
+  const record = { ...rc.record, extends: [...rc.record.extends, key.record.relativeFilePath] };
+  if (rc.settings.kind !== 'object' || key.settings.kind !== 'object') return { ...rc, record };
+  const keys = new Map([...key.settings.keys, ...rc.settings.keys]);
+  for (const name of MOCHA_LISTS) {
+    const [first, second] = [rc.settings.keys.get(name), key.settings.keys.get(name)];
+    if (!first || !second) continue;
+    const items = (setting: Setting) => (setting.kind === 'list' ? setting.items : [setting]);
+    keys.set(name, { kind: 'list', items: [...items(first), ...items(second)] });
+  }
+  return { ...rc, record, settings: { kind: 'object', keys, rest: rc.settings.rest } };
+}
+
+/**
+ * The `jest` or `mocha` key of a parsed package.json, by the framework; undefined for a value the runner reads as no
+ * config, as `false` or `""` are.
+ */
+function manifestKeyOf(packageJson: Value, framework: Framework = 'jest'): Value {
+  const key = (packageJson as Record<string, Value> | null)?.[framework === 'mocha' ? 'mocha' : 'jest'];
   if (!key) return undefined;
   return key;
+}
+
+/**
+ * JSON text without `//` and `/* *\/` comments outside strings, as Mocha reads `.mocharc.jsonc`; a comment becomes
+ * spaces, so the parser's positions stay right.
+ */
+function withoutJsonComments(text: string): string {
+  return text.replaceAll(
+    /("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+    (match, string: string | undefined) => string ?? match.replaceAll(/[^\n]/g, ' '),
+  );
 }
 
 /** A JSON text's value; null when it isn't JSON. */

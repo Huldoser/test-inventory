@@ -227,5 +227,17 @@
       "files": 23,
       "tests": 63
     }
+  },
+  {
+    "name": "Express unit and acceptance tests",
+    "repository": "https://github.com/expressjs/express.git",
+    "commit": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+    "license": "MIT",
+    "framework": "mocha",
+    "patterns": ["test/*.js", "test/acceptance/*.js"],
+    "expected": {
+      "files": 89,
+      "tests": 1187
+    }
   }
 ]

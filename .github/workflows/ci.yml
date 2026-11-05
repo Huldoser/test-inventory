@@ -222,6 +222,10 @@ jobs:
             version: 29.7.0
           - framework: jest
             version: 30.5.2
+          - framework: mocha
+            version: 10.8.2
+          - framework: mocha
+            version: 12.0.3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

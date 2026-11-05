@@ -52,7 +52,7 @@ describe('schema/v1.json', () => {
     ['state', ['tests', 1, 'state'], 'flaky'],
     ['diagnostic code', ['diagnostics', 0, 'code'], 'unresolved-constant'],
     ['state source', ['tests', 1, 'stateSource'], 'project'],
-    ['framework', ['framework'], 'mocha'],
+    ['framework', ['framework'], 'ava'],
   ])('accepts a %s it does not know, as the set is open, and the strict copy rejects it', (_, path, value) => {
     expect(validate(edited(path, value))).toBe(true);
     expect(validateStrict(edited(path, value))).toBe(false);

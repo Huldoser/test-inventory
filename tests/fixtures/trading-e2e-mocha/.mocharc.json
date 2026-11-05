@@ -1,0 +1,5 @@
+{
+  "spec": "e2e/**/*.e2e.js",
+  "require": ["e2e/browser.js"],
+  "timeout": 30000
+}

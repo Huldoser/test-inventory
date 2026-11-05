@@ -43,6 +43,7 @@ const SNAPSHOT_KEYS: Record<Framework, string[][]> = {
     ['test', 'browser', 'expect', 'toMatchScreenshot', 'screenshotDirectory'],
   ],
   jest: [['snapshotResolver']],
+  mocha: [],
 };
 
 /** The keys of a config that name setup files, by framework; Vitest's are a project's own. */
@@ -53,6 +54,8 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
     ['test', 'globalSetup'],
   ],
   jest: [['setupFiles'], ['setupFilesAfterEnv'], ['globalSetup'], ['globalTeardown']],
+  // Mocha loads both before the tests: `require` for root hooks and global fixtures, `file` as test files.
+  mocha: [['require'], ['file']],
 };
 
 const UNKNOWN_PROJECTS =
