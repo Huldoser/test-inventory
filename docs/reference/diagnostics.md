@@ -82,6 +82,8 @@ Some problems make the runner fail while it loads a file:
   Jasmine then stops before it runs any spec, in this file or any other. Inside a describe, Jasmine catches them: it
   reports the describe as failed and registers none of the specs written after the call in it, and the file's other
   tests keep their states.
+- Cypress: `invalid-chain` and `test-without-body`. Cypress then fails the spec and runs none of its tests; other
+  specs still run.
 
 Every test in such a file gets `state: "notLoaded"`, with `stateSource: "file"` and `stateLine` at the first of these
 problems. These tests are counted in `notLoadedCount`, not in `activeCount`. Everything else about them is kept, so
@@ -93,10 +95,10 @@ the file to fix.
 
 Only code that runs while the file loads counts. An `invalid-chain` inside a test, hook or helper body, such as
 `test.step.skip()` before Playwright 1.50 or `test.slow()` in Vitest, runs later and fails only the test that reaches
-it, so the file loads. A refused call reached only under a condition, as in `if (process.env.LEGACY) test.only.skip(...)`,
-is reported, but its file's tests keep their states, since the file loads unless the condition holds. A test or
-describe inside a test or hook body is a `nested-test` warning only, even when its arguments are ones the runner
-refuses, as `it('title')` without a function in Jest: the runner refuses it when the test runs.
+it, so the file loads. A refused call reached only under a condition, as in `if (process.env.LEGACY)
+test.only.skip(...)`, is reported, but its file's tests keep their states, since the file loads unless the condition
+holds. A test or describe inside a test or hook body is a `nested-test` warning only, even when its arguments are ones
+the runner refuses, as `it('title')` without a function in Jest: the runner refuses it when the test runs.
 
 ## Example
 
