@@ -92,7 +92,7 @@ describe('WebdriverIO config files', () => {
       ['places a stop order', 'active', 5000, null],
     ]);
     expect(inventory.diagnostics.map((item) => item.code)).toEqual(['unresolved-option']);
-    const unset = await scan({
+    const zeroInterval = await scan({
       root: project({
         'package.json': WDIO_PACKAGE,
         'wdio.conf.js':
@@ -101,7 +101,71 @@ describe('WebdriverIO config files', () => {
       }),
       framework: 'webdriverio',
     });
-    expect(unset.tests.map((test) => test.timeout)).toEqual([null]);
+    expect(zeroInterval.tests.map((test) => test.timeout)).toEqual([60_000]);
+  });
+
+  it("reads globs from rootDir, with a capability's own specs and excludes, and \\ or .. in a path", async () => {
+    const files = {
+      'package.json': WDIO_PACKAGE,
+      'e2e/specs/orders/ticket.e2e.js': SPEC,
+      'e2e/specs/orders/legacy-ticket.e2e.js': SPEC,
+      'e2e/specs/login.e2e.js': SPEC,
+      'e2e/smoke/login.e2e.js': SPEC,
+    };
+    const rootDir = await scan({
+      root: project({
+        ...files,
+        'wdio.conf.js': [
+          'exports.config = {',
+          "  rootDir: 'e2e',",
+          "  specs: ['./specs/**/*.e2e.js', './smoke/../specs/login.e2e.js'],",
+          "  exclude: ['specs\\\\orders\\\\legacy-*.e2e.js'],",
+          '};',
+          '',
+        ].join('\n'),
+      }),
+      framework: 'webdriverio',
+    });
+    expect(rootDir.tests.map((test) => test.relativeFilePath)).toEqual([
+      'e2e/specs/login.e2e.js',
+      'e2e/specs/orders/ticket.e2e.js',
+    ]);
+    const capabilities = await scan({
+      root: project({
+        ...files,
+        'wdio.conf.js': [
+          'exports.config = {',
+          "  specs: ['./e2e/specs/**/*.e2e.js'],",
+          '  capabilities: [',
+          "    { browserName: 'chrome', 'wdio:exclude': ['./e2e/specs/orders/legacy-*.e2e.js'] },",
+          "    { browserName: 'firefox', 'wdio:specs': ['./e2e/smoke/*.e2e.js'] },",
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+      }),
+      framework: 'webdriverio',
+    });
+    expect(capabilities.tests.map((test) => test.relativeFilePath)).toEqual([
+      'e2e/smoke/login.e2e.js',
+      'e2e/specs/login.e2e.js',
+      'e2e/specs/orders/ticket.e2e.js',
+    ]);
+    for (const unread of [
+      'rootDir: process.env.E2E_ROOT',
+      'exclude: process.env.EXCLUDE',
+      "specs: ['./e2e/**/*.e2e.js'], capabilities: [{ 'wdio:specs': process.env.SPECS }]",
+      "specs: ['./e2e/**/*.e2e.js'], capabilities: [{ exclude: process.env.EXCLUDE }]",
+    ]) {
+      const unknown = await scan({
+        root: project({ ...files, 'wdio.conf.js': `exports.config = { ${unread} };\n` }),
+        framework: 'webdriverio',
+      });
+      expect(
+        unknown.diagnostics.map((item) => item.code),
+        unread,
+      ).toEqual(['config-value-unknown', 'no-files-matched']);
+    }
   });
 
   it("reads mochaOpts' ui, and reports a framework the scan doesn't read", async () => {

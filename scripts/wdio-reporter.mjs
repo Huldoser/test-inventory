@@ -13,17 +13,17 @@ export default class CompareReporter extends EventEmitter {
     const specs = [];
     const suites = [];
     const tests = new Map();
+    const path = (file) => (file.startsWith('file://') ? fileURLToPath(file) : file);
     const record = (test, pending) => {
       const titles = [...suites.map((suite) => suite.title), test.title];
-      const file = suites.at(-1)?.file ?? specs[0];
+      const file = path(test.file ?? suites.at(-1)?.file ?? specs[0]);
       tests.set(`${file}\n${titles.join('\n')}`, { file, titles, pending });
     };
     this.on('runner:start', (runner) => specs.push(...runner.specs));
     this.on('suite:start', (suite) => {
       // Mocha's root suite has no title; WebdriverIO starts no suite for it, or one without a title.
       if (!suite.title) return;
-      const file = suite.file ?? suites.at(-1)?.file ?? specs[0];
-      suites.push({ title: suite.title, file: file.startsWith('file://') ? fileURLToPath(file) : file });
+      suites.push({ title: suite.title, file: path(suite.file ?? suites.at(-1)?.file ?? specs[0]) });
     });
     this.on('suite:end', (suite) => {
       if (suite.title) suites.pop();

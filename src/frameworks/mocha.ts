@@ -299,7 +299,8 @@ export class MochaAdapter extends SuiteAdapter {
         usesBench: false,
       };
       // WebdriverIO retries the function that many times inside each of Mocha's attempts, so 0 leaves Mocha's retries.
-      const retries = this.trailingRetries && args.length >= 3 ? args.at(-1) : undefined;
+      // `it.only` and `it.skip` pass Mocha only the title and function, so the count is dropped.
+      const retries = this.trailingRetries && flags.size === 0 && args.length >= 3 ? args.at(-1) : undefined;
       if (retries && retries.type !== 'SpreadElement') {
         const option = { node: retries, resolved: this.file.values.resolve(retries, context.scopes) };
         const count = readCount(this.file, 'retries', option, problems);

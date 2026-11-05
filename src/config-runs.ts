@@ -120,20 +120,6 @@ export interface Placement {
   tags: string[] | null;
 }
 
-/** The extensions of the spec files WebdriverIO takes. */
-const WEBDRIVERIO_EXTENSIONS = new Set([
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.mts',
-  '.es6',
-  '.ts',
-  '.tsx',
-  '.coffee',
-  '.cjs',
-  '.cts',
-]);
-
 const ASSUMED = 'the scan takes its files to be run';
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
 
@@ -586,39 +572,68 @@ export class ConfigRuns {
   }
 
   /**
-   * The files `wdio run` runs: those under the config's folder that a `specs` glob matches, also in the nested lists
-   * that group files into one worker, with one of WebdriverIO's extensions, less those `exclude` leaves out. Its globs
-   * leave out dot files and folders, and one without a `/` matches a file's name at any depth. When every `exclude` entry holds a
+   * The files `wdio` runs: those under `rootDir`, the config's folder by default, that a `specs` glob matches, also in
+   * the nested lists that group files into one worker, less those `exclude` leaves out. A capability's own `specs` replace the config's for it, and its `exclude` adds to the config's. Globs leave out
+   * dot files and folders, and one without a `/` matches a file's name at any depth. When every `exclude` entry holds a
    * `/`, `\` or `*`, they are globs too; otherwise each one leaves out every file whose URL contains it. Files given
-   * with `--spec` replace `specs`, so scanned with globs, every file they match counts as run, less `exclude`. The
+   * with `--spec` replace `specs`, so scanned with globs, every file they match counts as run, less the excludes. The
    * config's `mochaOpts.timeout` and `retries`, or `jasmineOpts.defaultTimeoutInterval`, apply to every test.
    */
   private webdriverioProject(config: ConfigFile): Project {
-    const folder = path.dirname(config.file);
     const { settings } = config;
-    const lists: Record<string, string[]> = {};
-    for (const key of ['specs', 'exclude'] as const) {
-      const setting = settingAt(settings, [key]);
+    const writtenRoot = settingAt(settings, ['rootDir']);
+    if (
+      writtenRoot !== null &&
+      !isUnset(writtenRoot) &&
+      !(writtenRoot.kind === 'value' && typeof writtenRoot.value === 'string')
+    ) {
+      return this.unknownProject(config, unknownAt(writtenRoot), 'rootDir');
+    }
+    // The config's `rootDir`, from the folder `wdio` starts in, replaces the config's folder.
+    const folder =
+      writtenRoot?.kind === 'value' && typeof writtenRoot.value === 'string'
+        ? path.resolve(this.configs.root, writtenRoot.value)
+        : path.dirname(config.file);
+    const globs = (owner: Setting, keys: string[]): string[] | Unknown | null => {
+      const setting = keys.map((key) => settingAt(owner, [key])).find((item) => item !== null && !isUnset(item));
+      if (!setting) return null;
       // A single glob is taken as a list of one; a nested list groups files into one worker.
       const items =
-        setting?.kind === 'list' ? setting.items.flatMap((item) => (item.kind === 'list' ? item.items : [item])) : [];
-      const found =
-        setting === null || isUnset(setting)
-          ? []
-          : patterns({ kind: 'list', items: setting.kind === 'list' ? items : [setting] }, false);
-      if (!Array.isArray(found)) return this.unknownProject(config, found, key);
-      lists[key] = (found as string[]).map((glob) => posix(path.isAbsolute(glob) ? path.relative(folder, glob) : glob));
-    }
+        setting.kind === 'list'
+          ? setting.items.flatMap((item) => (item.kind === 'list' ? item.items : [item]))
+          : [setting];
+      const found = patterns({ kind: 'list', items }, false);
+      return Array.isArray(found) ? (found as string[]) : found;
+    };
+    // WebdriverIO globs each pattern with `/` for `\`, from `rootDir`.
+    const fromRoot = (glob: string) => {
+      const slashed = glob.replaceAll('\\', '/');
+      return path.posix.normalize(path.isAbsolute(slashed) ? posix(path.relative(folder, slashed)) : slashed);
+    };
     // As glob's matchBase does, a pattern without a slash matches at any depth, outside dot folders too.
-    const matcher = (globs: string[]) => picomatch(globs.map((glob) => (glob.includes('/') ? glob : `**/${glob}`)));
-    const isSpec = matcher(lists.specs);
-    const excludes = lists.exclude.filter((item) => !isSuiteName(settings, item));
+    const matcher = (list: string[]) =>
+      picomatch(list.map(fromRoot).map((glob) => (glob.includes('/') ? glob : `**/${glob}`)));
+    const specs = globs(settings, ['specs']) ?? [];
+    if (!Array.isArray(specs)) return this.unknownProject(config, specs, 'specs');
+    const written = globs(settings, ['exclude']) ?? [];
+    if (!Array.isArray(written)) return this.unknownProject(config, written, 'exclude');
+    const excludes = written.filter((item) => !isSuiteName(settings, item));
     const isGlob = excludes.every((item) => /[/\\*]/.test(item));
     const isPathExcluded = matcher(excludes);
-    const isExcluded = (file: string) =>
-      isGlob
-        ? isPathExcluded(posix(path.relative(folder, file)))
-        : excludes.some((item) => pathToFileURL(file).href.includes(item));
+    const isExcluded = (file: string, relative: string) =>
+      isGlob ? isPathExcluded(relative) : excludes.some((item) => pathToFileURL(file).href.includes(item));
+    // Each capability may set its own specs, which replace the config's, and excludes, added to the config's.
+    const capabilities = settingAt(settings, ['capabilities']);
+    const runs: { isSpec: (relative: string) => boolean; isExcluded: (relative: string) => boolean }[] = [];
+    for (const capability of capabilities?.kind === 'list' && capabilities.items.length > 0
+      ? capabilities.items
+      : [emptySettings()]) {
+      const own = globs(capability, ['specs', 'wdio:specs']);
+      if (own !== null && !Array.isArray(own)) return this.unknownProject(config, own, 'capabilities.specs');
+      const exclude = globs(capability, ['exclude', 'wdio:exclude']) ?? [];
+      if (!Array.isArray(exclude)) return this.unknownProject(config, exclude, 'capabilities.exclude');
+      runs.push({ isSpec: matcher(own ?? specs), isExcluded: matcher(exclude) });
+    }
     const framework = settingAt(settings, ['framework']);
     const isJasmine = framework?.kind === 'value' && framework.value === 'jasmine';
     const options = settingAt(settings, [isJasmine ? 'jasmineOpts' : 'mochaOpts']) ?? emptySettings();
@@ -627,9 +642,10 @@ export class ConfigRuns {
       const value = setting?.kind === 'value' ? durationOf(setting.value, key) : null;
       return value === null ? setting : { kind: 'value' as const, value };
     };
-    // WebdriverIO takes a `defaultTimeoutInterval` of 0 as unset, and keeps its own, 60 seconds.
+    // A `defaultTimeoutInterval` of 0 replaces WebdriverIO's default, and its Jasmine adapter then takes 60 seconds.
     const interval = settingAt(options, ['defaultTimeoutInterval']);
-    const jasmineTimeout = interval?.kind === 'value' && !interval.value ? null : interval;
+    const jasmineTimeout =
+      interval?.kind === 'value' && interval.value === 0 ? { kind: 'value' as const, value: 60_000 } : interval;
     const about: ProjectAbout = {
       name: '',
       testDir: folder,
@@ -651,8 +667,11 @@ export class ConfigRuns {
       about,
       unknown: null,
       runs: (file) => {
-        if (!WEBDRIVERIO_EXTENSIONS.has(path.extname(file)) || isExcluded(file)) return false;
-        return !this.findsFiles || isSpec(posix(path.relative(folder, file))) ? 'test' : false;
+        const relative = posix(path.relative(folder, file));
+        if (isExcluded(file, relative)) return false;
+        // Files given with `--spec` replace every capability's specs.
+        const running = runs.some((run) => (!this.findsFiles || run.isSpec(relative)) && !run.isExcluded(relative));
+        return running ? 'test' : false;
       },
     };
   }

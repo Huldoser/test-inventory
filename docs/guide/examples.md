@@ -725,8 +725,8 @@ describe('client order ticket', function () {
 npx test-inventory "test/specs/*.e2e.js" "test/specs/{orders,accounts}/*.e2e.js" --framework webdriverio --output inventory.json
 ```
 
-Without the globs and `--framework`, the scan finds the files from `wdio.conf.js`, whose `specs` group the order specs
-into one worker and whose `exclude` leaves out the drafts, and WebdriverIO from `package.json`:
+Without the globs and `--framework`, the scan finds the files from `wdio.conf.js`, whose `exclude` leaves out the
+drafts, and WebdriverIO from `package.json`:
 
 <!-- output: broker-portal -->
 

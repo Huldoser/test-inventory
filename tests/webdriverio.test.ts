@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { codes, onlyTest, scanWebdriverIO } from './helpers.ts';
 
 describe('WebdriverIO tests', () => {
-  it("reads Mocha's calls, with a number after a test's function as its retries", () => {
+  it("reads Mocha's calls, with a number after a plain it()'s function as its retries", () => {
     const inventory = scanWebdriverIO(`
 describe('order ticket', function () {
   this.timeout(30_000);
@@ -12,13 +12,15 @@ describe('order ticket', function () {
     this.retries(1);
   });
   it.skip('replaces an order', async () => {}, 3);
+  it.only('amends an order', async () => {}, 3);
 });
 `);
     expect(inventory.tests.map((test) => [test.title, test.state, test.timeout, test.retries])).toEqual([
       ['places a market order', 'active', 30_000, 2],
       ['places a limit order', 'active', 30_000, null],
       ['places a stop order', 'active', 30_000, 1],
-      ['replaces an order', 'skip', 30_000, 3],
+      ['replaces an order', 'skip', 30_000, null],
+      ['amends an order', 'active', 30_000, null],
     ]);
   });
 
@@ -44,11 +46,16 @@ describe('order ticket', function () {
     expect(codes(inventory)).toEqual(['unresolved-option']);
   });
 
-  it('reports a call that fails the spec file, while the other files run', () => {
-    const inventory = scanWebdriverIO("it('routes an order', async () => {});\ndescribe('blotter');");
+  it('reports a refused call, which stops the file loading there: the tests declared above it still run', () => {
+    const inventory = scanWebdriverIO(
+      "it('routes an order', async () => {});\ndescribe('blotter');\nit('cancels an order', async () => {});",
+    );
     expect(inventory.diagnostics.map((item) => item.message)).toEqual([
-      'describe() has no function, so WebdriverIO fails the spec file and runs none of its tests.',
+      'describe() has no function, so WebdriverIO runs only the tests declared above it in the file, and none of the spec files after it in its worker.',
     ]);
-    expect(onlyTest(inventory).state).toBe('notLoaded');
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['routes an order', 'active'],
+      ['cancels an order', 'notLoaded'],
+    ]);
   });
 });

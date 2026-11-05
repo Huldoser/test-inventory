@@ -43,6 +43,8 @@ export interface Problem {
   level?: DiagnosticLevel;
   /** Raised by code in a test, hook or helper body, which runs after the file is loaded and so can't stop it loading. */
   afterLoad?: boolean;
+  /** The runner still runs the tests the file declared before the call that stops it loading, as WebdriverIO's Mocha. */
+  keepsEarlierTests?: boolean;
 }
 
 export interface Title {

@@ -84,17 +84,18 @@ Some problems make the runner fail while it loads a file:
   tests keep their states.
 - Cypress: `invalid-chain`, `test-without-body` and `describe-throws`. Cypress then fails the spec and runs none of its
   tests; other specs still run.
-- WebdriverIO: `invalid-chain` and `test-without-body`, and with Jasmine `async-describe` and `describe-throws`.
-  WebdriverIO then fails the spec file and runs none of its tests; other spec files still run. With Jasmine, a call
-  inside a describe is caught as in Jasmine itself.
+- WebdriverIO: `invalid-chain` and `test-without-body`, and with Jasmine `async-describe` and `describe-throws`. With
+  Mocha, the file stops loading at the call: the tests declared above it run, and only those at or below it are
+  `notLoaded`. With Jasmine, a call at the top level fails the whole worker, and every test in the file is `notLoaded`;
+  inside a describe, it is caught as in Jasmine itself. Other workers still run.
 
-Every test in such a file gets `state: "notLoaded"`, with `stateSource: "file"` and `stateLine` at the first of these
-problems. These tests are counted in `notLoadedCount`, not in `activeCount`. Everything else about them is kept, so
-the records show what the file declares once the problem is fixed. A refused call written like a declaration, such as
-`test.only.skip('title', fn)` or `describe.sequential('title', fn)` in Vitest 5, is listed too, as a plain test or
-describe without the part that fails, so its tests are `notLoaded` rather than missing. Tests in other files keep
-their states, even though Playwright runs none of them: the records describe the code, and the diagnostic points at
-the file to fix.
+Every test in such a file, or with WebdriverIO's Mocha every test at or below the call, gets `state: "notLoaded"`, with
+`stateSource: "file"` and `stateLine` at the first of these problems. These tests are counted in `notLoadedCount`, not
+in `activeCount`. Everything else about them is kept, so the records show what the file declares once the problem is
+fixed. A refused call written like a declaration, such as `test.only.skip('title', fn)` or `describe.sequential('title',
+fn)` in Vitest 5, is listed too, as a plain test or describe without the part that fails, so its tests are `notLoaded`
+rather than missing. Tests in other files keep their states, even though Playwright runs none of them: the records
+describe the code, and the diagnostic points at the file to fix.
 
 Only code that runs while the file loads counts. An `invalid-chain` inside a test, hook or helper body, such as
 `test.step.skip()` before Playwright 1.50 or `test.slow()` in Vitest, runs later and fails only the test that reaches

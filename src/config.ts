@@ -861,7 +861,7 @@ export class Configs {
   }
 
   /**
-   * The config `cypress run` or `wdio run` reads, started in the root without a config named: the first of its config
+   * The config `cypress run` or `wdio` reads, started in the root without a config named: the first of its config
    * files there; null without one.
    */
   rootConfig(): ConfigFile | null {
