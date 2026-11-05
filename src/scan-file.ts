@@ -9,6 +9,7 @@ import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
 import { JestAdapter } from './frameworks/jest.ts';
 import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
+import { CypressAdapter } from './frameworks/cypress.ts';
 import { JasmineAdapter } from './frameworks/jasmine.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
@@ -59,6 +60,7 @@ const ADAPTERS: Record<
   jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
   mocha: (parsed, file, readModule, settings) => new MochaAdapter(parsed, file, readModule, settings.mochaInterface),
   jasmine: (parsed, file, readModule) => new JasmineAdapter(parsed, file, readModule),
+  cypress: (parsed, file, readModule) => new CypressAdapter(parsed, file, readModule),
 };
 
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */

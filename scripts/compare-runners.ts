@@ -1,10 +1,10 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
-// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha, Jasmine),
-// and compares tests, states and tags with the inventory, scanned once as it is by default and once with expandCases,
-// whose cases must have the runner's names. Differences described in tests/compare/expected-differences.json are
-// allowed; any other difference fails the run.
+// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha, Jasmine,
+// Cypress), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
+// expandCases, whose cases must have the runner's names. Differences described in
+// tests/compare/expected-differences.json are allowed; any other difference fails the run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -65,6 +65,11 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
     fixture: 'risk-service',
     patterns: ['spec/*.spec.js', 'spec/limits/**/*.spec.js'],
     packages: (version) => ({ jasmine: version }),
+  },
+  cypress: {
+    fixture: 'trading-ui-cypress',
+    patterns: ['cypress/e2e/**/*.cy.js'],
+    packages: (version) => ({ cypress: version }),
   },
 };
 
@@ -233,6 +238,33 @@ function jasmineTests(work: string): RunnerTest[] {
   }));
 }
 
+/**
+ * Runs the specs in Cypress's Electron with a reporter of our own, which Cypress starts once per spec and which adds
+ * each spec's tests with their titles. Cypress gives no line, so tests are matched by name.
+ */
+function cypressTests(work: string): RunnerTest[] {
+  try {
+    run(
+      'npx',
+      ['cypress', 'run', '--browser', 'electron', '--reporter', path.join(repository, 'scripts/cypress-reporter.cjs')],
+      work,
+    );
+  } catch {
+    // A failing test makes Cypress exit with the number of failures; the reporter still wrote every test.
+  }
+  const lines = readFileSync(path.join(work, 'cypress-tests.jsonl'), 'utf8').trim().split('\n');
+  return lines.map((line) => {
+    const test = JSON.parse(line) as { file: string; titles: string[]; pending: boolean };
+    return {
+      file: posix(path.relative(work, path.resolve(work, test.file))),
+      line: 0,
+      name: test.titles.join(' > '),
+      status: test.pending ? 'skipped' : 'ran',
+      tags: [],
+    };
+  });
+}
+
 function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
@@ -318,8 +350,8 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
       for (const item of wrong) differences.push({ kind: 'name', ...at, detail: `${test.fullName} / ${item.name}` });
     }
     const status = expectedStatus(test, framework);
-    // Jest, Mocha and Jasmine report no tags, so theirs are not compared.
-    const tags = ['jest', 'mocha', 'jasmine'].includes(framework) ? '' : test.tags.map(withoutAt).sort().join(', ');
+    // Only Playwright and Vitest report tags, so only theirs are compared.
+    const tags = ['playwright', 'vitest'].includes(framework) ? test.tags.map(withoutAt).sort().join(', ') : '';
     for (const item of candidates) {
       if (status !== null && item.status !== status) {
         differences.push({ kind: 'state', ...at, detail: `${test.fullName}: ${test.state} / ${item.status}` });
@@ -353,7 +385,7 @@ function isExpected(
 async function main(): Promise<void> {
   const [name, version = ''] = process.argv.slice(2);
   if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine> <version>');
+    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress> <version>');
   }
   const framework = name as Framework;
   const project = PROJECTS[framework];
@@ -373,6 +405,7 @@ async function main(): Promise<void> {
       jest: jestTests,
       mocha: mochaTests,
       jasmine: jasmineTests,
+      cypress: cypressTests,
     };
     const listed = listers[framework](work);
     const rules = JSON.parse(

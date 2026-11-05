@@ -1,6 +1,14 @@
-import type { CallExpression, Node } from 'oxc-parser';
+import type { Argument, CallExpression, Node } from 'oxc-parser';
 import { isFunctionNode, propertyName, unwrap, type FunctionNode } from '../ast.ts';
-import type { ApiCall, CallContext, ModuleReader, Problem, RunSettings } from '../model.ts';
+import type {
+  ApiCall,
+  CallContext,
+  ModuleReader,
+  Problem,
+  RunSettings,
+  SuiteDeclaration,
+  TestDeclaration,
+} from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { HookCounts } from '../types.ts';
@@ -59,7 +67,7 @@ const HOOKS: Record<MochaInterface, [string, keyof HookCounts][]> = {
 /** The interfaces Mocha's `ui` option names whose globals the scan reads; QUnit and exports declare tests otherwise. */
 export type MochaInterface = 'bdd' | 'tdd';
 
-function dialect(ui: MochaInterface): Dialect {
+export function dialect(ui: MochaInterface): Dialect {
   return {
     name: 'Mocha',
     source: SOURCE,
@@ -89,9 +97,31 @@ const UNITS: Record<string, number> = {
 };
 
 export class MochaAdapter extends SuiteAdapter {
-  constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, ui: MochaInterface = 'bdd') {
-    super(parsed, file, readModule, dialect(ui), MODIFIERS);
+  /** Whether `this.timeout()` and `this.retries()` set the tests' settings, as in Mocha. */
+  protected readonly readsContextSettings: boolean = true;
+  /** What the runner does with a call it refuses while it loads the file, as the end of a sentence. */
+  protected readonly refusedEffect: string = 'Mocha stops before it runs any test';
+
+  constructor(
+    parsed: ParsedFile,
+    file: FileContext,
+    readModule: ModuleReader | null,
+    ui: MochaInterface = 'bdd',
+    runner: Dialect = dialect(ui),
+  ) {
+    super(parsed, file, readModule, runner, MODIFIERS);
   }
+
+  /** A declaration's function, and the options written before it; Mocha takes none. */
+  protected splitArguments(args: CallExpression['arguments']): {
+    body: Argument | undefined;
+    options: Argument | null;
+  } {
+    return { body: args.at(1), options: null };
+  }
+
+  /** Sets on a declaration what the options written before its function set; Mocha takes none. */
+  protected withOptions?(declared: TestDeclaration | SuiteDeclaration, options: Argument, context: CallContext): void;
 
   classify(call: CallExpression, context: CallContext): ApiCall | null {
     return (
@@ -139,6 +169,7 @@ export class MochaAdapter extends SuiteAdapter {
       };
     }
     if (name !== 'timeout' && name !== 'retries') return null;
+    if (!this.readsContextSettings) return { kind: 'other' };
     const argument = call.arguments.at(0);
     // Without an argument, `this.timeout()` only reads the timeout.
     if (!argument || (context.inBody && !context.inTest)) return { kind: 'other' };
@@ -157,7 +188,7 @@ export class MochaAdapter extends SuiteAdapter {
     const callee = unwrap(call.callee);
     if (callee.type !== 'MemberExpression') return null;
     const name = propertyName(callee);
-    if (name !== 'timeout' && name !== 'retries') return null;
+    if ((name !== 'timeout' && name !== 'retries') || !this.readsContextSettings) return null;
     const target = unwrap(callee.object);
     if (target.type !== 'CallExpression') return null;
     const declared = this.classify(target, context);
@@ -198,7 +229,7 @@ export class MochaAdapter extends SuiteAdapter {
     const refusal = problem(
       'invalid-chain',
       call,
-      `${callee} is not part of Mocha's API; the call throws, and Mocha stops before it runs any test.`,
+      `${callee} is not part of ${this.dialect.name}'s API; the call throws, and ${this.refusedEffect}.`,
       callee,
     );
     return refused(call, refusal, context, () => this.declaration(call, kind, [], context));
@@ -208,7 +239,7 @@ export class MochaAdapter extends SuiteAdapter {
     const args = call.arguments;
     if (args.length === 0) {
       const callee = snippet(text(this.file, call.callee));
-      const message = `${callee}() has no title, so Mocha stops before it runs any test.`;
+      const message = `${callee}() has no title, so ${this.refusedEffect}.`;
       return { kind: 'invalid', problem: problem('test-without-body', call, message, callee) };
     }
     const flags = new Set(links.map((link) => link.name));
@@ -218,7 +249,7 @@ export class MochaAdapter extends SuiteAdapter {
       functionNames: false,
     });
     if (titleProblem) problems.push(titleProblem);
-    const body = args.at(1);
+    const { body, options } = this.splitArguments(args);
     const fn = isFunctionNode(body) ? body : null;
     const hashed = fn ?? namedFunction(this.file, context.scopes, body);
     const line = this.file.source.line(call.start);
@@ -240,7 +271,7 @@ export class MochaAdapter extends SuiteAdapter {
       problems,
     };
     if (kind === 'test') {
-      return {
+      const test: TestDeclaration = {
         kind: 'test',
         ...base,
         testContext: ownThis(hashed),
@@ -248,14 +279,17 @@ export class MochaAdapter extends SuiteAdapter {
         takesAllFixtures: false,
         usesBench: false,
       };
+      if (options) this.withOptions?.(test, options, context);
+      return test;
     }
-    const declared: ApiCall = { kind: 'describe', ...base, isShuffled: false, passesDown: ownThis(hashed) };
+    const declared: SuiteDeclaration = { kind: 'describe', ...base, isShuffled: false, passesDown: ownThis(hashed) };
+    if (options) this.withOptions?.(declared, options, context);
     if (body !== undefined || flags.has('skip')) return declared;
     const callee = snippet(text(this.file, call.callee));
     const refusal = problem(
       'test-without-body',
       call,
-      `${callee}() has no function, so Mocha stops before it runs any test.`,
+      `${callee}() has no function, so ${this.refusedEffect}.`,
       callee,
     );
     return refused(call, refusal, context, () => declared);

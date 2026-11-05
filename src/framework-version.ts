@@ -11,6 +11,7 @@ const PACKAGES: Record<Framework, string> = {
   mocha: 'mocha',
   // Karma and Angular projects list only jasmine-core, which the jasmine command depends on.
   jasmine: 'jasmine-core',
+  cypress: 'cypress',
 };
 
 /** The packages that give a framework's version, the first found. */
@@ -33,6 +34,7 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
   jest: 'Jest',
   mocha: 'Mocha',
   jasmine: 'Jasmine',
+  cypress: 'Cypress',
 };
 
 /** Oldest supported version of each framework. */
@@ -42,6 +44,7 @@ export const OLDEST: Record<Framework, [number, number]> = {
   jest: [29, 0],
   mocha: [10, 0],
   jasmine: [4, 0],
+  cypress: [13, 0],
 };
 
 /** Where the framework version came from. */
@@ -180,6 +183,7 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
   mocha: /^\.mocharc\.([cm]?js|ya?ml|jsonc?)$/,
   // Matched against the path, not only the name: Jasmine's config is in spec/support.
   jasmine: /(^|\/)spec\/support\/jasmine\.(m?js|json)$/,
+  cypress: /^cypress\.config\.[cm]?[jt]s$/,
 };
 
 /** Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config. */
@@ -207,7 +211,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   const above = folders(root)
     .slice(1)
     .map((folder) => path.join(folder, 'package.json'));
-  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine'] as const;
+  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
       below.some((file) => CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) ||
@@ -217,7 +221,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   if (found.length === 1) return found[0];
   if (found.length === 0) {
     throw new OptionsError(
-      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha or jasmine, and no config of theirs is in the root or below.',
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine or cypress, and no config of theirs is in the root or below.',
     );
   }
   const names = found.map((framework) => FRAMEWORK_NAMES[framework]);

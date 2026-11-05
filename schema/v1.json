@@ -101,7 +101,8 @@
             "vitest",
             "jest",
             "mocha",
-            "jasmine"
+            "jasmine",
+            "cypress"
           ]
         },
         {

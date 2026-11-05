@@ -189,7 +189,10 @@ test.describe('orders', () => {
   });
 
   it.each([
-    [['tests', '--framework', 'cypress'], '--framework must be "playwright", "vitest" or "jest".'],
+    [
+      ['tests', '--framework', 'ava'],
+      '--framework must be "playwright", "vitest", "jest", "mocha", "jasmine" or "cypress".',
+    ],
     [['tests', '--framework', 'vitest', '--comments', 'some'], '--comments must be "all", "non-active" or "none".'],
     [
       ['tests', '--framework', 'vitest', '--framework-version', 'next'],
@@ -264,10 +267,10 @@ describe('the built binary', () => {
   });
 
   it('sets exit code 2 for invalid arguments', async () => {
-    await expect(exec(process.execPath, [bin, 'tests/*.spec.ts', '--framework', 'cypress'])).rejects.toMatchObject({
+    await expect(exec(process.execPath, [bin, 'tests/*.spec.ts', '--framework', 'ava'])).rejects.toMatchObject({
       code: 2,
       stderr:
-        'test-inventory: --framework must be "playwright", "vitest" or "jest".\nRun test-inventory --help for usage.\n',
+        'test-inventory: --framework must be "playwright", "vitest", "jest", "mocha", "jasmine" or "cypress".\nRun test-inventory --help for usage.\n',
     });
   });
 
