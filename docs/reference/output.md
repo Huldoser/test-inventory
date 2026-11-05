@@ -313,10 +313,10 @@ A file record is written for every scanned file, also one that has no tests, cou
 | `suiteCount`, `testCount`      | number         | The describes and tests in the file, all of them also when a filter keeps only some.                 |
 
 `hooks` counts each kind: `beforeAll`, `beforeEach`, `afterEach` and `afterAll`, and Vitest's `aroundEach` and
-`aroundAll` (4.1). A hook in a helper function with a name counts where the helper is called, and not at all when
-it is never called; one in a function without a name, such as a callback, counts where it is written. Vitest's `onTestFailed` and `onTestFinished` run inside a test, so they are not counted.
-A test's `hooks` adds up those of its file and of each describe around it. In the web app, the price alerts open
-their page in a `beforeEach`:
+`aroundAll` (4.1). A hook in a helper function with a name counts where the helper is called, and not at all when it is
+never called; one in a function without a name, such as a callback, counts where it is written. Vitest's `onTestFailed`
+and `onTestFinished` run inside a test, so they are not counted. A test's `hooks` adds up those of its file and of each
+describe around it. In the web app, the price alerts open their page in a `beforeEach`:
 
 <!-- output: trading-web -->
 
@@ -352,7 +352,11 @@ tests gets a `file-not-run` warning, as the runner doesn't collect them. In each
 which Jest reads also without a `jest` key, and from Jest 30 a `jest` key that is a string is the path to the config.
 Other configs count only through its `projects`. Jest refuses to start with more than one config in a folder, which a
 `config-value-unknown` warning says. Without a config in the root, Jest's defaults apply from the root, and the files
-have no config.
+have no config. Mocha reads one config for the whole run, the first of `.mocharc.cjs`, `.js`, `.mjs`, `.yaml`, `.yml`,
+`.jsonc` and `.json` in the root or a folder above it, joined with the `mocha` key of the nearest package.json: the
+lists of options such as `spec`, `extension` and `ignore` are joined, and the file's value of any other key wins; that
+package.json is in `extends`. Without either, Mocha's defaults apply and the files have no
+config.
 
 Which files a config runs is read as each runner decides it. For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
@@ -369,22 +373,30 @@ each version's defaults and `<rootDir>` where Jest replaces it. Jest's `projects
 each with the config Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own
 files then count only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written
 as a path, such as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package
-isn't.
+isn't. For Mocha: from the root, each `spec` entry as a glob, a file, a file named without its extension, or a folder,
+whose files with one of the `extension`s, `js`, `cjs` and `mjs` by default, are taken, those in folders below too with
+`recursive`, without those `ignore` matches as written, so that a pattern starting with `./` matches nothing; and the
+`file` entries, which Mocha loads first, and to which `ignore` doesn't apply. An extension may have several parts, as
+`spec.js`. The default `spec` is `./test`. Scanned with globs, every file they match counts as run, without those
+`ignore` matches, as a project's scripts often give Mocha the spec on its command line, which no config shows. The
+config's `timeout`, which may be a string such as `'5s'`, and `retries` apply to every test.
 
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
 `use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
 config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
 `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
-a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`. A
+a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`. A Mocha
+config may also be JSON, JSON with comments, or YAML with keys, lists and nested keys; YAML it doesn't read, such as an
+anchor or a multi-line string, is reported, and the scan reads none of that config's settings. A
 config that `require()`s a local file, as a shared base, reads what that file exports, and a JSON file, required or
 imported, is read as its value.
 
-| Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `relativeFilePath` | string        | The config, from the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `extends`          | array         | Files the config takes settings from through imports, such as a shared base config, in the order read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `projects`         | array or null | The config's projects, each `{ name, testDir, dependencies }`: Playwright's `projects`, or one project for a config without them, named after its `name`; Vitest's, named as Vitest names them: after `test.name`, else the `name` in the package.json of the project's folder, else the folder, or an inline project after its place among the inline ones, such as `0`; with each browser instance as a project, such as `unit (chromium)`; and in Vitest 5, a project of a config another config lists inside that config's name, such as `web (unit)`; Jest's, named by `displayName`, else empty. `testDir` is the folder its files are found in. `null` when the scan can't work them out. |
+| Key                | Type          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `relativeFilePath` | string        | The config, from the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `extends`          | array         | Files the config takes settings from through imports, such as a shared base config, in the order read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `projects`         | array or null | The config's projects, each `{ name, testDir, dependencies }`: Playwright's `projects`, or one project for a config without them, named after its `name`; Vitest's, named as Vitest names them: after `test.name`, else the `name` in the package.json of the project's folder, else the folder, or an inline project after its place among the inline ones, such as `0`; with each browser instance as a project, such as `unit (chromium)`; and in Vitest 5, a project of a config another config lists inside that config's name, such as `web (unit)`; Jest's, named by `displayName`, else empty; Mocha's one project, unnamed. `testDir` is the folder its files are found in. `null` when the scan can't work them out. |
 
 In the monorepo, the risk package builds on a config the packages share:
 
@@ -413,12 +425,12 @@ export default mergeConfig(
 }
 ```
 
-Besides which files it runs, the scan reads Vitest's `test.globals` and Jest's `injectGlobals` from the file's
-project, for the `globals-not-enabled` warning. A setting it reads but can't work out, such as one computed from
-`process.env` or taken from an installed package, gets a `config-value-unknown` warning that names it, and the config
-is taken to run the file. For Jest's `testPathIgnorePatterns` and `modulePathIgnorePatterns`, which only leave files
-out, the entries the scan can read still apply, also beside a spread it can't work out, and the files the other
-settings pick are kept.
+Besides which files it runs, the scan reads Vitest's `test.globals` and Jest's `injectGlobals` from the file's project,
+for the `globals-not-enabled` warning, and Mocha's `ui`, for which names declare tests. A setting it reads but can't
+work out, such as one computed from `process.env` or taken from an installed package, gets a `config-value-unknown`
+warning that names it, and the config is taken to run the file. For Jest's `testPathIgnorePatterns` and
+`modulePathIgnorePatterns`, which only leave files out, the entries the scan can read still apply, also beside a spread
+it can't work out, and the files the other settings pick are kept.
 
 ::: details TypeScript
 
@@ -465,9 +477,9 @@ of tests with at least one annotation of that type. Both are sorted by name.
 ## JSON Lines
 
 With `--format jsonl` the same records are written one per line, each with a `type` key added in front: first an
-`inventory` line with the keys of the top level, then a `config`, `file`, `suite`, `test` or `diagnostic` line for each record,
-in the order of the JSON output, and a `summary` line last. Without its `type`, a line has exactly the keys of the record
-described above, and filters and `--fields` work the same way.
+`inventory` line with the keys of the top level, then a `config`, `file`, `suite`, `test` or `diagnostic` line for each
+record, in the order of the JSON output, and a `summary` line last. Without its `type`, a line has exactly the keys of
+the record described above, and filters and `--fields` work the same way.
 
 <!-- types: InventoryLine -->
 

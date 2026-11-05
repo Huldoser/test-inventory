@@ -48,7 +48,7 @@ suite, `vitest list` leaves skipped and todo tests out altogether. test-inventor
 ```
 
 Each record also has the tags, an id that stays the same when the test moves to another line, and a hash of its body
-that changes when its code does. Playwright, Vitest and Jest suites get the same keys.
+that changes when its code does. Playwright, Vitest, Jest and Mocha suites get the same keys.
 [Compared with the runners](/guide/runners) has the full comparison.
 
 ## Questions it answers

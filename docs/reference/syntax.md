@@ -1,5 +1,5 @@
 ---
-description: The Playwright, Vitest and Jest imports, calls and modifiers a scan reads.
+description: The Playwright, Vitest, Jest and Mocha imports, calls and modifiers a scan reads.
 ---
 
 # Supported syntax
@@ -120,6 +120,47 @@ config sets `injectGlobals: false` gets a `globals-not-enabled` warning.
 Jest's `.each` titles take `%p`, `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%#`, from Jest 30 `%$`, and `$name.path` and `$#`
 for tables of objects and tagged templates. A title that shows an object through `%s` or `%o` stays one record with
 `--expand-cases`, as Node.js prints objects differently from one version to the next.
+
+## Mocha
+
+Mocha 10.0 and newer.
+
+### Where test comes from
+
+| Form                       | Example                                                                                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals                    | `describe`, `context`, `it`, `specify`, `xdescribe`, `xcontext`, `xit` and `xspecify` used without an import or declaration; with `ui: tdd` in the config, `suite` and `test` |
+| Named import, also renamed | `import { describe, it } from 'mocha'`                                                                                                                                        |
+| The module                 | `import * as mocha from 'mocha'`, a default import, or `require('mocha')`, whole, destructured or in place                                                                    |
+| Kept in a variable         | `const onCi = process.env.CI ? it.skip : it`: only what both branches share applies                                                                                           |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                |
+
+`xit`, `xspecify`, `xdescribe` and `xcontext` are `.skip`. Mocha's QUnit and exports interfaces, and a `ui` that names
+a package, are reported on the config with a `config-value-unknown` warning, and the files are read as BDD.
+
+### Calls
+
+| Call                                                                                            | Read as                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `it(title, fn)`, `specify(title, fn)`                                                           | A test.                                                                                                                                                                                                                                                           |
+| `it(title)` without a function                                                                  | A skipped test: Mocha reports it as pending.                                                                                                                                                                                                                      |
+| `.only`, `.skip`                                                                                | `isOnly`, or a skipped test or describe. Any other member, as `it.concurrent`, is an `invalid-chain` error: Mocha stops before it runs any test, in this file or any other.                                                                                       |
+| `describe(title, fn)`, `context(title, fn)`                                                     | A describe. An async callback is allowed, as Mocha allows it.                                                                                                                                                                                                     |
+| `describe(title)` without a function                                                            | A `test-without-body` error: Mocha stops before it runs any test. `describe.skip(title)` is allowed.                                                                                                                                                              |
+| `before`, `after`, `beforeEach`, `afterEach`, with or without a title                           | Hooks, counted as `beforeAll`, `afterAll`, `beforeEach` and `afterEach`; with `ui: tdd`, `suiteSetup`, `suiteTeardown`, `setup` and `teardown`.                                                                                                                   |
+| `this.timeout(ms)`, `this.retries(n)` in a describe written as a `function`                     | `timeout` and `retries` on its tests and those of the describes inside it. A timeout may be a number or a string such as `'2s'`; `0`, and one of 2,147,483,647 ms or more, turns it off.                                                                          |
+| `this.timeout(ms)`, `this.retries(n)` in a test written as a `function`                         | The test's own `timeout` and `retries`. In a hook, `this.timeout()` sets the hook's own timeout, which no record holds.                                                                                                                                           |
+| `it(...).timeout(ms)`, `it(...).retries(n)`, `describe(...).timeout(ms)`                        | The same settings on the test the call returns. On a describe, only the timeout, and only from Mocha 12, which reads it as each test runs; before, a describe's tests take its timeout when they are added. `describe(...).retries(n)` reaches none of its tests. |
+| `this.skip()` in a test or a `before`, `beforeEach` or `afterEach` hook written as a `function` | The test, or the tests the hook runs for, skipped; under a condition, `isConditional`.                                                                                                                                                                            |
+
+`this` is Mocha's context only directly in the test's, hook's or describe's own function: in an arrow function, or a
+function inside it, `this.timeout()` and `this.skip()` are not read. A test takes its describe's `retries`, and before
+Mocha 12 its `timeout`, when it is added, so a test written above `this.retries()` in the same describe doesn't get
+them; the scan applies them to every test of the describe. A `beforeEach` or other hook written at the top level of one
+spec file runs around the tests of every file, but is counted only in that file. A loop that declares tests, such as
+`['XNAS', 'XLON'].forEach((mic) => it(...))`, is one record with `caseCount`, as for the other runners. Root hooks,
+which a file the config lists in `require` exports as `mochaHooks`, run around every test, but are not counted in
+`hooks`; the file is in each test's `dependencies`.
 
 ## In every runner
 

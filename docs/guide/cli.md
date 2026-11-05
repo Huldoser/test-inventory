@@ -8,17 +8,16 @@ description: The test-inventory command, its options and exit codes, and how it 
 test-inventory [glob...] [options]
 ```
 
-The globs select the test files, relative to `--root`. Quote them so the shell passes them on unchanged. Without
-globs, the test files are those the Playwright, Vitest or Jest configs in the root and the folders below it run, each with
-the config it uses; see [configs](/reference/output#configs).
-`node_modules` and `.git` folders are always left out. As in the runners, globs match folders and files
-whose names start with a dot, as in `.storybook/`. On Windows a `\` in a glob separates folders, so `tests\**\*.spec.ts`
-works; on Linux and macOS it escapes the next character, as in `tests/\[legacy\]/*.spec.ts`. A `/` separates
-folders on every system.
+The globs select the test files, relative to `--root`. Quote them so the shell passes them on unchanged. Without globs,
+the test files are those the Playwright, Vitest, Jest or Mocha configs in the root and the folders below it run, each
+with the config it uses; see [configs](/reference/output#configs). `node_modules` and `.git` folders are always left
+out. As in the runners, globs match folders and files whose names start with a dot, as in `.storybook/`. On Windows a
+`\` in a glob separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it escapes the next character, as in
+`tests/\[legacy\]/*.spec.ts`. A `/` separates folders on every system.
 
 | Option                        | Meaning                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--framework <name>`          | `playwright`, `vitest` or `jest`. One run reads one framework. Default: the one the project uses; see [framework](#framework).                                                                                                       |
+| `--framework <name>`          | `playwright`, `vitest`, `jest` or `mocha`. One run reads one framework. Default: the one the project uses; see [framework](#framework).                                                                                              |
 | `--root <dir>`                | The project root. Paths in the output are relative to it. Default: the current folder.                                                                                                                                               |
 | `--ignore <glob>`             | Leave out matching files. Can be given more than once.                                                                                                                                                                               |
 | `--framework-version <x.y.z>` | Apply the rules of this version instead of the one read from the project.                                                                                                                                                            |
@@ -124,11 +123,12 @@ node -e "if (require('./inventory.json').summary.onlyCount > 0) process.exit(1)"
 
 ## Framework
 
-Without `--framework`, the scan takes the runner the project uses: the one whose package, `@playwright/test`, `vitest`
-or `jest`, a `package.json` in the root or a folder below it lists, or whose config file is there:
-`playwright.config.*`, `vitest.config.*`, `jest.config.*`, or a `jest` key in `package.json`. A `vite.config.*` alone
-doesn't count, as Vite apps without Vitest have one, and `node_modules` is left out. Only when nothing is found there
-are the `package.json` files above the root read, as a monorepo may list its runner once at the top.
+Without `--framework`, the scan takes the runner the project uses: the one whose package, `@playwright/test`, `vitest`,
+`jest` or `mocha`, a `package.json` in the root or a folder below it lists, or whose config file is there:
+`playwright.config.*`, `vitest.config.*`, `jest.config.*`, `.mocharc.*`, or a `jest` or `mocha` key in `package.json`. A
+`vite.config.*` alone doesn't count, as Vite apps without Vitest have one, and `node_modules` is left out. Only when
+nothing is found there are the `package.json` files above the root read, as a monorepo may list its runner once at the
+top.
 
 When the project uses several runners, such as Playwright for end-to-end tests and Vitest for unit tests, or none of
 them, the command stops with exit code 2 and names what it found. Scan once per runner, each with its `--framework`.
@@ -139,7 +139,8 @@ Some syntax depends on the framework version: `test.fail.only` needs Playwright 
 Vitest 5 removed `describe.sequential`, and Jest 30 added `%$` to `.each` titles. The version is read from the project,
 in this order:
 
-1. `node_modules/@playwright/test/package.json`, `node_modules/vitest/package.json` or `node_modules/jest/package.json`.
+1. `node_modules/@playwright/test/package.json`, `node_modules/vitest/package.json`, `node_modules/jest/package.json`
+   or `node_modules/mocha/package.json`.
 2. `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`.
 3. The version in `package.json`.
 
