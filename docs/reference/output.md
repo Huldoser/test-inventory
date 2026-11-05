@@ -203,7 +203,7 @@ when long. They are `null` for any other value, and when the projects that run t
 A Vitest `retry` replaces the whole `retry` around it, so a test with `retry: 1` in a describe with a `delay` has no
 `retryDelay`. Vitest reads the `retry` object from 4.1; before, it never runs a test whose `retry` is an object. The
 scan then gives `null`, with an `unresolved-option` warning for an object in the test file, and with source `config`
-for one in the config.
+and a `config-value-unknown` warning for one in the config.
 
 Playwright triples the timeout of a slow test once, when `test.slow()` runs; a `test.setTimeout()` after it replaces
 the tripled value. The record keeps `timeout` as written and `isSlow` beside it. `test.slow()` under a condition, or

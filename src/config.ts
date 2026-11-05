@@ -159,6 +159,8 @@ export interface ObjectSetting {
   kind: 'object';
   keys: Map<string, Setting>;
   rest: Unknown | null;
+  /** Where the object is written; absent for one the scan builds, as by merging two. */
+  where?: Site;
 }
 
 /** What `read` returns, or null when it throws, as `fileURLToPath()` does for a URL that isn't a file's. */
@@ -544,7 +546,7 @@ class ConfigCode {
       // A method or getter is a function, which the scan can't work out.
       object.keys.set(String(key.value), this.evaluate(property.value, frame, scopes));
     }
-    return object;
+    return { ...object, where: { frame, node } };
   }
 
   /**
@@ -783,12 +785,25 @@ export class Configs {
 
   /** Reports a setting the scan reads but can't work out, once; `key` names it, and `effect` says what the scan does. */
   reportUnknown(setting: Unknown, key: string, effect: string): void {
-    if (setting.where === null) return;
-    const { frame, node } = setting.where;
+    const message = `The config's ${key} could not be worked out without running the config, so ${effect}.`;
+    this.reportAt(setting.where, key, message);
+  }
+
+  /**
+   * Reports, once, a setting the runner mishandles, where it is written, or on its config when the scan built it from
+   * several places; `key` names it.
+   */
+  reportSetting(setting: ObjectSetting, config: ConfigFile, key: string, message: string): void {
+    if (setting.where) this.reportAt(setting.where, key, message);
+    else this.reportConfig(config, message);
+  }
+
+  private reportAt(where: Site | null, key: string, message: string): void {
+    if (where === null) return;
+    const { frame, node } = where;
     const id = `${frame.relativeFilePath}\0${node.start}\0${key}`;
     if (this.reported.has(id)) return;
     this.reported.add(id);
-    const message = `The config's ${key} could not be worked out without running the config, so ${effect}.`;
     const code = snippet(frame.parsed.source.text.slice(node.start, node.end));
     const found = problem('config-value-unknown', node, message, code);
     this.diagnostics.push(toDiagnostic(found, frame.relativeFilePath, frame.parsed.source));

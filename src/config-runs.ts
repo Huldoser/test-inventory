@@ -332,8 +332,11 @@ export class ConfigRuns {
   }
 
   /** Vitest's `retry`: before 4.1, which reads only a count, an object is one the scan can't work out. */
-  private vitestRetry(setting: Setting | null): Setting | null {
-    return setting?.kind === 'object' && !atLeast(this.version, 4, 1) ? unknownAt(setting) : setting;
+  private vitestRetry(config: ConfigFile, setting: Setting | null): Setting | null {
+    if (setting?.kind !== 'object' || atLeast(this.version, 4, 1)) return setting;
+    const message = "The config's test.retry is an object, which Vitest reads from 4.1; before, it runs no test.";
+    this.configs.reportSetting(setting, config, 'test.retry', message);
+    return unknownAt(setting);
   }
 
   /** A project whose files can't be worked out, because of `setting` under `key`: it may run any file. */
@@ -972,7 +975,7 @@ export class ConfigRuns {
       runsByDefault: true,
       defaults: {
         timeout: settingAt(settings, ['test', 'testTimeout']),
-        retry: this.vitestRetry(settingAt(settings, ['test', 'retry'])),
+        retry: this.vitestRetry(config, settingAt(settings, ['test', 'retry'])),
         repeatEach: null,
         // Vitest 5 added `repeats` to the config.
         repeats: atLeast(this.version, 5, 0) ? settingAt(settings, ['test', 'repeats']) : null,
