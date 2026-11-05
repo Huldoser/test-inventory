@@ -38,6 +38,7 @@ import { snippet } from './source.ts';
 import type { ConfigRecord, Diagnostic, Framework, ProjectRecord } from './types.ts';
 import { isKey, isScopeNode, Values, type Value } from './values.ts';
 import { VITEST_INCLUDE, VITEST_TYPECHECK_INCLUDE, vitestExclude } from './vitest-defaults.ts';
+import { readToml, TomlError } from './toml.ts';
 import { readYaml, YamlError } from './yaml.ts';
 
 /** Config file names in the order each runner looks for them in a folder. */
@@ -54,6 +55,7 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   // The files `wdio run` takes without a config named, in its order.
   webdriverio: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts'].map((extension) => `wdio.conf${extension}`),
   node: [],
+  bun: ['bunfig.toml'],
 };
 
 /** Methods that change the object or list they are called on. */
@@ -949,16 +951,18 @@ export class Configs {
       const message = `The config could not be read: ${readFailure(error)}, ${none}`;
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
     }
-    if (/\.(jsonc?|ya?ml)$/.test(file)) {
+    if (/\.(jsonc?|ya?ml|toml)$/.test(file)) {
       let value: Value;
       try {
         // Mocha reads `.mocharc.json` with comments too.
         const comments = file.endsWith('.jsonc') || path.basename(file).startsWith('.mocharc');
         value = /\.ya?ml$/.test(file)
           ? readYaml(code)
-          : (JSON.parse(comments ? withoutJsonComments(code) : code) as Value);
+          : file.endsWith('.toml')
+            ? readToml(code)
+            : (JSON.parse(comments ? withoutJsonComments(code) : code) as Value);
       } catch (error) {
-        const at = error instanceof YamlError ? ` on line ${error.line}` : '';
+        const at = error instanceof YamlError || error instanceof TomlError ? ` on line ${error.line}` : '';
         const message = `The config could not be parsed${at}: ${(error as Error).message}, ${none}`;
         return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
       }

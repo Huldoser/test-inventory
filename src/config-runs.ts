@@ -121,6 +121,16 @@ export interface Placement {
   tags: string[] | null;
 }
 
+/** The files `bun test` runs, and what its config sets for them; see `bunFilesOf`. */
+interface BunFiles {
+  /** Why Bun refuses the config and runs no test; null when it takes it. */
+  refused: string | null;
+  about: ProjectAbout;
+  concurrent: ProjectAbout;
+  isConcurrent: (file: string) => boolean;
+  runs: (file: string) => boolean;
+}
+
 const ASSUMED = 'the scan takes its files to be run';
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
 
@@ -229,6 +239,7 @@ export class ConfigRuns {
   private jestDefaults: Project | null = null;
   private mochaDefaults: Project | null = null;
   private nodeRuns: ((file: string) => boolean) | null = null;
+  private bunFiles: BunFiles | null = null;
   /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
   private readonly expanding = new Map<ConfigFile, string>();
 
@@ -255,6 +266,7 @@ export class ConfigRuns {
     if (this.framework === 'cypress') return this.placeCypress(file);
     if (this.framework === 'webdriverio') return this.placeWebdriverIO(file);
     if (this.framework === 'node') return this.placeNode(file);
+    if (this.framework === 'bun') return this.placeBun(file);
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
@@ -559,6 +571,80 @@ export class ConfigRuns {
       });
     }
     return projects;
+  }
+
+  /** `bun test` runs the files of `bunFilesOf`, with the settings of the `bunfig.toml` in the root, when there is one. */
+  private placeBun(file: string): Omit<Placement, 'tags'> {
+    const config = this.configs.rootConfig();
+    if (!this.bunFiles) {
+      this.bunFiles = this.bunFilesOf(config);
+      if (this.bunFiles.refused) this.configs.reportConfig(config as ConfigFile, this.bunFiles.refused);
+    }
+    const found = this.bunFiles;
+    const runs = found.refused === null && (!this.findsFiles || found.runs(file)) ? 'test' : false;
+    if (!config) return { config: null, settings: null, runs, projects: null };
+    const projects = runs ? [found.isConcurrent(file) ? found.concurrent : found.about] : [];
+    return { config, settings: config.settings, runs, projects };
+  }
+
+  /**
+   * The files `bun test` runs: those under `[test] root`, the root by default, whose name without its extension ends
+   * with `.test`, `_test`, `.spec` or `_spec`, with a JavaScript or TypeScript extension, outside dot folders and
+   * `node_modules`, and from Bun 1.3.11 outside the folders and files a `pathIgnorePatterns` glob matches. `[test] retry`
+   * applies to every test, and the tests of the files a `concurrentTestGlob` glob matches run at once.
+   */
+  private bunFilesOf(config: ConfigFile | null): BunFiles {
+    const folder = this.configs.root;
+    const settings = config?.settings ?? emptySettings();
+    // Bun reads a string or a list of them, and ignores a `root` of another type.
+    const read = (key: string): string[] | null => {
+      const setting = settingAt(settings, ['test', key]);
+      if (setting === null) return [];
+      const found = patterns(setting, false);
+      return Array.isArray(found) ? (found as string[]) : null;
+    };
+    const roots = read('root') ?? [];
+    // Read whatever the version: Bun takes it from 1.3.11, and the version holds no patch to tell 1.3.10 from it.
+    const ignored = read('pathIgnorePatterns');
+    const concurrent = read('concurrentTestGlob');
+    const wrong = ignored === null ? 'pathIgnorePatterns' : concurrent === null ? 'concurrentTestGlob' : null;
+    const refused =
+      wrong &&
+      `The config's test.${wrong} is not a string or a list of strings, so Bun refuses the config and runs no test.`;
+    const testRoot = path.resolve(folder, roots[0] ?? '.');
+    const isIgnored = picomatch(ignored ?? []);
+    const isConcurrent = picomatch(concurrent ?? []);
+    const about = (parallel: boolean): ProjectAbout => ({
+      name: '',
+      testDir: testRoot,
+      dependencies: [],
+      settings,
+      root: folder,
+      container: null,
+      config: config as ConfigFile,
+      grep: null,
+      grepRoot: folder,
+      runsByDefault: true,
+      defaults: {
+        ...NO_DEFAULTS,
+        retry: settingAt(settings, ['test', 'retry']),
+        parallel: parallel ? { kind: 'value', value: true } : null,
+      },
+    });
+    return {
+      refused,
+      about: about(false),
+      concurrent: about(true),
+      isConcurrent: (file) => isConcurrent(posix(path.relative(folder, file))),
+      runs: (file) => {
+        if (!isInside(testRoot, file)) return false;
+        const relative = posix(path.relative(folder, file));
+        const parts = relative.split('/');
+        if (parts.some((part) => part.startsWith('.') || part === 'node_modules')) return false;
+        if (parts.some((_, index) => isIgnored(parts.slice(0, index + 1).join('/')))) return false;
+        return /(\.test|_test|\.spec|_spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(relative);
+      },
+    };
   }
 
   /** `node --test` runs the files its arguments name, or without any, those its default patterns match; see `nodeFiles`. */

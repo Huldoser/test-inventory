@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { jestKeysTitle, jestRowTitle, vitestCaseTitle } from '../src/case-titles.ts';
+import { bunCaseTitle, jestKeysTitle, jestRowTitle, vitestCaseTitle } from '../src/case-titles.ts';
 import type { Value } from '../src/values.ts';
 
 const LONG = 'a limit order for one hundred shares of AAPL at the bid';
@@ -891,5 +891,36 @@ describe('jestKeysTitle', () => {
     expect(jestKeysTitle('$first and $second', item, 0, [29, 3], false)).toBe('MSFT and $second');
     expect(jestKeysTitle('$first and $second', item, 0, [29, 4], false)).toBe('$second and MSFT');
     expect(jestKeysTitle('$venue', order, 0, [29, 0], false)).toBe('{"mic": "XNAS"}');
+  });
+});
+
+describe("Bun's case titles", () => {
+  it.each([
+    ['%s and %s', ['XNAS', 'XLON'], 'XNAS and XLON'],
+    ['%s %d %f %i', [7, 'x', 0.5, 2.5], '%s %d 0.5 %i'],
+    ['%i of %d', [3, -4], '3 of -4'],
+    ['%j %o', [{ bid: 1 }, ['a']], '{"bid":1} ["a"]'],
+    ['#%# %% %z %s', ['XNAS'], '#0 % z XNAS'],
+    ['%s then %s %% %#', ['XNAS'], 'XNAS then %s %% %#'],
+    ['spread 5%', ['XNAS'], 'spread 5%'],
+    ['%p', [1], null],
+    ['%j', [undefined], null],
+    [
+      '$mic at $depth.bid, $open, $missing %s',
+      [{ mic: 'XNAS', depth: { bid: 2 }, open: true }],
+      'XNAS at 2, true, $missing %s',
+    ],
+    ['$mic.name', [{ mic: 'XNAS' }], '$mic.name'],
+    ['$desk', [{ desk: { name: 'rates' } }], null],
+    ['$closed', [{ closed: null }], null],
+    ['$closed', [{ closed: undefined }], null],
+  ])('titles %j with %j as %j', (template, args, title) => {
+    expect(bunCaseTitle(template, args, 0, [1, 3])).toBe(title);
+  });
+
+  it('quotes a string key before Bun 1.3, and after it when the version is unknown, as the newest', () => {
+    expect(bunCaseTitle('routes $mic', [{ mic: 'XNAS' }], 0, [1, 2])).toBe('routes "XNAS"');
+    expect(bunCaseTitle('routes $mic', [{ mic: 'XNAS' }], 0, [0, 9])).toBe('routes "XNAS"');
+    expect(bunCaseTitle('routes $mic', [{ mic: 'XNAS' }], 0, null)).toBe('routes XNAS');
   });
 });

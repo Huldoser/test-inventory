@@ -29,6 +29,7 @@ export const EXAMPLES: { name: string; framework: Framework; patterns: string[] 
     patterns: ['test/specs/*.e2e.js', 'test/specs/{orders,accounts}/*.e2e.js'],
   },
   { name: 'pricing-service', framework: 'node', patterns: ['test/**/*.js', 'src/**/*.test.js'] },
+  { name: 'quote-gateway', framework: 'bun', patterns: ['src/**/*.test.ts', 'src/**/*.spec.ts'] },
 ];
 
 export function goldenPath(name: string): string {

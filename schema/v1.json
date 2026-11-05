@@ -104,7 +104,8 @@
             "jasmine",
             "cypress",
             "webdriverio",
-            "node"
+            "node",
+            "bun"
           ]
         },
         {

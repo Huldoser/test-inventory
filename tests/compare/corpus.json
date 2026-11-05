@@ -287,5 +287,17 @@
       "files": 180,
       "tests": 1392
     }
+  },
+  {
+    "name": "Elysia tests",
+    "repository": "https://github.com/elysiajs/elysia.git",
+    "commit": "1cf5ce15dc4de23a96c769b5500a8d6fac8a8373",
+    "license": "MIT",
+    "framework": "bun",
+    "patterns": ["test/**/*.test.ts"],
+    "expected": {
+      "files": 137,
+      "tests": 1633
+    }
   }
 ]

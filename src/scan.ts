@@ -55,15 +55,21 @@ function versionDiagnostics(
     ];
   }
   const [major, minor] = majorMinor(version) as [number, number];
-  const [oldestMajor, oldestMinor] = OLDEST[framework];
+  const patch = Number(/^v?\d+\.\d+\.(\d+)/.exec(version)?.[1] ?? 0);
+  const [oldestMajor, oldestMinor, oldestPatch = 0] = OLDEST[framework];
+  const oldest = OLDEST[framework].join('.');
   // A range gets the newest rules of its major, so only its major has to be supported.
-  const tooOld = major < oldestMajor || (major === oldestMajor && minor < oldestMinor && range === null);
+  const tooOld =
+    major < oldestMajor ||
+    (major === oldestMajor &&
+      range === null &&
+      (minor < oldestMinor || (minor === oldestMinor && patch < oldestPatch)));
   if (tooOld) {
     return [
       fileDiagnostic(
         'unsupported-framework-version',
         source,
-        `${name} ${version} is older than ${oldestMajor}.${oldestMinor}, the oldest supported version; the results follow ${oldestMajor}.${oldestMinor}.`,
+        `${name} ${version} is older than ${oldest}, the oldest supported version; the results follow ${oldest}.`,
       ),
     ];
   }
@@ -304,11 +310,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  // Mocha, Jasmine, Cypress and WebdriverIO always set their globals, and Playwright and node:test have none.
+  // Mocha, Jasmine, Cypress, WebdriverIO and Bun always set their globals, and Playwright and node:test have none.
   const missingGlobals =
     framework === 'jest'
       ? (file: string) => jestGlobals(placements.get(file) as Placement)
-      : ['mocha', 'jasmine', 'cypress', 'webdriverio', 'node'].includes(framework)
+      : ['mocha', 'jasmine', 'cypress', 'webdriverio', 'node', 'bun'].includes(framework)
         ? () => null
         : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;
