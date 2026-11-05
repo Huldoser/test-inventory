@@ -436,6 +436,20 @@ export abstract class SuiteAdapter implements Adapter {
   }
 
   /**
+   * The member a name is destructured from a test or describe function as, with that function's kind and the
+   * expression it is taken from: `each`, `test` and `test` in `const { each } = test`; null for any other name.
+   */
+  protected destructuredMember(name: string, lookup: Lookup): { kind: Kind; member: string; from: Expression } | null {
+    const declaration = this.file.values.declarationOf(name, lookup.scopes);
+    if (declaration?.type !== 'VariableDeclarator') return null;
+    const member = boundMembers(declaration.id, name)?.at(-1);
+    if (member === undefined) return null;
+    const alias = this.alias(declaration, name, lookup);
+    // A variable holds a test function only through its value, so there is one.
+    return alias && { kind: alias.kind, member, from: declaration.init as Expression };
+  }
+
+  /**
    * The function and modifiers a variable holds, as in `const skipOnCi = test.skipIf(isCI)`, with the member `name`
    * takes when it is destructured, as in `const { beforeEach } = test`. The members Vitest reads through `this`, such as
    * `each` and `skipIf`, return a test function only when called, so their calls are never read through a variable.

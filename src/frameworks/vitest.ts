@@ -185,6 +185,16 @@ interface PassedSkip {
   covered: boolean;
 }
 
+/**
+ * Whether a member of `test` or `describe` reads the function it is called on through `this`, so that it throws when
+ * destructured, as each version of Vitest runs it (checked with 3.2.4, 4.0.18, 4.1.12, 5.0.0 and 5.1.0).
+ */
+function readsItsFunction(kind: Kind, member: string, version: [number, number] | null): boolean {
+  if (kind === 'describe') return member === 'each' || (member === 'for' && atLeast(version, 5, 0));
+  if (['each', 'for', 'skipIf', 'runIf'].includes(member)) return true;
+  return ['extend', 'scoped', 'override'].includes(member) && atLeast(version, 4, 1);
+}
+
 export class VitestAdapter extends SuiteAdapter {
   private warnedAboutTags = false;
 
@@ -223,6 +233,7 @@ export class VitestAdapter extends SuiteAdapter {
       this.benchCall(call, context) ??
       this.hookCall(call, context) ??
       this.contextSkip(call, context) ??
+      this.unboundCall(call, context) ??
       this.chainCall(call, context)
     );
   }
@@ -244,6 +255,21 @@ export class VitestAdapter extends SuiteAdapter {
         callee,
       ),
     };
+  }
+
+  /**
+   * A call of a member Vitest calls on its test or describe function, destructured from it, as `each` in
+   * `const { each } = test`: the member reads the function it is called on, which a plain call doesn't give it, so the
+   * call throws while the file loads. Which members do that depends on the version.
+   */
+  private unboundCall(call: CallExpression, context: CallContext): ApiCall | null {
+    const callee = unwrap(call.callee);
+    if (callee.type !== 'Identifier') return null;
+    const found = this.destructuredMember(callee.name, context);
+    if (!found || !readsItsFunction(found.kind, found.member, this.file.version)) return null;
+    const from = snippet(text(this.file, found.from));
+    const message = `${callee.name} is destructured from ${from}, so it loses the test object it reads, and Vitest fails the file.`;
+    return { kind: 'invalid', problem: problem('invalid-chain', call, message, callee.name) };
   }
 
   private chainCall(call: CallExpression, context: CallContext): ApiCall | null {
@@ -581,11 +607,11 @@ export class VitestAdapter extends SuiteAdapter {
     const meta = options.values.get('meta');
     if (meta) details.meta = this.meta(meta, context, problems);
     for (const key of ['timeout', 'repeats'] as const) {
-      const option = options.values.get(key);
+      const option = given(key);
       const value = option ? readCount(this.file, key, option, problems) : null;
       if (value !== null) details.run[key] = value;
     }
-    const retry = options.values.get('retry');
+    const retry = given('retry');
     if (retry) this.retry(retry, details, context, problems);
     return result;
   }

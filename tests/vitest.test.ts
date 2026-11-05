@@ -364,6 +364,18 @@ test.only('amends an order', { only: undefined }, () => {});
     ]);
   });
 
+  it('leaves out timeout, retry and repeats set to undefined from Vitest 5, without a warning (TI-38)', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+test('settles a trade', { timeout: undefined, retry: undefined, repeats: undefined }, () => {});
+`,
+      { frameworkVersion: '5.0.5' },
+    );
+    expect(codes(inventory)).toEqual([]);
+    const { timeout, retries, repeats } = onlyTest(inventory);
+    expect({ timeout, retries, repeats }).toEqual({ timeout: null, retries: null, repeats: null });
+  });
+
   it.each([
     ['{ skip: true }', { state: 'skip', isConditional: false }],
     ['{ skip: false, todo: true }', { state: 'todo' }],
@@ -1196,8 +1208,10 @@ concurrentGroup('watchlists', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
-  it('does not read calls of destructured members that Vitest calls on the test object itself', () => {
-    const inventory = scanVitest(`${VITEST_IMPORT}
+  it('reports calls of destructured members that read the test object, which fail the file (TI-57)', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+test('books a trade', () => {});
 const { each, for: forEach, skipIf, runIf, extend } = test;
 each([['AAPL']])('quotes %s', () => {});
 forEach([['AAPL']])('quotes %s', () => {});
@@ -1205,9 +1219,83 @@ skipIf(process.env.CI)('sends an order', () => {});
 runIf(process.env.CI)('cancels an order', () => {});
 const withBroker = extend({ broker: 'paper' });
 withBroker('routes an order', () => {});
+const { override } = test;
+override({ broker: 'live' });
+`,
+      { frameworkVersion: '5.1.0' },
+    );
+    expect(inventory.tests.map((item) => [item.title, item.state])).toEqual([['books a trade', 'notLoaded']]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart, item.message])).toEqual([
+      [
+        'invalid-chain',
+        4,
+        'each is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        5,
+        'forEach is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        6,
+        'skipIf is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        7,
+        'runIf is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        8,
+        'extend is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+      [
+        'invalid-chain',
+        11,
+        'override is destructured from test, so it loses the test object it reads, and Vitest fails the file.',
+      ],
+    ]);
+  });
+
+  it.each([
+    ['3.2.4', ['each', 'describe.each']],
+    ['4.0.18', ['each', 'describe.each']],
+    ['4.1.12', ['each', 'extend', 'scoped', 'describe.each']],
+    ['5.0.0', ['each', 'extend', 'scoped', 'describe.each', 'describe.for']],
+  ])(
+    'reports the destructured members each Vitest version calls on the test object: %s (TI-57)',
+    (version, refused) => {
+      const inventory = scanVitest(
+        `${VITEST_IMPORT}
+const { each, extend, scoped } = test;
+const { each: eachDesk, for: forDesk } = describe;
+const { skip, concurrent } = test;
+each([1])('sizes lot %i', () => {});
+extend({});
+scoped({});
+eachDesk([1])('desk %i', () => { test('nets', () => {}); });
+forDesk([1])('book %i', () => { test('books', () => {}); });
+skip('skips a trade', () => {});
+concurrent('books a trade', () => {});
+`,
+        { frameworkVersion: version },
+      );
+      const members = ['each', 'extend', 'scoped', 'describe.each', 'describe.for'];
+      expect(inventory.diagnostics.map((item) => members[(item.lineStart ?? 0) - 5])).toEqual(refused);
+    },
+  );
+
+  it('takes a class passed as a test body or called like a helper as no function', () => {
+    const inventory = scanVitest(`${VITEST_IMPORT}
+class PlaceOrder { run() {} }
+class OrderBook { constructor() { test('matches two orders', () => {}); } }
+test('places a limit order', PlaceOrder);
+OrderBook();
 `);
-    expect(inventory.tests).toEqual([]);
-    expect(inventory.diagnostics).toEqual([]);
+    expect(testNamed(inventory, 'places a limit order').state).toBe('active');
+    expect(codes(inventory)).toEqual([]);
   });
 
   it('reads describe functions kept in a variable, also chosen by a condition', () => {

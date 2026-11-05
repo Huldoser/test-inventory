@@ -26,6 +26,7 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
   'nested-test': 'warning',
   'tag-without-at': 'error',
   'removed-api': 'error',
+  'invalid-fixture-argument': 'error',
   'only-in-skipped-describe': 'warning',
   'config-may-change-state': 'warning',
   'undefined-tag': 'error',
@@ -55,7 +56,13 @@ export const LEVELS: Record<DiagnosticCode, DiagnosticLevel> = {
  * calls that throw while the file is collected.
  */
 export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
-  playwright: new Set(['test-without-body', 'tag-without-at', 'invalid-chain', 'duplicate-title']),
+  playwright: new Set([
+    'test-without-body',
+    'tag-without-at',
+    'invalid-chain',
+    'duplicate-title',
+    'invalid-fixture-argument',
+  ]),
   vitest: new Set(['invalid-chain', 'removed-api', 'undefined-tag']),
   jest: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
 };

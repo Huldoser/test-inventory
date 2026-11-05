@@ -144,7 +144,7 @@ describe('run settings from the config', () => {
     });
   });
 
-  it('has no retries, from the config, for a retry object before Vitest 4.1, which reads only a count', async () => {
+  it('has no retries, and warns, for a config retry object before Vitest 4.1, which runs no test (TI-34)', async () => {
     const inventory = await scan({
       root: project({
         'package.json': JSON.stringify({ devDependencies: { vitest: '4.0.0' } }),
@@ -155,6 +155,35 @@ describe('run settings from the config', () => {
       framework: 'vitest',
     });
     expect(sources(inventory.tests[0]).retries).toEqual([null, 'config']);
+    expect(
+      inventory.diagnostics.map((item) => [item.code, item.relativeFilePath, item.lineStart, item.message]),
+    ).toEqual([
+      [
+        'config-value-unknown',
+        'vitest.config.ts',
+        1,
+        "The config's test.retry is an object, which Vitest reads from 4.1; before, it runs no test.",
+      ],
+    ]);
+  });
+
+  it('warns on the config for a retry object it merges from two before Vitest 4.1 (TI-34)', async () => {
+    const inventory = await scan({
+      root: project({
+        'package.json': JSON.stringify({ devDependencies: { vitest: '4.0.18' } }),
+        'vitest.config.ts': [
+          "import { mergeConfig } from 'vitest/config';",
+          'export default mergeConfig({ test: { retry: { count: 1 } } }, { test: { retry: { delay: 500 } } });',
+          '',
+        ].join('\n'),
+        'tests/fees.test.ts': UNIT,
+      }),
+      patterns: ['tests/*.test.ts'],
+      framework: 'vitest',
+    });
+    expect(inventory.diagnostics.map((item) => [item.code, item.relativeFilePath, item.lineStart])).toEqual([
+      ['config-value-unknown', 'vitest.config.ts', null],
+    ]);
   });
 
   it("keeps a test's own retry object before Vitest 4.1 over the config's count, as it replaces the count", async () => {

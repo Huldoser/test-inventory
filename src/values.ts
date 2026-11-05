@@ -335,6 +335,19 @@ export class Values {
     return this.lookup(name, scopes)?.binding.declaration ?? null;
   }
 
+  /**
+   * The function a name is declared as, with `function name() {}` or a variable holding one; null for any other name.
+   * A parameter is not its function, though the function declares it.
+   */
+  functionOf(name: string, scopes: readonly Node[]): FunctionNode | null {
+    const binding = this.lookup(name, scopes)?.binding;
+    const declaration = binding?.declaration;
+    // A class is bound like a function, but has no body to walk.
+    if (binding?.kind === 'function' && declaration?.type === 'FunctionDeclaration') return declaration;
+    const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
+    return isFunctionNode(init) ? init : null;
+  }
+
   /** The value a `const` name is declared with, and the scopes around that declaration; null for any other name. */
   constantOf(name: string, scopes: readonly Node[]): { init: Expression; scopes: readonly Node[] } | null {
     const binding = this.lookup(name, scopes)?.binding;

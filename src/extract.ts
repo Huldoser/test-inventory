@@ -978,10 +978,7 @@ class Walker {
   }
 
   private functionIn(frame: Frame, name: string, scopes: readonly Node[]): FunctionNode | null {
-    const declaration = frame.values.declarationOf(name, scopes);
-    if (declaration?.type === 'FunctionDeclaration') return declaration;
-    const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
-    return init?.type === 'ArrowFunctionExpression' || init?.type === 'FunctionExpression' ? init : null;
+    return frame.values.functionOf(name, scopes);
   }
 
   /**
