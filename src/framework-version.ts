@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { globSync } from 'tinyglobby';
+import { nodeTestCommands } from './node-scripts.ts';
 import { OptionsError } from './options.ts';
 import type { Framework } from './types.ts';
 
@@ -184,7 +185,7 @@ function detectIn(root: string, all: string[], name: string): DetectedVersion | 
 
 /**
  * The Node.js version a project pins, whose `node:test` runs its tests: the first of `.node-version`, `.nvmrc`, Volta's
- * `node` and the lowest version `engines.node` allows, in the root, then in each folder above it. A pin without a
+ * `node` and the newest version `engines.node` names, in the root, then in each folder above it. A pin without a
  * minor, as `24`, or an alias, as `lts/*`, is a range or nothing.
  */
 function nodeVersion(root: string): DetectedVersion | null {
@@ -209,14 +210,25 @@ function nodeVersion(root: string): DetectedVersion | null {
     if (typeof volta === 'string' && /^\d+\.\d+\.\d+$/.test(volta)) {
       return { version: volta, source: source(folder, 'package.json'), range: null };
     }
+    // `engines.node` is a floor: the newest version it names is the likeliest to run, and none older than node:test's.
     const engines = manifest?.engines?.node;
-    const lowest = typeof engines === 'string' ? /\d+(\.\d+)?(\.\d+)?/.exec(engines) : null;
-    if (typeof engines === 'string' && lowest) {
-      const [major, minor = '0', patch = '0'] = lowest[0].split('.');
-      return { version: `${major}.${minor}.${patch}`, source: source(folder, 'package.json'), range: engines };
+    const named = typeof engines === 'string' ? [...engines.matchAll(/\d+(?:\.\d+){0,2}/g)].map(versionParts) : [];
+    if (typeof engines === 'string' && named.length > 0) {
+      const newest = named.reduce((a, b) => (compareParts(b, a) > 0 ? b : a));
+      const floor = compareParts(newest, [...OLDEST.node, 0]) < 0 ? [...OLDEST.node, 0] : newest;
+      return { version: floor.join('.'), source: source(folder, 'package.json'), range: engines };
     }
   }
   return null;
+}
+
+function versionParts(match: RegExpExecArray | RegExpMatchArray): number[] {
+  const [major, minor = 0, patch = 0] = match[0].split('.').map(Number);
+  return [major, minor, patch];
+}
+
+function compareParts(a: number[], b: number[]): number {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
 /** Config file names of each runner. A Vite config alone doesn't count, as Vite apps without Vitest have one. */
@@ -241,7 +253,7 @@ function declares(manifest: string, framework: Framework): boolean {
   const fields = ['devDependencies', 'dependencies', 'peerDependencies', 'optionalDependencies'];
   if (framework === 'node') {
     return Object.values(json?.scripts ?? {}).some(
-      (script) => typeof script === 'string' && /(^|[\s;&|(])node\s+(?:[^;&|]*\s)?--test(?=[\s=]|$)/.test(script),
+      (script) => typeof script === 'string' && nodeTestCommands(script).length > 0,
     );
   }
   return (

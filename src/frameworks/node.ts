@@ -39,6 +39,11 @@ const NODE: Dialect = {
     ['it', TEST],
     ['describe', { kind: 'describe', links: [] }],
     ['suite', { kind: 'describe', links: [] }],
+    // `test`'s own members, which node:test also exports by name.
+    ...['skip', 'todo', 'only', 'expectFailure'].map((name): [string, Start] => [
+      name,
+      { kind: 'test', links: [name] },
+    ]),
   ]),
   hooks: new Map<string, keyof HookCounts>([
     ['before', 'beforeAll'],
@@ -53,6 +58,19 @@ const NODE: Dialect = {
   defaultImport: null,
   required: null,
   callable: TEST,
+  // Every other export of node:test on Node.js 26; the hooks are read as hooks.
+  others: new Set([
+    'after',
+    'afterEach',
+    'assert',
+    'before',
+    'beforeEach',
+    'default',
+    'getTestContext',
+    'mock',
+    'run',
+    'snapshot',
+  ]),
   importOnly: true,
 };
 
@@ -254,8 +272,8 @@ function readsTags(version: [number, number] | null): boolean {
 }
 
 /**
- * A state an option sets: `true`, a reason or for `expectFailure` a matcher sets it, `false`, `undefined` and an empty string leave it, and a
- * value the scan can't work out sets it under its source text.
+ * A state an option sets: any value but `false` and `undefined` sets it, as Node.js only checks for those two, with a
+ * non-empty string as its reason; a value the scan can't work out sets it under its source text.
  */
 function stateFrom(
   file: FileContext,
@@ -269,8 +287,8 @@ function stateFrom(
     return { state, condition: source, reason: null, hasDynamicReason: false, line };
   }
   const { value } = option.resolved;
-  if (!value) return null;
-  const reason = typeof value === 'string' && takesReason ? value : null;
+  if (value === undefined || value === false) return null;
+  const reason = typeof value === 'string' && value !== '' && takesReason ? value : null;
   return { state, condition: null, reason, hasDynamicReason: false, line };
 }
 

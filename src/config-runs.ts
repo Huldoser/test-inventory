@@ -14,6 +14,7 @@ import {
   unknownText,
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
+import { nodeTestCommands } from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
@@ -580,12 +581,18 @@ export class ConfigRuns {
       (glob) => `${glob}.{${extensions}}`,
     );
     const searchesFolders = atLeast(this.version, 26, 8);
-    const globs = nodeTestArguments(path.join(this.configs.root, 'package.json')).flatMap((argument) => {
-      const folder = path.resolve(this.configs.root, argument);
-      if (!searchesFolders || !existsSync(folder) || !statSync(folder).isDirectory()) return [argument];
-      return defaults.map((glob) => `${argument.replace(/\/+$/, '')}/${glob}`);
-    });
-    const isMatch = picomatch((globs.length > 0 ? globs : defaults).map((glob) => path.posix.normalize(posix(glob))));
+    const commands = nodeTestArguments(path.join(this.configs.root, 'package.json'));
+    // Each command runs the files it gives, or without any, those the default patterns match.
+    const globs = (commands.length > 0 ? commands : [[]]).flatMap((files) =>
+      files.length === 0
+        ? defaults
+        : files.flatMap((argument) => {
+            const folder = path.resolve(this.configs.root, argument);
+            if (!searchesFolders || !existsSync(folder) || !statSync(folder).isDirectory()) return [argument];
+            return defaults.map((glob) => `${argument.replace(/\/+$/, '')}/${glob}`);
+          }),
+    );
+    const isMatch = picomatch(globs.map((glob) => path.posix.normalize(posix(glob))));
     return (relative) => isMatch(relative) && !relative.split('/').includes('node_modules');
   }
 
@@ -1864,58 +1871,20 @@ function stripsTypes(version: [number, number] | null): boolean {
   return major > 23 || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
 }
 
-/** Node.js options that take their value as the next argument, so it is not a file to test. */
-const NODE_VALUE_OPTIONS = new Set([
-  '--test-reporter',
-  '--test-reporter-destination',
-  '--test-name-pattern',
-  '--test-skip-pattern',
-  '--test-concurrency',
-  '--test-timeout',
-  '--test-shard',
-  '--test-isolation',
-  '--test-coverage-include',
-  '--test-coverage-exclude',
-  '--test-global-setup',
-  '--import',
-  '--require',
-  '-r',
-  '--loader',
-  '--experimental-loader',
-  '--env-file',
-  '--conditions',
-  '-C',
-  '--config-file',
-  '--experimental-config-file',
-]);
-
 /**
- * The files and globs a package.json script gives `node --test`: the `test` script's, else those of the first script
- * that runs it; none when no script runs it or it is given none.
+ * The `node --test` commands of the package.json script that runs node:test, the `test` script first, each as the
+ * files it gives; none when no script runs it or there is no package.json.
  */
-function nodeTestArguments(manifest: string): string[] {
+function nodeTestArguments(manifest: string): string[][] {
   let scripts: Record<string, unknown> = {};
   try {
     scripts = (JSON.parse(readFileSync(manifest, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
   } catch {
     return [];
   }
-  const ordered = [scripts.test, ...Object.values(scripts)].filter((script) => typeof script === 'string');
-  for (const script of ordered) {
-    for (const command of script.split(/&&|\|\||[;|]/)) {
-      const words = [...command.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map(
-        (match) => (match[1] as string | undefined) ?? (match[2] as string | undefined) ?? match[3],
-      );
-      const node = words.findIndex((word) => word === 'node' || word.endsWith('/node'));
-      if (node === -1 || !words.slice(node + 1).includes('--test')) continue;
-      const files: string[] = [];
-      for (let index = node + 1; index < words.length; index++) {
-        const word = words[index];
-        if (NODE_VALUE_OPTIONS.has(word)) index++;
-        else if (!word.startsWith('-')) files.push(word);
-      }
-      return files;
-    }
+  for (const script of [scripts.test, ...Object.values(scripts)]) {
+    const commands = typeof script === 'string' ? nodeTestCommands(script) : [];
+    if (commands.length > 0) return commands;
   }
   return [];
 }

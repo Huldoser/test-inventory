@@ -1,8 +1,8 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
 // runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha, Jasmine,
-// Cypress), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
+// Cypress, WebdriverIO, node:test, whose version is the Node.js running this), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
 // expandCases, whose cases must have the runner's names. Differences described in
 // tests/compare/expected-differences.json are allowed; any other difference fails the run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -324,7 +324,7 @@ function webdriverioTests(work: string): RunnerTest[] {
 
 /** node:test's tests, run with a reporter of ours, which gives each test's line and the titles around it. */
 function nodeTests(work: string, version: string): RunnerTest[] {
-  if (process.versions.node.split('.')[0] !== version.split('.')[0]) {
+  if (process.versions.node !== version) {
     throw new Error(`Node.js ${process.versions.node} runs this, not ${version}; set it up with setup-node.`);
   }
   const output = path.join(work, 'node-tests.jsonl');
@@ -472,7 +472,9 @@ function isExpected(
 async function main(): Promise<void> {
   const [name, version = ''] = process.argv.slice(2);
   if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress> <version>');
+    throw new Error(
+      'Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node> <version>',
+    );
   }
   const framework = name as Framework;
   const project = PROJECTS[framework];

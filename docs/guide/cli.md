@@ -148,13 +148,14 @@ in this order:
 2. `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`.
 3. The version in `package.json`.
 
-Each is looked for in the root, then in each folder above it, as a package in a monorepo may be installed or locked
-at the top. When none of them has the framework, as in a monorepo whose root leaves it to a package such as `code/`,
-the shallowest `package.json` below the root that declares it and holds scanned files is used instead, outside
+Each is looked for in the root, then in each folder above it, as a package in a monorepo may be installed or locked at
+the top. When none of them has the framework, as in a monorepo whose root leaves it to a package such as `code/`, the
+shallowest `package.json` below the root that declares it and holds scanned files is used instead, outside
 `node_modules`, and its folder is read in the same order. For node:test, the version is the Node.js version the project
 pins: the first of `.node-version`, `.nvmrc`, Volta's `node` in `package.json` and `engines.node`, in the root, then in
-each folder above it; a pin without a minor, such as `24`, and `engines.node` are ranges. `--framework-version`
-overrides all of them. The version ends up in `frameworkVersion` in the output.
+each folder above it; a pin without a minor, such as `24`, is a range, and so is `engines.node`, of which the newest
+version it names counts, and never one older than 22.0. `--framework-version` overrides all of them. The version ends up
+in `frameworkVersion` in the output.
 
 When `package.json` gives only a range, such as `^4.0.0`, `frameworkVersion` is the lowest version in it, the rules of
 the newest release in that major apply, and an `approximate-framework-version` warning names the range and the file.

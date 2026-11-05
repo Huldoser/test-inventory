@@ -23,6 +23,26 @@ describe('quote book', () => {
       'quote book > keeps the best bid',
       'quote book > tiers > widens the retail quote',
     ]);
+    const members = scanNode(`
+import test, { mock, skip, todo } from 'node:test';
+import * as nt from 'node:test';
+test.mock.fn();
+nt.mock.timers.enable({ apis: ['Date'] });
+mock.method(Math, 'random');
+test.beforeEach(() => {});
+nt.after(() => {});
+nt[process.env.HOOK](() => {});
+skip('reprices on a holiday', () => {});
+todo('reprices after hours');
+nt.test('reprices at the open', () => {});
+`);
+    expect(members.tests.map((test) => [test.title, test.state])).toEqual([
+      ['reprices on a holiday', 'skip'],
+      ['reprices after hours', 'todo'],
+      ['reprices at the open', 'active'],
+    ]);
+    expect(members.files[0].hooks).toMatchObject({ beforeEach: 1, afterAll: 1 });
+    expect(codes(members)).toEqual([]);
     const required = scanNode(`
 const test = require('node:test');
 const { describe } = require('node:test');
@@ -45,6 +65,8 @@ test.skip('streams quotes', () => {});
 test('reprices a basket', { skip: 'needs the venue sandbox' }, () => {});
 test('reprices bonds', { skip: !process.env.BOND_FEED }, () => {});
 test('reprices futures', { skip: false }, () => {});
+test('reprices options', { skip: '' }, () => {});
+test('reprices swaps', { todo: 0 }, () => {});
 test.todo('drops a stale quote');
 test('expires a quote', { todo: true });
 test.todo('rounds a quote', { skip: true }, () => {});
@@ -68,6 +90,8 @@ venues[process.env.VENUE]();
       ['reprices a basket', 'skip', 'needs the venue sandbox', null],
       ['reprices bonds', 'skip', null, '!process.env.BOND_FEED'],
       ['reprices futures', 'active', null, null],
+      ['reprices options', 'skip', null, null],
+      ['reprices swaps', 'todo', null, null],
       ['drops a stale quote', 'todo', null, null],
       ['expires a quote', 'todo', null, null],
       ['rounds a quote', 'skip', null, null],
@@ -204,6 +228,12 @@ test('reprices a holiday', async (t) => {
     expect(byTitle.get('reprices a basket')?.parentTestId).toBeNull();
     expect(byTitle.get('reprices futures')?.stateSource).toBe('suite');
     expect(codes(inventory)).toEqual([]);
+    const describeInTest = scanNode(
+      "import test, { describe, it } from 'node:test';\ntest('reprices a basket', () => {\n  describe('bonds', () => {\n    it('reprices a bond', () => {});\n  });\n});",
+    );
+    expect(describeInTest.diagnostics.map((item) => item.message)).toEqual([
+      'A describe declared inside a test body runs as a nested describe of the test, but the scan does not list it or its tests.',
+    ]);
   });
 
   it('reports a chain that is not part of the API, which fails the file', () => {

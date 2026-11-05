@@ -1477,15 +1477,12 @@ class Walker {
 
   private nested(call: CallExpression, context: Context, isTest: boolean): boolean {
     if (!context.test && !context.hookScope) return false;
-    if (isTest && context.test && !context.hookScope && this.frame.adapter.nestsTests) return false;
-    this.report(
-      problem(
-        'nested-test',
-        call,
-        'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.',
-        snippet(this.frame.parsed.source.slice(call.start, call.end)),
-      ),
-    );
+    const inTest = context.test !== null && !context.hookScope && this.frame.adapter.nestsTests === true;
+    if (isTest && inTest) return false;
+    const message = inTest
+      ? 'A describe declared inside a test body runs as a nested describe of the test, but the scan does not list it or its tests.'
+      : 'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.';
+    this.report(problem('nested-test', call, message, snippet(this.frame.parsed.source.slice(call.start, call.end))));
     return true;
   }
 

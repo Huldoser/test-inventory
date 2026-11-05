@@ -66,6 +66,35 @@ describe('node:test files', () => {
     ]);
   });
 
+  it.each([
+    ['node --disable-warning ExperimentalWarning --test --test-coverage-lines 80', 'default'],
+    ['node --test src/spread.test.js && node --test test/fx/cross-rates.js', 'two'],
+    ['c8 cross-env TZ=UTC node.exe --test=true --test src/spread.test.js', 'one'],
+    ['node build.js --test && node --test src/spread.test.js', 'one'],
+  ])('reads the files of the node --test commands of a script: %s', async (script, expected) => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'pricing-service', scripts: { test: script } }),
+      ...layout,
+    });
+    const found = files(await scan({ root, framework: 'node', frameworkVersion: '24.11.0' }));
+    const typed = [
+      'src/quotes-test.cjs',
+      'src/rates_test.mjs',
+      'src/spread.test.js',
+      'src/spread.test.ts',
+      'test-fx.js',
+      'test.js',
+      'test/fx/cross-rates.js',
+    ];
+    expect(found).toEqual(
+      expected === 'default'
+        ? typed
+        : expected === 'two'
+          ? ['src/spread.test.js', 'test/fx/cross-rates.js']
+          : ['src/spread.test.js'],
+    );
+  });
+
   it('finds node:test from a script that runs node --test, and its version from the Node.js the project pins', async () => {
     const manifest = (extra: object) =>
       JSON.stringify({ name: 'pricing-service', scripts: { 'test:unit': 'node --test src/' }, ...extra });
@@ -82,6 +111,21 @@ describe('node:test files', () => {
       root: project({ 'package.json': manifest({ volta: { node: '22.20.0' } }), 'src/spread.test.js': SPEC }),
     });
     expect(volta.frameworkVersion).toBe('22.20.0');
+    const floors = await Promise.all(
+      ['>=18', '^20.19.0 || >=22.12.0', '^24.11.0 || ^22.12.0', '>=22.0.1'].map(async (range) => {
+        const root = project({ 'package.json': manifest({ engines: { node: range } }), 'src/spread.test.js': SPEC });
+        return (await scan({ root })).frameworkVersion;
+      }),
+    );
+    expect(floors).toEqual(['22.0.0', '22.12.0', '24.11.0', '22.0.1']);
+    const scriptOnly = await scan({
+      root: project({
+        'package.json': JSON.stringify({ name: 'pricing-service', scripts: { build: 'node build.js --test' } }),
+        'src/spread.test.js': SPEC,
+      }),
+      patterns: ['src/*.js'],
+    }).catch((error: unknown) => (error as Error).message);
+    expect(scriptOnly).toMatch(/^options\.framework is needed/);
     const unpinned = await scan({
       root: project({
         'package.json': manifest({ engines: { node: '*' } }),

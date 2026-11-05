@@ -79,6 +79,8 @@ export interface Dialect {
   required: string | null;
   /** What the module is when called, as `node:test`'s default export and `require()` are its `test`. */
   callable?: Start;
+  /** The module's other members, which a chain on the callable module may start with and is then no test. */
+  others?: ReadonlySet<string>;
   /** Whether the functions must be imported, as the runner sets no globals; `starts` are then exports only. */
   importOnly?: boolean;
 }
@@ -225,7 +227,7 @@ export class SuiteBindings implements TestObjects {
     if (node.type !== 'MemberExpression') return null;
     const name = propertyName(node);
     if (name === null) return null;
-    if (this.isNamespace(node.object)) return this.dialect.starts.get(name) ?? this.calledWith(name);
+    if (this.isNamespace(node.object)) return this.dialect.starts.get(name) ?? null;
     const base = this.startOf(node.object);
     return base && this.dialect.modifiers.has(name) ? { kind: base.kind, links: [...base.links, name] } : null;
   }
@@ -240,15 +242,7 @@ export class SuiteBindings implements TestObjects {
     if (node.type === 'Identifier') return this.starts.get(node.name) ?? null;
     if (node.type !== 'MemberExpression' || !this.isNamespace(node.object)) return null;
     const name = propertyName(node) ?? '';
-    return this.dialect.starts.get(name) ?? this.calledWith(name);
-  }
-
-  /** A modifier on the module itself, as `test.skip` on `node:test`'s default export; null for any other member. */
-  private calledWith(name: string): Start | null {
-    const { callable } = this.dialect;
-    return callable && this.dialect.modifiers.has(name)
-      ? { kind: callable.kind, links: [...callable.links, name] }
-      : null;
+    return this.dialect.starts.get(name) ?? null;
   }
 
   /** A name the module is bound to: its namespace, and its `test` too when the module can be called. */
@@ -459,7 +453,9 @@ export abstract class SuiteAdapter implements Adapter {
     const start = this.dialect.starts.get(chainLinks.at(0)?.name ?? '');
     if (start) return { kind: start.kind, index: 1, modifiers: links(start.links) };
     const { callable } = this.dialect;
-    return callable ? { kind: callable.kind, index: 0, modifiers: links(callable.links) } : null;
+    // The module's other members, as `test.mock.fn()`, are not tests; one it doesn't have is refused as a chain.
+    if (!callable || this.dialect.others?.has(chainLinks.at(0)?.name ?? '')) return null;
+    return { kind: callable.kind, index: 0, modifiers: links(callable.links) };
   }
 
   /**
@@ -609,6 +605,11 @@ export abstract class SuiteAdapter implements Adapter {
   /** Hooks called directly, such as `beforeEach(...)` imported from the framework or used as a global. */
   protected hookCall(call: CallExpression, context: CallContext): ApiCall | null {
     const callee = unwrap(call.callee);
+    // A hook on the module, as `test.beforeEach()` on `node:test`'s default export.
+    if (callee.type === 'MemberExpression' && this.bindings.isNamespace(callee.object)) {
+      const hook = this.dialect.hooks.get(propertyName(callee) ?? '');
+      return hook ? this.hook(call, hook, context) : null;
+    }
     if (callee.type !== 'Identifier') return null;
     const declaration = this.file.values.declarationOf(callee.name, context.scopes);
     const hook =
