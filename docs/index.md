@@ -4,7 +4,7 @@ layout: home
 hero:
   name: test-inventory
   text: Test metadata from source code, not from test results.
-  tagline: Lists every test declaration in a Playwright, Vitest or Jest suite as JSON, by reading the code. Nothing is run.
+  tagline: Lists every test declaration in a Playwright, Vitest or Jest suite as JSON, and the tests a change can affect, by reading the code. Nothing is run.
   image:
     light: /mark-light.svg
     dark: /mark-dark.svg
@@ -25,9 +25,10 @@ hero:
 
 One JSON document per scan. For each test it has the title, the file, the lines and columns, the describes around
 it, the tags, the annotations and the state: active, skipped, fixme, todo, expected to fail, or not loaded when
-Playwright would refuse the file. For a state that only applies sometimes, it has the condition and the reason. Each
-test also has an id that stays the same when the test moves to another line, and a hash of its body that changes
-when its code does, but not when only its formatting or comments do.
+the runner would refuse the file. For a state that only applies sometimes, it has the condition and the reason. Each
+test also has an id that stays the same when the test moves to another line, a hash of its body that changes when its
+code does, but not when only its formatting or comments do, and a hash of everything it runs: its hooks, fixtures,
+helpers, page objects, test data, snapshots and config. From those, `--related` lists the tests a change can affect.
 
 ```sh
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json

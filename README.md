@@ -4,8 +4,10 @@ Test metadata from source code, not from test results.
 
 test-inventory reads Playwright, Vitest and Jest test files and lists every test declaration as JSON: its title, file and
 lines, the describes around it, its tags and annotations, and whether it is active, skipped, fixme, todo, expected
-to fail or in a file the runner refuses to load, with the condition when the state only applies sometimes. It parses
-the code and runs nothing, so it needs no browsers, no build and no runner configuration.
+to fail or in a file the runner refuses to load, with the condition when the state only applies sometimes. Each test
+has an id that survives a move to another line and a hash of everything it runs, from its hooks and fixtures to its
+page objects, test data, snapshots and config, so it can also list the tests a change can affect. It parses the code
+and runs nothing, so it needs no browsers, no build and no runner configuration.
 
 Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/)
 
@@ -99,12 +101,12 @@ in Claude Code, Cursor, VS Code and other MCP clients ask it which tests a proje
 
 - Config files are read as code, never run, and only in part: settings computed at run time, as from `process.env`,
   can't be worked out, and settings such as `workers` or `use` are not read.
-- Values imported from other files are not worked out. A tag or title that comes from an import gets a diagnostic
-  that names the module. A custom `test` object is followed through as many files as it takes, through relative
+- Values from installed packages are not worked out; values from the project's own files are. A tag or title that
+  comes from a package gets a diagnostic that names the module. A custom `test` object is followed through as many files as it takes, through relative
   paths, tsconfig path aliases, `#` imports in package.json and workspace packages; one that can't be followed gets
   an error. Tests declared in helper functions are listed at each call, also for helpers imported from other files.
 - A test in a loop or a `.each` table is one record, with `isInLoop` or `caseCount`; the runner creates one test per
-  iteration or case.
+  iteration or case. `--expand-cases` lists each case whose values the scan can work out as its own record.
 - Conditions such as `browserName === 'webkit'` are kept as source text, not evaluated.
 
 ## Support
