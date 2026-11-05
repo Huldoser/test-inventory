@@ -99,7 +99,8 @@
           "enum": [
             "playwright",
             "vitest",
-            "jest"
+            "jest",
+            "mocha"
           ]
         },
         {

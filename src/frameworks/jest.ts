@@ -40,7 +40,7 @@ const JEST: Dialect = {
     ['fdescribe', { kind: 'describe', links: ['only'] }],
     ['xdescribe', { kind: 'describe', links: ['skip'] }],
   ]),
-  hooks: new Set(['beforeEach', 'afterEach', 'beforeAll', 'afterAll']),
+  hooks: new Map((['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const).map((name) => [name, name])),
   derivations: new Set(),
   modifiers: new Set(['only', 'skip', 'todo', 'concurrent', 'failing']),
   carriesKinds: false,

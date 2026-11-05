@@ -4,13 +4,28 @@ import { globSync } from 'tinyglobby';
 import { OptionsError } from './options.ts';
 import type { Framework } from './types.ts';
 
-const PACKAGES: Record<Framework, string> = { playwright: '@playwright/test', vitest: 'vitest', jest: 'jest' };
+const PACKAGES: Record<Framework, string> = {
+  playwright: '@playwright/test',
+  vitest: 'vitest',
+  jest: 'jest',
+  mocha: 'mocha',
+};
 
 /** Each framework's name in messages. */
-export const FRAMEWORK_NAMES: Record<Framework, string> = { playwright: 'Playwright', vitest: 'Vitest', jest: 'Jest' };
+export const FRAMEWORK_NAMES: Record<Framework, string> = {
+  playwright: 'Playwright',
+  vitest: 'Vitest',
+  jest: 'Jest',
+  mocha: 'Mocha',
+};
 
 /** Oldest supported version of each framework. */
-export const OLDEST: Record<Framework, [number, number]> = { playwright: [1, 42], vitest: [3, 0], jest: [29, 0] };
+export const OLDEST: Record<Framework, [number, number]> = {
+  playwright: [1, 42],
+  vitest: [3, 0],
+  jest: [29, 0],
+  mocha: [10, 0],
+};
 
 /** Where the framework version came from. */
 export interface DetectedVersion {
@@ -44,7 +59,7 @@ function escape(text: string): string {
 }
 
 /** The root, then each folder above it, as a monorepo package's dependencies may be installed or locked higher up. */
-function folders(root: string): string[] {
+export function folders(root: string): string[] {
   const list: string[] = [];
   for (let folder = path.resolve(root); ; folder = path.dirname(folder)) {
     list.push(folder);
@@ -143,15 +158,16 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
   playwright: /^playwright\.config\.[cm]?[jt]s$/,
   vitest: /^vitest\.config\.[cm]?[jt]s$/,
   jest: /^jest\.config\.([cm]?[jt]s|json)$/,
+  mocha: /^\.mocharc\.([cm]?js|ya?ml|jsonc?)$/,
 };
 
-/** Whether a package.json lists a runner, or for Jest has a `jest` key, its config. */
+/** Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config. */
 function declares(manifest: string, framework: Framework): boolean {
   const json = readJson(manifest) as Record<string, Record<string, unknown> | undefined> | null;
   const fields = ['devDependencies', 'dependencies', 'peerDependencies', 'optionalDependencies'];
   return (
     fields.some((field) => json?.[field]?.[PACKAGES[framework]] !== undefined) ||
-    (framework === 'jest' && json?.jest !== undefined)
+    ((framework === 'jest' || framework === 'mocha') && json?.[framework] !== undefined)
   );
 }
 
@@ -162,7 +178,7 @@ function declares(manifest: string, framework: Framework): boolean {
  * none of them or several, naming what it found.
  */
 export function detectFramework(root: string, ignore: readonly string[]): Framework {
-  const below = globSync(['**/package.json', '**/*.config.*'], {
+  const below = globSync(['**/package.json', '**/*.config.*', '**/.mocharc.*'], {
     cwd: root,
     ignore: ['**/node_modules/**', '**/.git/**', ...ignore],
   });
@@ -170,7 +186,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   const above = folders(root)
     .slice(1)
     .map((folder) => path.join(folder, 'package.json'));
-  const all = ['playwright', 'vitest', 'jest'] as const;
+  const all = ['playwright', 'vitest', 'jest', 'mocha'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
       below.some((file) => CONFIG_NAMES[framework].test(path.basename(file))) ||
@@ -180,7 +196,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   if (found.length === 1) return found[0];
   if (found.length === 0) {
     throw new OptionsError(
-      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest or jest, and no config of theirs is in the root or below.',
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest or mocha, and no config of theirs is in the root or below.',
     );
   }
   const names = found.map((framework) => FRAMEWORK_NAMES[framework]);

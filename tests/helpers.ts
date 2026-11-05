@@ -27,7 +27,7 @@ export function expectValidInventory(inventory: unknown): void {
 
 type Options = Partial<Omit<ScanSourceOptions, 'code' | 'framework'>>;
 
-function scan(code: string, framework: 'playwright' | 'vitest' | 'jest', options: Options): Inventory {
+function scan(code: string, framework: 'playwright' | 'vitest' | 'jest' | 'mocha', options: Options): Inventory {
   const inventory = scanSource({
     code,
     framework,
@@ -48,6 +48,10 @@ export function scanVitest(code: string, options: Options = {}): Inventory {
 
 export function scanJest(code: string, options: Options = {}): Inventory {
   return scan(code, 'jest', options);
+}
+
+export function scanMocha(code: string, options: Options = {}): Inventory {
+  return scan(code, 'mocha', options);
 }
 
 export function titles(inventory: Inventory): string[] {

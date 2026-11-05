@@ -1,0 +1,11 @@
+{
+  "name": "trading-e2e-mocha",
+  "private": true,
+  "scripts": {
+    "test:e2e": "mocha"
+  },
+  "devDependencies": {
+    "mocha": "11.8.0",
+    "puppeteer": "25.16.0"
+  }
+}

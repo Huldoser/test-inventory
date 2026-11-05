@@ -48,7 +48,7 @@ export interface ScanSourceOptions {
   expandCases?: boolean;
 }
 
-const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest', 'jest'];
+const FRAMEWORKS: readonly Framework[] = ['playwright', 'vitest', 'jest', 'mocha'];
 const COMMENTS: readonly CommentsMode[] = ['all', 'non-active', 'none'];
 // A prerelease and build metadata each appear once, so a long input can't make the match backtrack for long.
 const VERSION = /^v?(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;

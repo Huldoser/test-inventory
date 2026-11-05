@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo and Jest.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest and Mocha.
 ---
 
 # Examples
@@ -504,5 +504,113 @@ The preset only sets up the browser, so the scan reads the file as any Jest file
   "tags": ["e2e/order-ticket"],
   "timeout": 30000,
   "timeoutSource": "config"
+}
+```
+
+## A Mocha service
+
+`fix-gateway` sends orders to venues over FIX and is tested with Mocha, in plain CommonJS. Its config is
+`.mocharc.yml`:
+
+<!-- code: fix-gateway/.mocharc.yml -->
+
+```yaml
+# Unit specs and the exchange specs, which share the session helpers in test/helpers.
+spec: 'test/**/*.spec.js'
+timeout: '5s'
+retries: 1
+```
+
+The specs set timeouts and retries through Mocha's `this`, in describes and tests written as functions, and skip
+themselves at run time:
+
+<!-- code: fix-gateway/test/session.spec.js -->
+
+```js
+// test/session.spec.js
+describe('FIX session', () => {
+  // ...
+  context('heartbeats', function () {
+    this.retries(3);
+    // ...
+    it('answers a test request with a heartbeat', function () {
+      this.timeout(250);
+      // ...
+  describe('logon to a live venue', function () {
+    before(function () {
+      if (!process.env.FIX_HOST) this.skip();
+    });
+```
+
+<!-- scan: fix-gateway -->
+
+```sh
+npx test-inventory "test/**/*.spec.js" --framework mocha --output inventory.json
+```
+
+Without the glob and `--framework`, the scan finds the same files from `.mocharc.yml`, and Mocha from `package.json`.
+The test's own timeout wins over the config's `'5s'`, and the retries come from its describe:
+
+<!-- output: fix-gateway -->
+
+```json
+{
+  "fullName": "FIX session > heartbeats > answers a test request with a heartbeat",
+  "timeout": 250,
+  "timeoutSource": "test",
+  "retries": 3,
+  "retriesSource": "suite"
+}
+```
+
+`this.skip()` in the `before` hook skips the describe's tests when the condition holds:
+
+<!-- output: fix-gateway -->
+
+```json
+{
+  "fullName": "FIX session > logon to a live venue > logs on with a sequence reset",
+  "state": "skip",
+  "stateSource": "suite",
+  "isConditional": true,
+  "condition": "!process.env.FIX_HOST"
+}
+```
+
+## Puppeteer on Mocha
+
+On Mocha, a Puppeteer suite usually starts the browser in root hooks, which a file in the config's `require` exports
+as `mochaHooks`, and keeps the page on the test's context:
+
+<!-- code: trading-e2e-mocha/e2e/order-ticket.e2e.js -->
+
+```js
+// e2e/order-ticket.e2e.js
+describe('order ticket', function () {
+  beforeEach(async function () {
+    await this.page.goto(`${BASE_URL}/trade/AAPL`);
+  });
+  // ...
+  it('shows the order in the blotter', async function () {
+    this.timeout(60_000);
+```
+
+<!-- scan: trading-e2e-mocha -->
+
+```sh
+npx test-inventory "e2e/**/*.e2e.js" --framework mocha --output inventory.json
+```
+
+The root hooks aren't counted in `hooks`, but the file that exports them is one of each test's `dependencies`, so
+`dependencyHash` changes when it does:
+
+<!-- output: trading-e2e-mocha -->
+
+```json
+{
+  "fullName": "order ticket > shows the order in the blotter",
+  "timeout": 60000,
+  "timeoutSource": "test",
+  "dependencies": [".mocharc.json", "e2e/browser.js", "e2e/order-ticket.e2e.js"]
 }
 ```

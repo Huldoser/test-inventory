@@ -90,7 +90,7 @@ const VITEST: Dialect = {
     ['describe', { kind: 'describe', links: [] }],
     ['suite', { kind: 'describe', links: [] }],
   ]),
-  hooks: new Set(HOOKS.keys()),
+  hooks: new Map([...HOOKS.keys()].map((name) => [name, name])),
   derivations: DERIVATIONS,
   modifiers: new Set([...MODIFIERS.test, ...MODIFIERS.describe]),
   carriesKinds: true,

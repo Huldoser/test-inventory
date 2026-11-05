@@ -108,7 +108,8 @@ export async function findFiles(
     const absolutePath = path.resolve(root, match);
     const realPath = realpathSync(absolutePath);
     const linked = realPath !== path.join(realRoot, match);
-    if (linked && framework !== 'vitest') {
+    // Vitest and Mocha load a file through a link; Node.js loads it once, by its real path.
+    if (linked && framework !== 'vitest' && framework !== 'mocha') {
       const name = framework === 'jest' ? 'Jest' : 'Playwright';
       diagnostics.push(
         fileDiagnostic(

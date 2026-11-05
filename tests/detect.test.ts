@@ -78,10 +78,10 @@ describe('framework detection', () => {
   });
 
   it('throws a TypeError when a project uses none of them', async () => {
-    const root = project({ 'package.json': JSON.stringify({ devDependencies: { mocha: '11.0.0' } }), 'test/a.js': '' });
+    const root = project({ 'package.json': JSON.stringify({ devDependencies: { ava: '6.4.1' } }), 'test/a.js': '' });
     await expect(scan({ root })).rejects.toThrow(
       new TypeError(
-        'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest or jest, and no config of theirs is in the root or below.',
+        'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest or mocha, and no config of theirs is in the root or below.',
       ),
     );
   });

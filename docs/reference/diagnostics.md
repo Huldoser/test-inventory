@@ -77,6 +77,7 @@ Some problems make the runner fail while it loads a file:
   files still run.
 - Jest: `invalid-chain`, `test-without-body`, `async-describe` and `describe-throws`. Jest reports the file as failed and runs none of its
   tests; other files still run.
+- Mocha: `invalid-chain` and `test-without-body`. Mocha then stops before it runs any test, in this file or any other.
 
 Every test in such a file gets `state: "notLoaded"`, with `stateSource: "file"` and `stateLine` at the first of these
 problems. These tests are counted in `notLoadedCount`, not in `activeCount`. Everything else about them is kept, so

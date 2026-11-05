@@ -63,7 +63,8 @@ export interface Dialect {
   mismatched: ReadonlySet<string>;
   /** The names that start a chain, as exported and as globals; a map, so `constructor` matches nothing inherited. */
   starts: ReadonlyMap<string, Start>;
-  hooks: ReadonlySet<string>;
+  /** Each hook's name in code, and the name it is counted under, as Mocha's `before` is counted as `beforeAll`. */
+  hooks: ReadonlyMap<string, keyof HookCounts>;
   /** Members that build a test object from another, such as Vitest's `extend`. */
   derivations: ReadonlySet<string>;
   /** Members that give a test function a mode, as `skip` and `only` do, which a variable can hold it with. */
@@ -266,8 +267,9 @@ export class SuiteBindings implements TestObjects {
 
   private bindMember(imported: string, local: string): void {
     const start = this.dialect.starts.get(imported);
+    const hook = this.dialect.hooks.get(imported);
     if (start) this.starts.set(local, start);
-    else if (this.dialect.hooks.has(imported)) this.hooks.set(local, imported as keyof HookCounts);
+    else if (hook) this.hooks.set(local, hook);
     else this.members.set(local, imported);
   }
 
@@ -586,7 +588,7 @@ export abstract class SuiteAdapter implements Adapter {
     const declaration = this.file.values.declarationOf(callee.name, context.scopes);
     const hook =
       declaration === null
-        ? this.dialect.hooks.has(callee.name) && (callee.name as keyof HookCounts)
+        ? this.dialect.hooks.get(callee.name)
         : this.bindings.declarations.has(declaration) && this.bindings.hooks.get(callee.name);
     return hook ? this.hook(call, hook, context) : null;
   }

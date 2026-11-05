@@ -1,9 +1,9 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest|jest> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
-// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest), and compares tests, states and tags
-// with the inventory, scanned once as it is by default and once with expandCases, whose cases must have the runner's
-// names. Differences described in tests/compare/expected-differences.json are allowed; any other difference fails the
+// runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha), and
+// compares tests, states and tags with the inventory, scanned once as it is by default and once with expandCases,
+// whose cases must have the runner's names. Differences described in tests/compare/expected-differences.json are allowed; any other difference fails the
 // run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,8 +16,8 @@ interface RunnerTest {
   line: number;
   name: string;
   /**
-   * Playwright: the status the runner expects before running anything (`passed`, `failed` or `skipped`). Vitest and
-   * Jest: `ran`, `skipped` or `todo`, from running the tests.
+   * Playwright: the status the runner expects before running anything (`passed`, `failed` or `skipped`). Vitest, Jest
+   * and Mocha: `ran`, `skipped` or `todo`, from running the tests.
    */
   status: string;
   /** Without the `@` Playwright tags start with. */
@@ -55,6 +55,11 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
     fixture: 'settlement-service',
     patterns: ['src/**/*.test.js', 'src/__tests__/*.js', 'tests/**/*.test.js'],
     packages: (version) => ({ jest: version }),
+  },
+  mocha: {
+    fixture: 'fix-gateway',
+    patterns: ['test/**/*.spec.js'],
+    packages: (version) => ({ mocha: version }),
   },
 };
 
@@ -174,6 +179,31 @@ function jestTests(work: string): RunnerTest[] {
   );
 }
 
+/**
+ * Runs the tests with a reporter of our own, which lists every test Mocha registered with its titles; a test that calls
+ * `this.skip()` is skipped only once it runs, which `--dry-run` doesn't do. Mocha gives no line, so tests are matched
+ * by name.
+ */
+function mochaTests(work: string): RunnerTest[] {
+  try {
+    run('npx', ['mocha', '--reporter', path.join(repository, 'scripts/mocha-reporter.cjs')], work);
+  } catch {
+    // A failing test makes Mocha exit with the number of failures; the reporter still wrote every test.
+  }
+  const tests = JSON.parse(readFileSync(path.join(work, 'mocha-tests.json'), 'utf8')) as {
+    file: string;
+    titles: string[];
+    pending: boolean;
+  }[];
+  return tests.map((test) => ({
+    file: posix(path.relative(work, test.file)),
+    line: 0,
+    name: test.titles.join(' > '),
+    status: test.pending ? 'skipped' : 'ran',
+    tags: [],
+  }));
+}
+
 function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
@@ -182,11 +212,18 @@ function exactly(name: string): RegExp {
   return new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 's');
 }
 
-/** The runner names a title stands for: `.each` titles with `%s` or `$name` become patterns that match any value. */
+/**
+ * The runner names a title stands for: `.each` titles with `%s` or `$name` become patterns that match any value, and a
+ * template literal kept as source text, as a test in a loop has, matches any value of each `${...}`. Mocha gives no
+ * line, so names are all it is matched by.
+ */
 function titlePattern(test: TestRecord, inTable: boolean): RegExp {
   const escaped = test.fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const formatted = test.isParameterized || inTable ? escaped.replace(/%[sdifjoOp#%]|\\\$[\w.]+/g, '.*') : escaped;
-  return new RegExp(`^${formatted}$`, 's');
+  const template = test.hasDynamicTitle
+    ? formatted.replace(/`([^`]*)`/g, (_, inner: string) => inner.replace(/\\\$\\\{[^`]*?\\\}/g, '.*'))
+    : formatted;
+  return new RegExp(`^${template}$`, 's');
 }
 
 /** Whether the test is one case of a table or pass of a loop, or in a describe that is, so its title is the runner's. */
@@ -252,8 +289,8 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
       for (const item of wrong) differences.push({ kind: 'name', ...at, detail: `${test.fullName} / ${item.name}` });
     }
     const status = expectedStatus(test, framework);
-    // Jest reports no tags, so its are not compared.
-    const tags = framework === 'jest' ? '' : test.tags.map(withoutAt).sort().join(', ');
+    // Jest and Mocha report no tags, so theirs are not compared.
+    const tags = framework === 'jest' || framework === 'mocha' ? '' : test.tags.map(withoutAt).sort().join(', ');
     for (const item of candidates) {
       if (status !== null && item.status !== status) {
         differences.push({ kind: 'state', ...at, detail: `${test.fullName}: ${test.state} / ${item.status}` });
@@ -287,7 +324,7 @@ function isExpected(
 async function main(): Promise<void> {
   const [name, version = ''] = process.argv.slice(2);
   if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest> <version>');
+    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha> <version>');
   }
   const framework = name as Framework;
   const project = PROJECTS[framework];
@@ -301,7 +338,7 @@ async function main(): Promise<void> {
     );
     run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error'], work);
 
-    const listers = { playwright: playwrightTests, vitest: vitestTests, jest: jestTests };
+    const listers = { playwright: playwrightTests, vitest: vitestTests, jest: jestTests, mocha: mochaTests };
     const listed = listers[framework](work);
     const rules = JSON.parse(
       readFileSync(path.join(repository, 'tests/compare/expected-differences.json'), 'utf8'),

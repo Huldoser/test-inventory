@@ -8,6 +8,7 @@ import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
 import { JestAdapter } from './frameworks/jest.ts';
+import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { buildRecords, fileRecord, type CommentsMode, type FileConfig, type FileRecords } from './records.ts';
@@ -29,6 +30,8 @@ export interface FileSettings {
   isBenchmarkFile?: boolean | null;
   /** What the config the file uses sets for its tests; null without a config. */
   config?: FileConfig | null;
+  /** The interface Mocha's config sets for the tests: `describe` and `it`, or `suite` and `test`. */
+  mochaInterface?: MochaInterface;
   /** Shared by the files of one scan, so that code many tests reach is read once. */
   graph?: DependencyGraph;
   /** Shared by the files of one scan, so that each module's exported values are worked out once. */
@@ -46,12 +49,15 @@ export interface FileResult extends FileRecords {
 const TYPE_TEST = /\.(test|spec)-d\.[cm]?[jt]sx?$/;
 const BENCHMARK = /\.(bench|benchmark)\.[cm]?[jt]sx?$/;
 
-const ADAPTERS: Record<Framework, (parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) => Adapter> =
-  {
-    playwright: (parsed, file, readModule) => new PlaywrightAdapter(parsed.program, file, readModule),
-    vitest: (parsed, file, readModule) => new VitestAdapter(parsed, file, readModule),
-    jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
-  };
+const ADAPTERS: Record<
+  Framework,
+  (parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, settings: FileSettings) => Adapter
+> = {
+  playwright: (parsed, file, readModule) => new PlaywrightAdapter(parsed.program, file, readModule),
+  vitest: (parsed, file, readModule) => new VitestAdapter(parsed, file, readModule),
+  jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
+  mocha: (parsed, file, readModule, settings) => new MochaAdapter(parsed, file, readModule, settings.mochaInterface),
+};
 
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */
 function frame(
@@ -63,7 +69,7 @@ function frame(
 ): Frame {
   const values = new Values(exports.reader(readModule));
   const file: FileContext = { source: parsed.source, values, version: settings.version };
-  const adapter = ADAPTERS[settings.framework](parsed, file, readModule);
+  const adapter = ADAPTERS[settings.framework](parsed, file, readModule, settings);
   return { parsed, adapter, values: file.values, readModule, relativeFilePath };
 }
 

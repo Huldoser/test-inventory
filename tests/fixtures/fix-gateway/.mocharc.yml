@@ -1,0 +1,4 @@
+# Unit specs and the exchange specs, which share the session helpers in test/helpers.
+spec: 'test/**/*.spec.js'
+timeout: '5s'
+retries: 1

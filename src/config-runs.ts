@@ -13,6 +13,7 @@ import {
   unknownText,
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
+import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { RunSettings } from './model.ts';
 import type { ConfigDefaults, FileConfig, TagDefinition, TagOptions, VitestTags } from './records.ts';
 import type { Framework, MetaValue, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
@@ -223,6 +224,7 @@ export class ConfigRuns {
   private readonly folderStates = new Map<string, FolderState>();
   /** The project Jest runs with when no config is found up to the root. */
   private jestDefaults: Project | null = null;
+  private mochaDefaults: Project | null = null;
   /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
   private readonly expanding = new Map<ConfigFile, string>();
 
@@ -244,6 +246,7 @@ export class ConfigRuns {
   }
 
   private place(file: string): Omit<Placement, 'tags'> {
+    if (this.framework === 'mocha') return this.placeMocha(file);
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
@@ -320,11 +323,91 @@ export class ConfigRuns {
     return project ? { about: project.about, runs: project.runs as (file: string) => unknown } : null;
   }
 
+  /** Mocha runs one set of files, from the config it starts with, or its defaults without one. */
+  private placeMocha(file: string): Omit<Placement, 'tags'> {
+    const config = this.configs.mochaConfig();
+    const project = config
+      ? this.projectsOf(config)[0]
+      : (this.mochaDefaults ??= this.mochaProject(this.noConfig(), emptySettings()));
+    if (project.unknown) {
+      this.configs.reportUnknown(project.unknown.setting, project.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
+      return { config, settings: project.settings, runs: null, projects: null };
+    }
+    const runs = project.runs(file);
+    if (!config) return { config: null, settings: null, runs, projects: null };
+    return { config, settings: project.settings, runs, projects: runs ? [project.about] : [] };
+  }
+
+  /**
+   * The files Mocha runs, as it looks them up from the root, the folder it starts in, wherever its config is: each
+   * `spec` entry a glob, a file, a file without its extension, or a folder whose files with one of the `extension`s it
+   * takes, also in folders below with `recursive`, less those `ignore` matches; and the `file` entries, loaded first.
+   * With globs, every file they match, less `ignore`. A timeout may be written as `'2s'`.
+   */
+  private mochaProject(config: ConfigFile, settings: Setting): Project {
+    const folder = this.configs.root;
+    const lists: Record<string, string[]> = {};
+    for (const [key, fallback] of [
+      ['spec', ['./test']],
+      ['extension', ['js', 'cjs', 'mjs']],
+      ['ignore', []],
+      ['file', []],
+    ] as const) {
+      const setting = settingAt(settings, [key]) ?? (key === 'ignore' ? settingAt(settings, ['exclude']) : null);
+      const found = setting === null || isUnset(setting) ? [...fallback] : patterns(setting, false);
+      if (!Array.isArray(found)) return this.unknownProject(config, found, key);
+      lists[key] = (found as string[]).map((item) => (key === 'extension' ? item.replace(/^\./, '') : item));
+    }
+    const recursiveSetting = settingAt(settings, ['recursive']);
+    if (recursiveSetting?.kind === 'unknown') return this.unknownProject(config, recursiveSetting, 'recursive');
+    const recursive = recursiveSetting?.kind === 'value' && recursiveSetting.value === true;
+    const extensions = lists.extension;
+    // Mocha matches `ignore` against the path as its lookup finds it, without `./`, so a pattern starting with `./`
+    // matches nothing; picomatch would drop the `./` and match.
+    const ignored = lists.ignore.map((glob) => (glob.startsWith('./') ? () => false : picomatch(posix(glob))));
+    const specs = lists.spec.map((spec) => mochaSpec(folder, spec, extensions, recursive));
+    // A `file` entry is loaded as written, before the specs, and `ignore` doesn't apply to it.
+    const loaded = new Set(lists.file.map((entry) => path.resolve(folder, entry)));
+    const duration = (key: 'timeout' | 'retries') => {
+      const setting = settingAt(settings, [key]);
+      const value = setting?.kind === 'value' ? durationOf(setting.value, key) : null;
+      return value === null ? setting : { kind: 'value' as const, value };
+    };
+    const about: ProjectAbout = {
+      name: '',
+      testDir: folder,
+      dependencies: [],
+      settings,
+      root: folder,
+      container: null,
+      config,
+      grep: null,
+      grepRoot: folder,
+      runsByDefault: true,
+      defaults: { ...NO_DEFAULTS, timeout: duration('timeout'), retry: duration('retries') },
+    };
+    return {
+      config,
+      settings,
+      about,
+      unknown: null,
+      runs: (file) => {
+        const relative = posix(path.relative(folder, file));
+        if (loaded.has(file)) return 'test';
+        // A project's scripts often give Mocha the spec on its command line, which no config shows, so with globs the
+        // scan takes each file they match as run, less `ignore`.
+        if (this.findsFiles && !specs.some((spec) => spec(file))) return false;
+        return ignored.some((isMatch) => isMatch(relative)) ? false : 'test';
+      },
+    };
+  }
+
   private projectsOf(config: ConfigFile): Project[] {
     let projects = this.projects.get(config);
     if (!projects) {
       if (this.framework === 'playwright') projects = this.playwrightProjects(config);
       else if (this.framework === 'jest') projects = this.jestProjects(config);
+      else if (this.framework === 'mocha') projects = [this.mochaProject(config, config.settings)];
       else projects = this.vitestProjects(config);
       this.projects.set(config, projects);
     }
@@ -1083,6 +1166,28 @@ function writtenRoot(settings: Setting): string | null | { setting: Unknown; key
 }
 
 /** A config's settings without `test.projects`, as an inline project inherits them; both are known objects. */
+/**
+ * Whether Mocha's lookup of one `spec` entry finds a file: an entry with glob characters is a glob, which takes any
+ * file it matches; otherwise a file, the entry with one of the extensions added, or a folder, whose files with one of
+ * the extensions it takes, without hidden ones, and those of folders below with `recursive`.
+ */
+function mochaSpec(folder: string, spec: string, extensions: string[], recursive: boolean): (file: string) => boolean {
+  const target = path.resolve(folder, spec);
+  if (picomatch.scan(posix(spec)).isGlob) {
+    const isMatch = picomatch(posix(spec).replace(/^\.\//, ''));
+    return (file) => isMatch(posix(path.relative(folder, file)));
+  }
+  const stat = statSync(target, { throwIfNoEntry: false });
+  if (stat?.isFile()) return (file) => file === target;
+  if (!stat?.isDirectory()) return (file) => extensions.some((extension) => file === `${target}.${extension}`);
+  return (file) => {
+    if (!isInside(target, file) || path.basename(file).startsWith('.')) return false;
+    if (!recursive && path.dirname(file) !== target) return false;
+    // An extension may have several parts, as `spec.js`.
+    return extensions.some((extension) => file.endsWith(`.${extension}`));
+  };
+}
+
 function withoutProjects(settings: Setting): Setting {
   const root = settings as ObjectSetting;
   const test = root.keys.get('test') as ObjectSetting;
@@ -1380,4 +1485,22 @@ function isLocalPreset(preset: string): boolean {
 
 function isFileAt(file: string): boolean {
   return existsSync(file) && statSync(file).isFile();
+}
+
+/**
+ * The interface Mocha's `ui` gives a file's tests: BDD by default, or TDD. Another one, QUnit, exports or a package,
+ * declares tests in a way the scan doesn't read, which is reported on the config, and the file is read as BDD.
+ */
+export function mochaInterface(placement: Placement, configs: Configs): MochaInterface {
+  const { config } = placement;
+  const ui = config ? settingAt(config.settings, ['ui']) : null;
+  if (ui === null || isUnset(ui)) return 'bdd';
+  if (ui.kind !== 'value') {
+    configs.reportUnknown(unknownAt(ui), 'ui', "the scan reads the tests as Mocha's default, BDD");
+    return 'bdd';
+  }
+  if (ui.value === 'bdd' || ui.value === 'tdd') return ui.value;
+  const message = `The config's ui '${String(ui.value)}' is an interface the scan doesn't read, so it reads the tests as Mocha's default, BDD.`;
+  configs.reportConfig(config as ConfigFile, message);
+  return 'bdd';
 }
