@@ -2,12 +2,12 @@
 
 Test metadata from source code, not from test results.
 
-test-inventory reads Playwright, Vitest, Jest and Mocha test files and lists every test declaration as JSON: its title,
-file and lines, the describes around it, its tags and annotations, and whether it is active, skipped, fixme, todo,
-expected to fail or in a file the runner refuses to load, with the condition when the state only applies sometimes. Each
-test has an id that survives a move to another line and a hash of everything it runs, from its hooks and fixtures to its
-page objects, test data, snapshots and config, so it can also list the tests a change can affect. It parses the code and
-runs nothing, so it needs no browsers, no build and no runner configuration.
+test-inventory reads Playwright, Vitest, Jest, Mocha and Jasmine test files and lists every test declaration as JSON:
+its title, file and lines, the describes around it, its tags and annotations, and whether it is active, skipped, fixme,
+todo, expected to fail or in a file the runner refuses to load, with the condition when the state only applies
+sometimes. Each test has an id that survives a move to another line and a hash of everything it runs, from its hooks and
+fixtures to its page objects, test data, snapshots and config, so it can also list the tests a change can affect. It
+parses the code and runs nothing, so it needs no browsers, no build and no runner configuration.
 
 Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/)
 
@@ -18,7 +18,7 @@ npm install --save-dev test-inventory
 ```
 
 Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 3.0 or newer, Jest 29.0 or newer,
-Mocha 10.0 or newer.
+Mocha 10.0 or newer, Jasmine 4.0 or newer.
 
 ## Command line
 
@@ -28,7 +28,7 @@ Mocha 10.0 or newer.
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 ```
 
-Without the glob, the test files are those the project's Playwright, Vitest, Jest or Mocha configs run. Without
+Without the glob, the test files are those the project's Playwright, Vitest, Jest, Mocha or Jasmine configs run. Without
 `--framework`, the scan takes the runner the project uses, and asks for `--framework` when it uses several.
 
 For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:

@@ -1,5 +1,5 @@
 ---
-description: Install test-inventory and list the tests of a Playwright, Vitest, Jest or Mocha suite as JSON, without running them.
+description: Install test-inventory and list the tests of a Playwright, Vitest, Jest, Mocha or Jasmine suite as JSON, without running them.
 ---
 
 # Getting started
@@ -8,8 +8,9 @@ test-inventory reads JavaScript and TypeScript test files and lists the tests in
 and never runs it, so it needs no browsers, no build and no configuration of the test runner.
 
 It supports [Playwright](https://playwright.dev) 1.42 and newer, [Vitest](https://vitest.dev) 3.0 and newer,
-[Jest](https://jestjs.io) 29.0 and newer and [Mocha](https://mochajs.org) 10.0 and newer. It needs Node.js 22.12 or
-newer, and runs on Linux, macOS and Windows, on x64 and Arm.
+[Jest](https://jestjs.io) 29.0 and newer, [Mocha](https://mochajs.org) 10.0 and newer and
+[Jasmine](https://jasmine.github.io) 4.0 and newer. It needs Node.js 22.12 or newer, and runs on Linux, macOS and
+Windows, on x64 and Arm.
 
 ## Install
 
@@ -129,8 +130,8 @@ npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" 
 
 ## Next
 
-- [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest, Mocha
-  and Puppeteer.
+- [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest, Mocha,
+  Jasmine and Puppeteer.
 - The [command line](/guide/cli) options.
 - [Query recipes](/guide/recipes) and [CI recipes](/guide/ci).
 - The [MCP server and other ways in](/guide/agents) for AI agents.
@@ -140,4 +141,4 @@ npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" 
 ---
 
 If test-inventory turns out to be useful to you, [sponsoring its development](https://github.com/sponsors/Huldoser) pays
-for the time that keeps it current with new Playwright, Vitest, Jest and Mocha versions.
+for the time that keeps it current with new Playwright, Vitest, Jest, Mocha and Jasmine versions.

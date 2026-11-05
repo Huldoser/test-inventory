@@ -78,6 +78,10 @@ Some problems make the runner fail while it loads a file:
 - Jest: `invalid-chain`, `test-without-body`, `async-describe` and `describe-throws`. Jest reports the file as failed and runs none of its
   tests; other files still run.
 - Mocha: `invalid-chain` and `test-without-body`. Mocha then stops before it runs any test, in this file or any other.
+- Jasmine: `invalid-chain`, `test-without-body`, `async-describe` and `describe-throws`, at the top level of a file.
+  Jasmine then stops before it runs any spec, in this file or any other. Inside a describe, Jasmine catches them: it
+  reports the describe as failed and registers none of the specs written after the call in it, and the file's other
+  tests keep their states.
 
 Every test in such a file gets `state: "notLoaded"`, with `stateSource: "file"` and `stateLine` at the first of these
 problems. These tests are counted in `notLoadedCount`, not in `activeCount`. Everything else about them is kept, so

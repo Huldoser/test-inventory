@@ -38,6 +38,7 @@ that the projects' runners never load.
 | [jestjs/jest](https://github.com/jestjs/jest) `7261444`, unit and end to end                        | Jest       |   495 |  4,675 |
 | [prettier/prettier](https://github.com/prettier/prettier) `d5d30c1`, unit                           | Jest       |    23 |     63 |
 | [expressjs/express](https://github.com/expressjs/express) `43fca52`, unit and acceptance            | Mocha      |    89 |  1,187 |
+| [jasmine/jasmine](https://github.com/jasmine/jasmine) `50eb76d`, core                               | Jasmine    |   114 |  1,778 |
 
 No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings about values the scan can't work out
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The

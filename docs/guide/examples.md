@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest and Mocha.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha and Jasmine.
 ---
 
 # Examples
@@ -612,5 +612,50 @@ The root hooks aren't counted in `hooks`, but the file that exports them is one 
   "timeout": 60000,
   "timeoutSource": "test",
   "dependencies": [".mocharc.json", "e2e/browser.js", "e2e/order-ticket.e2e.js"]
+}
+```
+
+## A Jasmine service
+
+`risk-service` measures exposure and value at risk, and is tested with the jasmine command, in plain CommonJS. Its
+config, `spec/support/jasmine.json`, runs `**/*.spec.js` under `spec`, and its `!fixtures/**` leaves the sample
+positions out.
+
+Specs mark themselves pending at run time, with a reason, and take a timeout as their third argument:
+
+<!-- code: risk-service/spec/exposure.spec.js -->
+
+```js
+// spec/exposure.spec.js
+  it('reads positions from the prime broker', async () => {
+    expect(positions.length).toBe(2);
+  }, 15_000);
+  // ...
+  it('includes futures at their notional', () => {
+    pending('RISK-81: futures need the contract multiplier');
+  });
+
+  it('includes positions in the overnight session', () => {
+    if (!process.env.EXTENDED_HOURS) pending('Only with extended hours');
+```
+
+<!-- scan: risk-service -->
+
+```sh
+npx test-inventory "spec/*.spec.js" "spec/limits/**/*.spec.js" --framework jasmine --output inventory.json
+```
+
+Without the globs and `--framework`, the scan finds the same files from `jasmine.json`, and Jasmine from
+`package.json`. `pending()` keeps its reason, and under a condition the test is conditional:
+
+<!-- output: risk-service -->
+
+```json
+{
+  "fullName": "exposure > includes positions in the overnight session",
+  "state": "skip",
+  "isConditional": true,
+  "condition": "!process.env.EXTENDED_HOURS",
+  "reason": "Only with extended hours"
 }
 ```

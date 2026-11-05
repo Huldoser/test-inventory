@@ -8,7 +8,7 @@ A scan takes seconds and needs no browsers and no build, so it fits in any job t
 the inventory as a build artifact, list the tests that don't run in the job summary, block focused tests, and find
 tests that stopped running in a pull request.
 
-The examples scan a Playwright suite. For Vitest, Jest or Mocha, change the globs and `--framework`.
+The examples scan a Playwright suite. For Vitest, Jest, Mocha or Jasmine, change the globs and `--framework`.
 
 ## GitHub Actions
 
@@ -158,4 +158,4 @@ stage('Test inventory') {
 ---
 
 If test-inventory runs in your pipeline, [sponsoring it](https://github.com/sponsors/Huldoser) helps keep it working
-with each new Playwright, Vitest, Jest and Mocha release.
+with each new Playwright, Vitest, Jest, Mocha and Jasmine release.

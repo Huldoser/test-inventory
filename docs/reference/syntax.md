@@ -1,5 +1,5 @@
 ---
-description: The Playwright, Vitest, Jest and Mocha imports, calls and modifiers a scan reads.
+description: The Playwright, Vitest, Jest, Mocha and Jasmine imports, calls and modifiers a scan reads.
 ---
 
 # Supported syntax
@@ -96,8 +96,8 @@ Jest 29.0 and newer.
 
 `fit` and `fdescribe` are `.only`; `xit`, `xtest` and `xdescribe` are `.skip`. As in Jest, a describe's own `.only` or
 `.skip` wins over the one around it, a skipped describe skips every test in it, a todo or a `.only` too, and in a
-`describe.only` that has a test with its own `.only`, its other tests are left out of focus. A file that uses the globals while its
-config sets `injectGlobals: false` gets a `globals-not-enabled` warning.
+`describe.only` that has a test with its own `.only`, its other tests are left out of focus. A file that uses the
+globals while its config sets `injectGlobals: false` gets a `globals-not-enabled` warning.
 
 ### Calls
 
@@ -117,8 +117,8 @@ config sets `injectGlobals: false` gets a `globals-not-enabled` warning.
 | `jest.retryTimes(n, { waitBeforeRetry })`                                          | From Jest 30.0, the wait between retries as `retryDelay`.                                                                               |
 | `@group name` in a comment                                                         | A tag on every test in the file, as jest-runner-groups reads it: any line of the file that starts with `@group`, after a comment's `*`. |
 
-Jest's `.each` titles take `%p`, `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%#`, from Jest 30 `%$`, and `$name.path` and `$#`
-for tables of objects and tagged templates. A title that shows an object through `%s` or `%o` stays one record with
+Jest's `.each` titles take `%p`, `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%#`, from Jest 30 `%$`, and `$name.path` and
+`$#` for tables of objects and tagged templates. A title that shows an object through `%s` or `%o` stays one record with
 `--expand-cases`, as Node.js prints objects differently from one version to the next.
 
 ## Mocha
@@ -161,6 +161,42 @@ spec file runs around the tests of every file, but is counted only in that file.
 `['XNAS', 'XLON'].forEach((mic) => it(...))`, is one record with `caseCount`, as for the other runners. Root hooks,
 which a file the config lists in `require` exports as `mochaHooks`, run around every test, but are not counted in
 `hooks`; the file is in each test's `dependencies`.
+
+## Jasmine
+
+Jasmine 4.0 and newer.
+
+### Where test comes from
+
+| Form               | Example                                                                                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals            | `describe`, `xdescribe`, `fdescribe`, `it`, `xit` and `fit`, which the jasmine command, Karma or a browser page set; Jasmine has no module to import them from |
+| Kept in a variable | `const later = xit`: the variable keeps the `x` or `f`                                                                                                         |
+| Local helpers file | `import { spec } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare specs, read at each call               |
+
+`xit` and `xdescribe` are `.skip`, and `fit` and `fdescribe` `.only`. Jasmine's functions have no members, so a call
+such as `it.only()` is an `invalid-chain` error. Jasmine runs the innermost focus: a `fit` runs also inside an
+`xdescribe`, and in an `fdescribe` with a `fit` or `fdescribe` below it, only those run, so its other specs have
+`isOnly: false`.
+
+### Calls
+
+| Call                                                              | Read as                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `it(title, fn)`, `it(title, fn, timeout)`                         | A spec, with `timeout` when the third argument is a number the scan can work out.                                                                                                                                                                                    |
+| `it(title)`, `xit(title)` without a function, or with `undefined` | A skipped spec: Jasmine reports it as pending; `it()` is one titled `''`. `fit(title)` without one is a `test-without-body` error.                                                                                                                                   |
+| `it(title, 42)`                                                   | A `test-without-body` error: Jasmine takes the function second.                                                                                                                                                                                                      |
+| `describe(title, fn)`                                             | A describe. Without a function, a `test-without-body` error, also for `xdescribe`; with an async callback, an `async-describe` error; with a callback that takes arguments, or that declares no spec or describe, as one with only hooks, a `describe-throws` error. |
+| `beforeAll`, `beforeEach`, `afterEach`, `afterAll`                | Hooks, also with a timeout as their second argument.                                                                                                                                                                                                                 |
+| `pending(reason)` in a spec, `beforeEach` or `afterEach`          | The spec skipped with the reason; under a condition, `isConditional`. In `beforeAll` or `afterAll`, Jasmine reports it as an error of the describe, and the specs keep their state.                                                                                  |
+| `notApplicable(reason)` in a spec                                 | From Jasmine 7, the spec skipped with the reason. Before, the call fails the spec.                                                                                                                                                                                   |
+
+Where an error is written decides what Jasmine does. At the top level of a file, it stops Jasmine before it runs any
+spec, in this file or any other, and every test in the file is `notLoaded`. Inside a describe, Jasmine catches it: it
+reports the describe as failed and registers none of the specs written after the call in it; the scan reports the
+error, keeps the file's tests as they are, and still lists those later specs. `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
+a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
+`hooks`.
 
 ## In every runner
 
