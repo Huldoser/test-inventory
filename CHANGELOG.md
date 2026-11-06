@@ -1,5 +1,105 @@
 # test-inventory
 
+## 0.9.1
+
+### Patch Changes
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Bun: a test whose function is passed by name, followed by a timeout or options, as in
+  `test('reprices a basket', repricesBasket, 5_000)`, is read as a test. The scan took the timeout for the function and
+  reported a `test-without-body` error, listing every test in the file as not loaded, though Bun runs them.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - A `__proto__` key in a `bunfig.toml` or `.mocharc.yml` is read as a plain key, as Bun and Mocha read it. A
+  `bunfig.toml` with a `[__proto__]` table changed `Object.prototype` for the whole process, so every later scan in it,
+  such as those of a long-running MCP server, read settings the project never set. A `.mocharc.yml` one gave its map the
+  settings inside it. TOML keys named `constructor` or `toString` are read too, where they were refused.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Cypress: `specPattern` and `excludeSpecPattern` are read as globby, which Cypress uses, reads them. A `specPattern` that
+  starts with `!` leaves files out, where the scan took it to match every other file and listed nearly the whole project;
+  an `excludeSpecPattern` drops its `!`, where the scan left out everything else; and a folder in either stands for every
+  file below it, where it matched nothing.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Jasmine: a describe callback with a TypeScript `this` parameter, a parameter with a default value or a rest parameter,
+  as `function (this: object)`, is no longer reported as taking arguments. Jasmine checks the function's `length`, which
+  counts none of these, and runs the specs; the scan listed them as not loaded.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Jasmine: an `xdescribe` inside an `fdescribe` stays skipped, as in Jasmine, where the scan listed its specs as active;
+  a focus inside the `xdescribe` still runs. WebdriverIO on Jasmine now follows Jasmine's focus rules: a `fit` inside an
+  `xdescribe` runs, and in an `fdescribe` with a `fit` below it only the `fit` has `isOnly`, where the scan applied
+  Mocha's rules.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - A `<rootDir>` entry in Jest's `moduleDirectories`, as `['node_modules', '<rootDir>/src']`, is followed as a folder to
+  look in, as Jest does. The scan looked for a folder named `<rootDir>/src` and left the files out of `dependencies`
+  without a warning.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Jest's `moduleNameMapper` replaces the whole import name, as Jest does, also when its pattern matches only part of it,
+  as `'\\.css$'` does. The scan replaced only the matched part, so a mapped style or file mock was missing from
+  `dependencies` and its import got a `dependency-not-followed` warning. Vite's aliases still replace only the part they
+  match.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Test files reached through a symbolic link are read the way each runner reads them. Jasmine and Bun follow such links
+  and run the file once, as Vitest and Mocha do, so the file is no longer left out; Bun names it by its own path, as its
+  reports do. node:test runs a linked file, twice when its own path matches too, but a wildcard in its pattern doesn't
+  enter a linked folder. The `symlink-ignored` warning now names the runner in use, where it named Playwright for every
+  runner but Jest.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Mocha: an absolute glob in `spec`, as a `.mocharc.js` builds it with `path.join(__dirname, 'test', '**', '*.spec.js')`,
+  runs the files it matches. The scan matched it against paths relative to the config's folder, found nothing, and
+  reported `no-files-matched`.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Mocha, Cypress and WebdriverIO on Mocha: `this.skip()` in an `afterEach` hook no longer marks the tests as skipped.
+  The test has passed by the time the hook runs, and Mocha reports it as a pass.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - Mocha: a `.only` in a project whose config sets `forbid-only` (or `forbidOnly`) gets a `forbidden-only` error, as Mocha
+  stops the run before any test runs, or a warning when the setting depends on a condition, as Playwright's `forbidOnly`
+  does.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - A `.mocharc.yml` is read as js-yaml, Mocha's reader, reads it. Files that Mocha reads and the scan refused, which lost
+  every setting and so the files to test, are now read: a byte order mark, a comment or a `%YAML` line before `---`, a
+  `...` at the end, quoted list items with commas, as `['test/**/*.{ts,js}']`, YAML's escapes in double quotes, as
+  `\x41`, and a tab or an escaped quote followed by ` #` in quotes. A quote inside a value, as in `grep: buy 'limit # note`,
+  no longer hides the comment after it, `-a.js` on its own line is a value, not a list item, and what Mocha refuses is
+  reported rather than read: a key set twice, a tab in the indent, `a: b` in a value, a list inside a list, and values
+  that start with `@`, `` ` `` or `%`. `-.5` is a string, as js-yaml reads it. A long line is read in linear time; one of
+  160 KB took 5 seconds.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - node:test and Bun: a skipped describe skips every test inside it, over the test's own todo, as node:test creates none of
+  them, and in Bun the outermost skipped or todo describe decides, over the describes inside it and the test's own state.
+  The scan took the state nearest the test, so `test.todo()` in `describe.skip()` was todo, and in Bun `test.skip()` in
+  `describe.todo()` was skipped.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - node:test: a test whose function is passed by name, as `test('fills a market order', fillsMarketOrder)` or
+  `test(fillsMarketOrder)`, gets that function's `bodyHash`, and without a title the function's name, as Node.js names it.
+  The scan took the function for the test's options, with an `unresolved-option` warning and no hash, or for a title it
+  couldn't work out.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - node:test: the scan reads the `node --test` commands of every script the `test` script runs through `npm run`, `pnpm`,
+  `yarn`, `bun run`, `npm-run-all`, `run-s` or `run-p`, as in `"test": "npm run test:unit && npm run test:integration"`.
+  It read only the first script that runs `node --test`, and left out the files of the others without a warning.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - From Playwright 1.65, `test.skip('reason')`, `test.fixme('reason')` and `test.fail('reason')` with only a string give
+  that string as the record's `reason`, in a test body and at file or describe level, and no longer a `skip-without-body`
+  warning, as Playwright 1.65 takes the string as the description. An empty string still applies nothing. Older versions
+  keep the old reading.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - A `dependency-not-followed` warning for an import a config maps to a file that doesn't exist gives that file's path
+  relative to the root, as every path in the output is. It gave the absolute path, as `path.resolve()` or `<rootDir>`
+  built it, so the output differed from machine to machine.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - A test or describe function chosen in place, as in `(process.env.CI ? it.skip : it)('books a fill', ...)` or
+  `(process.env.CI && it.skip || it)(...)`, is read as one kept in a variable: only what both choices share applies. The
+  scan dropped these tests without a warning, for every runner but Playwright, whose case is still open. Jasmine
+  variables that hold `xit`, `fit`, `xdescribe` or `fdescribe`, as `const later = xit`, keep the `x` or `f`, as the docs
+  said; their tests were dropped too.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - A Vite alias to a path that starts with `/`, as `alias: { '@': '/src' }`, is followed from the project's root, as Vite
+  does, so `dependencies` and `dependencyHash` include the files imported through it. The scan looked for `/src` on the
+  disk, gave a `dependency-not-followed` warning and left the files out.
+
+- [#92](https://github.com/Huldoser/test-inventory/pull/92) [`0001eea`](https://github.com/Huldoser/test-inventory/commit/0001eeac49b8b7ae0c675ae12c1aa8d29daf17ff) - WebdriverIO: a `specs` or `exclude` glob that starts with `!` matches no file, as in WebdriverIO, where the scan took it
+  to match every other file; a glob that starts with `./` matches from the config's folder only, as its slash keeps glob's
+  `matchBase` off; from WebdriverIO 10 a capability's `specs` and `exclude` are no longer read, only `wdio:specs` and
+  `wdio:exclude`; and a capability's settings inside `alwaysMatch` are read.
+
 ## 0.9.0
 
 ### Minor Changes
