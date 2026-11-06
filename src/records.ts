@@ -119,6 +119,23 @@ interface Chosen {
 }
 
 /**
+ * The states of a describe that win over those of the describes inside it and of the test itself: node:test creates
+ * nothing inside a skipped describe, and in Bun the outermost skipped or todo describe decides (checked with Node.js
+ * 26.12.1 and Bun 1.2.23, 1.3.14 and 1.4.4). Elsewhere the state nearest the test wins.
+ */
+const OVERRIDING_DESCRIBES: Record<Framework, TestState[]> = {
+  playwright: [],
+  vitest: [],
+  jest: [],
+  mocha: [],
+  jasmine: [],
+  cypress: [],
+  webdriverio: [],
+  node: ['skip'],
+  bun: ['skip', 'todo'],
+};
+
+/**
  * The state the runner applies, from the candidates nearest the test first. An unconditional skip, fixme or todo wins
  * over an unconditional expected failure, since the test doesn't run, and one set while the file loads wins over one
  * in a test or hook body, which then never runs; then the nearest conditional state.
@@ -587,23 +604,31 @@ class RecordBuilder {
       index > focus &&
       scope.kind === 'describe' &&
       suiteOf(scope).declaration.states.includes(setting);
+    const overriding = OVERRIDING_DESCRIBES[this.options.framework];
+    const around = scopes.flatMap((scope, index) =>
+      scope.states
+        .filter((setting) => !declaredSkip(scope, index, setting))
+        .map((setting) => ({
+          setting,
+          source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
+          overrides:
+            overriding.includes(setting.state) &&
+            scope.kind === 'describe' &&
+            suiteOf(scope).declaration.states.includes(setting),
+        })),
+    );
     const chosen = jest
       ? jest.chosen
       : chooseState([
+          // Outermost first, as the outermost of them decides.
+          ...around.filter((candidate) => candidate.overrides).reverse(),
           ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
           // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
           ...parents.flatMap((parent) =>
             parent.declaration.states.map((setting) => ({ setting, source: 'suite' as const })),
           ),
-          ...scopes.flatMap((scope, index) =>
-            scope.states
-              .filter((setting) => !declaredSkip(scope, index, setting))
-              .map((setting) => ({
-                setting,
-                source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
-              })),
-          ),
+          ...around.filter((candidate) => !candidate.overrides),
         ]);
     // When the runner refuses the file, no test in it runs, whatever else is written, or none after the refused call.
     const rejected =

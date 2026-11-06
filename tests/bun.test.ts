@@ -87,6 +87,36 @@ describe.serial('settlement', () => {
     expect(inventory.tests[0].state).toBe('notLoaded');
   });
 
+  it('lets the outermost skipped or todo describe decide, over the describes inside it and the test itself', () => {
+    const inventory = scanBun(`
+describe.skip('desk closed', () => {
+  test.todo('prices a swap');
+});
+describe.todo('settlement', () => {
+  test.skip('nets the cash legs', () => {});
+});
+describe.skip('margin', () => {
+  describe.todo('intraday', () => {
+    test('books a fee', () => {});
+  });
+});
+describe('fx', () => {
+  describe.todo('forwards', () => {
+    test.skip('rolls a forward', () => {});
+  });
+  test.todo('books a spot');
+});
+`);
+    // Bun 1.2.23, 1.3.14 and 1.4.4 report these states.
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource])).toEqual([
+      ['prices a swap', 'skip', 'suite'],
+      ['nets the cash legs', 'todo', 'suite'],
+      ['books a fee', 'skip', 'suite'],
+      ['rolls a forward', 'todo', 'suite'],
+      ['books a spot', 'todo', 'test'],
+    ]);
+  });
+
   it('takes a condition that does not hold, or can not be worked out, next to its mode', () => {
     const inventory = scanBun(`
 test.todoIf(false).failing('reprices a basket', () => {});

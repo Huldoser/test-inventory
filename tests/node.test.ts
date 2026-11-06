@@ -83,6 +83,28 @@ test('fills with options', { timeout: 500 }, fillsMarketOrder);
     expect(codes(inventory)).toEqual([]);
   });
 
+  it('skips every test in a skipped describe, over their own todo, as Node.js creates none of them', () => {
+    const inventory = scanNode(`
+import { describe, it } from 'node:test';
+describe.skip('desk closed', () => {
+  it.todo('prices a swap');
+  describe.todo('settlement', () => {
+    it('nets the cash legs', () => {});
+  });
+});
+describe.todo('desk opening', () => {
+  it.skip('loads the curves', () => {});
+  it('loads the positions', () => {});
+});
+`);
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.stateSource])).toEqual([
+      ['desk closed > prices a swap', 'skip', 'suite'],
+      ['desk closed > settlement > nets the cash legs', 'skip', 'suite'],
+      ['desk opening > loads the curves', 'skip', 'test'],
+      ['desk opening > loads the positions', 'todo', 'suite'],
+    ]);
+  });
+
   it('reads skip, todo and only as members and options, with a reason, skip winning over todo', () => {
     const inventory = scanNode(`
 import test from 'node:test';

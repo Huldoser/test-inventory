@@ -138,6 +138,10 @@ over the test's own expected failure, as neither runner runs that test. For the 
 unconditional skip in a test or hook body: in a fixme or todo describe, the test keeps that state. `stateSource` says
 where the chosen state was set.
 
+node:test and Bun put some describes first. node:test creates nothing inside a skipped describe, so its tests are
+skipped whatever their own state. In Bun, the outermost skipped or todo describe decides, over the describes inside it
+and the test's own state: `test.skip()` in `describe.todo()` is todo.
+
 In Vitest, `.only` wins over `.skip`, which wins over `.todo`, within one declaration: `test.only.skip` is active. A
 test's options win over its chain, so `test.skip('title', { skip: false }, fn)` runs, while a describe's chain wins
 over its options, and so does a test's for its mode. A describe passes its `skip` option down to the tests and
