@@ -248,6 +248,7 @@ export class ConfigRuns {
   private place(file: string): Omit<Placement, 'tags'> {
     if (this.framework === 'mocha') return this.placeMocha(file);
     if (this.framework === 'jasmine') return this.placeJasmine(file);
+    if (this.framework === 'cypress') return this.placeCypress(file);
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
@@ -465,6 +466,95 @@ export class ConfigRuns {
     };
   }
 
+  /**
+   * Cypress runs a file in its e2e project, or in its component project when the config sets up component testing.
+   * Without a config it runs nothing, unless it is given files.
+   */
+  private placeCypress(file: string): Omit<Placement, 'tags'> {
+    const config = this.configs.cypressConfig();
+    if (!config) return { config: null, settings: null, runs: this.findsFiles ? false : 'test', projects: null };
+    const projects = this.projectsOf(config);
+    const unknown = projects.find((project) => project.unknown);
+    if (unknown?.unknown) {
+      this.configs.reportUnknown(unknown.unknown.setting, unknown.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
+      return { config, settings: unknown.settings, runs: null, projects: null };
+    }
+    // Cypress runs a file given to it only when its testing type's `specPattern` takes the file too.
+    const running = projects.filter((project) => project.runs?.(file));
+    return {
+      config,
+      settings: config.settings,
+      runs: running.length > 0 ? 'test' : false,
+      projects: running.map((project) => project.about),
+    };
+  }
+
+  /**
+   * Cypress's testing types as projects: `e2e`, and `component` when the config has it. Each runs the files under the
+   * config's folder that its `specPattern` matches, dot files left out, without those its `excludeSpecPattern` matches,
+   * dot files included, and those in `node_modules` unless a `specPattern` names it; component testing also leaves out
+   * the files e2e's `specPattern` matches. `cypress run` matches each pattern against the whole path, as globby does.
+   */
+  private cypressProjects(config: ConfigFile): Project[] {
+    const folder = path.dirname(config.file);
+    const types: ['e2e' | 'component', string[], string[]][] = [
+      ['e2e', ['cypress/e2e/**/*.cy.{js,jsx,ts,tsx}'], ['*.hot-update.js']],
+    ];
+    if (settingAt(config.settings, ['component']) !== null) {
+      types.push(['component', ['**/*.cy.{js,jsx,ts,tsx}'], ['**/__snapshots__/*', '**/__image_snapshots__/*']]);
+    }
+    // Cypress takes a pattern written from the config's folder as one relative to it.
+    const relative = (glob: string) => posix(glob.startsWith(folder + path.sep) ? path.relative(folder, glob) : glob);
+    const projects: Project[] = [];
+    let e2eSpecs: string[] = [];
+    for (const [type, defaultSpecs, defaultExcludes] of types) {
+      const lists: string[][] = [];
+      for (const [key, fallback] of [
+        ['specPattern', defaultSpecs],
+        ['excludeSpecPattern', defaultExcludes],
+      ] as const) {
+        const setting = settingAt(config.settings, [type, key]);
+        const found = setting === null || isUnset(setting) ? fallback : patterns(setting, false);
+        if (!Array.isArray(found)) return [this.unknownProject(config, found, `${type}.${key}`)];
+        lists.push(found as string[]);
+      }
+      const [specs, excludes] = lists;
+      if (type === 'e2e') e2eSpecs = specs;
+      const isSpec = picomatch(specs.map(relative));
+      const excluded = [...excludes, ...(type === 'component' ? e2eSpecs : [])].map(relative);
+      if (!specs.some((glob) => glob.includes('node_modules'))) excluded.push('**/node_modules/**');
+      const isExcluded = picomatch(excluded, { dot: true });
+      const retry = settingAt(config.settings, [type, 'retries']) ?? settingAt(config.settings, ['retries']);
+      const written = retry?.kind === 'object' ? settingAt(retry, ['runMode']) : retry;
+      // Cypress takes `null` as no retries set.
+      const runMode = written?.kind === 'value' && written.value === null ? null : written;
+      const about: ProjectAbout = {
+        name: type,
+        testDir: folder,
+        dependencies: [],
+        settings: config.settings,
+        root: folder,
+        container: null,
+        config,
+        grep: null,
+        grepRoot: folder,
+        runsByDefault: true,
+        defaults: { ...NO_DEFAULTS, retry: runMode },
+      };
+      projects.push({
+        config,
+        settings: config.settings,
+        about,
+        unknown: null,
+        runs: (file) => {
+          const from = posix(path.relative(folder, file));
+          return isSpec(from) && !isExcluded(from) ? 'test' : false;
+        },
+      });
+    }
+    return projects;
+  }
+
   private projectsOf(config: ConfigFile): Project[] {
     let projects = this.projects.get(config);
     if (!projects) {
@@ -472,6 +562,7 @@ export class ConfigRuns {
       else if (this.framework === 'jest') projects = this.jestProjects(config);
       else if (this.framework === 'mocha') projects = [this.mochaProject(config, config.settings)];
       else if (this.framework === 'jasmine') projects = [this.jasmineProject(config)];
+      else if (this.framework === 'cypress') projects = this.cypressProjects(config);
       else projects = this.vitestProjects(config);
       this.projects.set(config, projects);
     }

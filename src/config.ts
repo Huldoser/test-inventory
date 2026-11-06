@@ -49,6 +49,7 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   mocha: ['.cjs', '.js', '.mjs', '.yaml', '.yml', '.jsonc', '.json'].map((extension) => `.mocharc${extension}`),
   // From the root, which the jasmine command runs in; `.mjs` from Jasmine 5.
   jasmine: ['.mjs', '.json', '.js'].map((extension) => `spec/support/jasmine${extension}`),
+  cypress: ['.ts', '.js', '.mjs', '.cjs', '.mts', '.cts'].map((extension) => `cypress.config${extension}`),
 };
 
 /** Methods that change the object or list they are called on. */
@@ -850,6 +851,12 @@ export class Configs {
   jasmineConfig(): ConfigFile | null {
     const names = CONFIG_FILES.jasmine.filter((name) => !name.endsWith('.mjs') || atLeast(this.version, 5, 0));
     const name = names.find((item) => existsSync(path.join(this.root, item)));
+    return name ? this.at(path.join(this.root, name)) : null;
+  }
+
+  /** The config `cypress run` reads, started in the root: the first `cypress.config` file there; null without one. */
+  cypressConfig(): ConfigFile | null {
+    const name = CONFIG_FILES.cypress.find((item) => existsSync(path.join(this.root, item)));
     return name ? this.at(path.join(this.root, name)) : null;
   }
 

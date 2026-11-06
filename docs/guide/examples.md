@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha and Jasmine.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine and Cypress.
 ---
 
 # Examples
@@ -657,5 +657,43 @@ Without the globs and `--framework`, the scan finds the same files from `jasmine
   "isConditional": true,
   "condition": "!process.env.EXTENDED_HOURS",
   "reason": "Only with extended hours"
+}
+```
+
+## Cypress end-to-end tests
+
+`trading-ui-cypress` checks order tickets with Cypress. Tests take Cypress's test config before their function:
+retries, tags for `@cypress/grep`, and the browsers they run in.
+
+<!-- code: trading-ui-cypress/cypress/e2e/orders/ticket.cy.js -->
+
+```js
+// cypress/e2e/orders/ticket.cy.js
+describe('order ticket', { tags: '@orders', retries: { runMode: 2, openMode: 0 } }, () => {
+  // ...
+  it('accepts an order within the limits', { tags: ['@smoke'] }, () => {
+  // ...
+  it('opens the ticket from the watchlist', { browser: '!electron' }, () => {
+```
+
+<!-- scan: trading-ui-cypress -->
+
+```sh
+npx test-inventory "cypress/e2e/**/*.cy.js" --framework cypress --output inventory.json
+```
+
+Without the glob and `--framework`, the scan finds the same files from Cypress's default `specPattern`, and Cypress from
+`package.json`. A test takes its describe's tags and retries, `runMode` of them, and `browser` is a condition:
+
+<!-- output: trading-ui-cypress -->
+
+```json
+{
+  "fullName": "order ticket > opens the ticket from the watchlist",
+  "state": "skip",
+  "isConditional": true,
+  "condition": "browser: '!electron'",
+  "retries": 2,
+  "tags": ["@orders"]
 }
 ```

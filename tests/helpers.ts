@@ -58,6 +58,10 @@ export function scanJasmine(code: string, options: Options = {}): Inventory {
   return scan(code, 'jasmine', options);
 }
 
+export function scanCypress(code: string, options: Options = {}): Inventory {
+  return scan(code, 'cypress', options);
+}
+
 export function titles(inventory: Inventory): string[] {
   return inventory.tests.map((test) => test.title);
 }

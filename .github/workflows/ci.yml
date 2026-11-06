@@ -230,6 +230,10 @@ jobs:
             version: 4.6.0
           - framework: jasmine
             version: 7.0.0
+          - framework: cypress
+            version: 13.17.0
+          - framework: cypress
+            version: 16.2.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

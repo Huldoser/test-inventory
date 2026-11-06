@@ -1,5 +1,5 @@
 ---
-description: The Playwright, Vitest, Jest, Mocha and Jasmine imports, calls and modifiers a scan reads.
+description: The Playwright, Vitest, Jest, Mocha, Jasmine and Cypress imports, calls and modifiers a scan reads.
 ---
 
 # Supported syntax
@@ -197,6 +197,35 @@ reports the describe as failed and registers none of the specs written after the
 error, keeps the file's tests as they are, and still lists those later specs. `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
 `hooks`.
+
+## Cypress
+
+Cypress 13.0 and newer.
+
+### Where test comes from
+
+| Form               | Example                                                                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals            | Mocha's BDD globals, `describe`, `context`, `it`, `specify`, their `x` forms and the hooks, which Cypress sets in every spec                   |
+| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies                                                                     |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call |
+
+### Calls
+
+Cypress reads tests and describes as Mocha does, with these differences:
+
+| Call                                                                      | Read as                                                                                                                                                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `it(title, config, fn)`, `describe(title, config, fn)`                    | A test or describe with Cypress's test config, before its function. `it(title, config)` without a function is a test that runs and fails, as Cypress then gives Mocha the config as its function. |
+| `retries` in a test config                                                | `retries`; for `{ runMode, openMode }`, `runMode`, which `cypress run` uses. A describe's passes to its tests. `null` sets none.                                                                  |
+| `browser` in a test config                                                | The test, or a describe's tests, skipped under a condition, `browser: '!firefox'` as written: Cypress runs them only in the browsers it names.                                                    |
+| `tags` in a test config                                                   | `tags`, a string or a list, as `@cypress/grep` reads them. A describe's pass to its tests.                                                                                                        |
+| `env` in a test config                                                    | From Cypress 16, a `removed-api` error: Cypress 16 fails each test it applies to when the test runs.                                                                                              |
+| `this.retries()` in a describe, `.retries()` after `it()` or `describe()` | A `describe-throws` or `invalid-chain` error: Cypress throws while it loads the spec. In a test or hook, `this.retries()` fails only that test or hook, when it runs, and is not reported.        |
+| `this.timeout()`, `it(...).timeout()`                                     | Not read: Cypress has no test timeout, only command timeouts.                                                                                                                                     |
+
+A call Cypress refuses, as `it.concurrent()` or a describe without a function, fails its spec, and every test in the
+file is `notLoaded`; the other specs run.
 
 ## In every runner
 

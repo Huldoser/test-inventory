@@ -67,6 +67,7 @@ export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   jest: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
   mocha: new Set(['invalid-chain', 'test-without-body']),
   jasmine: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
+  cypress: new Set(['invalid-chain', 'test-without-body', 'describe-throws']),
 };
 
 export function toDiagnostic(
