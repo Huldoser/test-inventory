@@ -199,6 +199,50 @@ describe('Mocha config files', () => {
     expect(files(inventory)).toEqual(['test/e2e/checkout.js', 'test/setup.js', 'test/smoke.js']);
   });
 
+  it('runs the files of an absolute glob, as a .mocharc.js builds it with path.join(__dirname, ...)', async () => {
+    const root = project({
+      'package.json': MOCHA_PACKAGE,
+      '.mocharc.cjs':
+        "const path = require('node:path');\nmodule.exports = { spec: path.join(__dirname, 'test', '**', '*.spec.js') };\n",
+      'test/orders.spec.js': TEST,
+      'test/fills/partial.spec.js': TEST,
+      'test/helpers.js': TEST,
+    });
+    // Mocha 10.8.2 and 12.0.3 run both spec files.
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(files(inventory)).toEqual(['test/fills/partial.spec.js', 'test/orders.spec.js']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it("reports a .only that the config's forbid-only fails, as Mocha stops the run, or a warning under a condition", async () => {
+    const spec = "describe('orders', () => {\n  it.only('places a market order', () => {});\n});\n";
+    const forbidden = async (config: Record<string, string>) => {
+      const inventory = await scan({
+        root: project({ 'package.json': MOCHA_PACKAGE, ...config, 'test/orders.spec.js': spec }),
+        framework: 'mocha',
+      });
+      return inventory.diagnostics.map((item) => [item.code, item.level, item.message]);
+    };
+    const sure = [
+      'forbidden-only',
+      'error',
+      'The config sets forbid-only, so this .only fails the run before any test runs.',
+    ];
+    // Mocha 10.8.2 to 12.0.3 throw ".only forbidden by --forbid-only" and run no test.
+    expect(await forbidden({ '.mocharc.json': '{ "spec": "test", "forbid-only": true }' })).toEqual([sure]);
+    expect(await forbidden({ '.mocharc.json': '{ "spec": "test", "forbidOnly": true }' })).toEqual([sure]);
+    expect(
+      await forbidden({ '.mocharc.js': "module.exports = { spec: 'test', forbidOnly: Boolean(process.env.CI) };\n" }),
+    ).toEqual([
+      [
+        'forbidden-only',
+        'warning',
+        'The config sets forbid-only when Boolean(process.env.CI), so then this .only fails the run before any test runs.',
+      ],
+    ]);
+    expect(await forbidden({ '.mocharc.json': '{ "spec": "test", "forbid-only": false }' })).toEqual([]);
+  });
+
   it('reads suite and test with ui: tdd, and warns about an interface the scan does not read', async () => {
     const tdd = await scan({
       root: project({

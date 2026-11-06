@@ -102,6 +102,8 @@ export interface FileConfig {
 interface RecordOptions {
   relativeFilePath: string;
   framework: Framework;
+  /** Jasmine's focus rules apply: for Jasmine, and for WebdriverIO on Jasmine. */
+  focusesLikeJasmine: boolean;
   comments: CommentsMode;
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
@@ -115,6 +117,23 @@ interface Chosen {
   setting: StateSetting;
   source: StateSource;
 }
+
+/**
+ * The states of a describe that win over those of the describes inside it and of the test itself: node:test creates
+ * nothing inside a skipped describe, and in Bun the outermost skipped or todo describe decides (checked with Node.js
+ * 26.12.1 and Bun 1.2.23, 1.3.14 and 1.4.4). Elsewhere the state nearest the test wins.
+ */
+const OVERRIDING_DESCRIBES: Record<Framework, TestState[]> = {
+  playwright: [],
+  vitest: [],
+  jest: [],
+  mocha: [],
+  jasmine: [],
+  cypress: [],
+  webdriverio: [],
+  node: ['skip'],
+  bun: ['skip', 'todo'],
+};
 
 /**
  * The state the runner applies, from the candidates nearest the test first. An unconditional skip, fixme or todo wins
@@ -537,13 +556,14 @@ class RecordBuilder {
   }
 
   /**
-   * Whether Jasmine runs a spec as focused: a `fit`, or a spec in an `fdescribe` with no focused spec or describe
-   * below it, as Jasmine runs only the innermost focus (checked with Jasmine 4.6.0 and 7.0.0).
+   * Where Jasmine's focus on a spec sits, as an index into its `scopes`, from the innermost: -1 for a `fit`, the
+   * `fdescribe` around it with no focused spec or describe below, as Jasmine runs only the innermost focus, or null
+   * when the spec isn't focused (checked with Jasmine 4.6.0 and 7.0.0).
    */
-  private jasmineFocus(pending: PendingTest, scopes: Scope[]): boolean {
-    if (pending.declaration.isOnly) return true;
-    const nearest = scopes.find((scope) => scope.isOnly);
-    return nearest !== undefined && !this.focusedBelow.has(nearest);
+  private jasmineFocus(pending: PendingTest, scopes: Scope[]): number | null {
+    if (pending.declaration.isOnly) return -1;
+    const nearest = scopes.findIndex((scope) => scope.isOnly);
+    return nearest !== -1 && !this.focusedBelow.has(scopes[nearest]) ? nearest : null;
   }
 
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
@@ -576,27 +596,39 @@ class RecordBuilder {
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
     const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
-    const focused = this.options.framework === 'jasmine' ? this.jasmineFocus(pending, scopes) : null;
-    // A focused Jasmine spec runs inside an `xdescribe`, whose own skip doesn't reach it; `pending()` still does.
-    const declaredSkip = (scope: Scope, setting: StateSetting) =>
-      focused === true && scope.kind === 'describe' && suiteOf(scope).declaration.states.includes(setting);
+    const focus = this.options.focusesLikeJasmine ? this.jasmineFocus(pending, scopes) : undefined;
+    // A focus inside an `xdescribe` runs, as the describe's own skip doesn't reach it; `pending()` still does. An
+    // `xdescribe` inside the focus stays skipped.
+    const declaredSkip = (scope: Scope, index: number, setting: StateSetting) =>
+      typeof focus === 'number' &&
+      index > focus &&
+      scope.kind === 'describe' &&
+      suiteOf(scope).declaration.states.includes(setting);
+    const overriding = OVERRIDING_DESCRIBES[this.options.framework];
+    const around = scopes.flatMap((scope, index) =>
+      scope.states
+        .filter((setting) => !declaredSkip(scope, index, setting))
+        .map((setting) => ({
+          setting,
+          source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
+          overrides:
+            overriding.includes(setting.state) &&
+            scope.kind === 'describe' &&
+            suiteOf(scope).declaration.states.includes(setting),
+        })),
+    );
     const chosen = jest
       ? jest.chosen
       : chooseState([
+          // Outermost first, as the outermost of them decides.
+          ...around.filter((candidate) => candidate.overrides).reverse(),
           ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
           // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
           ...parents.flatMap((parent) =>
             parent.declaration.states.map((setting) => ({ setting, source: 'suite' as const })),
           ),
-          ...scopes.flatMap((scope) =>
-            scope.states
-              .filter((setting) => !declaredSkip(scope, setting))
-              .map((setting) => ({
-                setting,
-                source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
-              })),
-          ),
+          ...around.filter((candidate) => !candidate.overrides),
         ]);
     // When the runner refuses the file, no test in it runs, whatever else is written, or none after the refused call.
     const rejected =
@@ -620,7 +652,9 @@ class RecordBuilder {
     }
     const isOnly = jest
       ? jest.isOnly
-      : (focused ?? (declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true));
+      : focus !== undefined
+        ? focus !== null
+        : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments

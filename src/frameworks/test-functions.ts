@@ -424,6 +424,11 @@ export abstract class SuiteAdapter implements Adapter {
       const returned = this.returned(base, chainLinks, args, lookup);
       return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
     }
+    // `(process.env.CI ? it.skip : it)(...)`: a choice written in place, read as one kept in a variable.
+    if (base.type === 'ConditionalExpression' || base.type === 'LogicalExpression') {
+      const chosen = this.aliasOf(base, lookup);
+      return chosen && { kind: chosen.kind, index: 0, modifiers: chosen.links };
+    }
     if (base.type !== 'Identifier') return null;
     // A name the file doesn't declare is one of the framework's globals; a local variable or parameter with the same
     // name, such as `(test) => test.result()`, is not the framework's.
@@ -527,6 +532,9 @@ export abstract class SuiteAdapter implements Adapter {
       };
     }
     const chain = readChain(node);
+    // A runner without modifiers, as Jasmine, has no members to hold: `it.only` is undefined there, while `fit` keeps
+    // the `only` it carries.
+    if (chain && chain.links.length > 0 && this.dialect.modifiers.size === 0) return null;
     const resolved = chain ? this.resolve(chain, [], lookup) : null;
     const isAlias = resolved?.links.every((link) => this.isAliasLink(resolved.kind, link));
     return resolved && isAlias ? { functions: [resolved], mayBeOther: false } : null;

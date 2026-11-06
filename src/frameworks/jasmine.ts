@@ -66,8 +66,9 @@ export class JasmineAdapter extends SuiteAdapter {
     return this.pendingCall(call, context) ?? this.hookCall(call, context) ?? this.chainCall(call, context);
   }
 
-  protected isAliasLink(): boolean {
-    return false;
+  /** `skip` and `only` are what `xit`, `fit`, `xdescribe` and `fdescribe` carry, so a variable may hold them. */
+  protected isAliasLink(_kind: Kind, link: Link): boolean {
+    return link.name === 'skip' || link.name === 'only';
   }
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
@@ -203,7 +204,7 @@ export class JasmineAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, () => declared);
     }
-    if (fn && fn.params.length > 0) {
+    if (fn && functionLength(fn) > 0) {
       const refusal = this.refusal(
         'describe-throws',
         fn,
@@ -253,4 +254,14 @@ function declaresNothing(fn: FunctionNode): boolean {
 function isFunctionLike(node: CallExpression['arguments'][number]): boolean {
   const value = unwrap(node as Expression);
   return !['Literal', 'ObjectExpression', 'ArrayExpression', 'TemplateLiteral'].includes(value.type);
+}
+
+/**
+ * A function's `length`, which Jasmine checks: its parameters before the first with a default value or a rest, without
+ * TypeScript's `this`, which is no parameter at run time.
+ */
+function functionLength(fn: FunctionNode): number {
+  const params = fn.params.filter((param) => param.type !== 'Identifier' || param.name !== 'this');
+  const end = params.findIndex((param) => param.type === 'AssignmentPattern' || param.type === 'RestElement');
+  return end === -1 ? params.length : end;
 }

@@ -32,6 +32,10 @@ test.describe('order ticket', { tag: '@orders' }, () => {
   test('closes on escape', { lock: 'order-ticket' }, async () => {});
 
   test('uses the account currency', { tag: TAGS.currency }, async () => {});
+
+  test('exports the order as CSV', async () => {
+    test.skip('CSV export is not built yet');
+  });
 });
 
 test.describe.serial('order lifecycle', () => {

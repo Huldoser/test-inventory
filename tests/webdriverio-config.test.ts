@@ -155,7 +155,7 @@ describe('WebdriverIO config files', () => {
       'rootDir: process.env.E2E_ROOT',
       'exclude: process.env.EXCLUDE',
       "specs: ['./e2e/**/*.e2e.js'], capabilities: [{ 'wdio:specs': process.env.SPECS }]",
-      "specs: ['./e2e/**/*.e2e.js'], capabilities: [{ exclude: process.env.EXCLUDE }]",
+      "specs: ['./e2e/**/*.e2e.js'], capabilities: [{ 'wdio:exclude': process.env.EXCLUDE }]",
     ]) {
       const unknown = await scan({
         root: project({ ...files, 'wdio.conf.js': `exports.config = { ${unread} };\n` }),
@@ -166,6 +166,61 @@ describe('WebdriverIO config files', () => {
         unread,
       ).toEqual(['config-value-unknown', 'no-files-matched']);
     }
+  });
+
+  it('reads ! and ./ in specs and exclude as glob does, and only wdio:specs in a capability from WebdriverIO 10', async () => {
+    const files = async (config: string, frameworkVersion = '10.1.0') => {
+      const root = project({
+        'package.json': WDIO_PACKAGE,
+        'wdio.conf.js': `exports.config = ${config};\n`,
+        'place.e2e.js': SPEC,
+        'test/place.e2e.js': SPEC,
+        'test/cancel.e2e.js': SPEC,
+      });
+      const inventory = await scan({ root, framework: 'webdriverio', frameworkVersion });
+      return inventory.tests.map((test) => test.relativeFilePath);
+    };
+    // A pattern that starts with ! matches no file in glob, so it adds and takes away nothing.
+    expect(await files("{ specs: ['test/*.js', '!test/cancel.e2e.js'], exclude: ['!test/place.e2e.js'] }")).toEqual([
+      'test/cancel.e2e.js',
+      'test/place.e2e.js',
+    ]);
+    // ./ is a slash, so glob's matchBase doesn't take the pattern to any depth.
+    expect(await files("{ specs: ['./*.e2e.js'] }")).toEqual(['place.e2e.js']);
+    expect(await files("{ specs: ['./test/*.js', './*.js'], exclude: ['./place.e2e.js'] }")).toEqual([
+      'test/cancel.e2e.js',
+      'test/place.e2e.js',
+    ]);
+    const capability =
+      "{ specs: ['test/cancel.e2e.js'], capabilities: [{ browserName: 'chrome', specs: ['test/place.e2e.js'] }] }";
+    expect(await files(capability, '9.33.1')).toEqual(['test/place.e2e.js']);
+    expect(await files(capability)).toEqual(['test/cancel.e2e.js']);
+    const alwaysMatch =
+      "{ specs: ['test/cancel.e2e.js'], capabilities: [{ alwaysMatch: { browserName: 'chrome', 'wdio:specs': ['test/place.e2e.js'] } }] }";
+    expect(await files(alwaysMatch)).toEqual(['test/place.e2e.js']);
+  });
+
+  it("applies Jasmine's focus rules when the config's framework is jasmine", async () => {
+    const root = project({
+      'package.json': WDIO_PACKAGE,
+      'wdio.conf.js': "exports.config = { specs: ['./test/*.e2e.js'], framework: 'jasmine' };\n",
+      'test/settlement.e2e.js': `xdescribe('wires', () => {
+  fit('settles a wire', async () => {});
+});
+fdescribe('fx', () => {
+  it('books a spot trade', async () => {});
+  fit('books a forward', async () => {});
+});
+`,
+    });
+    const inventory = await scan({ root, framework: 'webdriverio' });
+    // WebdriverIO 9.33.1 and 10.1.0's Jasmine adapter run only the fit specs.
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isOnly])).toEqual([
+      ['wires > settles a wire', 'active', true],
+      ['fx > books a spot trade', 'active', false],
+      ['fx > books a forward', 'active', true],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
   });
 
   it("reads mochaOpts' ui, and reports a framework the scan doesn't read", async () => {

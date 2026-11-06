@@ -144,17 +144,19 @@ export class NodeAdapter extends SuiteAdapter {
   }
 
   private declaration(call: CallExpression, kind: Kind, links: Link[], context: CallContext): ApiCall {
-    const { name, options, body } = splitArguments(call.arguments);
+    const named = (node: Argument) => namedFunction(this.file, context.scopes, node) !== null;
+    const { name, options, body } = splitArguments(call.arguments, named);
     const problems: Problem[] = [];
     const fn = isFunctionNode(body) ? body : null;
     let title = { text: '<anonymous>', withoutTags: '<anonymous>', isDynamic: false };
+    // Without a name, Node.js names the test after its function, which takes the name of the variable that holds it.
+    const fnName = fn?.id?.name ?? (body?.type === 'Identifier' ? body.name : null);
     if (name) {
       const read = readTitle(this.file, context.scopes, name, { stripTags: false, functionNames: false });
       title = read.title;
       if (read.problem) problems.push(read.problem);
-    } else if (fn?.id) {
-      // Without a name, Node.js names the test after its function.
-      title = { text: fn.id.name, withoutTags: fn.id.name, isDynamic: false };
+    } else if (fnName) {
+      title = { text: fnName, withoutTags: fnName, isDynamic: false };
     }
     const line = this.file.source.line(call.start);
     const states: StateSetting[] = links
@@ -294,17 +296,21 @@ function stateFrom(
 
 /**
  * The name, options and function of a call, as Node.js reads `test([name][, options][, fn])`: a function first is the
- * test's function, an object first its options.
+ * test's function, an object first its options. A function may be written in place or passed by a name `named` finds.
  */
-function splitArguments(args: CallExpression['arguments']): {
+function splitArguments(
+  args: CallExpression['arguments'],
+  named: (node: Argument) => boolean,
+): {
   name: Argument | undefined;
   options: Argument | undefined;
   body: Argument | undefined;
 } {
   const [first, second, third] = args as (Argument | undefined)[];
-  if (first && isFunctionLike(first)) return { name: undefined, options: undefined, body: first };
+  const isFunction = (node: Argument | undefined) => node !== undefined && (isFunctionLike(node) || named(node));
+  if (isFunction(first)) return { name: undefined, options: undefined, body: first };
   if (first && isObjectLike(first)) return { name: undefined, options: first, body: second };
-  if (second && isFunctionLike(second)) return { name: first, options: undefined, body: second };
+  if (isFunction(second)) return { name: first, options: undefined, body: second };
   return { name: first, options: second, body: third };
 }
 

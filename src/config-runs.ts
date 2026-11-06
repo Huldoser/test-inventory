@@ -14,7 +14,7 @@ import {
   unknownText,
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
-import { nodeTestCommands } from './node-scripts.ts';
+import { nodeTestCommands, scriptsRunBy } from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
@@ -539,8 +539,21 @@ export class ConfigRuns {
       }
       const [specs, excludes] = lists;
       if (type === 'e2e') e2eSpecs = specs;
-      const isSpec = picomatch(specs.map(relative));
-      const excluded = [...excludes, ...(type === 'component' ? e2eSpecs : [])].map(relative);
+      // globby takes a `!` pattern among the specs as files to leave out, and a folder as every file below it; the
+      // excludes are fast-glob's `ignore`, which drops a `!` and skips everything in a folder it matches.
+      const below = (glob: string) => [glob, `${glob.replace(/\/+$/, '')}/**`];
+      const isFolder = (glob: string) =>
+        !picomatch.scan(glob).isGlob && statSync(path.resolve(folder, glob), { throwIfNoEntry: false })?.isDirectory();
+      const isSpec = picomatch(
+        specs
+          .filter((glob) => !glob.startsWith('!'))
+          .map(relative)
+          .flatMap((glob) => (isFolder(glob) ? below(glob) : [glob])),
+      );
+      const excluded = [...excludes, ...(type === 'component' ? e2eSpecs : [])]
+        .map((glob) => relative(glob.replace(/^!/, '')))
+        .flatMap(below);
+      excluded.push(...specs.filter((glob) => glob.startsWith('!')).flatMap((glob) => below(relative(glob.slice(1)))));
       if (!specs.some((glob) => glob.includes('node_modules'))) excluded.push('**/node_modules/**');
       const isExcluded = picomatch(excluded, { dot: true });
       const retry = settingAt(config.settings, [type, 'retries']) ?? settingAt(config.settings, ['retries']);
@@ -661,9 +674,9 @@ export class ConfigRuns {
 
   /**
    * The files `node --test` runs from the root, outside dot folders and `node_modules`: those the arguments of the
-   * package.json script that runs it give, the `test` script first, each a glob or a path, and from Node.js 26.8 a folder
-   * for the default patterns inside it; without arguments, the default patterns. They take TypeScript files too from
-   * Node.js 22.18, which strips types by default.
+   * `test` script and the scripts it runs give, or the first script that runs it, each a glob or a path, and from
+   * Node.js 26.8 a folder for the default patterns inside it; without arguments, the default patterns. They take
+   * TypeScript files too from Node.js 22.18, which strips types by default.
    */
   private nodeFiles(): (relative: string) => boolean {
     const extensions = stripsTypes(this.version) ? 'cjs,mjs,js,cts,mts,ts' : 'cjs,mjs,js';
@@ -738,9 +751,14 @@ export class ConfigRuns {
       const slashed = glob.replaceAll('\\', '/');
       return path.posix.normalize(path.isAbsolute(slashed) ? posix(path.relative(folder, slashed)) : slashed);
     };
-    // As glob's matchBase does, a pattern without a slash matches at any depth, outside dot folders too.
+    // As glob's matchBase does, a pattern without a slash matches at any depth, outside dot folders too; the slash of
+    // `./` counts. A pattern that starts with `!` matches no file in glob.
     const matcher = (list: string[]) =>
-      picomatch(list.map(fromRoot).map((glob) => (glob.includes('/') ? glob : `**/${glob}`)));
+      picomatch(
+        list
+          .filter((glob) => !glob.startsWith('!'))
+          .map((glob) => (/[/\\]/.test(glob) ? fromRoot(glob) : `**/${fromRoot(glob)}`)),
+      );
     const specs = globs(settings, ['specs']) ?? [];
     if (!Array.isArray(specs)) return this.unknownProject(config, specs, 'specs');
     const written = globs(settings, ['exclude']) ?? [];
@@ -750,15 +768,23 @@ export class ConfigRuns {
     const isPathExcluded = matcher(excludes);
     const isExcluded = (file: string, relative: string) =>
       isGlob ? isPathExcluded(relative) : excludes.some((item) => pathToFileURL(file).href.includes(item));
-    // Each capability may set its own specs, which replace the config's, and excludes, added to the config's.
+    // Each capability may set its own specs, which replace the config's, and excludes, added to the config's, inside
+    // `alwaysMatch` when it has one. WebdriverIO 10 reads only `wdio:specs` and `wdio:exclude`.
     const capabilities = settingAt(settings, ['capabilities']);
+    const [specKeys, excludeKeys] = atLeast(this.version, 10, 0)
+      ? [['wdio:specs'], ['wdio:exclude']]
+      : [
+          ['specs', 'wdio:specs'],
+          ['exclude', 'wdio:exclude'],
+        ];
     const runs: { isSpec: (relative: string) => boolean; isExcluded: (relative: string) => boolean }[] = [];
     for (const capability of capabilities?.kind === 'list' && capabilities.items.length > 0
       ? capabilities.items
       : [emptySettings()]) {
-      const own = globs(capability, ['specs', 'wdio:specs']);
+      const options = settingAt(capability, ['alwaysMatch']) ?? capability;
+      const own = globs(options, specKeys);
       if (own !== null && !Array.isArray(own)) return this.unknownProject(config, own, 'capabilities.specs');
-      const exclude = globs(capability, ['exclude', 'wdio:exclude']) ?? [];
+      const exclude = globs(options, excludeKeys) ?? [];
       if (!Array.isArray(exclude)) return this.unknownProject(config, exclude, 'capabilities.exclude');
       runs.push({ isSpec: matcher(own ?? specs), isExcluded: matcher(exclude) });
     }
@@ -1579,7 +1605,9 @@ function writtenRoot(settings: Setting): string | null | { setting: Unknown; key
 function mochaSpec(folder: string, spec: string, extensions: string[], recursive: boolean): (file: string) => boolean {
   const target = path.resolve(folder, spec);
   if (picomatch.scan(posix(spec)).isGlob) {
-    const isMatch = picomatch(posix(spec).replace(/^\.\//, ''));
+    // An absolute glob, as `path.join(__dirname, 'test', '**', '*.spec.js')` builds it, is taken from the folder.
+    const written = path.isAbsolute(spec) ? path.relative(folder, spec) : spec;
+    const isMatch = picomatch(posix(written).replace(/^\.\//, ''));
     return (file) => isMatch(posix(path.relative(folder, file)));
   }
   const stat = statSync(target, { throwIfNoEntry: false });
@@ -1832,20 +1860,23 @@ export function fileConfig(
 }
 
 /**
- * Why a `.only` fails: with Playwright's `forbidOnly`, the run, before any test; with Vitest's `allowOnly` off, the
- * test itself, which Vitest marks failed instead of running it (checked in 3.2.4, 4.1.12 and 5.1.0). `allowOnly` is
- * off by default when `process.env.CI` is set. Null when nothing fails.
+ * Why a `.only` fails: with Playwright's `forbidOnly` or Mocha's `forbid-only`, the run, before any test; with Vitest's
+ * `allowOnly` off, the test itself, which Vitest marks failed instead of running it (checked in 3.2.4, 4.1.12 and
+ * 5.1.0). `allowOnly` is off by default when `process.env.CI` is set. Null when nothing fails.
  */
 function onlyRule(framework: Framework, settings: Setting | null): FileConfig['forbidOnly'] {
-  if (framework === 'playwright') {
-    const forbid = settings && settingAt(settings, ['forbidOnly']);
+  if (framework === 'playwright' || framework === 'mocha') {
+    // Mocha takes its options in kebab case or camel case.
+    const [name, keys] =
+      framework === 'mocha' ? ['forbid-only', ['forbid-only', 'forbidOnly']] : ['forbidOnly', ['forbidOnly']];
+    const forbid = settings && keys.map((key) => settingAt(settings, [key])).find((setting) => setting !== null);
     const condition = forbid?.kind === 'unknown' ? unknownText(forbid) : null;
     if (condition) {
-      const message = `The config sets forbidOnly when ${condition}, so then this .only fails the run before any test runs.`;
+      const message = `The config sets ${name} when ${condition}, so then this .only fails the run before any test runs.`;
       return { message, isSure: false };
     }
     if (forbid?.kind !== 'value' || forbid.value !== true) return null;
-    return { message: 'The config sets forbidOnly, so this .only fails the run before any test runs.', isSure: true };
+    return { message: `The config sets ${name}, so this .only fails the run before any test runs.`, isSure: true };
   }
   if (framework !== 'vitest') return null;
   const allow = settings && settingAt(settings, ['test', 'allowOnly']);
@@ -2007,8 +2038,9 @@ function readImportMap(
   placement: Placement,
   framework: Framework,
 ): ImportMap | null {
-  const map: ImportMap = { aliases: [], paths: [], directories: [] };
+  const map: ImportMap = { aliases: [], paths: [], directories: [], root: null };
   if (framework === 'vitest') {
+    map.root = placement.projects?.[0]?.root ?? path.dirname(config.file);
     const sources = settings === config.settings ? [settings] : [settings, config.settings];
     for (const source of sources) {
       for (const key of [
@@ -2025,12 +2057,17 @@ function readImportMap(
         replaceRootDir(rootDir, item),
       );
       const find = regExp(pattern, '');
-      if (find && replacements.length > 0) map.aliases.push({ find, replacements });
+      if (find && replacements.length > 0) map.aliases.push({ find, replacements, replacesName: true });
     }
     map.paths = strings(settingAt(settings, ['modulePaths'])).map((item) =>
       path.resolve(rootDir, replaceRootDir(rootDir, item)),
     );
-    map.directories = strings(settingAt(settings, ['moduleDirectories'])).filter((name) => name !== 'node_modules');
+    // A `<rootDir>` entry of moduleDirectories is a folder, as a modulePaths entry is, not a name to look for.
+    for (const item of strings(settingAt(settings, ['moduleDirectories']))) {
+      const directory = replaceRootDir(rootDir, item);
+      if (path.isAbsolute(directory)) map.paths.push(directory);
+      else if (directory !== 'node_modules') map.directories.push(directory);
+    }
   }
   return map.aliases.length + map.paths.length + map.directories.length > 0 ? map : null;
 }
@@ -2042,7 +2079,7 @@ function readImportMap(
 function viteAliases(setting: Setting | null): ImportMap['aliases'] {
   if (setting?.kind === 'object') {
     return [...setting.keys].flatMap(([find, target]) =>
-      stringOf(target).map((replacement) => ({ find, replacements: [replacement] })),
+      stringOf(target).map((replacement) => ({ find, replacements: [replacement], replacesName: false })),
     );
   }
   if (setting?.kind !== 'list') return [];
@@ -2052,7 +2089,7 @@ function viteAliases(setting: Setting | null): ImportMap['aliases'] {
     const name = find?.kind === 'value' && typeof find.value === 'string' ? find.value : null;
     const pattern = find?.kind === 'regex' ? regExp(find.source, find.flags) : null;
     const written = name ?? pattern;
-    return written !== null && replacements.length > 0 ? [{ find: written, replacements }] : [];
+    return written !== null && replacements.length > 0 ? [{ find: written, replacements, replacesName: false }] : [];
   });
 }
 
@@ -2069,8 +2106,8 @@ function stripsTypes(version: [number, number] | null): boolean {
 }
 
 /**
- * The `node --test` commands of the package.json script that runs node:test, the `test` script first, each as the
- * files it gives; none when no script runs it or there is no package.json.
+ * The `node --test` commands of the `test` script and the scripts it runs, or else of the first script that runs one,
+ * each as the files it gives; none when no script runs it or there is no package.json.
  */
 function nodeTestArguments(manifest: string): string[][] {
   let scripts: Record<string, unknown> = {};
@@ -2079,9 +2116,8 @@ function nodeTestArguments(manifest: string): string[][] {
   } catch {
     return [];
   }
-  for (const script of [scripts.test, ...Object.values(scripts)]) {
-    const commands = typeof script === 'string' ? nodeTestCommands(script) : [];
-    if (commands.length > 0) return commands;
-  }
-  return [];
+  const fromTest = scriptsRunBy(scripts, 'test').flatMap(nodeTestCommands);
+  if (fromTest.length > 0) return fromTest;
+  const others = Object.values(scripts).filter((script) => typeof script === 'string');
+  return others.map(nodeTestCommands).find((commands) => commands.length > 0) ?? [];
 }

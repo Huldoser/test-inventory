@@ -13,11 +13,19 @@ export class TomlError extends Error {
 type Table = Record<string, Value>;
 
 /**
+ * A table without a prototype, so keys such as `__proto__` and `constructor` are its own, as in Bun, and a project's
+ * `bunfig.toml` can't reach `Object.prototype`, which every later scan in the process would see.
+ */
+function newTable(): Table {
+  return Object.create(null) as Table;
+}
+
+/**
  * The part of TOML a `bunfig.toml` uses: tables and dotted keys, strings, numbers, booleans, arrays over several lines,
  * inline tables and comments. Dates and arrays of tables are refused with a `TomlError`.
  */
 export function readToml(text: string): Table {
-  const root: Table = {};
+  const root = newTable();
   let table = root;
   const reader = { text, at: 0, line: 1 };
   for (;;) {
@@ -91,7 +99,7 @@ function readKeys(reader: Reader, end: string): string[] {
 function tableAt(root: Table, keys: string[], line: number): Table {
   let table = root;
   for (const key of keys) {
-    table[key] ??= {};
+    table[key] ??= newTable();
     const next = table[key];
     if (typeof next !== 'object' || Array.isArray(next)) {
       throw new TomlError(`${key} is not a table`, line);
@@ -121,7 +129,7 @@ function readValue(reader: Reader): Value {
   }
   if (char === '{') {
     reader.at++;
-    const table: Table = {};
+    const table = newTable();
     skipBlank(reader, false);
     while (text[reader.at] !== '}') {
       const keys = readKeys(reader, '=');

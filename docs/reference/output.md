@@ -138,6 +138,10 @@ over the test's own expected failure, as neither runner runs that test. For the 
 unconditional skip in a test or hook body: in a fixme or todo describe, the test keeps that state. `stateSource` says
 where the chosen state was set.
 
+node:test and Bun put some describes first. node:test creates nothing inside a skipped describe, so its tests are
+skipped whatever their own state. In Bun, the outermost skipped or todo describe decides, over the describes inside it
+and the test's own state: `test.skip()` in `describe.todo()` is todo.
+
 In Vitest, `.only` wins over `.skip`, which wins over `.todo`, within one declaration: `test.only.skip` is active. A
 test's options win over its chain, so `test.skip('title', { skip: false }, fn)` runs, while a describe's chain wins
 over its options, and so does a test's for its mode. A describe passes its `skip` option down to the tests and
@@ -395,24 +399,31 @@ and `--config` are not read. For Cypress: its testing types are the projects, `e
 component testing, `component`; each runs the files under the config's folder that its `specPattern` matches, by default
 `cypress/e2e/**/*.cy.{js,jsx,ts,tsx}` and `**/*.cy.{js,jsx,ts,tsx}`, without dot files, those its `excludeSpecPattern`
 matches, and those in `node_modules` unless a `specPattern` names it. As in `cypress run`, each pattern is matched
-against the whole path from the config's folder, so `*.draft.cy.js` leaves out only files in that folder. Component
-testing also leaves out the files e2e's `specPattern` matches. Scanned with globs, a file counts as run only where its
+against the whole path from the config's folder, so `*.draft.cy.js` leaves out only files in that folder. As globby,
+which Cypress uses, reads them, a `specPattern` that starts with `!` leaves files out, an `excludeSpecPattern` drops its
+`!`, and a folder in either stands for every file below it. Component testing also leaves out the files e2e's
+`specPattern` matches. Scanned with globs, a file counts as run only where its
 testing type's `specPattern` takes it too, as `cypress run --spec` does. The testing type's `retries`, else the
 config's, applies to every test, its `runMode` when it is an object, as `cypress run` takes. For WebdriverIO: the files
 under `rootDir`, the config's folder unless the config sets it, that a `specs` glob matches, also in the nested lists
 that group files into one worker, with an extension WebdriverIO takes, such as `.js` or `.ts`, without dot files and
-folders, less those `exclude` leaves out. A capability's own `specs` or `wdio:specs` replace the config's for that
-capability, and its `exclude` or `wdio:exclude` adds to the config's; a file runs when a capability runs it. As in
-WebdriverIO, a glob without a `/` matches a file's name at any depth, and a `\` is read as `/`; when every `exclude`
+folders, less those `exclude` leaves out. A capability's own `wdio:specs`, or before WebdriverIO 10 its `specs`,
+replace the config's for that capability, and its `wdio:exclude`, or before 10 its `exclude`, adds to the config's, read
+inside its `alwaysMatch` when it has one; a file runs when a capability runs it. As in WebdriverIO, a glob without a
+`/` matches a file's name at any depth, though `./` counts as one, a glob that starts with `!` matches nothing, and a
+`\` is read as `/`; when every `exclude`
 entry holds a `/`, `\` or `*`, they are globs too, and otherwise each leaves out every file whose path contains it.
 `suites` run only with `--suite`, so they are not read. Scanned with globs, every file they match counts as run, less
-the excludes, as files given with `--spec` replace `specs`. A file that two `specs` entries match runs twice, in two
-workers, but is listed once. The config's `framework`, Mocha by default, or Jasmine, decides how the files are read, and
+the excludes, as files given with `--spec` replace `specs`. A file that two capabilities run, or that a group of files
+and another entry both name, runs in two workers, but is listed once. The config's `framework`, Mocha by default, or
+Jasmine, decides how the files are read, and
 its `mochaOpts.timeout`, `retries` and `ui`, or `jasmineOpts.defaultTimeoutInterval`, apply to every test. Without them
 the timeout is WebdriverIO's, 10 seconds, and a `defaultTimeoutInterval` of `0` is 60 seconds. Cucumber runs feature
 files, which the scan doesn't read, and is reported. `mochaOpts.grep` and `jasmineOpts.grep` are not read. For
-node:test: the files the package.json script that runs `node --test` gives it, the `test` script first, each a glob or a
-path, and from Node.js 26.8 a folder, for the default patterns inside it; without any, Node.js's default patterns,
+node:test: the files the `node --test` commands of the `test` script give, with those of the scripts it runs through
+`npm run`, `pnpm`, `yarn`, `bun run`, `npm-run-all`, `run-s` or `run-p`, or when it runs none, of the first script that
+runs `node --test`, each a glob or a path, and from Node.js 26.8 a folder, for the default patterns inside it; without
+any, Node.js's default patterns,
 `**/*.test.*`, `**/*-test.*`, `**/*_test.*`, `**/test-*.*`, `**/test.*` and `**/test/**/*.*`, with the extensions `js`,
 `mjs` and `cjs`, and from Node.js 22.18, which strips types by default, `ts`, `mts` and `cts`. Dot folders and
 `node_modules` are left out. Scanned with globs, every file they match counts as run, as for the files given to
@@ -432,7 +443,8 @@ config, regular expressions, and paths built with `path.join()`, `path.resolve()
 `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
 a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`. A Mocha
 config may also be JSON, JSON with comments, or YAML with keys, lists and nested keys; YAML it doesn't read, such as an
-anchor or a multi-line string, is reported, and the scan reads none of that config's settings. A
+anchor or a multi-line string, or that js-yaml, Mocha's reader, refuses, such as a key set twice, is reported, and the
+scan reads none of that config's settings. A
 config that `require()`s a local file, as a shared base, reads what that file exports, and a JSON file, required or
 imported, is read as its value.
 

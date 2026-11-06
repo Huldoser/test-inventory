@@ -214,6 +214,8 @@ jobs:
             version: 1.63.0
           - framework: playwright
             version: 1.64.1
+          - framework: playwright
+            version: 1.65.0
           - framework: vitest
             version: 3.0.9
           - framework: vitest
@@ -237,7 +239,7 @@ jobs:
           - framework: webdriverio
             version: 9.33.1
           - framework: webdriverio
-            version: 10.1.0
+            version: 10.2.0
           - framework: bun
             version: 1.2.23
           - framework: bun

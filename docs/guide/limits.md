@@ -14,8 +14,8 @@ A runner's config, such as `playwright.config.*`, `vitest.config.*`, Jest's `jes
 `.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*` or `bunfig.toml`, can change which tests run
 and how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
 which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
-it gives the tests, Playwright's `forbidOnly` and Vitest's `allowOnly`, and the tags Vitest defines. Other settings,
-such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves out is still listed, with
+it gives the tests, Playwright's `forbidOnly`, Mocha's `forbid-only` and Vitest's `allowOnly`, and the tags Vitest
+defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves out is still listed, with
 that project missing from its `projects`.
 
 For Playwright and Vitest, which files a config runs is read from the configs in the file's folder and the folders

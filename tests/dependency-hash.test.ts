@@ -404,28 +404,66 @@ test('shows the buy side and the equity fee', () => {
       'vitest.config.ts': `import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({ resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } } });
+export default defineConfig({
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src'), 'chart-kit': 'chart-kit-lite' } },
+});
 `,
       'src/pricing.ts': 'export const mid = (bid: number, ask: number) => (bid + ask) / 2;\n',
       'src/format.ts': 'export const price = (value: number) => value.toFixed(2);\n',
       'tests/pricing.test.ts': `import { expect, test } from 'vitest';
 import { mid } from '@/pricing';
 import { price } from '~/format';
+import { spread } from '@/pricing/spread';
+import { drawCandles } from 'chart-kit';
 
 test('quotes the mid price of AAPL', () => {
-  expect(price(mid(187.25, 187.75))).toBe('187.50');
+  expect(price(mid(187.25, 187.75)) + spread + drawCandles).toBe('187.50');
 });
 `,
     });
     const inventory = await scanProject(root, 'vitest');
     expect(inventory.tests[0].hasUnfollowedDependencies).toBe(true);
     expect(inventory.tests[0].dependencies).toEqual(['src/pricing.ts', 'tests/pricing.test.ts', 'vitest.config.ts']);
+    // The path the alias gives is relative to the root, as every path in the output is.
     expect(inventory.diagnostics.map(({ code, message }) => [code, message])).toEqual([
       [
         'dependency-not-followed',
         "'~/format' is a path alias that no tsconfig paths or config define, so dependencyHash doesn't cover it.",
       ],
+      [
+        'dependency-not-followed',
+        "'@/pricing/spread' is mapped by the config to src/pricing/spread, which could not be read, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        "'chart-kit' is mapped by the config to chart-kit-lite, which could not be read, so dependencyHash doesn't cover it.",
+      ],
     ]);
+  });
+
+  it('follows a Vite alias to a path that starts with /, from the root first, as Vite does', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+
+export default defineConfig({ resolve: { alias: { '@desk': '/src/desk' } } });
+`,
+      'src/desk/orders.ts': 'export const placeOrder = (symbol: string) => ({ symbol, status: "new" });\n',
+      'tests/orders.test.ts': `import { expect, test } from 'vitest';
+import { placeOrder } from '@desk/orders';
+
+test('places an order for AAPL', () => {
+  expect(placeOrder('AAPL').status).toBe('new');
+});
+`,
+    });
+    // Vitest 3.2.7, 4.1.12 and 5.1.0 load src/desk/orders.ts.
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/desk/orders.ts', 'tests/orders.test.ts', 'vitest.config.ts'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
   });
 
   it("follows Vite's alias list, with a name or a regex, and Vitest's test.alias, to paths or other names", async () => {
@@ -511,8 +549,56 @@ test('nets and books a trade', () => {
       'tests/shared/fixtures.js',
     ]);
     expect(inventory.diagnostics.map((item) => item.message)).toEqual([
-      `'@gone' is mapped by the config to ${path.join(root, 'src/gone')}, which could not be read, so dependencyHash doesn't cover it.`,
+      "'@gone' is mapped by the config to src/gone, which could not be read, so dependencyHash doesn't cover it.",
     ]);
+  });
+
+  it("replaces the whole name with Jest's moduleNameMapper, as Jest does, also for a pattern that matches part of it", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
+      'jest.config.js': `module.exports = {
+  moduleNameMapper: {
+    '\\\\.(css|less)$': '<rootDir>/test/style-mock.js',
+    'pricing/(\\\\w+)(-v2)?': '<rootDir>/src/pricing/$1$2',
+  },
+};
+`,
+      'test/style-mock.js': 'module.exports = {};\n',
+      'src/pricing/spread.js': 'module.exports = { spread: (bid, ask) => ask - bid };\n',
+      'tests/blotter.test.js': `require('./styles/blotter.css');
+const { spread } = require('@desk/pricing/spread');
+
+test('shows the spread on the blotter', () => {
+  expect(spread(99, 101)).toBe(2);
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['jest.config.js', 'src/pricing/spread.js', 'test/style-mock.js', 'tests/blotter.test.js'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it("takes a <rootDir> entry of Jest's moduleDirectories as a folder to look in", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
+      'jest.config.js': "module.exports = { moduleDirectories: ['node_modules', '<rootDir>/src'] };\n",
+      'src/ledger/book.js': "module.exports = { book: () => 'booked' };\n",
+      'tests/ledger.test.js': `const { book } = require('ledger/book');
+
+test('books a trade in the ledger', () => {
+  expect(book()).toBe('booked');
+});
+`,
+    });
+    // Jest 30.5.2 runs it, loading src/ledger/book.js.
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['jest.config.js', 'src/ledger/book.js', 'tests/ledger.test.js'],
+      hasUnfollowedDependencies: false,
+    });
   });
 
   it('finds the TypeScript source of an import written with a JavaScript extension, as TypeScript does', async () => {

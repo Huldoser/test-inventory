@@ -359,12 +359,17 @@ function workspaceSource(
  * `moduleDirectories`.
  */
 export interface ImportMap {
-  /** A string `find` maps the name itself and the names below it, as `@` maps `@/x`; a regex maps what it matches. */
-  aliases: { find: string | RegExp; replacements: string[] }[];
+  /**
+   * A string `find` maps the name itself and the names below it, as `@` maps `@/x`; a regex maps what it matches, as
+   * Vite does, or with `replacesName`, as Jest's `moduleNameMapper` does, the whole name, with `$1` for its groups.
+   */
+  aliases: { find: string | RegExp; replacements: string[]; replacesName: boolean }[];
   /** Folders a bare name is looked for in. */
   paths: string[];
   /** Names of folders a bare name is looked for in, in the importing file's folder and each folder above it. */
   directories: string[];
+  /** Vite's root, from which it takes an alias's path that starts with `/` first; null for Jest. */
+  root: string | null;
 }
 
 /** A file a bare name stands for in the folders an import map adds; null when none has it. */
@@ -379,12 +384,18 @@ function searched(specifier: string, directory: string, map: ImportMap): string 
 
 /** The names an alias maps a specifier to; null when it doesn't match. */
 function mapped(specifier: string, alias: ImportMap['aliases'][number]): string[] | null {
-  const { find, replacements } = alias;
+  const { find, replacements, replacesName } = alias;
   if (typeof find === 'string') {
     if (specifier !== find && !specifier.startsWith(`${find}/`)) return null;
     return replacements.map((replacement) => replacement + specifier.slice(find.length));
   }
-  return find.test(specifier) ? replacements.map((replacement) => specifier.replace(find, replacement)) : null;
+  const match = specifier.match(find);
+  if (!match) return null;
+  if (!replacesName) return replacements.map((replacement) => specifier.replace(find, replacement));
+  // Jest fills in a group that matched nothing with an empty string.
+  return replacements.map((replacement) =>
+    replacement.replaceAll(/\$(\d+)/g, (_, index: string) => match[Number(index)] || ''),
+  );
 }
 
 /**
@@ -456,17 +467,24 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
     }
     return candidates.map(findFile).find((file) => file !== null) ?? { reason: 'could not be read' };
   };
+  // A path a config gives is absolute, as with `path.resolve()` or `<rootDir>`; output paths are relative to the root.
+  const shown = (name: string) => (path.isAbsolute(name) ? path.relative(root, name).replaceAll('\\', '/') : name);
   const reader =
     (fromFile: string, map: ImportMap | null = null): ModuleReader =>
     (specifier) => {
       const directory = path.dirname(fromFile);
       const aliased = map?.aliases.map((alias) => mapped(specifier, alias)).find((names) => names !== null);
+      // Vite takes `/src/x` from its root first, unless it is already a path inside the root.
+      const fromRoot = (name: string) =>
+        map?.root && name.startsWith('/') && !name.startsWith(map.root + path.sep)
+          ? [path.join(map.root, name), name]
+          : [name];
       // The config maps the name to others, each a path or a name looked up as written, the first that is found.
-      const located = (aliased ?? [specifier]).map((name) => locate(name, directory, map));
+      const located = (aliased?.flatMap(fromRoot) ?? [specifier]).map((name) => locate(name, directory, map));
       const found = located.find((item) => typeof item === 'string');
       if (found === undefined) {
         return aliased
-          ? { reason: `is mapped by the config to ${aliased.join(' or ')}, which could not be read` }
+          ? { reason: `is mapped by the config to ${aliased.map(shown).join(' or ')}, which could not be read` }
           : (located[0] as { reason: string });
       }
       let known = modules.get(map);

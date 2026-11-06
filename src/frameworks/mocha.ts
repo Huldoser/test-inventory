@@ -144,8 +144,9 @@ export class MochaAdapter extends SuiteAdapter {
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
     const fn = hookFunction(this.file, context.scopes, call.arguments);
-    // Mocha refuses `this.skip()` in an `after` hook, so the tests stay as they ran.
-    const testContext = name === 'afterAll' ? null : ownThis(fn);
+    // Mocha refuses `this.skip()` in an `after` hook, and in `afterEach` the test has passed, so the tests stay as they
+    // ran.
+    const testContext = name === 'afterAll' || name === 'afterEach' ? null : ownThis(fn);
     return { kind: 'hook', name, fn, testContext, fixtures: [], takesAllFixtures: false };
   }
 

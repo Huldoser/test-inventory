@@ -91,16 +91,16 @@ written.
 ## Checked in CI
 
 On every pull request, CI scans the fixture projects in the repository and compares the inventory with Playwright 1.42,
-1.63 and 1.64, Vitest 3.0 and 5.1, Jest 29.7 and 30.5, Mocha 10.8 and 12.0, Jasmine 4.6 and 7.0, Cypress 13.17 and 16.2,
-WebdriverIO 9.33 and 10.1, node:test on Node.js 22.23, 24.22 and 26.13, and Bun 1.2.23, 1.3.14 and 1.4.4. Playwright
-lists the tests with `--list`; Vitest and Jest run them with their JSON output, and Bun with its JUnit report, which,
-unlike `vitest list`, includes skipped and todo tests; Mocha, Jasmine, node:test, Cypress, in Electron, and WebdriverIO,
-in headless Chrome, run them with a reporter of the repository's own that keeps each title, so that `this.skip()` and
-`pending()` are seen. Each test is matched by file and line, or by file and full title for Mocha, Jasmine, Cypress and
-WebdriverIO, which give no line, and its full title, its state and its tags are compared; Jest, Mocha, Jasmine, Cypress,
-WebdriverIO, node:test and Bun report no tags; node:test's subtests are matched by full title too, as their lines are inside
-their parent's. A state set by a condition is left out, since the runner decides it on the machine it runs on. Any
-difference fails the check.
+1.63, 1.64 and 1.65, Vitest 3.0 and 5.1, Jest 29.7 and 30.5, Mocha 10.8 and 12.0, Jasmine 4.6 and 7.0, Cypress 13.17 and
+16.2, WebdriverIO 9.33 and 10.2, node:test on Node.js 22.23, 24.22 and 26.13, and Bun 1.2.23, 1.3.14 and 1.4.4.
+Playwright lists the tests with `--list`; Vitest and Jest run them with their JSON output, and Bun with its JUnit
+report, which, unlike `vitest list`, includes skipped and todo tests; Mocha, Jasmine, node:test, Cypress, in Electron,
+and WebdriverIO, in headless Chrome, run them with a reporter of the repository's own that keeps each title, so that
+`this.skip()` and `pending()` are seen. Each test is matched by file and line, or by file and full title for Mocha,
+Jasmine, Cypress and WebdriverIO, which give no line, and its full title, its state and its tags are compared; Jest,
+Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun report no tags; node:test's subtests are matched by full title
+too, as their lines are inside their parent's. A state set by a condition is left out, since the runner decides it on
+the machine it runs on. Any difference fails the check.
 
 The [real projects](/guide/real-projects) that use Vitest are compared too, with Vitest's static parser, which lists
 their tests without an install. The scan applies the rules of the same Vitest version. Each difference must have a

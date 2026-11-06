@@ -95,6 +95,37 @@ describe('node:test files', () => {
     );
   });
 
+  it('runs the files of every script the test script runs, through npm, pnpm, yarn, bun run or npm-run-all', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        name: 'order-router',
+        scripts: {
+          test: 'npm exec tsc -- --noEmit && npm run lint && npm run --silent test:unit && pnpm test:integration',
+          lint: 'eslint . && bun x prettier --check .',
+          'test:unit': 'node --test test/unit/',
+          'test:integration': 'run-s "test:integration:*"',
+          'test:integration:routing': 'node --test test/integration/routing.test.js',
+          'test:integration:fills': 'yarn run test:fills; bun run test:settlement',
+          'test:fills': 'cross-env TZ=UTC node --test "test/fills/*.test.js"',
+          'test:settlement': 'node --test test/settlement.test.js && npm test',
+          'test:e2e': 'node --test test/e2e/',
+        },
+      }),
+      'test/unit/spread.test.js': SPEC,
+      'test/integration/routing.test.js': SPEC,
+      'test/integration/latency.test.js': SPEC,
+      'test/fills/partial.test.js': SPEC,
+      'test/settlement.test.js': SPEC,
+      'test/e2e/session.test.js': SPEC,
+    });
+    expect(files(await scan({ root, framework: 'node', frameworkVersion: '26.12.0' }))).toEqual([
+      'test/fills/partial.test.js',
+      'test/integration/routing.test.js',
+      'test/settlement.test.js',
+      'test/unit/spread.test.js',
+    ]);
+  });
+
   it('finds node:test from a script that runs node --test, and its version from the Node.js the project pins', async () => {
     const manifest = (extra: object) =>
       JSON.stringify({ name: 'pricing-service', scripts: { 'test:unit': 'node --test src/' }, ...extra });

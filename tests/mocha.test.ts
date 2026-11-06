@@ -247,7 +247,7 @@ describe('Mocha settings as each version applies them', () => {
     },
   );
 
-  it("reads this only in the test's own function, and not this.skip() in an after hook, which Mocha refuses", () => {
+  it("reads this only in the test's own function, and not this.skip() in an after or afterEach hook, which skips no test", () => {
     const inventory = scanMocha(`
 describe('margin calls', () => {
   it('sends a margin call', function () {
@@ -267,12 +267,20 @@ describe('margin calls', () => {
     });
     it('sweeps the cash', () => {});
   });
+  describe('statements', () => {
+    afterEach(function () {
+      this.skip();
+    });
+    it('mails the daily statement', () => {});
+  });
 });
 `);
+    // In afterEach, the test has already passed: Mocha 10.8.2 and 12.0.3 report it as a pass.
     expect(inventory.tests.map((test) => [test.fullName, test.state, test.timeout])).toEqual([
       ['margin calls > sends a margin call', 'active', null],
       ['margin calls > liquidates a position', 'active', null],
       ['margin calls > end of day > sweeps the cash', 'active', null],
+      ['margin calls > statements > mails the daily statement', 'active', null],
     ]);
   });
 

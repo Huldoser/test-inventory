@@ -87,6 +87,36 @@ describe.serial('settlement', () => {
     expect(inventory.tests[0].state).toBe('notLoaded');
   });
 
+  it('lets the outermost skipped or todo describe decide, over the describes inside it and the test itself', () => {
+    const inventory = scanBun(`
+describe.skip('desk closed', () => {
+  test.todo('prices a swap');
+});
+describe.todo('settlement', () => {
+  test.skip('nets the cash legs', () => {});
+});
+describe.skip('margin', () => {
+  describe.todo('intraday', () => {
+    test('books a fee', () => {});
+  });
+});
+describe('fx', () => {
+  describe.todo('forwards', () => {
+    test.skip('rolls a forward', () => {});
+  });
+  test.todo('books a spot');
+});
+`);
+    // Bun 1.2.23, 1.3.14 and 1.4.4 report these states.
+    expect(inventory.tests.map((test) => [test.title, test.state, test.stateSource])).toEqual([
+      ['prices a swap', 'skip', 'suite'],
+      ['nets the cash legs', 'todo', 'suite'],
+      ['books a fee', 'skip', 'suite'],
+      ['rolls a forward', 'todo', 'suite'],
+      ['books a spot', 'todo', 'test'],
+    ]);
+  });
+
   it('takes a condition that does not hold, or can not be worked out, next to its mode', () => {
     const inventory = scanBun(`
 test.todoIf(false).failing('reprices a basket', () => {});
@@ -127,6 +157,33 @@ test('reprices swaps', () => {}, 500);
     // A retry of 0 is no retry, so repeats go with it.
     const noRetry = "test('reprices a basket', { retry: 0, repeats: 2 }, () => {});";
     expect(codes(scanBun(noRetry, { frameworkVersion: '1.3.14' }))).toEqual([]);
+  });
+
+  it('takes a function passed by name second, before options or a timeout, as Bun does', () => {
+    const inventory = scanBun(`
+import { settlesTrade } from './helpers.ts';
+async function repricesBasket() {
+  expect(await basketPrice()).toBeGreaterThan(0);
+}
+const slow = { timeout: 2_000 };
+test('reprices a basket', repricesBasket, 5_000);
+test('reprices bonds', repricesBasket, { timeout: 5_000 });
+test('reprices swaps', slow, repricesBasket);
+test('settles a trade', settlesTrade, 500);
+test('settles a bond', slow, settlesTrade);
+test.each([1, 2])('fills lot %d', repricesBasket, 500);
+`);
+    expect(codes(inventory)).toEqual([]);
+    expect(
+      inventory.tests.map((test) => [test.title, test.state, test.timeout, test.bodyHash === null ? null : 'hashed']),
+    ).toEqual([
+      ['reprices a basket', 'active', 5000, 'hashed'],
+      ['reprices bonds', 'active', 5000, 'hashed'],
+      ['reprices swaps', 'active', 2000, 'hashed'],
+      ['settles a trade', 'active', 500, null],
+      ['settles a bond', 'active', 2000, null],
+      ['fills lot %d', 'active', 500, 'hashed'],
+    ]);
   });
 
   it('refuses a test or describe without a function, unless it is skipped or todo', () => {

@@ -56,6 +56,29 @@ describe('custodian', () => {
     expect(onlyTest(inventory).hooks).toMatchObject({ beforeAll: 1, beforeEach: 1, afterEach: 1, afterAll: 1 });
     expect(codes(inventory)).toEqual(['framework-mismatch']);
   });
+
+  it('keeps the x or f of a variable that holds xit, fit, xdescribe or fdescribe', () => {
+    const inventory = scanJasmine(`
+const later = xit;
+const dark = xdescribe;
+const now = fit;
+dark('dark pool', () => {
+  it('matches at the midpoint', () => {});
+});
+describe('lit book', () => {
+  later('crosses the spread', () => {});
+  now('reprices a pegged order', () => {});
+  it('rests a limit order', () => {});
+});
+`);
+    // Jasmine 4.6.0 to 7.0.0: both specs under xit and xdescribe are pending, and the fit is the only one that runs.
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isOnly])).toEqual([
+      ['dark pool > matches at the midpoint', 'skip', false],
+      ['lit book > crosses the spread', 'skip', false],
+      ['lit book > reprices a pegged order', 'active', true],
+      ['lit book > rests a limit order', 'active', false],
+    ]);
+  });
 });
 
 describe('Jasmine specs marked pending at run time', () => {
@@ -137,6 +160,9 @@ fdescribe('scenarios', () => {
 fdescribe('hedges', () => {
   xit('rolls futures', () => {});
   it('buys puts', () => {});
+  xdescribe('collars', () => {
+    it('sells a call', () => {});
+  });
 });
 describe('reports', () => {
   it('prints exposure', () => {});
@@ -152,6 +178,8 @@ describe('reports', () => {
       ['scenarios > credit > widens spreads', 'active', true],
       ['hedges > rolls futures', 'skip', true],
       ['hedges > buys puts', 'active', true],
+      // A focus around an xdescribe doesn't run it; only one inside it does.
+      ['hedges > collars > sells a call', 'skip', true],
       ['reports > prints exposure', 'active', false],
     ]);
     expect(inventory.diagnostics).toEqual([]);
@@ -227,6 +255,22 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it("counts a describe callback's arguments by its length, as Jasmine does: not TypeScript's this, a default or a rest", () => {
+    const inventory = scanJasmine(`
+describe('order router', function (this: object) {
+  it('routes a market order', () => {});
+});
+describe('smart routing', (venues = ['XNAS']) => {
+  it('splits across venues', () => {});
+});
+describe('dark pools', (...pools) => {
+  it('matches at the midpoint', () => {});
+});
+`);
+    expect(inventory.tests.map((test) => test.state)).toEqual(['active', 'active', 'active']);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it('reports those at the top level of a file, which stop the whole run, and lists the tests as not loaded', () => {
     const inventory = scanJasmine(`
 describe('settlement', () => {
