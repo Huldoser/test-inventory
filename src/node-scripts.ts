@@ -123,11 +123,10 @@ function calledScripts(words: string[], names: string[]): string[] {
   const args = (end === -1 ? rest : rest.slice(0, end)).filter((word) => !word.startsWith('-'));
   const [first = '', second = ''] = args;
   if (['npm-run-all', 'run-s', 'run-p'].includes(tool)) {
-    const matches = picomatch(
-      args.map((pattern) => pattern.replaceAll(':', '/')),
-      { dot: true },
-    );
-    return names.filter((key) => matches(key.replaceAll(':', '/')));
+    // As npm-run-all 4 and npm-run-all2 9 match names: `:` and `/` swapped, no `!` negation, no dot names for `*`.
+    const swap = (text: string) => text.replaceAll(/[:/]/g, (char) => (char === ':' ? '/' : ':'));
+    const matches = picomatch(args.map(swap), { nonegate: true });
+    return names.filter((key) => matches(swap(key)));
   }
   if (tool === 'npm') return NPM_RUN.has(first) ? [second] : NPM_TEST.has(first) ? ['test'] : [];
   if (tool === 'bun') return first === 'run' ? [second] : [];
