@@ -404,26 +404,39 @@ test('shows the buy side and the equity fee', () => {
       'vitest.config.ts': `import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({ resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } } });
+export default defineConfig({
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src'), 'chart-kit': 'chart-kit-lite' } },
+});
 `,
       'src/pricing.ts': 'export const mid = (bid: number, ask: number) => (bid + ask) / 2;\n',
       'src/format.ts': 'export const price = (value: number) => value.toFixed(2);\n',
       'tests/pricing.test.ts': `import { expect, test } from 'vitest';
 import { mid } from '@/pricing';
 import { price } from '~/format';
+import { spread } from '@/pricing/spread';
+import { drawCandles } from 'chart-kit';
 
 test('quotes the mid price of AAPL', () => {
-  expect(price(mid(187.25, 187.75))).toBe('187.50');
+  expect(price(mid(187.25, 187.75)) + spread + drawCandles).toBe('187.50');
 });
 `,
     });
     const inventory = await scanProject(root, 'vitest');
     expect(inventory.tests[0].hasUnfollowedDependencies).toBe(true);
     expect(inventory.tests[0].dependencies).toEqual(['src/pricing.ts', 'tests/pricing.test.ts', 'vitest.config.ts']);
+    // The path the alias gives is relative to the root, as every path in the output is.
     expect(inventory.diagnostics.map(({ code, message }) => [code, message])).toEqual([
       [
         'dependency-not-followed',
         "'~/format' is a path alias that no tsconfig paths or config define, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        "'@/pricing/spread' is mapped by the config to src/pricing/spread, which could not be read, so dependencyHash doesn't cover it.",
+      ],
+      [
+        'dependency-not-followed',
+        "'chart-kit' is mapped by the config to chart-kit-lite, which could not be read, so dependencyHash doesn't cover it.",
       ],
     ]);
   });
@@ -511,7 +524,7 @@ test('nets and books a trade', () => {
       'tests/shared/fixtures.js',
     ]);
     expect(inventory.diagnostics.map((item) => item.message)).toEqual([
-      `'@gone' is mapped by the config to ${path.join(root, 'src/gone')}, which could not be read, so dependencyHash doesn't cover it.`,
+      "'@gone' is mapped by the config to src/gone, which could not be read, so dependencyHash doesn't cover it.",
     ]);
   });
 

@@ -465,6 +465,8 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
     }
     return candidates.map(findFile).find((file) => file !== null) ?? { reason: 'could not be read' };
   };
+  // A path a config gives is absolute, as with `path.resolve()` or `<rootDir>`; output paths are relative to the root.
+  const shown = (name: string) => (path.isAbsolute(name) ? path.relative(root, name).replaceAll('\\', '/') : name);
   const reader =
     (fromFile: string, map: ImportMap | null = null): ModuleReader =>
     (specifier) => {
@@ -475,7 +477,7 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
       const found = located.find((item) => typeof item === 'string');
       if (found === undefined) {
         return aliased
-          ? { reason: `is mapped by the config to ${aliased.join(' or ')}, which could not be read` }
+          ? { reason: `is mapped by the config to ${aliased.map(shown).join(' or ')}, which could not be read` }
           : (located[0] as { reason: string });
       }
       let known = modules.get(map);
