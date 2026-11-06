@@ -13,6 +13,7 @@ import {
   type Placement,
 } from './config-runs.ts';
 import { Configs, settingAt } from './config.ts';
+import { atLeast } from './frameworks/common.ts';
 import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
@@ -24,12 +25,13 @@ import {
   checkFlag,
   checkFramework,
   checkObject,
+  checkSignal,
   checkStrings,
   checkVersion,
   invalid,
   majorMinor,
-  toPosixPath,
   type ScanOptions,
+  toPosixPath,
 } from './options.ts';
 import type { FileRecords } from './records.ts';
 import { moduleResolver } from './resolve.ts';
@@ -74,6 +76,19 @@ function versionDiagnostics(
       `Only the range "${range}" was found for ${name}, so the rules of the newest ${major}.x release apply.`,
     ),
   ];
+}
+
+/**
+ * The length Vitest shortens a value in a case title to: `test.taskTitleValueFormatTruncate` from Vitest 5,
+ * `test.chaiConfig.truncateThreshold` before, from the project that runs the file; 40, Vitest's default, when it sets
+ * none or the scan can't read it.
+ */
+function titleTruncate(placement: Placement, version: [number, number] | null): number {
+  const key = atLeast(version, 5, 0)
+    ? ['test', 'taskTitleValueFormatTruncate']
+    : ['test', 'chaiConfig', 'truncateThreshold'];
+  const setting = placement.settings && settingAt(placement.settings, key);
+  return setting?.kind === 'value' && typeof setting.value === 'number' ? setting.value : 40;
 }
 
 /** Why Jest gives a file that uses its globals none: a project that runs it sets `injectGlobals` to false. */
@@ -156,6 +171,9 @@ function noFiles(
   if ([...placements.values()].some((placement) => placement.config)) {
     return 'No test files were found from the configs in the root.';
   }
+  if (framework === 'node') {
+    return "No patterns were given, and no file in the root matches what node --test runs: Node.js's default patterns, or the files a package.json script gives it.";
+  }
   const name = FRAMEWORK_NAMES[framework];
   return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
 }
@@ -173,6 +191,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const comments = checkComments(checked.comments, 'options.comments');
   const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
   const override = checkVersion(checked.frameworkVersion, 'options.frameworkVersion');
+  const signal = checkSignal(checked.signal, 'options.signal');
+  signal?.throwIfAborted();
   if (checked.root !== undefined && (typeof checked.root !== 'string' || checked.root === '')) {
     throw invalid('options.root', 'a non-empty string');
   }
@@ -186,6 +206,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
 
   // Without patterns, the configs choose among all JavaScript and TypeScript files.
   const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
+  signal?.throwIfAborted();
   const scanned = found.files.map((file) => file.relativeFilePath);
   const detected = override === null ? detectFrameworkVersion(root, framework, scanned) : null;
   const frameworkVersion = override ?? detected?.version ?? null;
@@ -235,6 +256,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
   for (const { absolutePath, relativeFilePath } of files) {
+    signal?.throwIfAborted();
     const placement = placements.get(absolutePath) as Placement;
     if (placement.config) configs.use(placement.config);
     const config = placement.config?.record.relativeFilePath ?? null;
@@ -269,6 +291,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
             ? webdriverioInterface(placement, configs)
             : undefined,
       webdriverioFramework: framework === 'webdriverio' ? webdriverioFramework(placement, configs) : undefined,
+      titleTruncate: framework === 'vitest' ? titleTruncate(placement, rules) : undefined,
       graph,
       exports,
       runsWith,
@@ -282,11 +305,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  // Mocha, Jasmine, Cypress and WebdriverIO always set their globals, and Playwright has none.
+  // Mocha, Jasmine, Cypress and WebdriverIO always set their globals, and Playwright and node:test have none.
   const missingGlobals =
     framework === 'jest'
       ? (file: string) => jestGlobals(placements.get(file) as Placement)
-      : ['mocha', 'jasmine', 'cypress', 'webdriverio'].includes(framework)
+      : ['mocha', 'jasmine', 'cypress', 'webdriverio', 'node'].includes(framework)
         ? () => null
         : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;

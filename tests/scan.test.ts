@@ -1143,7 +1143,8 @@ describe.only('rates desk', { skip: true }, () => {
       ['rates desk > reconciles DTCC fills', 'skip', 'test', 8],
       ['rates desk > DTCC breaks > flags a missing fill', 'skip', 'suite', 8],
     ]);
-    expect(inventory.diagnostics).toEqual([]);
+    // A .only, which Vitest fails in CI, where allowOnly is off by default.
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual(['forbidden-only']);
   });
 });
 
@@ -1800,7 +1801,7 @@ describe('scan options', () => {
     [{ patterns: [''], framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
     [
       { patterns: ['tests'], framework: 'ava' },
-      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress" or "webdriverio".',
+      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress", "webdriverio" or "node".',
     ],
     [
       { patterns: ['tests'], framework: 'vitest', ignore: 'node_modules' },
@@ -1823,6 +1824,26 @@ describe('scan options', () => {
     await expect(scan(options as unknown as ScanOptions)).rejects.toThrow(new TypeError(message));
   });
 
+  it('stops with the reason of an aborted signal, before it starts or between files', async () => {
+    const root = project({
+      'package.json': '{}',
+      'tests/orders.test.ts': "import { test } from 'vitest';\ntest('places a market order', () => {});\n",
+    });
+    const options = { root, patterns: ['tests/*.test.ts'], framework: 'vitest' as const };
+    await expect(scan({ ...options, signal: 'stop' as unknown as AbortSignal })).rejects.toThrow(
+      new TypeError('options.signal must be an AbortSignal.'),
+    );
+    await expect(scan({ ...options, signal: AbortSignal.abort(new Error('the session ended')) })).rejects.toThrow(
+      'the session ended',
+    );
+    const live = new AbortController();
+    expect((await scan({ ...options, signal: live.signal })).tests).toHaveLength(1);
+    const later = new AbortController();
+    const scanning = scan({ ...options, signal: later.signal });
+    later.abort(new Error('the client cancelled'));
+    await expect(scanning).rejects.toThrow('the client cancelled');
+  });
+
   it('rejects a root that is not a directory', async () => {
     const root = project({ 'package.json': '{}' });
     await expect(scan({ root: path.join(root, 'package.json'), patterns: ['x'], framework: 'vitest' })).rejects.toThrow(
@@ -1843,7 +1864,7 @@ describe('scanSource options', () => {
     ],
     [
       { code: '', relativeFilePath: 'a.spec.ts', framework: 'ava' },
-      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress" or "webdriverio".',
+      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress", "webdriverio" or "node".',
     ],
   ])('rejects %j', (options, message) => {
     expect(() => scanSource(options as never)).toThrow(new TypeError(message));

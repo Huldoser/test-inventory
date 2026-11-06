@@ -315,6 +315,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "9b8c9c751a192001",
+      "parentTestId": null,
       "suitePath": [
         "position sizing"
       ],
@@ -396,6 +397,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "9b8c9c751a192001",
+      "parentTestId": null,
       "suitePath": [
         "position sizing"
       ],
@@ -477,6 +479,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4839062f18bbcd42",
+      "parentTestId": null,
       "suitePath": [
         "stop orders"
       ],
@@ -558,6 +561,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "d891c3b51b58f2d6",
+      "parentTestId": null,
       "suitePath": [
         "fees"
       ],
@@ -639,6 +643,7 @@
       ],
       "hasUnfollowedDependencies": true,
       "suiteId": "d3035adf5dc6630c",
+      "parentTestId": null,
       "suitePath": [
         "quotes"
       ],

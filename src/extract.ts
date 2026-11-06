@@ -82,6 +82,8 @@ export interface PendingSuite {
 
 export interface PendingTest {
   scope: Scope;
+  /** The test whose body declares this one as a subtest; null for a test declared in the file or a describe. */
+  parent: PendingTest | null;
   declaration: TestDeclaration;
   call: CallExpression;
   /** For a test declared in an imported helper, the call in the scanned file that registers it; null otherwise. */
@@ -1310,7 +1312,7 @@ class Walker {
     const callee = unwrap(call.callee);
     const [root, member] =
       callee.type === 'MemberExpression' ? [unwrap(callee.object), propertyName(callee)] : [callee, 'call'];
-    if (root.type !== 'Identifier' || root.name !== 'expect') return;
+    if (!this.isExpect(root)) return;
     if (member === 'call' || member === 'soft' || member === 'poll' || member === 'element') test.expectCount += 1;
     if (member === 'hasAssertions') test.expectsAssertions = true;
     const count = call.arguments.at(0);
@@ -1321,6 +1323,20 @@ class Walker {
       test.expectedAssertions = readCount(file, 'expect.assertions', option, problems);
       test.problems.push(...problems.map((item) => this.here(item)));
     }
+  }
+
+  /**
+   * Whether an expression is `expect`, or Playwright's `expect.configure(...)`, which gives an `expect` with other
+   * defaults, written in place or kept in a variable.
+   */
+  private isExpect(expression: Expression): boolean {
+    const node = unwrap(expression);
+    if (node.type === 'Identifier') {
+      if (node.name === 'expect') return true;
+      const declaration = this.frame.values.declarationOf(node.name, this.scopes);
+      return declaration?.type === 'VariableDeclarator' && declaration.init !== null && isConfigured(declaration.init);
+    }
+    return isConfigured(node);
   }
 
   /** Reports a problem not tied to a test, once, however many times a function with it is walked. */
@@ -1473,21 +1489,19 @@ class Walker {
     }
   }
 
-  private nested(call: CallExpression, context: Context): boolean {
+  private nested(call: CallExpression, context: Context, isTest: boolean): boolean {
     if (!context.test && !context.hookScope) return false;
-    this.report(
-      problem(
-        'nested-test',
-        call,
-        'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.',
-        snippet(this.frame.parsed.source.slice(call.start, call.end)),
-      ),
-    );
+    const inTest = context.test !== null && !context.hookScope && this.frame.adapter.nestsTests === true;
+    if (isTest && inTest) return false;
+    const message = inTest
+      ? 'A describe declared inside a test body runs as a nested describe of the test, but the scan does not list it or its tests.'
+      : 'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.';
+    this.report(problem('nested-test', call, message, snippet(this.frame.parsed.source.slice(call.start, call.end))));
     return true;
   }
 
   private declareTest(call: CallExpression, declaration: TestDeclaration, context: Context): void {
-    if (context.quiet || this.nested(call, context)) return;
+    if (context.quiet || this.nested(call, context, true)) return;
     for (const item of this.cases(declaration, call, context)) this.declareCase(call, item, context);
   }
 
@@ -1544,6 +1558,7 @@ class Walker {
     const empty = emptyTitle(declaration, call);
     const test: PendingTest = {
       scope: context.scope,
+      parent: context.test,
       declaration,
       call,
       site: this.site,
@@ -1599,7 +1614,7 @@ class Walker {
   }
 
   private declareSuite(call: CallExpression, declaration: SuiteDeclaration, context: Context): void {
-    if (context.quiet || this.nested(call, context)) return;
+    if (context.quiet || this.nested(call, context, false)) return;
     for (const item of this.cases(declaration, call, context)) this.declareSuiteCase(call, item, context);
   }
 
@@ -1699,4 +1714,13 @@ export function extract(
   options: ExtractOptions = { expandCases: false, version: null },
 ): Extraction {
   return new Walker(main, openModule, options).run();
+}
+
+/** Whether an expression is a call of `expect.configure()`. */
+function isConfigured(expression: Expression): boolean {
+  const node = unwrap(expression);
+  const callee = node.type === 'CallExpression' ? unwrap(node.callee) : null;
+  if (callee?.type !== 'MemberExpression' || propertyName(callee) !== 'configure') return false;
+  const object = unwrap(callee.object);
+  return object.type === 'Identifier' && object.name === 'expect';
 }

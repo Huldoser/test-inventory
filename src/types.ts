@@ -14,7 +14,7 @@ type Position = number;
 type Hash = string;
 
 /** @inline */
-export type Framework = 'playwright' | 'vitest' | 'jest' | 'mocha' | 'jasmine' | 'cypress' | 'webdriverio';
+export type Framework = 'playwright' | 'vitest' | 'jest' | 'mocha' | 'jasmine' | 'cypress' | 'webdriverio' | 'node';
 
 /**
  * The state the runner applies to a test, after describes and file-level calls are taken into account. `notLoaded`:
@@ -326,7 +326,12 @@ export interface TestRecord {
   hasUnfollowedDependencies: boolean;
   /** The nearest describe; null outside any describe. */
   suiteId: Hash | null;
-  /** Titles of the describes around the test, outermost first. */
+  /**
+   * The test whose body declares this one as a subtest, which `node:test` runs while it runs that test; null for every
+   * other test.
+   */
+  parentTestId: Hash | null;
+  /** Titles of the describes around the test, and of the tests a subtest is declared in, outermost first. */
   suitePath: string[];
   /** Path from the project root, with `/` separators. */
   relativeFilePath: string;

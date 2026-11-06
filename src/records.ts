@@ -86,8 +86,11 @@ export interface VitestTags {
 
 /** What the config the file uses gives it. */
 export interface FileConfig {
-  /** Whether a `.only` fails the run: Playwright's `forbidOnly`, always, never, or under the condition with this text. */
-  forbidOnly: boolean | string;
+  /**
+   * Why a `.only` fails, from Playwright's `forbidOnly` or Vitest's `allowOnly`, and whether it surely does; null when
+   * it doesn't.
+   */
+  forbidOnly: { message: string; isSure: boolean } | null;
   /** The names of the projects that run a test, null when unknown, and what they set for it. */
   forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
   /** Vitest's tags; null when the scan can't work them out, or the projects that run the file define different ones. */
@@ -330,6 +333,7 @@ class RecordBuilder {
   private readonly fileName: string;
   private readonly ordinals = new Map<string, number>();
   private readonly suiteIds = new Map<Scope, string>();
+  private readonly testIds = new Map<PendingTest, string>();
   private readonly diagnostics: Diagnostic[] = [];
   /** The line of the first problem for which the runner refuses the file; null when it loads. */
   private rejectedAt: number | null = null;
@@ -435,15 +439,11 @@ class RecordBuilder {
    * warning. `call` is the `.only` call when it is in this file, whose callee the diagnostic shows.
    */
   private forbidOnly(located: Span, call: CallExpression | null): void {
-    const forbid = this.options.config?.forbidOnly ?? false;
-    if (forbid === false) return;
-    const message =
-      forbid === true
-        ? 'The config sets forbidOnly, so this .only fails the run before any test runs.'
-        : `The config sets forbidOnly when ${forbid}, so then this .only fails the run before any test runs.`;
+    const forbid = this.options.config?.forbidOnly ?? null;
+    if (forbid === null) return;
     const callee = call && snippet(this.parsed.source.text.slice(call.callee.start, call.callee.end));
-    const found = problem('forbidden-only', located, message, callee);
-    this.diagnostics.push(this.diagnostic(forbid === true ? found : { ...found, level: 'warning' }));
+    const found = problem('forbidden-only', located, forbid.message, callee);
+    this.diagnostics.push(this.diagnostic(forbid.isSure ? found : { ...found, level: 'warning' }));
   }
 
   private suite(pending: PendingSuite): SuiteRecord {
@@ -554,7 +554,15 @@ class RecordBuilder {
     const scopes = outward(pending.scope);
     const describes = scopes.filter((scope) => scope.kind === 'describe').reverse();
     const title = declaration.title;
-    const id = this.id([this.describeTitles(describes), title.withoutTags]);
+    const parents: PendingTest[] = [];
+    for (let parent = pending.parent; parent; parent = parent.parent) parents.unshift(parent);
+    const parentTitles = parents.map((parent) => parent.declaration.title.withoutTags);
+    const id = this.id(
+      parents.length > 0
+        ? [this.describeTitles(describes), parentTitles, title.withoutTags]
+        : [this.describeTitles(describes), title.withoutTags],
+    );
+    this.testIds.set(pending, id);
     const fileScope = scopes[scopes.length - 1];
     const tags = unique([
       ...(this.options.config?.configTags ?? []),
@@ -577,6 +585,10 @@ class RecordBuilder {
       : chooseState([
           ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
+          // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
+          ...parents.flatMap((parent) =>
+            parent.declaration.states.map((setting) => ({ setting, source: 'suite' as const })),
+          ),
           ...scopes.flatMap((scope) =>
             scope.states
               .filter((setting) => !declaredSkip(scope, setting))
@@ -591,7 +603,10 @@ class RecordBuilder {
       this.rejectedAt !== null && !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt);
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
     const setting = rejected ? null : (chosen?.setting ?? null);
-    const suitePath = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []);
+    const suitePath = [
+      ...describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []),
+      ...parents.map((parent) => parent.declaration.title.text),
+    ];
     const tagConcurrent = this.options.config?.tags?.concurrentBeatsTags ? undefined : fromTags?.concurrent;
     const tagMode: Mode | null = tagConcurrent === undefined ? null : tagConcurrent ? 'parallel' : 'default';
     const [mode = null] = tagged(
@@ -658,6 +673,7 @@ class RecordBuilder {
       dependencies: dependencies.files,
       hasUnfollowedDependencies: !dependencies.isComplete,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
+      parentTestId: pending.parent ? (this.testIds.get(pending.parent) as string) : null,
       suitePath,
       relativeFilePath: this.options.relativeFilePath,
       fileName: this.fileName,

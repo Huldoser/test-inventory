@@ -1,8 +1,8 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
 // runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha, Jasmine,
-// Cypress), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
+// Cypress, WebdriverIO, node:test, whose version is the Node.js running this), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
 // expandCases, whose cases must have the runner's names. Differences described in
 // tests/compare/expected-differences.json are allowed; any other difference fails the run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -37,6 +37,8 @@ interface ExpectedDifference {
   framework?: Framework;
   kind: Difference['kind'];
   state?: string;
+  /** Where the state comes from, as `suite` for a describe around the test. */
+  stateSource?: string;
   file?: string;
   reason: string;
 }
@@ -80,6 +82,12 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
       '@wdio/local-runner': version,
       '@wdio/mocha-framework': version,
     }),
+  },
+  // node:test ships with Node.js, so CI picks the version with setup-node; this checks it runs the one asked for.
+  node: {
+    fixture: 'pricing-service',
+    patterns: ['test/**/*.js', 'src/**/*.test.js'],
+    packages: () => ({}),
   },
 };
 
@@ -314,6 +322,33 @@ function webdriverioTests(work: string): RunnerTest[] {
   });
 }
 
+/** node:test's tests, run with a reporter of ours, which gives each test's line and the titles around it. */
+function nodeTests(work: string, version: string): RunnerTest[] {
+  if (process.versions.node !== version) {
+    throw new Error(`Node.js ${process.versions.node} runs this, not ${version}; set it up with setup-node.`);
+  }
+  const output = path.join(work, 'node-tests.jsonl');
+  const reporter = pathToFileURL(path.join(repository, 'scripts/node-reporter.mjs')).href;
+  try {
+    run('node', ['--test', `--test-reporter=${reporter}`, `--test-reporter-destination=${output}`], work);
+  } catch {
+    // A failing test makes node --test exit with 1; the reporter still wrote every test.
+  }
+  return readFileSync(output, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => {
+      const test = JSON.parse(line) as { file: string; line: number; titles: string[]; status: string };
+      return {
+        file: posix(path.relative(work, test.file)),
+        line: test.line,
+        name: test.titles.join(' > '),
+        status: test.status,
+        tags: [],
+      };
+    });
+}
+
 function withoutAt(tag: string): string {
   return tag.replace(/^@/, '');
 }
@@ -357,6 +392,7 @@ function inDescribeTable(inventory: Inventory, test: TestRecord): boolean {
 /** The status the runner should report for a record; null when a condition decides it. */
 function expectedStatus(test: TestRecord, framework: Framework): string | null {
   if (test.isConditional) return null;
+  if (framework === 'node' && test.isExpectedToFail) return 'expectedToFail';
   if (framework !== 'playwright') return test.isTodo ? 'todo' : test.isSkipped ? 'skipped' : 'ran';
   if (test.isSkipped || test.isFixme) return 'skipped';
   return test.isExpectedToFail ? 'failed' : 'passed';
@@ -374,7 +410,8 @@ function compare(inventory: Inventory, listed: RunnerTest[]): Difference[] {
     const candidates = listed.filter(
       (item) =>
         item.file === test.relativeFilePath &&
-        (item.line === 0 || expanded ? pattern.test(item.name) : true) &&
+        // node:test gives lines, but a subtest's is inside its parent's, so the name tells them apart.
+        (item.line === 0 || expanded || framework === 'node' ? pattern.test(item.name) : true) &&
         (item.line === 0 || (item.line >= test.lineStart && item.line <= test.lineEnd)),
     );
     candidates.forEach((item) => matched.add(item));
@@ -427,6 +464,7 @@ function isExpected(
       rule.kind === difference.kind &&
       (rule.framework === undefined || rule.framework === framework) &&
       (rule.state === undefined || rule.state === difference.test?.state) &&
+      (rule.stateSource === undefined || rule.stateSource === difference.test?.stateSource) &&
       (rule.file === undefined || rule.file === difference.file),
   );
 }
@@ -434,7 +472,9 @@ function isExpected(
 async function main(): Promise<void> {
   const [name, version = ''] = process.argv.slice(2);
   if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error('Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress> <version>');
+    throw new Error(
+      'Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node> <version>',
+    );
   }
   const framework = name as Framework;
   const project = PROJECTS[framework];
@@ -456,6 +496,7 @@ async function main(): Promise<void> {
       jasmine: jasmineTests,
       cypress: cypressTests,
       webdriverio: webdriverioTests,
+      node: (work: string) => nodeTests(work, version),
     };
     const listed = listers[framework](work);
     const rules = JSON.parse(
@@ -464,7 +505,15 @@ async function main(): Promise<void> {
     const lines = [`### ${framework} ${version}`, ''];
     let unexpected = 0;
     for (const expandCases of [false, true]) {
-      const inventory = await scan({ root: work, patterns: project.patterns, framework, expandCases });
+      // node:test has no package to read its version from; it is the Node.js running the comparison.
+      const frameworkVersion = framework === 'node' ? process.versions.node : undefined;
+      const inventory = await scan({
+        root: work,
+        patterns: project.patterns,
+        framework,
+        expandCases,
+        frameworkVersion,
+      });
       const differences = compare(inventory, listed);
       lines.push(
         `${expandCases ? 'With expandCases: ' : ''}${inventory.tests.length} records, ${listed.length} tests listed by the runner, ${differences.length} differences.`,

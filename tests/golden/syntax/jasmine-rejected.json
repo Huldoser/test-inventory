@@ -162,6 +162,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "f4b5e81e68c88cd0",
+      "parentTestId": null,
       "suitePath": [
         "exposure limits"
       ],
@@ -243,6 +244,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "f4b5e81e68c88cd0",
+      "parentTestId": null,
       "suitePath": [
         "exposure limits"
       ],
@@ -324,6 +326,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": null,
+      "parentTestId": null,
       "suitePath": [],
       "relativeFilePath": "tests/jasmine-rejected.test.ts",
       "fileName": "jasmine-rejected.test.ts",
@@ -403,6 +406,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "b5b1a94db57b12f2",
+      "parentTestId": null,
       "suitePath": [
         "greeks"
       ],

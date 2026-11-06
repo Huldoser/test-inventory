@@ -13,8 +13,9 @@ such as `isInLoop`; each section says when one does not.
 `playwright.config.*`, `vitest.config.*` and Jest's `jest.config.*` or `package.json` can change which tests run and
 how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
 which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
-it gives the tests, Playwright's `forbidOnly`, and the tags Vitest defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
-out is still listed, with that project missing from its `projects`.
+it gives the tests, Playwright's `forbidOnly` and Vitest's `allowOnly`, and the tags Vitest defines. Other settings,
+such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves out is still listed, with
+that project missing from its `projects`.
 
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
 that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
@@ -232,11 +233,11 @@ outside any other is expanded while the file has fewer than 1,000 expanded loop 
 in whole; past that, loops and describe tables that register tests are one record with a `cases-not-expanded`
 warning, so that a long loop over test data can't slow the scan down.
 
-Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`,
-`%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
-stays one record, with a `cases-not-expanded` warning, when the scan can't work out a value in it or its title, or the
-title would show an array or object. A config that sets `taskTitleValueFormatTruncate`, or before Vitest 5
-`chaiConfig.truncateThreshold`, is not read, so long values are cut at 40 characters there too.
+Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%#`,
+`%$` and `$name`, with values cut as the config of the project that runs the file cuts them:
+`taskTitleValueFormatTruncate`, or before Vitest 5 `chaiConfig.truncateThreshold`, and 40 characters, Vitest's default,
+when it sets neither. A table stays one record, with a `cases-not-expanded` warning, when the scan can't work out a
+value in it or its title, or the title would show an array or object.
 
 ## Conditions are not evaluated
 

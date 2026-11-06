@@ -360,6 +360,34 @@ describe('run settings from the config', () => {
     ]);
   });
 
+  it.each([
+    [
+      null,
+      'warning',
+      "Vitest's allowOnly is off when process.env.CI is set, as in CI, and then Vitest fails this .only test instead of running it.",
+    ],
+    [
+      'allowOnly: false',
+      'error',
+      'The config sets allowOnly to false, so Vitest fails this .only test instead of running it.',
+    ],
+    [
+      'allowOnly: process.env.LOCAL === "1"',
+      'warning',
+      'The config sets allowOnly to process.env.LOCAL === "1"; when that is false, Vitest fails this .only test instead of running it.',
+    ],
+    ['allowOnly: true', null, null],
+  ])("reports a .only that Vitest's allowOnly fails: %s", async (setting, level, message) => {
+    const files = {
+      'tests/orders.test.ts': "import { test } from 'vitest';\ntest.only('places a market order', () => {});\n",
+      ...(setting ? { 'vitest.config.ts': `export default { test: { ${setting} } };\n` } : {}),
+    };
+    const inventory = await scanned(files, 'vitest', ['tests/*.test.ts']);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.level, diagnostic.message])).toEqual(
+      level ? [[level, message]] : [],
+    );
+  });
+
   it('reports a .only that forbidOnly fails, as an error, or a warning with the condition it depends on', async () => {
     const files = {
       'tests/orders.spec.ts': [

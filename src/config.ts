@@ -53,6 +53,7 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   cypress: ['.ts', '.js', '.mjs', '.cjs', '.mts', '.cts'].map((extension) => `cypress.config${extension}`),
   // The files `wdio run` takes without a config named, in its order.
   webdriverio: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts'].map((extension) => `wdio.conf${extension}`),
+  node: [],
 };
 
 /** Methods that change the object or list they are called on. */

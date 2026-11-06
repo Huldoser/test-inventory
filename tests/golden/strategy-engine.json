@@ -1146,6 +1146,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "dadb431e3b7b1d8f",
+      "parentTestId": null,
       "suitePath": [
         "formatPnl"
       ],
@@ -1230,6 +1231,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "dadb431e3b7b1d8f",
+      "parentTestId": null,
       "suitePath": [
         "formatPnl"
       ],
@@ -1314,6 +1316,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "dadb431e3b7b1d8f",
+      "parentTestId": null,
       "suitePath": [
         "formatPnl"
       ],
@@ -1398,6 +1401,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": null,
+      "parentTestId": null,
       "suitePath": [],
       "relativeFilePath": "src/pnl/format.ts",
       "fileName": "format.ts",
@@ -1481,6 +1485,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4c863b7e1a059fec",
+      "parentTestId": null,
       "suitePath": [
         "rsi"
       ],
@@ -1566,6 +1571,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4c863b7e1a059fec",
+      "parentTestId": null,
       "suitePath": [
         "rsi"
       ],
@@ -1651,6 +1657,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4c863b7e1a059fec",
+      "parentTestId": null,
       "suitePath": [
         "rsi"
       ],
@@ -1736,6 +1743,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4c863b7e1a059fec",
+      "parentTestId": null,
       "suitePath": [
         "rsi"
       ],
@@ -1821,6 +1829,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4ca30bee3332b6f7",
+      "parentTestId": null,
       "suitePath": [
         "sma"
       ],
@@ -1906,6 +1915,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4ca30bee3332b6f7",
+      "parentTestId": null,
       "suitePath": [
         "sma"
       ],
@@ -1991,6 +2001,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4ca30bee3332b6f7",
+      "parentTestId": null,
       "suitePath": [
         "sma"
       ],
@@ -2076,6 +2087,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "53143b15bbf46fc8",
+      "parentTestId": null,
       "suitePath": [
         "Order"
       ],
@@ -2161,6 +2173,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "53143b15bbf46fc8",
+      "parentTestId": null,
       "suitePath": [
         "Order"
       ],
@@ -2246,6 +2259,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "53143b15bbf46fc8",
+      "parentTestId": null,
       "suitePath": [
         "Order"
       ],
@@ -2330,6 +2344,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4dc1734236f79bb3",
+      "parentTestId": null,
       "suitePath": [
         "short selling"
       ],
@@ -2414,6 +2429,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4dc1734236f79bb3",
+      "parentTestId": null,
       "suitePath": [
         "short selling"
       ],
@@ -2498,6 +2514,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4dc1734236f79bb3",
+      "parentTestId": null,
       "suitePath": [
         "short selling"
       ],
@@ -2584,6 +2601,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "3ab03cf22f84049f",
+      "parentTestId": null,
       "suitePath": [
         "validateOrder"
       ],
@@ -2670,6 +2688,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "3ab03cf22f84049f",
+      "parentTestId": null,
       "suitePath": [
         "validateOrder"
       ],
@@ -2756,6 +2775,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "3ab03cf22f84049f",
+      "parentTestId": null,
       "suitePath": [
         "validateOrder"
       ],
@@ -2842,6 +2862,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "3ab03cf22f84049f",
+      "parentTestId": null,
       "suitePath": [
         "validateOrder"
       ],
@@ -2927,6 +2948,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "5cf607bff5808fdf",
+      "parentTestId": null,
       "suitePath": [
         "fees"
       ],
@@ -3014,6 +3036,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "5cf607bff5808fdf",
+      "parentTestId": null,
       "suitePath": [
         "fees"
       ],
@@ -3101,6 +3124,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "5cf607bff5808fdf",
+      "parentTestId": null,
       "suitePath": [
         "fees"
       ],
@@ -3188,6 +3212,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "5cf607bff5808fdf",
+      "parentTestId": null,
       "suitePath": [
         "fees"
       ],
@@ -3277,6 +3302,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "7e56622325817e07",
+      "parentTestId": null,
       "suitePath": [
         "positionPnl"
       ],
@@ -3362,6 +3388,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "7e56622325817e07",
+      "parentTestId": null,
       "suitePath": [
         "positionPnl"
       ],
@@ -3447,6 +3474,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "7e56622325817e07",
+      "parentTestId": null,
       "suitePath": [
         "positionPnl"
       ],
@@ -3532,6 +3560,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "87d101ab9c26658b",
+      "parentTestId": null,
       "suitePath": [
         "maxDrawdown"
       ],
@@ -3617,6 +3646,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "87d101ab9c26658b",
+      "parentTestId": null,
       "suitePath": [
         "maxDrawdown"
       ],
@@ -3702,6 +3732,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "daf1879797f1f2c6",
+      "parentTestId": null,
       "suitePath": [
         "positionSize"
       ],
@@ -3787,6 +3818,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "daf1879797f1f2c6",
+      "parentTestId": null,
       "suitePath": [
         "positionSize"
       ],
@@ -3872,6 +3904,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "daf1879797f1f2c6",
+      "parentTestId": null,
       "suitePath": [
         "positionSize"
       ],
@@ -3957,6 +3990,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "daf1879797f1f2c6",
+      "parentTestId": null,
       "suitePath": [
         "positionSize"
       ],
@@ -4042,6 +4076,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "daf1879797f1f2c6",
+      "parentTestId": null,
       "suitePath": [
         "positionSize"
       ],
@@ -4127,6 +4162,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "3ebcfa2b570558ac",
+      "parentTestId": null,
       "suitePath": [
         "stop-loss",
         "fixedStop"
@@ -4213,6 +4249,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "3ebcfa2b570558ac",
+      "parentTestId": null,
       "suitePath": [
         "stop-loss",
         "fixedStop"
@@ -4299,6 +4336,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "b4d0369c26bf5fd1",
+      "parentTestId": null,
       "suitePath": [
         "stop-loss",
         "trailStop"
@@ -4385,6 +4423,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "b4d0369c26bf5fd1",
+      "parentTestId": null,
       "suitePath": [
         "stop-loss",
         "trailStop"
@@ -4471,6 +4510,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "1e43b42e93dca58a",
+      "parentTestId": null,
       "suitePath": [
         "stop-loss"
       ],
@@ -4558,6 +4598,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "66cb382e5d7fe783",
+      "parentTestId": null,
       "suitePath": [
         "crossoverSignals"
       ],
@@ -4645,6 +4686,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "66cb382e5d7fe783",
+      "parentTestId": null,
       "suitePath": [
         "crossoverSignals"
       ],
@@ -4732,6 +4774,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "66cb382e5d7fe783",
+      "parentTestId": null,
       "suitePath": [
         "crossoverSignals"
       ],
@@ -4819,6 +4862,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "66cb382e5d7fe783",
+      "parentTestId": null,
       "suitePath": [
         "crossoverSignals"
       ],
@@ -4906,6 +4950,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4a5938901041ce91",
+      "parentTestId": null,
       "suitePath": [
         "latestSignal"
       ],
@@ -4993,6 +5038,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4a5938901041ce91",
+      "parentTestId": null,
       "suitePath": [
         "latestSignal"
       ],
@@ -5086,6 +5132,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "4a5938901041ce91",
+      "parentTestId": null,
       "suitePath": [
         "latestSignal"
       ],

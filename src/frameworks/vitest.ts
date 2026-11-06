@@ -198,8 +198,12 @@ function readsItsFunction(kind: Kind, member: string, version: [number, number] 
 export class VitestAdapter extends SuiteAdapter {
   private warnedAboutTags = false;
 
-  constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null) {
+  /** The length a value in a case title is shortened to, as the config sets it. */
+  private readonly titleTruncate: number;
+
+  constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, titleTruncate = 40) {
     super(parsed, file, readModule, VITEST, TEST_MEMBERS);
+    this.titleTruncate = titleTruncate;
     if (atLeast(file.version, 5, 0)) {
       for (const call of nestedHoistedCalls(parsed.program)) {
         const callee = snippet(text(this.file, call.callee));
@@ -707,7 +711,7 @@ export class VitestAdapter extends SuiteAdapter {
       cases = resolved.value;
     }
     const caseTitle = (items: Value[], index: number) =>
-      title.isDynamic ? null : vitestCaseTitle(title.text, items, index, this.file.version);
+      title.isDynamic ? null : vitestCaseTitle(title.text, items, index, this.file.version, this.titleTruncate);
     if (table.name === 'for') {
       return cases.map((item, index) => ({
         title: caseTitle(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index),

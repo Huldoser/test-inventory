@@ -66,6 +66,10 @@ export function scanWebdriverIO(code: string, options: Options = {}): Inventory 
   return scan(code, 'webdriverio', options);
 }
 
+export function scanNode(code: string, options: Options = {}): Inventory {
+  return scan(code, 'node', options);
+}
+
 export function titles(inventory: Inventory): string[] {
   return inventory.tests.map((test) => test.title);
 }
