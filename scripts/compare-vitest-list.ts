@@ -43,6 +43,7 @@ const CAUSES = {
     'Another test in the file uses `.only`, so the runner skips this one if allowed; the scan keeps its state',
   escapes: 'Vitest keeps the escapes in a name as they are written, as in `\\"`',
   chainedAfterCall: 'Vitest drops a test or describe chained after a call, as in `describe.runIf(hasBroker).skip(...)`',
+  chosenInPlace: 'Vitest drops a test whose function is chosen in place, as in `(isLegacy ? it : it.fails)(...)`',
   describeMode: "Vitest's parser gives a test its describe's mode in place of its own `skip` or `todo`",
   sourceText: 'Vitest names a test by the source text of a title the scan works out, as in `OrderBook.name`',
   helperTitle:
@@ -149,6 +150,12 @@ function chainName(expression: Expression): string | null {
 function isChainedAfterCall(call: CallExpression | null): boolean {
   const callee = call ? unwrap(call.callee) : null;
   return callee?.type === 'MemberExpression' && unwrap(callee.object).type === 'CallExpression';
+}
+
+/** Whether the test function is chosen where it is called, as in `(isLegacy ? it : it.fails)(...)`. */
+function isChosenInPlace(call: CallExpression | null): boolean {
+  const type = call ? unwrap(call.callee).type : null;
+  return type === 'ConditionalExpression' || type === 'LogicalExpression';
 }
 
 /** A title followed by a function, as a test or describe declaration passes them. */
@@ -264,6 +271,7 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
     if (test.declaredAt) return CAUSES.importedHelper;
     const call = codeOf(test.relativeFilePath).of(test);
     if (isChainedAfterCall(call)) return CAUSES.chainedAfterCall;
+    if (isChosenInPlace(call)) return CAUSES.chosenInPlace;
     const name = call ? chainName(call.callee) : null;
     if (name !== null && !isVitestName(codeOf(test.relativeFilePath).imported.get(name) ?? name)) {
       return CAUSES.vitestName;
