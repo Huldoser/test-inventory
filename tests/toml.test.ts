@@ -40,6 +40,28 @@ describe('the TOML reader', () => {
     });
   });
 
+  it('reads __proto__, constructor and toString as plain keys, and leaves Object.prototype alone', () => {
+    const text = [
+      '[__proto__]',
+      'ignore = ["**"]',
+      '[test]',
+      '__proto__.root = "src"',
+      'constructor = "MarketData"',
+      'toString = { coverage = true, __proto__ = { preload = "./poison.ts" } }',
+    ].join('\n');
+    const read = readToml(text);
+    expect(Object.keys(Object.prototype)).toEqual([]);
+    expect(JSON.parse(JSON.stringify(read))).toEqual({
+      ['__proto__']: { ignore: ['**'] },
+      test: {
+        ['__proto__']: { root: 'src' },
+        constructor: 'MarketData',
+        toString: { coverage: true, ['__proto__']: { preload: './poison.ts' } },
+      },
+    });
+    expect(Object.hasOwn(read, '__proto__')).toBe(true);
+  });
+
   it.each([
     ['[[test.mocks]]', 'Arrays of tables are not read', 1],
     ['[test]\nroot = "src', 'The string is not closed', 2],

@@ -73,6 +73,15 @@ describe('readYaml', () => {
     expect(readYaml('# nothing set yet\n')).toEqual({});
   });
 
+  it('reads __proto__ as a plain key, so it sets no settings of the map', () => {
+    const read = readYaml('__proto__:\n  spec: test/settlement/**\nreporter: dot\n') as Record<string, unknown>;
+    expect(read.spec).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(read))).toEqual({
+      ['__proto__']: { spec: 'test/settlement/**' },
+      reporter: 'dot',
+    });
+  });
+
   it.each([
     ['spec: &unit test/unit', 1, '"&unit test/unit" uses YAML that is not read'],
     ['spec: |\n  test/unit', 1, '"|" uses YAML that is not read'],

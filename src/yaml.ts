@@ -37,7 +37,8 @@ export function readYaml(text: string): Value {
 /** A map or a list whose lines start at `indent`, and the index of the line after it. */
 function block(lines: Line[], start: number, indent: number): [Value, number] {
   if (lines[start].text.startsWith('-')) return list(lines, start, indent);
-  const map: Record<string, Value> = {};
+  // Without a prototype, a `__proto__` key is the map's own, as js-yaml, which Mocha uses, reads it.
+  const map = Object.create(null) as Record<string, Value>;
   let index = start;
   while (index < lines.length && lines[index].indent === indent) {
     const line = lines[index];
