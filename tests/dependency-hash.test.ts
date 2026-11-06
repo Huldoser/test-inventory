@@ -398,7 +398,7 @@ test('shows the buy side and the equity fee', () => {
     }
   });
 
-  it('marks a test that imports through a path alias no tsconfig defines, as one set in a Vite config', async () => {
+  it("follows an import through the Vite config's alias, and marks one that neither tsconfig nor config defines", async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,
       'vitest.config.ts': `import path from 'node:path';
@@ -419,15 +419,99 @@ test('quotes the mid price of AAPL', () => {
     });
     const inventory = await scanProject(root, 'vitest');
     expect(inventory.tests[0].hasUnfollowedDependencies).toBe(true);
+    expect(inventory.tests[0].dependencies).toEqual(['src/pricing.ts', 'tests/pricing.test.ts', 'vitest.config.ts']);
     expect(inventory.diagnostics.map(({ code, message }) => [code, message])).toEqual([
       [
         'dependency-not-followed',
-        "'@/pricing' is a path alias that no tsconfig paths define, so dependencyHash doesn't cover it.",
+        "'~/format' is a path alias that no tsconfig paths or config define, so dependencyHash doesn't cover it.",
       ],
-      [
-        'dependency-not-followed',
-        "'~/format' is a path alias that no tsconfig paths define, so dependencyHash doesn't cover it.",
-      ],
+    ]);
+  });
+
+  it("follows Vite's alias list, with a name or a regex, and Vitest's test.alias, to paths or other names", async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': `import path from 'node:path';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  resolve: {
+    alias: [
+      { find: '#quotes', replacement: path.resolve(import.meta.dirname, 'src/quotes') },
+      { find: /^@desk\\/(.*)$/, replacement: path.resolve(import.meta.dirname, 'src/desks/$1') },
+      // Entries Vite can't use are left out.
+      { find: 42, replacement: '/nowhere' },
+      { find: 'unmapped' },
+    ],
+  },
+  test: { alias: { 'fx-rates': './fx', unset: undefined } },
+});
+`,
+      'src/quotes/mid.ts': 'export const mid = (bid: number, ask: number) => (bid + ask) / 2;\n',
+      'src/desks/rates.ts': "export const desk = 'rates';\n",
+      'tests/fx.ts': 'export const eurUsd = 1.08;\n',
+      'tests/pricing.test.ts': `import { expect, test } from 'vitest';
+import { mid } from '#quotes/mid';
+import { desk } from '@desk/rates';
+import { eurUsd } from 'fx-rates';
+
+test('quotes the rates desk mid in USD', () => {
+  expect([mid(1, 2), desk, eurUsd]).toHaveLength(3);
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0].dependencies).toEqual([
+      'src/desks/rates.ts',
+      'src/quotes/mid.ts',
+      'tests/fx.ts',
+      'tests/pricing.test.ts',
+      'vitest.config.ts',
+    ]);
+    expect(inventory.tests[0].hasUnfollowedDependencies).toBe(false);
+  });
+
+  it("follows Jest's moduleNameMapper, modulePaths and moduleDirectories, and reports a mapping to no file", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
+      'jest.config.js': `module.exports = {
+  moduleNameMapper: {
+    '^@settle/(.*)$': '<rootDir>/src/settle/$1',
+    '^@ledger$': ['<rootDir>/missing/ledger', '<rootDir>/src/ledger'],
+    '^@gone$': '<rootDir>/src/gone',
+    '^(unclosed': '<rootDir>/src/never',
+    '^@number$': 42,
+  },
+  modulePaths: ['<rootDir>/lib'],
+  moduleDirectories: ['node_modules', 'shared'],
+};
+`,
+      'src/settle/netting.js': 'module.exports = { net: (a, b) => a - b };\n',
+      'src/ledger.js': 'module.exports = { book: () => true };\n',
+      'lib/calendar.js': 'module.exports = { isHoliday: () => false };\n',
+      'tests/shared/fixtures.js': "module.exports = { trade: { id: 'T-1' } };\n",
+      'tests/settle.test.js': `const { net } = require('@settle/netting');
+const { book } = require('@ledger');
+const { isHoliday } = require('calendar');
+const { trade } = require('fixtures');
+const gone = require('@gone');
+
+test('nets and books a trade', () => {
+  expect([net(2, 1), book(), isHoliday(), trade, gone]).toHaveLength(5);
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests[0].dependencies).toEqual([
+      'jest.config.js',
+      'lib/calendar.js',
+      'src/ledger.js',
+      'src/settle/netting.js',
+      'tests/settle.test.js',
+      'tests/shared/fixtures.js',
+    ]);
+    expect(inventory.diagnostics.map((item) => item.message)).toEqual([
+      `'@gone' is mapped by the config to ${path.join(root, 'src/gone')}, which could not be read, so dependencyHash doesn't cover it.`,
     ]);
   });
 

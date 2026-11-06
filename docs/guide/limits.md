@@ -31,8 +31,8 @@ calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })` or Next.js'
 `testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. A config Jest refuses to start
 with, such as one whose `moduleFileExtensions` leaves out `js` or whose `roots` don't exist, is read as written, and a
 config that sets its keys one by one, as `module.exports.testMatch = [...]`, is not read. Jest's
-`moduleNameMapper`, `modulePaths` and `moduleDirectories` are not read, so imports they map are not followed for
-`dependencyHash`.
+`moduleNameMapper`, `modulePaths` and `moduleDirectories` are read for `dependencyHash`; a mapping the scan can't
+work out, as one built at run time, is left out.
 
 A run setting the config sets under a condition, as `retries: process.env.CI ? 2 : 0`, is `null` with its source
 `config`, since the scan doesn't know where the tests will run; `retriesConfigText` and the other `ConfigText` keys
@@ -261,10 +261,10 @@ something included. Some of what a test runs is out of its reach:
 
 - Installed packages, such as `@playwright/test` or a library from `node_modules`. An upgrade shows in the lockfile,
   not in the hash.
-- Path aliases set only in a bundler config, such as Vite's `resolve.alias`; the scan reads aliases from tsconfig
-  `paths`. An import that starts with `@/` or `~/`, which no package name can, gives the test
-  `hasUnfollowedDependencies`, with a `dependency-not-followed` warning. Other aliases, such as `@app/pricing`, read as
-  installed packages.
+- Path aliases that neither tsconfig `paths`, Vite's `resolve.alias` and Vitest's `test.alias`, nor Jest's
+  `moduleNameMapper`, `modulePaths` and `moduleDirectories` set, as those of another bundler's config. An import that
+  starts with `@/` or `~/`, which no package name can, gives the test `hasUnfollowedDependencies`, with a
+  `dependency-not-followed` warning. Other aliases, such as `@app/pricing`, read as installed packages.
 - Files the code reads while it runs, with `fs` or `fetch`, environment variables, and the clock.
 - Modules loaded by a path worked out at run time, as in ``import(`./venues/${venue}`)``, or by a pattern, as with
   `import.meta.glob()`, and a value imported from a module that only a declaration file (`.d.ts`) describes. The test

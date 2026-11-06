@@ -354,13 +354,48 @@ function workspaceSource(
 }
 
 /**
- * Returns a reader for the modules a test file imports. It follows relative paths, tsconfig `paths` and `baseUrl` from
- * the tsconfig nearest the importing file, package.json `imports` (`#name`), and workspace packages whose entry is
- * TypeScript source. Each module it reads carries a reader for the modules that module imports in turn.
+ * How a runner's config maps imports, for every module a test imports: aliases, tried first, as Vite's
+ * `resolve.alias` and Jest's `moduleNameMapper`, and folders a bare name is looked for in, as Jest's `modulePaths` and
+ * `moduleDirectories`.
  */
-export function moduleResolver(root: string): (fromFile: string) => ModuleReader {
-  // Many test files import the same fixtures file and share a tsconfig; each is read once.
-  const modules = new Map<string, ModuleSource | null>();
+export interface ImportMap {
+  /** A string `find` maps the name itself and the names below it, as `@` maps `@/x`; a regex maps what it matches. */
+  aliases: { find: string | RegExp; replacements: string[] }[];
+  /** Folders a bare name is looked for in. */
+  paths: string[];
+  /** Names of folders a bare name is looked for in, in the importing file's folder and each folder above it. */
+  directories: string[];
+}
+
+/** A file a bare name stands for in the folders an import map adds; null when none has it. */
+function searched(specifier: string, directory: string, map: ImportMap): string | null {
+  const folders = [...map.paths];
+  for (let folder = directory; ; folder = path.dirname(folder)) {
+    folders.push(...map.directories.map((name) => path.join(folder, name)));
+    if (path.dirname(folder) === folder) break;
+  }
+  return folders.map((folder) => findFile(path.join(folder, specifier))).find((file) => file !== null) ?? null;
+}
+
+/** The names an alias maps a specifier to; null when it doesn't match. */
+function mapped(specifier: string, alias: ImportMap['aliases'][number]): string[] | null {
+  const { find, replacements } = alias;
+  if (typeof find === 'string') {
+    if (specifier !== find && !specifier.startsWith(`${find}/`)) return null;
+    return replacements.map((replacement) => replacement + specifier.slice(find.length));
+  }
+  return find.test(specifier) ? replacements.map((replacement) => specifier.replace(find, replacement)) : null;
+}
+
+/**
+ * Returns a reader for the modules a test file imports. It follows the import map of the config the file runs with,
+ * relative paths, tsconfig `paths` and `baseUrl` from the tsconfig nearest the importing file, package.json `imports`
+ * (`#name`), and workspace packages whose entry is TypeScript source. Each module it reads carries a reader for the
+ * modules that module imports in turn, with the same import map.
+ */
+export function moduleResolver(root: string): (fromFile: string, map?: ImportMap | null) => ModuleReader {
+  // Many test files import the same fixtures file and share a tsconfig; each is read once per import map.
+  const modules = new Map<ImportMap | null, Map<string, ModuleSource | null>>();
   const tsconfigs = new Map<string, string | null>();
   const pathOptions = new Map<string, PathOptions>();
   const workspaces = new Map<string, Map<string, string>>();
@@ -388,53 +423,69 @@ export function moduleResolver(root: string): (fromFile: string) => ModuleReader
     for (const folder of passed) workspaces.set(folder, packages);
     return packages;
   };
+  /** The file a name stands for from a folder, or why it can't be followed. */
+  const locate = (specifier: string, directory: string, map: ImportMap | null): string | { reason: string } => {
+    let candidates: string[];
+    // `.` and `..` are paths too: the index of the file's folder, or of the folder above.
+    if (/^\.\.?(?:\/|$)/.test(specifier) || path.isAbsolute(specifier)) {
+      candidates = [path.resolve(directory, specifier)];
+    } else if (specifier.startsWith('#')) {
+      candidates = subpathImportFiles(specifier, directory);
+      if (candidates.length === 0) return { reason: 'is not in the imports of package.json' };
+    } else {
+      const options = optionsFor(directory);
+      const targets = options ? aliasFiles(specifier, options) : null;
+      const aliased = targets?.find((file) => findFile(file) !== null);
+      if (aliased) {
+        candidates = [aliased];
+      } else {
+        // TypeScript goes on to the usual lookup when no file of a matching alias exists. `baseUrl` turns any name
+        // into a path, so a name not found there may still be a workspace package.
+        const fromBaseUrl = options?.baseUrl ? findFile(path.resolve(options.baseUrl, specifier)) : null;
+        const workspace = fromBaseUrl ? null : workspaceSource(specifier, directory, packagesOf);
+        if (workspace && 'reason' in workspace) return workspace;
+        const file = fromBaseUrl ?? workspace?.file ?? (map && searched(specifier, directory, map));
+        // No package name starts with `@/` or `~/`, so these are aliases, as Vite's `resolve.alias` sets them; any
+        // other name with no file may still be a package or a built-in module, as TypeScript takes it to be.
+        if (!file && /^[@~]\//.test(specifier)) {
+          return { reason: targets ? 'could not be read' : 'is a path alias that no tsconfig paths or config define' };
+        }
+        if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
+        candidates = [file];
+      }
+    }
+    return candidates.map(findFile).find((file) => file !== null) ?? { reason: 'could not be read' };
+  };
   const reader =
-    (fromFile: string): ModuleReader =>
+    (fromFile: string, map: ImportMap | null = null): ModuleReader =>
     (specifier) => {
       const directory = path.dirname(fromFile);
-      let candidates: string[];
-      // `.` and `..` are paths too: the index of the file's folder, or of the folder above.
-      if (/^\.\.?(?:\/|$)/.test(specifier)) {
-        candidates = [path.resolve(directory, specifier)];
-      } else if (specifier.startsWith('#')) {
-        candidates = subpathImportFiles(specifier, directory);
-        if (candidates.length === 0) return { reason: 'is not in the imports of package.json' };
-      } else {
-        const options = optionsFor(directory);
-        const targets = options ? aliasFiles(specifier, options) : null;
-        const aliased = targets?.find((file) => findFile(file) !== null);
-        if (aliased) {
-          candidates = [aliased];
-        } else {
-          // TypeScript goes on to the usual lookup when no file of a matching alias exists. `baseUrl` turns any name
-          // into a path, so a name not found there may still be a workspace package.
-          const fromBaseUrl = options?.baseUrl ? findFile(path.resolve(options.baseUrl, specifier)) : null;
-          const workspace = fromBaseUrl ? null : workspaceSource(specifier, directory, packagesOf);
-          if (workspace && 'reason' in workspace) return workspace;
-          const file = fromBaseUrl ?? workspace?.file;
-          // No package name starts with `@/` or `~/`, so these are aliases, as Vite's `resolve.alias` sets them; any
-          // other name with no file may still be a package or a built-in module, as TypeScript takes it to be.
-          if (!file && /^[@~]\//.test(specifier)) {
-            return { reason: targets ? 'could not be read' : 'is a path alias that no tsconfig paths define' };
-          }
-          if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
-          candidates = [file];
-        }
+      const aliased = map?.aliases.map((alias) => mapped(specifier, alias)).find((names) => names !== null);
+      // The config maps the name to others, each a path or a name looked up as written, the first that is found.
+      const located = (aliased ?? [specifier]).map((name) => locate(name, directory, map));
+      const found = located.find((item) => typeof item === 'string');
+      if (found === undefined) {
+        return aliased
+          ? { reason: `is mapped by the config to ${aliased.join(' or ')}, which could not be read` }
+          : (located[0] as { reason: string });
       }
-      const found = candidates.map(findFile).find((file) => file !== null);
-      if (!found) return { reason: 'could not be read' };
-      if (!modules.has(found)) {
+      let known = modules.get(map);
+      if (!known) {
+        known = new Map<string, ModuleSource | null>();
+        modules.set(map, known);
+      }
+      if (!known.has(found)) {
         const content = readContent(found);
-        modules.set(
+        known.set(
           found,
           content && {
             ...content,
             relativeFilePath: path.relative(root, found).replaceAll('\\', '/'),
-            readModule: reader(found),
+            readModule: reader(found, map),
           },
         );
       }
-      return modules.get(found) ?? { reason: 'could not be read' };
+      return known.get(found) ?? { reason: 'could not be read' };
     };
   return reader;
 }
