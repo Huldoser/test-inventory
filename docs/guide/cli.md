@@ -129,7 +129,7 @@ Without `--framework`, the scan takes the runner the project uses: the one whose
 folder below it lists, or whose config file is there: `playwright.config.*`, `vitest.config.*`, `jest.config.*`,
 `.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*`, or a `jest` or `mocha` key in `package.json`;
 for node:test, a `package.json` script that runs `node --test`, or a `node.config.json`; for Bun, a script that runs
-`bun test`, or a `bunfig.toml`.
+`bun test`, or a `bunfig.toml` with a `[test]` table.
 A `vite.config.*` alone doesn't count, as Vite apps without Vitest have one, and `node_modules` is left out. Only when
 nothing is found there are the `package.json` files above the root read, as a monorepo may list its runner once at the
 top.

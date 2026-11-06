@@ -106,7 +106,7 @@ in Claude Code, Cursor, VS Code and other MCP clients ask it which tests a proje
   can't be worked out, and settings such as `workers` or `use` are not read.
 - Values from installed packages are not worked out; values from the project's own files are. A tag or title that
   comes from a package gets a diagnostic that names the module. A custom `test` object is followed through as many files as it takes, through relative
-  paths, tsconfig path aliases, `#` imports in package.json and workspace packages; one that can't be followed gets
+  paths, config and tsconfig path aliases, `#` imports in package.json and workspace packages; one that can't be followed gets
   an error. Tests declared in helper functions are listed at each call, also for helpers imported from other files.
 - A test in a loop or a `.each` table is one record, with `isInLoop` or `caseCount`; the runner creates one test per
   iteration or case. `--expand-cases` lists each case whose values the scan can work out as its own record.
