@@ -83,13 +83,13 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
       '@wdio/mocha-framework': version,
     }),
   },
-  // node:test ships with Node.js, so CI picks the version with setup-node; this checks it runs the one asked for.
   // Bun ships its own runner, so CI picks the version with setup-bun; this checks it runs the one asked for.
   bun: {
     fixture: 'quote-gateway',
     patterns: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
     packages: () => ({}),
   },
+  // node:test ships with Node.js, so CI picks the version with setup-node; this checks it runs the one asked for.
   node: {
     fixture: 'pricing-service',
     patterns: ['test/**/*.js', 'src/**/*.test.js'],

@@ -282,6 +282,16 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
 };
 
 /**
+ * Whether a file is a runner's config. A `bunfig.toml` counts only with a `[test]` table, as projects that run another
+ * runner keep one for Bun's installs.
+ */
+function isConfig(root: string, file: string, framework: Framework): boolean {
+  if (!CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) return false;
+  // A file that can't be read gives null, which holds no table.
+  return framework !== 'bun' || /^\s*\[test\]/m.test(String(readText(path.join(root, file))));
+}
+
+/**
  * Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config, or for
  * `node:test` has a script that runs `node --test`.
  */
@@ -333,7 +343,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress', 'webdriverio', 'node', 'bun'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
-      below.some((file) => CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) ||
+      below.some((file) => isConfig(root, file, framework)) ||
       manifests.some((manifest) => declares(manifest, framework)),
   );
   if (found.length === 0) found = all.filter((framework) => above.some((manifest) => declares(manifest, framework)));

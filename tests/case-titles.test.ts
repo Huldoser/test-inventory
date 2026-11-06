@@ -911,6 +911,7 @@ describe("Bun's case titles", () => {
       'XNAS at 2, true, $missing %s',
     ],
     ['$mic.name', [{ mic: 'XNAS' }], '$mic.name'],
+    ['row $px and %d', [{ px: -0 }], 'row -0 and %d'],
     ['$desk', [{ desk: { name: 'rates' } }], null],
     ['$closed', [{ closed: null }], null],
     ['$closed', [{ closed: undefined }], null],

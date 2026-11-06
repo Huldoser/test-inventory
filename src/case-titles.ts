@@ -372,7 +372,8 @@ export function bunCaseTitle(
       }
       if (value === undefined && !hasPath(first, path)) return written;
       if (typeof value === 'string') return quotes ? JSON.stringify(value) : value;
-      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
+      if (typeof value === 'boolean') return String(value);
       shown.all = false;
       return written;
     });

@@ -604,8 +604,10 @@ export class ConfigRuns {
       return Array.isArray(found) ? (found as string[]) : null;
     };
     const roots = read('root') ?? [];
-    // Read whatever the version: Bun takes it from 1.3.11, and the version holds no patch to tell 1.3.10 from it.
-    const ignored = read('pathIgnorePatterns');
+    // Bun 1.2 reads neither `pathIgnorePatterns` nor `retry`. It reads the first from 1.3.11, and the version holds no
+    // patch to tell 1.3.10 from it, so all of 1.3 reads it.
+    const readsFrom13 = atLeast(this.version, 1, 3);
+    const ignored = readsFrom13 ? read('pathIgnorePatterns') : [];
     const concurrent = read('concurrentTestGlob');
     const wrong = ignored === null ? 'pathIgnorePatterns' : concurrent === null ? 'concurrentTestGlob' : null;
     const refused =
@@ -627,7 +629,7 @@ export class ConfigRuns {
       runsByDefault: true,
       defaults: {
         ...NO_DEFAULTS,
-        retry: settingAt(settings, ['test', 'retry']),
+        retry: readsFrom13 ? settingAt(settings, ['test', 'retry']) : null,
         parallel: parallel ? { kind: 'value', value: true } : null,
       },
     });
@@ -635,14 +637,15 @@ export class ConfigRuns {
       refused,
       about: about(false),
       concurrent: about(true),
-      isConcurrent: (file) => isConcurrent(posix(path.relative(folder, file))),
+      // Bun 1.4.4 matches the glob against the file's whole path.
+      isConcurrent: (file) => isConcurrent(posix(file)),
       runs: (file) => {
         if (!isInside(testRoot, file)) return false;
         const relative = posix(path.relative(folder, file));
         const parts = relative.split('/');
         if (parts.some((part) => part.startsWith('.') || part === 'node_modules')) return false;
         if (parts.some((_, index) => isIgnored(parts.slice(0, index + 1).join('/')))) return false;
-        return /(\.test|_test|\.spec|_spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/.test(relative);
+        return /(\.test|_test|\.spec|_spec)\.(js|jsx|ts|tsx|mjs|cjs|mts|cts)$/i.test(relative);
       },
     };
   }

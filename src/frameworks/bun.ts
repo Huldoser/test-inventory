@@ -87,8 +87,14 @@ export class BunAdapter extends SuiteAdapter {
     return MODIFIERS.has(link.name);
   }
 
+  /** A hook; before Bun 1.3, one given more than its function fails the file. */
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
     const fn = hookFunction(this.file, context.scopes, call.arguments);
+    if (call.arguments.length > 1 && !atLeast(this.file.version, 1, 3)) {
+      const callee = snippet(text(this.file, call.callee));
+      const message = `${callee}() takes only its function before Bun 1.3, so Bun fails the file and runs none of its tests.`;
+      return { kind: 'invalid', problem: problem('invalid-chain', call, message, callee) };
+    }
     return { kind: 'hook', name, fn, testContext: null, fixtures: [], takesAllFixtures: false };
   }
 
@@ -111,22 +117,24 @@ export class BunAdapter extends SuiteAdapter {
   }
 
   /**
-   * Whether Bun takes a chain: each mode once at most, one of `skip`, `todo` and `failing`, one of `concurrent` and
-   * `serial`, one table, the conditions and the table called and the modes not, and no `failing` on a describe, which
-   * a `failingIf` whose condition holds asks for too.
+   * Whether Bun takes a chain: one of `skip`, `todo` and `failing`, one `only`, one of `concurrent` and `serial`, and
+   * one table, where a condition that holds counts as its mode, as `if(false)` counts as `skip`; the conditions and
+   * the table called and the modes not; and no `failing` on a describe. A condition the scan can't work out counts as
+   * not holding (checked with Bun 1.2.23, 1.3.14 and 1.4.4).
    */
   private isValid(kind: Kind, links: Link[], context: CallContext): boolean {
-    const names = links.map((link) => link.name);
-    if (!names.every((name) => MODIFIERS.has(name))) return false;
-    if (GROUPS.some((group) => names.filter((name) => group.has(name)).length > 1)) return false;
-    if (names.filter((name) => name === 'each').length > 1) return false;
+    if (!links.every((link) => MODIFIERS.has(link.name))) return false;
     const called = links.every((link) => (MODES.has(link.name) ? !link.args : link.args !== null) && !link.template);
     if (!called) return false;
-    if (kind !== 'describe') return true;
-    return links.every(
-      (link) =>
-        link.name !== 'failing' && (link.name !== 'failingIf' || this.condition(link, context).applies !== 'always'),
-    );
+    const modes = links.flatMap((link) => {
+      if (!CONDITIONS.has(link.name)) return [link.name];
+      const holds = this.condition(link, context).applies === (link.name === 'if' ? 'never' : 'always');
+      return holds ? [link.name === 'if' ? 'skip' : link.name.slice(0, -2)] : [];
+    });
+    if ([...GROUPS, new Set(['each'])].some((group) => modes.filter((name) => group.has(name)).length > 1)) {
+      return false;
+    }
+    return kind !== 'describe' || !modes.includes('failing');
   }
 
   private condition(link: Link, context: CallContext): Condition {
@@ -173,6 +181,18 @@ export class BunAdapter extends SuiteAdapter {
         : { kind: 'test', ...base, testContext: null, fixtures: [], takesAllFixtures: false, usesBench: false };
     // Only a skipped or todo test may leave out its function.
     const mayLeaveOut = kind === 'test' && (names.has('skip') || names.has('todo'));
+    const rows = (table?.args as Argument[] | undefined)?.at(0);
+    const resolvedRows = rows && rows.type !== 'SpreadElement' ? this.file.values.resolve(rows, context.scopes) : null;
+    if (resolvedRows?.ok && !Array.isArray(resolvedRows.value)) {
+      const source = snippet(text(this.file, rows as Argument));
+      const refusal = problem(
+        'invalid-chain',
+        rows as Argument,
+        `.each() takes an array, and ${source} is not one, so Bun fails the file and runs none of its tests.`,
+        source,
+      );
+      return refused(call, refusal, context, () => declared);
+    }
     // Bun wants a function second or third; a value that can't be one, as options alone, is none.
     const missing = body === undefined || isValue(body);
     if (missing && !spread && !mayLeaveOut) {
@@ -184,7 +204,8 @@ export class BunAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, () => declared);
     }
-    if (run.retry && run.repeats !== undefined && atLeast(this.file.version, 1, 3)) {
+    // Bun refuses a retry above 0 with any repeats, 0 too.
+    if (run.retry && run.retry.count > 0 && run.repeats !== undefined && atLeast(this.file.version, 1, 3)) {
       const refusal = problem(
         'invalid-chain',
         options as Argument,
@@ -265,7 +286,9 @@ export class BunAdapter extends SuiteAdapter {
   private caseCount(table: Link, problems: Problem[], context: CallContext): number | null {
     const cases = (table.args as Argument[]).at(0);
     const length = cases ? this.arrayLength(cases, context) : null;
-    if (length === null && cases) {
+    const resolved = cases && cases.type !== 'SpreadElement' ? this.file.values.resolve(cases, context.scopes) : null;
+    // A table that isn't an array fails the file, which is reported where the call is read.
+    if (length === null && cases && !resolved?.ok) {
       const source = snippet(text(this.file, cases));
       problems.push(
         problem('unresolved-cases', cases, 'The cases of .each() could not be counted; caseCount is null.', source),

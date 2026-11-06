@@ -16,6 +16,7 @@ describe('Bun files and configs', () => {
     'src/book.spec.mjs': SPEC,
     'src/depth_spec.cts': SPEC,
     'src/feed.test.json': SPEC,
+    'src/Halt.TEST.ts': SPEC,
     'src/helpers.ts': SPEC,
     'test/legacy/old.test.js': SPEC,
     '.cache/stale.test.ts': SPEC,
@@ -24,6 +25,7 @@ describe('Bun files and configs', () => {
   it('runs the files whose name ends with .test, _test, .spec or _spec, outside dot folders', async () => {
     const inventory = await scan({ root: project({ 'package.json': MANIFEST, ...layout }), framework: 'bun' });
     expect(files(inventory)).toEqual([
+      'src/Halt.TEST.ts',
       'src/book.spec.mjs',
       'src/depth_spec.cts',
       'src/quotes_test.tsx',
@@ -41,9 +43,10 @@ describe('Bun files and configs', () => {
       '[test]',
       'root = "src"',
       'retry = 2',
-      "pathIgnorePatterns = ['**/depth_*']",
+      "pathIgnorePatterns = ['**/depth_*', '**/Halt*']",
       'concurrentTestGlob = [',
       '  "**/*.spec.*",',
+      '  "src/quotes_*",',
       ']',
     ].join('\n');
     const inventory = await scan({
@@ -56,6 +59,19 @@ describe('Bun files and configs', () => {
       ['src/spread.test.ts', 2, false],
     ]);
     expect(inventory.configs.map((config) => config.relativeFilePath)).toEqual(['bunfig.toml']);
+    // Bun 1.2 reads neither retry nor pathIgnorePatterns.
+    const old = await scan({
+      root: project({ 'package.json': MANIFEST, 'bunfig.toml': bunfig, ...layout }),
+      framework: 'bun',
+      frameworkVersion: '1.2.23',
+    });
+    expect(old.tests.map((test) => [test.relativeFilePath, test.retries])).toEqual([
+      ['src/Halt.TEST.ts', null],
+      ['src/book.spec.mjs', null],
+      ['src/depth_spec.cts', null],
+      ['src/quotes_test.tsx', null],
+      ['src/spread.test.ts', null],
+    ]);
     const given = await scan({
       root: project({ 'package.json': MANIFEST, 'bunfig.toml': bunfig, ...layout }),
       framework: 'bun',
@@ -77,7 +93,7 @@ describe('Bun files and configs', () => {
       root: project({ 'package.json': MANIFEST, 'bunfig.toml': '[test]\nroot = 3\n', ...layout }),
       framework: 'bun',
     });
-    expect(files(wrongRoot)).toHaveLength(5);
+    expect(files(wrongRoot)).toHaveLength(6);
     for (const key of ['pathIgnorePatterns', 'concurrentTestGlob']) {
       const refused = await scan({
         root: project({ 'package.json': MANIFEST, 'bunfig.toml': `[test]\n${key} = 3\n`, ...layout }),
@@ -113,6 +129,12 @@ describe('Bun files and configs', () => {
     expect(old.diagnostics.map((item) => item.message)).toEqual([
       'Bun 1.2.22 is older than 1.2.23, the oldest supported version; the results follow 1.2.23.',
     ]);
+    // A bunfig.toml for installs only is no sign of bun test.
+    const vitest = JSON.stringify({ name: 'quote-gateway', devDependencies: { vitest: '5.1.0' } });
+    const installs = await scan({
+      root: project({ 'package.json': vitest, 'bunfig.toml': '[install]\nexact = true\n', ...layout }),
+    });
+    expect(installs.framework).toBe('vitest');
     const none = await scan({ root: project({ 'package.json': MANIFEST, ...layout }) });
     expect(none.frameworkVersion).toBeNull();
   });

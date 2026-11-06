@@ -76,10 +76,38 @@ describe.serial('settlement', () => {
     ['describe.failing', "describe.failing('basket', () => { test('reprices', () => {}); });"],
     ['describe.failingIf(true)', "describe.failingIf(true)('basket', () => { test('reprices', () => {}); });"],
     ['test.concurrent', "test.concurrent.foo('reprices a basket', () => {});"],
+    ['test.todoIf(true).failing', "test.todoIf(true).failing('reprices a basket', () => {});"],
+    ['test.if(false).skip', "test.if(false).skip('reprices a basket', () => {});"],
+    ['test.serial.concurrentIf(true)', "test.serial.concurrentIf(true)('reprices a basket', () => {});"],
+    ['test.skipIf(true).skipIf(true)', "test.skipIf(true).skipIf(true)('reprices a basket', () => {});"],
+    ['test.each(5)', "test.each(5)('reprices %i', () => {});"],
   ])('reports %s, which Bun refuses, failing the file', (_, code) => {
     const inventory = scanBun(`test('quotes the spread', () => {});\n${code}`);
     expect(codes(inventory)).toEqual(['invalid-chain']);
     expect(inventory.tests[0].state).toBe('notLoaded');
+  });
+
+  it('takes a condition that does not hold, or can not be worked out, next to its mode', () => {
+    const inventory = scanBun(`
+test.todoIf(false).failing('reprices a basket', () => {});
+test.if(true).skip('reprices bonds', () => {});
+test.skipIf(process.env.CI).todo('reprices swaps', () => {});
+`);
+    expect(states(inventory)).toEqual([
+      ['reprices a basket', 'expectedToFail', null],
+      ['reprices bonds', 'skip', null],
+      // When CI is set, Bun refuses skip next to todo and fails the file; otherwise the test is todo.
+      ['reprices swaps', 'todo', null],
+    ]);
+  });
+
+  it.each([
+    ['1.2.23', ['invalid-chain', 'invalid-chain']],
+    ['1.3.14', []],
+  ])('refuses hooks given more than a function before Bun 1.3: %s', (version, found) => {
+    const code =
+      "beforeAll(() => {}, 1000);\nbeforeEach(() => {}, { timeout: 1000 });\ntest('quotes the spread', () => {});";
+    expect(codes(scanBun(code, { frameworkVersion: version }))).toEqual(found);
   });
 
   it('reads options second or third, a number as the timeout, and refuses retry with repeats from 1.3', () => {
@@ -93,9 +121,12 @@ test('reprices swaps', () => {}, 500);
       ['reprices bonds', null, null, 3],
       ['reprices swaps', 500, null, null],
     ]);
-    const both = "test('reprices a basket', { retry: 1, repeats: 2 }, () => {});";
+    const both = "test('reprices a basket', { retry: 1, repeats: 0 }, () => {});";
     expect(codes(scanBun(both, { frameworkVersion: '1.2.23' }))).toEqual([]);
     expect(onlyTest(scanBun(both, { frameworkVersion: '1.3.14' })).state).toBe('notLoaded');
+    // A retry of 0 is no retry, so repeats go with it.
+    const noRetry = "test('reprices a basket', { retry: 0, repeats: 2 }, () => {});";
+    expect(codes(scanBun(noRetry, { frameworkVersion: '1.3.14' }))).toEqual([]);
   });
 
   it('refuses a test or describe without a function, unless it is skipped or todo', () => {

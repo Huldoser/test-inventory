@@ -416,9 +416,10 @@ path, and from Node.js 26.8 a folder, for the default patterns inside it; withou
 `node_modules` are left out. Scanned with globs, every file they match counts as run, as for the files given to
 `node --test`. For Bun: the files under `[test]
 root`, the root by default, whose name without its extension ends with `.test`, `_test`, `.spec` or `_spec`, with the
-extension `js`, `jsx`, `ts`, `tsx`, `mjs`, `cjs`, `mts` or `cts`, outside dot folders and `node_modules`, and from Bun
-1.3.11 outside the folders and files a `pathIgnorePatterns` glob matches, read whatever the version. `[test] retry`
-applies to every test, and the tests of the files a `concurrentTestGlob` glob matches run at once. A
+extension `js`, `jsx`, `ts`, `tsx`, `mjs`, `cjs`, `mts` or `cts`, in any case, outside dot folders and `node_modules`,
+and from Bun 1.3.11, read for all of 1.3, outside the folders and files a `pathIgnorePatterns` glob matches, from the
+root. From Bun 1.3, `[test] retry` applies to every test. The tests of the files a `concurrentTestGlob` glob matches,
+against the file's whole path, run at once. A
 `pathIgnorePatterns` or `concurrentTestGlob` that isn't a string or a list of strings is reported, as Bun refuses the
 config. Scanned with globs, every file they match counts as run, as for the files given to `bun test`.
 
