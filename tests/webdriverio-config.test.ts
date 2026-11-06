@@ -200,6 +200,29 @@ describe('WebdriverIO config files', () => {
     expect(await files(alwaysMatch)).toEqual(['test/place.e2e.js']);
   });
 
+  it("applies Jasmine's focus rules when the config's framework is jasmine", async () => {
+    const root = project({
+      'package.json': WDIO_PACKAGE,
+      'wdio.conf.js': "exports.config = { specs: ['./test/*.e2e.js'], framework: 'jasmine' };\n",
+      'test/settlement.e2e.js': `xdescribe('wires', () => {
+  fit('settles a wire', async () => {});
+});
+fdescribe('fx', () => {
+  it('books a spot trade', async () => {});
+  fit('books a forward', async () => {});
+});
+`,
+    });
+    const inventory = await scan({ root, framework: 'webdriverio' });
+    // WebdriverIO 9.33.1 and 10.1.0's Jasmine adapter run only the fit specs.
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isOnly])).toEqual([
+      ['wires > settles a wire', 'active', true],
+      ['fx > books a spot trade', 'active', false],
+      ['fx > books a forward', 'active', true],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it("reads mochaOpts' ui, and reports a framework the scan doesn't read", async () => {
     const tdd = await scan({
       root: project({

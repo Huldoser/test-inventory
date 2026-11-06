@@ -102,6 +102,8 @@ export interface FileConfig {
 interface RecordOptions {
   relativeFilePath: string;
   framework: Framework;
+  /** Jasmine's focus rules apply: for Jasmine, and for WebdriverIO on Jasmine. */
+  focusesLikeJasmine: boolean;
   comments: CommentsMode;
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
@@ -537,13 +539,14 @@ class RecordBuilder {
   }
 
   /**
-   * Whether Jasmine runs a spec as focused: a `fit`, or a spec in an `fdescribe` with no focused spec or describe
-   * below it, as Jasmine runs only the innermost focus (checked with Jasmine 4.6.0 and 7.0.0).
+   * Where Jasmine's focus on a spec sits, as an index into its `scopes`, from the innermost: -1 for a `fit`, the
+   * `fdescribe` around it with no focused spec or describe below, as Jasmine runs only the innermost focus, or null
+   * when the spec isn't focused (checked with Jasmine 4.6.0 and 7.0.0).
    */
-  private jasmineFocus(pending: PendingTest, scopes: Scope[]): boolean {
-    if (pending.declaration.isOnly) return true;
-    const nearest = scopes.find((scope) => scope.isOnly);
-    return nearest !== undefined && !this.focusedBelow.has(nearest);
+  private jasmineFocus(pending: PendingTest, scopes: Scope[]): number | null {
+    if (pending.declaration.isOnly) return -1;
+    const nearest = scopes.findIndex((scope) => scope.isOnly);
+    return nearest !== -1 && !this.focusedBelow.has(scopes[nearest]) ? nearest : null;
   }
 
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
@@ -576,10 +579,14 @@ class RecordBuilder {
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
     const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
-    const focused = this.options.framework === 'jasmine' ? this.jasmineFocus(pending, scopes) : null;
-    // A focused Jasmine spec runs inside an `xdescribe`, whose own skip doesn't reach it; `pending()` still does.
-    const declaredSkip = (scope: Scope, setting: StateSetting) =>
-      focused === true && scope.kind === 'describe' && suiteOf(scope).declaration.states.includes(setting);
+    const focus = this.options.focusesLikeJasmine ? this.jasmineFocus(pending, scopes) : undefined;
+    // A focus inside an `xdescribe` runs, as the describe's own skip doesn't reach it; `pending()` still does. An
+    // `xdescribe` inside the focus stays skipped.
+    const declaredSkip = (scope: Scope, index: number, setting: StateSetting) =>
+      typeof focus === 'number' &&
+      index > focus &&
+      scope.kind === 'describe' &&
+      suiteOf(scope).declaration.states.includes(setting);
     const chosen = jest
       ? jest.chosen
       : chooseState([
@@ -589,9 +596,9 @@ class RecordBuilder {
           ...parents.flatMap((parent) =>
             parent.declaration.states.map((setting) => ({ setting, source: 'suite' as const })),
           ),
-          ...scopes.flatMap((scope) =>
+          ...scopes.flatMap((scope, index) =>
             scope.states
-              .filter((setting) => !declaredSkip(scope, setting))
+              .filter((setting) => !declaredSkip(scope, index, setting))
               .map((setting) => ({
                 setting,
                 source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
@@ -620,7 +627,9 @@ class RecordBuilder {
     }
     const isOnly = jest
       ? jest.isOnly
-      : (focused ?? (declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true));
+      : focus !== undefined
+        ? focus !== null
+        : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments

@@ -145,6 +145,9 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
     const records = buildRecords(extraction, parsed, {
       relativeFilePath,
       framework: settings.framework,
+      focusesLikeJasmine:
+        settings.framework === 'jasmine' ||
+        (settings.framework === 'webdriverio' && settings.webdriverioFramework === 'jasmine'),
       comments: settings.comments,
       isTypeTest,
       // Vitest 5's default `benchmark.include`, when no config says.

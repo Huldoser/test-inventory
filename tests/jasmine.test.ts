@@ -160,6 +160,9 @@ fdescribe('scenarios', () => {
 fdescribe('hedges', () => {
   xit('rolls futures', () => {});
   it('buys puts', () => {});
+  xdescribe('collars', () => {
+    it('sells a call', () => {});
+  });
 });
 describe('reports', () => {
   it('prints exposure', () => {});
@@ -175,6 +178,8 @@ describe('reports', () => {
       ['scenarios > credit > widens spreads', 'active', true],
       ['hedges > rolls futures', 'skip', true],
       ['hedges > buys puts', 'active', true],
+      // A focus around an xdescribe doesn't run it; only one inside it does.
+      ['hedges > collars > sells a call', 'skip', true],
       ['reports > prints exposure', 'active', false],
     ]);
     expect(inventory.diagnostics).toEqual([]);

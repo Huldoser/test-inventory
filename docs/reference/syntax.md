@@ -178,9 +178,10 @@ Jasmine 4.0 and newer.
 | Local helpers file | `import { spec } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare specs, read at each call                             |
 
 `xit` and `xdescribe` are `.skip`, and `fit` and `fdescribe` `.only`. Jasmine's functions have no members, so a call
-such as `it.only()` is an `invalid-chain` error. Jasmine runs the innermost focus: a `fit` runs also inside an
-`xdescribe`, and in an `fdescribe` with a `fit` or `fdescribe` below it, only those run, so its other specs have
-`isOnly: false`.
+such as `it.only()` is an `invalid-chain` error. Jasmine runs the innermost focus: a `fit` or `fdescribe` runs also
+inside an `xdescribe`, while an `xdescribe` inside an `fdescribe` stays skipped, and in an `fdescribe` with a `fit` or
+`fdescribe` below it, only those run, so its other specs have `isOnly: false`. WebdriverIO on Jasmine follows the same
+rules.
 
 ### Calls
 
