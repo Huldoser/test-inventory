@@ -1801,7 +1801,7 @@ describe('scan options', () => {
     [{ patterns: [''], framework: 'playwright' }, 'options.patterns must be a non-empty array of glob patterns.'],
     [
       { patterns: ['tests'], framework: 'ava' },
-      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine" or "cypress".',
+      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress" or "webdriverio".',
     ],
     [
       { patterns: ['tests'], framework: 'vitest', ignore: 'node_modules' },
@@ -1864,7 +1864,7 @@ describe('scanSource options', () => {
     ],
     [
       { code: '', relativeFilePath: 'a.spec.ts', framework: 'ava' },
-      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine" or "cypress".',
+      'options.framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress" or "webdriverio".',
     ],
   ])('rejects %j', (options, message) => {
     expect(() => scanSource(options as never)).toThrow(new TypeError(message));

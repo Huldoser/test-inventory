@@ -23,6 +23,11 @@ export const EXAMPLES: { name: string; framework: Framework; patterns: string[] 
   { name: 'trading-e2e-mocha', framework: 'mocha', patterns: ['e2e/**/*.e2e.js'] },
   { name: 'risk-service', framework: 'jasmine', patterns: ['spec/*.spec.js', 'spec/limits/**/*.spec.js'] },
   { name: 'trading-ui-cypress', framework: 'cypress', patterns: ['cypress/e2e/**/*.cy.js'] },
+  {
+    name: 'broker-portal',
+    framework: 'webdriverio',
+    patterns: ['test/specs/*.e2e.js', 'test/specs/{orders,accounts}/*.e2e.js'],
+  },
 ];
 
 export function goldenPath(name: string): string {

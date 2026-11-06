@@ -1,5 +1,5 @@
 ---
-description: How the inventory differs from playwright test --list, vitest list, jest --collectTests, mocha --dry-run, and a Jasmine or Cypress run, and how CI compares them.
+description: How the inventory differs from playwright test --list, vitest list, jest --collectTests, mocha --dry-run, and a Jasmine, Cypress or WebdriverIO run, and how CI compares them.
 ---
 
 # Compared with the runners
@@ -8,17 +8,17 @@ The runners can list their tests too: `playwright test --list --reporter=json`, 
 `jest --collectTests`, and `mocha --dry-run`. They load the test files, and so run the code at the top level of every
 file. test-inventory reads the files without running them.
 
-|                                | test-inventory                       | `playwright test --list`     | `vitest list`                   | `jest --collectTests`                      | `mocha --dry-run`            | `jasmine --reporter=…` | `cypress run --reporter=…`    |
-| ------------------------------ | ------------------------------------ | ---------------------------- | ------------------------------- | ------------------------------------------ | ---------------------------- | ---------------------- | ----------------------------- |
-| Runs code from the test files  | No                                   | Yes, top level and describes | Yes, or parses them in Vitest 5 | Yes, top level and describes               | Yes, top level and describes | Yes, every spec        | Yes, every test, in a browser |
-| Needs the runner installed     | No                                   | Yes                          | Yes                             | Yes, Jest 30.4 or newer                    | Yes                          | Yes                    | Yes, and its browser          |
-| Loops and `.each` tables       | One record, with the number of cases | One test per iteration       | One test per case               | One test per iteration, per case from 30.5 | One test per iteration       | One spec per iteration | One test per iteration        |
-| Skipped and todo tests         | Listed, with the state               | Listed                       | Left out                        | Listed, with the state                     | Listed as pending            | Listed as pending      | Listed as pending             |
-| Skip conditions                | Kept as source text                  | Evaluated at load time       | Not shown                       | Evaluated at load time                     | Not shown                    | Evaluated as specs run | Evaluated as tests run        |
-| Tags                           | As written, `@smoke`                 | Without the `@`, `smoke`     | Not shown                       | Not shown                                  | Not shown                    | Not shown              | Not shown                     |
-| Line of each test              | Yes                                  | Yes                          | Yes                             | No                                         | No                           | No                     | No                            |
-| Stable id and body hash        | Yes                                  | No                           | No                              | No                                         | No                           | No                     | No                            |
-| One schema for every framework | Yes                                  | No                           | No                              | No                                         | No                           | No                     | No                            |
+|                                | test-inventory                       | `playwright test --list`     | `vitest list`                   | `jest --collectTests`                      | `mocha --dry-run`            | `jasmine --reporter=…` | `cypress run --reporter=…`    | `wdio run` with a reporter    |
+| ------------------------------ | ------------------------------------ | ---------------------------- | ------------------------------- | ------------------------------------------ | ---------------------------- | ---------------------- | ----------------------------- | ----------------------------- |
+| Runs code from the test files  | No                                   | Yes, top level and describes | Yes, or parses them in Vitest 5 | Yes, top level and describes               | Yes, top level and describes | Yes, every spec        | Yes, every test, in a browser | Yes, every test, in a browser |
+| Needs the runner installed     | No                                   | Yes                          | Yes                             | Yes, Jest 30.4 or newer                    | Yes                          | Yes                    | Yes, and its browser          | Yes, and its browser          |
+| Loops and `.each` tables       | One record, with the number of cases | One test per iteration       | One test per case               | One test per iteration, per case from 30.5 | One test per iteration       | One spec per iteration | One test per iteration        | One test per iteration        |
+| Skipped and todo tests         | Listed, with the state               | Listed                       | Left out                        | Listed, with the state                     | Listed as pending            | Listed as pending      | Listed as pending             | Listed as pending             |
+| Skip conditions                | Kept as source text                  | Evaluated at load time       | Not shown                       | Evaluated at load time                     | Not shown                    | Evaluated as specs run | Evaluated as tests run        | Evaluated as tests run        |
+| Tags                           | As written, `@smoke`                 | Without the `@`, `smoke`     | Not shown                       | Not shown                                  | Not shown                    | Not shown              | Not shown                     | Not shown                     |
+| Line of each test              | Yes                                  | Yes                          | Yes                             | No                                         | No                           | No                     | No                            | No                            |
+| Stable id and body hash        | Yes                                  | No                           | No                              | No                                         | No                           | No                     | No                            | No                            |
+| One schema for every framework | Yes                                  | No                           | No                              | No                                         | No                           | No                     | No                            | No                            |
 
 ## Matching records with the runners' lists
 
@@ -66,15 +66,22 @@ Cypress has no way to list its tests without running them, and runs them in a br
 a function and a test that `this.skip()` or its `browser` option skips. Cypress starts the reporter once per spec, and
 it gives no line, so entries match records by spec and full title.
 
+## WebdriverIO's list
+
+WebdriverIO has no way to list its tests either, and starts a browser session for each spec file. A reporter given in
+the config's `reporters` sees each test as it runs, with `test:pending` for a skipped one. Its entries carry the
+test's title and its describe's, but no line, so they match records by spec file and full title.
+
 ## Checked in CI
 
 On every pull request, CI scans the fixture projects in the repository and compares the inventory with Playwright
-1.42, 1.63 and 1.64, Vitest 3.0 and 5.1, Jest 29.7 and 30.5, Mocha 10.8 and 12.0, Jasmine 4.6 and 7.0, and Cypress 13.17 and 16.2. Playwright
-lists the tests with `--list`; Vitest and Jest run them with their JSON output, which, unlike `vitest list`, includes
-skipped and todo tests; Mocha, Jasmine and Cypress, in Electron, run them with a reporter of the repository's own that
-keeps each title, so that `this.skip()` and `pending()` are seen. Each test is matched by file and line, or by file and full title for Mocha,
-Jasmine and Cypress, which give no line, and its full title, its state and its tags are compared; Jest, Mocha, Jasmine and
-Cypress report no tags. A state set by a condition is left out, since the runner
+1.42, 1.63 and 1.64, Vitest 3.0 and 5.1, Jest 29.7 and 30.5, Mocha 10.8 and 12.0, Jasmine 4.6 and 7.0, Cypress 13.17
+and 16.2, and WebdriverIO 9.33 and 10.1. Playwright lists the tests with `--list`; Vitest and Jest run them with their
+JSON output, which, unlike `vitest list`, includes skipped and todo tests; Mocha, Jasmine, Cypress, in Electron, and
+WebdriverIO, in headless Chrome, run them with a reporter of the repository's own that keeps each title, so that
+`this.skip()` and `pending()` are seen. Each test is matched by file and line, or by file and full title for Mocha,
+Jasmine, Cypress and WebdriverIO, which give no line, and its full title, its state and its tags are compared; Jest,
+Mocha, Jasmine, Cypress and WebdriverIO report no tags. A state set by a condition is left out, since the runner
 decides it on the machine it runs on. Any difference fails the check.
 
 The [real projects](/guide/real-projects) that use Vitest are compared too, with Vitest's static parser, which lists

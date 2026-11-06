@@ -17,29 +17,30 @@ the scan, as described in [Compared with the runners](/guide/runners#checked-in-
 Folders named `fixtures` and `__fixtures__` are left out: they hold test inputs, some with syntax errors on purpose,
 that the projects' runners never load.
 
-| Project                                                                                                              | Framework  | Files |  Tests |
-| -------------------------------------------------------------------------------------------------------------------- | ---------- | ----: | -----: |
-| [freeCodeCamp/freeCodeCamp](https://github.com/freeCodeCamp/freeCodeCamp) `34b1acd`, end to end                      | Playwright |    84 |    273 |
-| [vuejs/core](https://github.com/vuejs/core) `4ab865a`                                                                | Vitest     |   196 |  3,729 |
-| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, test apps                                                 | Playwright |    10 |    404 |
-| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, unit                                                      | Vitest     |    78 |    707 |
-| [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                                            | Playwright |   538 |  5,984 |
-| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, end to end                                      | Playwright |    32 |    263 |
-| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                                            | Vitest     |   815 |  8,305 |
-| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                                          | Vitest     |   827 |  9,464 |
-| [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                                          | Playwright |   309 |  1,487 |
-| [TanStack/router](https://github.com/TanStack/router) `663282b`, unit                                                | Vitest     |   450 |  4,801 |
-| [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                                              | Vitest     |   180 |  1,919 |
-| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) `3e3624c`                                                  | Vitest     |   509 |  3,438 |
-| [nuxt/nuxt](https://github.com/nuxt/nuxt) `0296ca4`                                                                  | Vitest     |   266 |  2,603 |
-| [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                                          | Vitest     |   142 |  2,216 |
-| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end                  | Playwright |   714 |  2,188 |
-| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit                        | Vitest     |   853 | 10,124 |
-| [jestjs/jest](https://github.com/jestjs/jest) `7261444`, unit and end to end                                         | Jest       |   495 |  4,675 |
-| [prettier/prettier](https://github.com/prettier/prettier) `d5d30c1`, unit                                            | Jest       |    23 |     63 |
-| [expressjs/express](https://github.com/expressjs/express) `43fca52`, unit and acceptance                             | Mocha      |    89 |  1,187 |
-| [jasmine/jasmine](https://github.com/jasmine/jasmine) `50eb76d`, core                                                | Jasmine    |   114 |  1,778 |
-| [cypress-io/cypress-realworld-app](https://github.com/cypress-io/cypress-realworld-app) `0729f68`, e2e and component | Cypress    |    26 |    113 |
+| Project                                                                                                              | Framework   | Files |  Tests |
+| -------------------------------------------------------------------------------------------------------------------- | ----------- | ----: | -----: |
+| [freeCodeCamp/freeCodeCamp](https://github.com/freeCodeCamp/freeCodeCamp) `34b1acd`, end to end                      | Playwright  |    84 |    273 |
+| [vuejs/core](https://github.com/vuejs/core) `4ab865a`                                                                | Vitest      |   196 |  3,729 |
+| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, test apps                                                 | Playwright  |    10 |    404 |
+| [sveltejs/kit](https://github.com/sveltejs/kit) `3bc9234`, unit                                                      | Vitest      |    78 |    707 |
+| [microsoft/playwright](https://github.com/microsoft/playwright) `4357c23`                                            | Playwright  |   538 |  5,984 |
+| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, end to end                                      | Playwright  |    32 |    263 |
+| [supabase/supabase](https://github.com/supabase/supabase) `18080d8`, unit                                            | Vitest      |   815 |  8,305 |
+| [storybookjs/storybook](https://github.com/storybookjs/storybook) `e57cf30`                                          | Vitest      |   827 |  9,464 |
+| [TanStack/router](https://github.com/TanStack/router) `663282b`, end to end                                          | Playwright  |   309 |  1,487 |
+| [TanStack/router](https://github.com/TanStack/router) `663282b`, unit                                                | Vitest      |   450 |  4,801 |
+| [vitejs/vite](https://github.com/vitejs/vite) `b6c20f6`                                                              | Vitest      |   180 |  1,919 |
+| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) `3e3624c`                                                  | Vitest      |   509 |  3,438 |
+| [nuxt/nuxt](https://github.com/nuxt/nuxt) `0296ca4`                                                                  | Vitest      |   266 |  2,603 |
+| [excalidraw/excalidraw](https://github.com/excalidraw/excalidraw) `4c00f31`                                          | Vitest      |   142 |  2,216 |
+| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, end to end                  | Playwright  |   714 |  2,188 |
+| [getsentry/sentry-javascript](https://github.com/getsentry/sentry-javascript) `dffd6b1`, unit                        | Vitest      |   853 | 10,124 |
+| [jestjs/jest](https://github.com/jestjs/jest) `7261444`, unit and end to end                                         | Jest        |   495 |  4,675 |
+| [prettier/prettier](https://github.com/prettier/prettier) `d5d30c1`, unit                                            | Jest        |    23 |     63 |
+| [expressjs/express](https://github.com/expressjs/express) `43fca52`, unit and acceptance                             | Mocha       |    89 |  1,187 |
+| [jasmine/jasmine](https://github.com/jasmine/jasmine) `50eb76d`, core                                                | Jasmine     |   114 |  1,778 |
+| [cypress-io/cypress-realworld-app](https://github.com/cypress-io/cypress-realworld-app) `0729f68`, e2e and component | Cypress     |    26 |    113 |
+| [webdriverio/webdriverio](https://github.com/webdriverio/webdriverio) `7411de3`, headless end to end                 | WebdriverIO |    28 |    381 |
 
 No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings about values the scan can't work out
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The

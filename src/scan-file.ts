@@ -10,6 +10,11 @@ import { VitestAdapter } from './frameworks/vitest.ts';
 import { JestAdapter } from './frameworks/jest.ts';
 import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
 import { CypressAdapter } from './frameworks/cypress.ts';
+import {
+  WebdriverIOJasmineAdapter,
+  WebdriverIOMochaAdapter,
+  type WebdriverIOFramework,
+} from './frameworks/webdriverio.ts';
 import { JasmineAdapter } from './frameworks/jasmine.ts';
 import type { Adapter, ModuleReader, ModuleSource } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
@@ -36,6 +41,8 @@ export interface FileSettings {
   mochaInterface?: MochaInterface;
   /** The length Vitest's config shortens a value in a case title to; Vitest's default, 40, when unset. */
   titleTruncate?: number;
+  /** The framework a WebdriverIO config runs the specs with. */
+  webdriverioFramework?: WebdriverIOFramework;
   /** Shared by the files of one scan, so that code many tests reach is read once. */
   graph?: DependencyGraph;
   /** Shared by the files of one scan, so that each module's exported values are worked out once. */
@@ -63,6 +70,10 @@ const ADAPTERS: Record<
   mocha: (parsed, file, readModule, settings) => new MochaAdapter(parsed, file, readModule, settings.mochaInterface),
   jasmine: (parsed, file, readModule) => new JasmineAdapter(parsed, file, readModule),
   cypress: (parsed, file, readModule) => new CypressAdapter(parsed, file, readModule),
+  webdriverio: (parsed, file, readModule, settings) =>
+    settings.webdriverioFramework === 'jasmine'
+      ? new WebdriverIOJasmineAdapter(parsed, file, readModule)
+      : new WebdriverIOMochaAdapter(parsed, file, readModule, settings.mochaInterface),
 };
 
 /** A file read for the scan: the scanned file, or a module a helper function is imported from. */

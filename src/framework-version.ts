@@ -12,6 +12,7 @@ const PACKAGES: Record<Framework, string> = {
   // Karma and Angular projects list only jasmine-core, which the jasmine command depends on.
   jasmine: 'jasmine-core',
   cypress: 'cypress',
+  webdriverio: '@wdio/cli',
 };
 
 /** The packages that give a framework's version, the first found. */
@@ -35,6 +36,7 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
   mocha: 'Mocha',
   jasmine: 'Jasmine',
   cypress: 'Cypress',
+  webdriverio: 'WebdriverIO',
 };
 
 /** Oldest supported version of each framework. */
@@ -45,6 +47,7 @@ export const OLDEST: Record<Framework, [number, number]> = {
   mocha: [10, 0],
   jasmine: [4, 0],
   cypress: [13, 0],
+  webdriverio: [9, 0],
 };
 
 /** Where the framework version came from. */
@@ -184,6 +187,7 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
   // Matched against the path, not only the name: Jasmine's config is in spec/support.
   jasmine: /(^|\/)spec\/support\/jasmine\.(m?js|json)$/,
   cypress: /^cypress\.config\.[cm]?[jt]s$/,
+  webdriverio: /^wdio\.conf\.[cm]?[jt]s$/,
 };
 
 /** Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config. */
@@ -203,15 +207,18 @@ function declares(manifest: string, framework: Framework): boolean {
  * none of them or several, naming what it found.
  */
 export function detectFramework(root: string, ignore: readonly string[]): Framework {
-  const below = globSync(['**/package.json', '**/*.config.*', '**/.mocharc.*', '**/spec/support/jasmine.*'], {
-    cwd: root,
-    ignore: ['**/node_modules/**', '**/.git/**', ...ignore],
-  });
+  const below = globSync(
+    ['**/package.json', '**/*.config.*', '**/.mocharc.*', '**/spec/support/jasmine.*', '**/wdio.conf.*'],
+    {
+      cwd: root,
+      ignore: ['**/node_modules/**', '**/.git/**', ...ignore],
+    },
+  );
   const manifests = below.filter((file) => path.basename(file) === 'package.json').map((file) => path.join(root, file));
   const above = folders(root)
     .slice(1)
     .map((folder) => path.join(folder, 'package.json'));
-  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress'] as const;
+  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress', 'webdriverio'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
       below.some((file) => CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) ||
@@ -221,7 +228,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   if (found.length === 1) return found[0];
   if (found.length === 0) {
     throw new OptionsError(
-      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine or cypress, and no config of theirs is in the root or below.',
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli, and no config of theirs is in the root or below.',
     );
   }
   const names = found.map((framework) => FRAMEWORK_NAMES[framework]);

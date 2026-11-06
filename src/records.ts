@@ -336,6 +336,8 @@ class RecordBuilder {
   private readonly diagnostics: Diagnostic[] = [];
   /** The line of the first problem for which the runner refuses the file; null when it loads. */
   private rejectedAt: number | null = null;
+  /** Whether the tests declared before the line that stops the file loading still run. */
+  private keepsEarlierTests = false;
   /** Jest: the describes with a test of their own that uses `.only`, which then keep their mode from their others. */
   private focused = new Set<Scope>();
   /** Jasmine: scopes with a focused spec or describe below them, whose own focus Jasmine gives up for the inner one. */
@@ -372,6 +374,7 @@ class RecordBuilder {
       this.parsed.source.line((item.node as Span).start),
     );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
+    this.keepsEarlierTests = rejecting.length > 0 && rejecting.every((item) => item.keepsEarlierTests === true);
     this.focused = new Set(extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope));
     const focusedAt = [
       ...extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope),
@@ -582,8 +585,9 @@ class RecordBuilder {
               })),
           ),
         ]);
-    // When the runner refuses the file, no test in it runs, whatever else is written.
-    const rejected = this.rejectedAt !== null;
+    // When the runner refuses the file, no test in it runs, whatever else is written, or none after the refused call.
+    const rejected =
+      this.rejectedAt !== null && !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt);
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
     const setting = rejected ? null : (chosen?.setting ?? null);
     const suitePath = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []);
