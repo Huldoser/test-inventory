@@ -1860,20 +1860,23 @@ export function fileConfig(
 }
 
 /**
- * Why a `.only` fails: with Playwright's `forbidOnly`, the run, before any test; with Vitest's `allowOnly` off, the
- * test itself, which Vitest marks failed instead of running it (checked in 3.2.4, 4.1.12 and 5.1.0). `allowOnly` is
- * off by default when `process.env.CI` is set. Null when nothing fails.
+ * Why a `.only` fails: with Playwright's `forbidOnly` or Mocha's `forbid-only`, the run, before any test; with Vitest's
+ * `allowOnly` off, the test itself, which Vitest marks failed instead of running it (checked in 3.2.4, 4.1.12 and
+ * 5.1.0). `allowOnly` is off by default when `process.env.CI` is set. Null when nothing fails.
  */
 function onlyRule(framework: Framework, settings: Setting | null): FileConfig['forbidOnly'] {
-  if (framework === 'playwright') {
-    const forbid = settings && settingAt(settings, ['forbidOnly']);
+  if (framework === 'playwright' || framework === 'mocha') {
+    // Mocha takes its options in kebab case or camel case.
+    const [name, keys] =
+      framework === 'mocha' ? ['forbid-only', ['forbid-only', 'forbidOnly']] : ['forbidOnly', ['forbidOnly']];
+    const forbid = settings && keys.map((key) => settingAt(settings, [key])).find((setting) => setting !== null);
     const condition = forbid?.kind === 'unknown' ? unknownText(forbid) : null;
     if (condition) {
-      const message = `The config sets forbidOnly when ${condition}, so then this .only fails the run before any test runs.`;
+      const message = `The config sets ${name} when ${condition}, so then this .only fails the run before any test runs.`;
       return { message, isSure: false };
     }
     if (forbid?.kind !== 'value' || forbid.value !== true) return null;
-    return { message: 'The config sets forbidOnly, so this .only fails the run before any test runs.', isSure: true };
+    return { message: `The config sets ${name}, so this .only fails the run before any test runs.`, isSure: true };
   }
   if (framework !== 'vitest') return null;
   const allow = settings && settingAt(settings, ['test', 'allowOnly']);

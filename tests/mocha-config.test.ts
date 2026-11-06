@@ -214,6 +214,35 @@ describe('Mocha config files', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it("reports a .only that the config's forbid-only fails, as Mocha stops the run, or a warning under a condition", async () => {
+    const spec = "describe('orders', () => {\n  it.only('places a market order', () => {});\n});\n";
+    const forbidden = async (config: Record<string, string>) => {
+      const inventory = await scan({
+        root: project({ 'package.json': MOCHA_PACKAGE, ...config, 'test/orders.spec.js': spec }),
+        framework: 'mocha',
+      });
+      return inventory.diagnostics.map((item) => [item.code, item.level, item.message]);
+    };
+    const sure = [
+      'forbidden-only',
+      'error',
+      'The config sets forbid-only, so this .only fails the run before any test runs.',
+    ];
+    // Mocha 10.8.2 to 12.0.3 throw ".only forbidden by --forbid-only" and run no test.
+    expect(await forbidden({ '.mocharc.json': '{ "spec": "test", "forbid-only": true }' })).toEqual([sure]);
+    expect(await forbidden({ '.mocharc.json': '{ "spec": "test", "forbidOnly": true }' })).toEqual([sure]);
+    expect(
+      await forbidden({ '.mocharc.js': "module.exports = { spec: 'test', forbidOnly: Boolean(process.env.CI) };\n" }),
+    ).toEqual([
+      [
+        'forbidden-only',
+        'warning',
+        'The config sets forbid-only when Boolean(process.env.CI), so then this .only fails the run before any test runs.',
+      ],
+    ]);
+    expect(await forbidden({ '.mocharc.json': '{ "spec": "test", "forbid-only": false }' })).toEqual([]);
+  });
+
   it('reads suite and test with ui: tdd, and warns about an interface the scan does not read', async () => {
     const tdd = await scan({
       root: project({
