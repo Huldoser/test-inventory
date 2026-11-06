@@ -864,6 +864,21 @@ test('shows the fill price in the order ticket', async () => {
     expect(onlyTest(inventory).expectCount).toBe(2);
   });
 
+  it("counts Playwright's expect.configure(), called in place or kept in a variable, as an expect call", () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const slowExpect = expect.configure({ timeout: 10_000 });
+test('shows the fill in the blotter', async ({ page }) => {
+  const softExpect = expect.configure({ soft: true });
+  await expect.configure({ timeout: 5_000 })(page.getByRole('status')).toHaveText('Filled');
+  await slowExpect(page.getByRole('row', { name: 'AAPL' })).toBeVisible();
+  await softExpect.poll(() => page.title()).toBe('Blotter');
+  const notExpect = expectFilled;
+  notExpect(page);
+});
+`);
+    expect(onlyTest(inventory).expectCount).toBe(3);
+  });
+
   it('reads a test function passed by name like one written in place', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 const fillsOrder = async ({ orderTicket }) => {

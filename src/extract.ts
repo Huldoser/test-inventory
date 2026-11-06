@@ -1310,7 +1310,7 @@ class Walker {
     const callee = unwrap(call.callee);
     const [root, member] =
       callee.type === 'MemberExpression' ? [unwrap(callee.object), propertyName(callee)] : [callee, 'call'];
-    if (root.type !== 'Identifier' || root.name !== 'expect') return;
+    if (!this.isExpect(root)) return;
     if (member === 'call' || member === 'soft' || member === 'poll' || member === 'element') test.expectCount += 1;
     if (member === 'hasAssertions') test.expectsAssertions = true;
     const count = call.arguments.at(0);
@@ -1321,6 +1321,20 @@ class Walker {
       test.expectedAssertions = readCount(file, 'expect.assertions', option, problems);
       test.problems.push(...problems.map((item) => this.here(item)));
     }
+  }
+
+  /**
+   * Whether an expression is `expect`, or Playwright's `expect.configure(...)`, which gives an `expect` with other
+   * defaults, written in place or kept in a variable.
+   */
+  private isExpect(expression: Expression): boolean {
+    const node = unwrap(expression);
+    if (node.type === 'Identifier') {
+      if (node.name === 'expect') return true;
+      const declaration = this.frame.values.declarationOf(node.name, this.scopes);
+      return declaration?.type === 'VariableDeclarator' && declaration.init !== null && isConfigured(declaration.init);
+    }
+    return isConfigured(node);
   }
 
   /** Reports a problem not tied to a test, once, however many times a function with it is walked. */
@@ -1699,4 +1713,13 @@ export function extract(
   options: ExtractOptions = { expandCases: false, version: null },
 ): Extraction {
   return new Walker(main, openModule, options).run();
+}
+
+/** Whether an expression is a call of `expect.configure()`. */
+function isConfigured(expression: Expression): boolean {
+  const node = unwrap(expression);
+  const callee = node.type === 'CallExpression' ? unwrap(node.callee) : null;
+  if (callee?.type !== 'MemberExpression' || propertyName(callee) !== 'configure') return false;
+  const object = unwrap(callee.object);
+  return object.type === 'Identifier' && object.name === 'expect';
 }
