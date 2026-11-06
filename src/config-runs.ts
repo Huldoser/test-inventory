@@ -14,7 +14,7 @@ import {
   unknownText,
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
-import { nodeTestCommands } from './node-scripts.ts';
+import { nodeTestCommands, scriptsRunBy } from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
@@ -661,9 +661,9 @@ export class ConfigRuns {
 
   /**
    * The files `node --test` runs from the root, outside dot folders and `node_modules`: those the arguments of the
-   * package.json script that runs it give, the `test` script first, each a glob or a path, and from Node.js 26.8 a folder
-   * for the default patterns inside it; without arguments, the default patterns. They take TypeScript files too from
-   * Node.js 22.18, which strips types by default.
+   * `test` script and the scripts it runs give, or the first script that runs it, each a glob or a path, and from
+   * Node.js 26.8 a folder for the default patterns inside it; without arguments, the default patterns. They take
+   * TypeScript files too from Node.js 22.18, which strips types by default.
    */
   private nodeFiles(): (relative: string) => boolean {
     const extensions = stripsTypes(this.version) ? 'cjs,mjs,js,cts,mts,ts' : 'cjs,mjs,js';
@@ -2069,8 +2069,8 @@ function stripsTypes(version: [number, number] | null): boolean {
 }
 
 /**
- * The `node --test` commands of the package.json script that runs node:test, the `test` script first, each as the
- * files it gives; none when no script runs it or there is no package.json.
+ * The `node --test` commands of the `test` script and the scripts it runs, or else of the first script that runs one,
+ * each as the files it gives; none when no script runs it or there is no package.json.
  */
 function nodeTestArguments(manifest: string): string[][] {
   let scripts: Record<string, unknown> = {};
@@ -2079,9 +2079,8 @@ function nodeTestArguments(manifest: string): string[][] {
   } catch {
     return [];
   }
-  for (const script of [scripts.test, ...Object.values(scripts)]) {
-    const commands = typeof script === 'string' ? nodeTestCommands(script) : [];
-    if (commands.length > 0) return commands;
-  }
-  return [];
+  const fromTest = scriptsRunBy(scripts, 'test').flatMap(nodeTestCommands);
+  if (fromTest.length > 0) return fromTest;
+  const others = Object.values(scripts).filter((script) => typeof script === 'string');
+  return others.map(nodeTestCommands).find((commands) => commands.length > 0) ?? [];
 }
