@@ -6,6 +6,7 @@ import { ConfigDependencies } from './config-dependencies.ts';
 import {
   ConfigRuns,
   fileConfig,
+  importMap,
   mochaInterface,
   webdriverioFramework,
   webdriverioInterface,
@@ -279,7 +280,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       version: rules,
       comments,
       expandCases,
-      readModule: readerFor(absolutePath),
+      readModule: readerFor(absolutePath, importMap(placement, framework)),
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
