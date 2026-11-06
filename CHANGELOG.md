@@ -1,5 +1,134 @@
 # test-inventory
 
+## 0.9.0
+
+### Minor Changes
+
+- [#88](https://github.com/Huldoser/test-inventory/pull/88) [`2d370c9`](https://github.com/Huldoser/test-inventory/commit/2d370c9030c5fafae900d2442d75e70781a5b938) - Bun 1.2.23 and newer: `--framework bun`, also found from a package.json script that runs `bun test` or a
+  `bunfig.toml`. Its version comes from `.bun-version`, `packageManager` or `engines.bun`, else `@types/bun` or
+  `bun-types`. The scan reads Bun's globals and imports of `bun:test`, `@jest/globals` and `vitest`, which Bun rewrites;
+  chains of `.skip`, `.todo`, `.failing`, `.only`, `.concurrent`, `.serial` and `.each` in any order, refusing the
+  combinations Bun refuses; the conditions `.if`, `.skipIf`, `.todoIf`, `.failingIf`, `.concurrentIf` and `.serialIf`;
+  options second or third, a number as the timeout or `{ timeout, retry, repeats }`; and `.each` titles as Bun formats
+  them. The files are Bun's `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*` under `bunfig.toml`'s `[test] root`, less
+  `pathIgnorePatterns`, with its `retry` and `concurrentTestGlob` applied. A small TOML reader reads `bunfig.toml`.
+
+  The oldest version a framework supports may now name a patch, as Bun's 1.2.23 does.
+
+- [#87](https://github.com/Huldoser/test-inventory/pull/87) [`ae2bd90`](https://github.com/Huldoser/test-inventory/commit/ae2bd909d769ea5e21200fceb3d9f081de7661db) - `dependencyHash` follows imports through the config a file runs with: Vite's `resolve.alias` and Vitest's
+  `test.alias`, as an object or a list of `{ find, replacement }` with a name or a regex, and Jest's `moduleNameMapper`,
+  `modulePaths` and `moduleDirectories`, with `<rootDir>`. They were read from tsconfig `paths` only, so tests that
+  imported through such aliases had `hasUnfollowedDependencies` and a hash that missed those files. A mapping to no file
+  is a `dependency-not-followed` warning that names it.
+
+- [#83](https://github.com/Huldoser/test-inventory/pull/83) [`9ef9c59`](https://github.com/Huldoser/test-inventory/commit/9ef9c5959b908191e8015c8c880a3c476f43fccd) - Cypress 13 and newer: `--framework cypress`, also found from a `cypress` package or a `cypress.config.*` file. Tests are
+  read as Mocha's, with Cypress's test config before the function: `retries`, of which `cypress run` takes `runMode`,
+  `browser` as a skip condition, `@cypress/grep`'s `tags`, and from Cypress 16 an error for `env`, which Cypress refuses
+  there. `this.timeout()` is not read, as Cypress has only command timeouts; `this.retries()` in a describe and
+  `.retries()` after `it()` or `describe()` are errors, as Cypress throws on them while it loads the spec. The config's
+  testing types are the projects, `e2e` and `component`, each with its `specPattern`, `excludeSpecPattern` and `retries`.
+
+  A project whose package.json lists `cypress` next to another runner, as Jest or Vitest for unit tests, now needs
+  `--framework`, as the scan asks for one whenever it finds several runners.
+
+- [#82](https://github.com/Huldoser/test-inventory/pull/82) [`04e7328`](https://github.com/Huldoser/test-inventory/commit/04e73289dd946bd4c92ec774510ebc369ee80699) - Jasmine 4 and newer: `--framework jasmine`, also found from a `jasmine` or `karma-jasmine` package or a
+  `spec/support/jasmine.*` config. The scan reads `describe`, `it` and their `x` and `f` forms with Jasmine's focus, a
+  spec without a function as pending, `pending(reason)` in a spec or its `beforeEach` or `afterEach`, from Jasmine 7
+  `notApplicable(reason)`, the hooks, and a spec's timeout. The config's `spec_dir` and `spec_files`, with `!`
+  exclusions, decide the files; without a config, as in Karma and Angular projects, the files given by glob run. A call
+  Jasmine refuses stops the whole run at the top level of a file, and is an error that leaves the file's tests as they
+  are inside a describe, which Jasmine catches.
+
+- [#81](https://github.com/Huldoser/test-inventory/pull/81) [`85fb8a9`](https://github.com/Huldoser/test-inventory/commit/85fb8a90998f88641400ebb8a6db3b392e2b54d2) - Mocha 10 and newer: `--framework mocha`, also found from a `mocha` package, a `.mocharc.*` file or a `mocha` key in
+  `package.json`. The scan reads `describe`, `context`, `it`, `specify`, their `x` forms, `.only` and `.skip`, a test
+  without a function as pending, `ui: tdd`'s `suite` and `test`, the hooks, `this.timeout()`, `this.retries()` and
+  `this.skip()` where `this` is Mocha's, and `.timeout()` and `.retries()` after `it()` and `describe()`. The config's
+  `spec`, `extension`, `recursive`, `ignore` and `file` decide the files, and its `timeout` and `retries` apply to every
+  test; a YAML config is read too. A describe without a function, `it()` or `describe()` without a title, and an
+  unknown chain such as `it.concurrent` are errors, as Mocha then runs no test.
+
+  A project whose package.json lists `mocha` next to another runner now needs `--framework`, as the scan asks for one
+  whenever it finds several runners.
+
+- [#86](https://github.com/Huldoser/test-inventory/pull/86) [`1085fb7`](https://github.com/Huldoser/test-inventory/commit/1085fb74b85eefe64c6bdd217b2c19c2946441d4) - node:test on Node.js 22 and newer: `--framework node`, also found from a package.json script that runs `node --test`
+  or a `node.config.json`. Its version is the Node.js version the project pins in `.node-version`, `.nvmrc`, Volta's
+  `node` or `engines.node`. The scan reads `test`, `it`, `describe` and `suite` from `node:test`, imported or required,
+  with `.skip`, `.todo`, `.only` and from 24.14 `.expectFailure`, and the options `skip`, `todo`, `only`, `timeout`,
+  `concurrency`, `expectFailure` and from 24.19 and 26.2 `tags`; `t.skip()` and `t.todo()` in a test's body; and the
+  hooks. The files are those the script gives `node --test`, or Node.js's default patterns, with TypeScript files from
+  22.18.
+
+  A test declared in a test's body, with `t.test()` or `test()`, is a subtest that node:test runs while it runs the test:
+  it is listed with the test's title in `suitePath` and the test's id in the new key `parentTestId`, which is `null` for
+  every other test.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - A new `invalid-fixture-argument` error: a rest property among a Playwright function's fixture arguments, as
+  `async ({ page, ...fixtures }) => {}` in a test, hook, `test.skip()` condition or `test.extend()` fixture written in
+  the test file. Playwright refuses it and runs no tests at all, so the file's tests are now `notLoaded` instead of
+  `active`. A nested rest, as `({ page: { mouse, ...pointer } })`, and a `test.step()` callback are allowed, as
+  Playwright allows them.
+
+- [#85](https://github.com/Huldoser/test-inventory/pull/85) [`90df9aa`](https://github.com/Huldoser/test-inventory/commit/90df9aa07741fab403470e653595b1b644b35dc3) - `scan()` takes a `signal`, an `AbortSignal`: the scan checks it before it starts and between files, and rejects with
+  the signal's `reason` once it aborts, so a server can stop a scan its client no longer waits for.
+
+- [#85](https://github.com/Huldoser/test-inventory/pull/85) [`90df9aa`](https://github.com/Huldoser/test-inventory/commit/90df9aa07741fab403470e653595b1b644b35dc3) - A Vitest `.only` that `allowOnly` makes fail is a `forbidden-only` diagnostic, as for Playwright's `forbidOnly`: an
+  error when the config sets `test.allowOnly` to `false`, and a warning when it is unset, as Vitest then turns it off in
+  CI, or depends on a condition. Vitest marks such a test failed instead of running it.
+
+- [#84](https://github.com/Huldoser/test-inventory/pull/84) [`c68bac7`](https://github.com/Huldoser/test-inventory/commit/c68bac7442f7d5197c8f67bfbec66a8c9ee3f4d5) - WebdriverIO 9 and newer: `--framework webdriverio`, also found from a `@wdio/cli` package or a `wdio.conf.*` file. The
+  config's `config` export, ES or CommonJS, decides the files: `specs`, with the nested lists that group files into one
+  worker, less `exclude`, matched as WebdriverIO matches them. Its `framework` decides how the tests are read, Mocha by
+  default or Jasmine, with `mochaOpts.timeout`, `retries` and `ui`, or `jasmineOpts.defaultTimeoutInterval`, on every
+  test; Cucumber is reported, as its feature files aren't read. A number after a test's function is WebdriverIO's retry
+  count, and with Jasmine a second one, after the timeout. Mocha's and Jasmine's version gates follow the versions
+  WebdriverIO depends on. With Mocha, a call the runner refuses stops the file loading there, and the tests declared
+  above it still run. The config's `rootDir` and each capability's own `specs` and `exclude` are read too.
+
+  A project whose package.json lists `@wdio/cli` next to another runner now needs `--framework`, as the scan asks for
+  one whenever it finds several runners.
+
+### Patch Changes
+
+- [#85](https://github.com/Huldoser/test-inventory/pull/85) [`90df9aa`](https://github.com/Huldoser/test-inventory/commit/90df9aa07741fab403470e653595b1b644b35dc3) - `expectCount` counts Playwright's `expect.configure(...)`, called in place as `expect.configure({ timeout: 5_000 })(locator)`
+  or kept in a variable as `const slowExpect = expect.configure(...)`; it missed both.
+
+- [#83](https://github.com/Huldoser/test-inventory/pull/83) [`9ef9c59`](https://github.com/Huldoser/test-inventory/commit/9ef9c5959b908191e8015c8c880a3c476f43fccd) - The error for an unknown `framework` option or `--framework` value names every runner the scan reads; it still named
+  only Playwright, Vitest and Jest.
+
+- [#89](https://github.com/Huldoser/test-inventory/pull/89) [`fd4b13a`](https://github.com/Huldoser/test-inventory/commit/fd4b13a45ec2349319b5edaec4dd0cbe1170d663) - `--help` names all nine runners `--framework` takes, and says which files node:test and Bun run without globs.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - A helper that takes a test's function as a parameter, as `function settlementTest(desk, body) { describe(desk, () =>
+test('settles', body)); }`, no longer gets a false `nested-test` warning. The scan read the parameter as the helper
+  itself, and so read the helper's own describe as declared inside the test.
+
+- [#78](https://github.com/Huldoser/test-inventory/pull/78) [`1aea8a7`](https://github.com/Huldoser/test-inventory/commit/1aea8a744c955a01f1918447e048046a4eb022b4) - oxc-parser is updated from 0.156.0 to 0.157.0. The scan output doesn't change, except that a `.js` file with
+  TypeScript-only syntax, such as `export default abstract class` or an optional class member, now gets a `parse-error`, as
+  Node.js would refuse to load it.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - A test or describe call with a title the runner refuses, written inside a test or hook body, is now a `nested-test`
+  warning, not an error that says the runner fails the file. Jest's own suite calls `it('test1')` inside
+  `expect(() => ...)` to test that error; the call runs in the test, so the file loads and its tests run.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - Before Vitest 4.1, a `retry` object in the config, as `test: { retry: { count: 2 } }`, now gets a
+  `config-value-unknown` warning that Vitest runs no test with it. The tests already had `retries: null`, but nothing
+  said why.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - A call through a Vitest member that reads the function it is called on, destructured as in
+  `const { each } = test; each([1, 2])('sizes lot %i', fn)`, is now an `invalid-chain` error, and the file's tests are
+  `notLoaded`: Vitest fails the file. That holds for `each`, `for`, `skipIf` and `runIf` of `test` and `each` of
+  `describe` in every version, `extend`, `scoped` and `override` from Vitest 4.1, and `for` of `describe` from Vitest 5.
+  Before, the scan said nothing and listed the file's other tests as active.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - An inline Vitest project in `test.projects` now runs from the config's `test.root` or `root` when it sets none of its
+  own, as every Vitest version does; the scan used the config's folder before Vitest 5. A root the project sets is
+  resolved from the config's root in Vitest 5, as Vitest 5 does, and from the config's folder before.
+
+- [#85](https://github.com/Huldoser/test-inventory/pull/85) [`90df9aa`](https://github.com/Huldoser/test-inventory/commit/90df9aa07741fab403470e653595b1b644b35dc3) - With `expandCases`, a Vitest case title cuts long values at the length the config sets, `test.taskTitleValueFormatTruncate`
+  from Vitest 5 and `test.chaiConfig.truncateThreshold` before, as Vitest does; it cut them at Vitest's default, 40, always.
+
+- [#80](https://github.com/Huldoser/test-inventory/pull/80) [`cae53c1`](https://github.com/Huldoser/test-inventory/commit/cae53c107fce5a3024f7666c83d9b2582bb9017b) - From Vitest 5, `timeout: undefined`, `retry: undefined` and `repeats: undefined` in a test's options are left out, as
+  Vitest leaves them out, instead of giving an `unresolved-option` warning that `undefined` is not a whole number.
+
 ## 0.8.0
 
 ### Minor Changes
