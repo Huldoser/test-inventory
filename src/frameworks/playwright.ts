@@ -4,6 +4,7 @@ import type {
   Adapter,
   ApiCall,
   CallContext,
+  Condition,
   Details,
   Mode,
   ModuleReader,
@@ -633,6 +634,12 @@ export class PlaywrightAdapter implements Adapter {
   private modifier(call: CallExpression, state: State, context: CallContext): ApiCall {
     const [condition, description] = [call.arguments.at(0), call.arguments.at(1)];
     if (isFunctionNode(condition)) this.checkFixtureArguments(condition);
+    if (call.arguments.length === 1 && condition?.type !== 'SpreadElement' && atLeast(this.file.version, 1, 65)) {
+      const resolved = this.file.values.resolve(condition as Expression, context.scopes);
+      if (isTitleLiteral(condition) || (resolved.ok && typeof resolved.value === 'string')) {
+        return this.describedModifier(condition as Expression, state, context);
+      }
+    }
     const problems: Problem[] = [];
     if (isTitleLiteral(condition)) {
       const callee = snippet(text(this.file, call.callee));
@@ -654,6 +661,29 @@ export class PlaywrightAdapter implements Adapter {
       reason: reason.reason,
       hasDynamicReason: reason.isDynamic,
       problems,
+    };
+  }
+
+  /**
+   * From Playwright 1.65, `test.skip(description)` with a string: the string is the reason, and still a condition, so
+   * an empty one applies nothing. A template literal with text of its own is never empty.
+   */
+  private describedModifier(node: Expression, state: State, context: CallContext): ApiCall {
+    const hasText = node.type === 'TemplateLiteral' && node.quasis.some((quasi) => quasi.value.cooked !== '');
+    const condition: Condition = hasText
+      ? { applies: 'always', text: null }
+      : readCondition(this.file, context.scopes, node);
+    const reason =
+      condition.applies === 'never'
+        ? { reason: null, isDynamic: false, problem: null }
+        : readReason(this.file, context.scopes, node);
+    return {
+      kind: 'modifier',
+      state,
+      condition,
+      reason: reason.reason,
+      hasDynamicReason: reason.isDynamic,
+      problems: reason.problem ? [reason.problem] : [],
     };
   }
 

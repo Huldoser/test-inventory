@@ -258,15 +258,58 @@ test.only();
     ]);
   });
 
-  it('reads test.skip with only a title as a condition that skips the whole scope', () => {
-    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+  it('reads test.skip with only a title as a condition that skips the whole scope before Playwright 1.65', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
 test.describe('margin', () => {
   test.skip('margin calls are not built yet');
   test('shows the margin requirement', async () => {});
 });
-`);
-    expect(onlyTest(inventory)).toMatchObject({ state: 'skip', stateSource: 'suite', isConditional: false });
+`,
+      { frameworkVersion: '1.64.1' },
+    );
+    expect(onlyTest(inventory)).toMatchObject({
+      state: 'skip',
+      stateSource: 'suite',
+      isConditional: false,
+      reason: null,
+    });
     expect(inventory.diagnostics).toMatchObject([{ code: 'skip-without-body', level: 'warning', lineStart: 3 }]);
+  });
+
+  it('reads a lone string in test.skip, fixme and fail as the reason from Playwright 1.65 (TI-95)', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+const NOT_BUILT = 'margin calls are not built yet';
+test.describe('margin', () => {
+  test.fixme(NOT_BUILT);
+  test('shows the margin requirement', async () => {});
+});
+test('exports the blotter as CSV', async () => {
+  test.skip('CSV export is not implemented yet');
+});
+test('rounds the commission', async () => {
+  test.fail(\`rounding is off by one cent\`);
+});
+test('settles a trade', async ({ browserName }) => {
+  test.skip(\`no settlement feed on \${browserName}\`);
+});
+test('books the fee', async () => {
+  test.skip('');
+});
+`,
+      { frameworkVersion: '1.65.0' },
+    );
+    expect(
+      inventory.tests.map((test) => [test.title, test.state, test.isConditional, test.reason, test.hasDynamicReason]),
+    ).toEqual([
+      ['shows the margin requirement', 'fixme', false, 'margin calls are not built yet', false],
+      ['exports the blotter as CSV', 'skip', false, 'CSV export is not implemented yet', false],
+      ['rounds the commission', 'expectedToFail', false, 'rounding is off by one cent', false],
+      ['settles a trade', 'skip', false, '`no settlement feed on ${browserName}`', true],
+      ['books the fee', 'active', false, null, false],
+    ]);
+    expect(codes(inventory)).toEqual(['dynamic-reason']);
   });
 
   it('reports chains that are not part of the API, and lists the tests they declare as not loaded', () => {
