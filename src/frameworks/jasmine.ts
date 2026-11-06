@@ -66,8 +66,9 @@ export class JasmineAdapter extends SuiteAdapter {
     return this.pendingCall(call, context) ?? this.hookCall(call, context) ?? this.chainCall(call, context);
   }
 
-  protected isAliasLink(): boolean {
-    return false;
+  /** `skip` and `only` are what `xit`, `fit`, `xdescribe` and `fdescribe` carry, so a variable may hold them. */
+  protected isAliasLink(_kind: Kind, link: Link): boolean {
+    return link.name === 'skip' || link.name === 'only';
   }
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {

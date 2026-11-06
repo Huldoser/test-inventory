@@ -1289,6 +1289,37 @@ describe('scan and symbolic links', () => {
   });
 });
 
+describe('scanSource reads a test function chosen in place', () => {
+  it.each([
+    ['vitest', "import { describe, test } from 'vitest';", 'test', 'test.skip'],
+    ['jest', '', 'test', 'test.skip'],
+    ['mocha', '', 'it', 'it.skip'],
+    ['jasmine', '', 'it', 'xit'],
+    ['cypress', '', 'it', 'it.skip'],
+    ['webdriverio', '', 'it', 'it.skip'],
+    ['node', "import { describe, test } from 'node:test';", 'test', 'test.skip'],
+    ['bun', "import { describe, test } from 'bun:test';", 'test', 'test.skip'],
+  ] as const)(
+    'for %s, as in (process.env.CI ? it.skip : it)(...), with what both choices share',
+    (framework, header, plain, skipped) => {
+      const code = `${header}
+describe('fills', () => {
+  (process.env.CI ? ${skipped} : ${plain})('books a partial fill', () => {});
+  (process.env.CI && ${skipped} || ${plain})('books a full fill', () => {});
+  ((${skipped}))('books a late fill', () => {});
+});
+`;
+      const inventory = scanSource({ code, relativeFilePath: 'tests/fills.test.ts', framework });
+      expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+        ['fills > books a partial fill', 'active'],
+        ['fills > books a full fill', 'active'],
+        ['fills > books a late fill', 'skip'],
+      ]);
+      expect(inventory.diagnostics).toEqual([]);
+    },
+  );
+});
+
 describe('scan reads the framework version', () => {
   it.each([
     ['the installed package', { 'node_modules/@playwright/test/package.json': '{"version":"1.57.0"}' }, '1.57.0'],

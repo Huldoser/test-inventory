@@ -61,6 +61,7 @@ Vitest 3.0 and newer.
 | Local fixtures file        | `import { test } from './context'`, or a path alias, `#` import or workspace package, followed through re-exports, `extend` chains and functions that build it, across files                                                                                                                                                                                                                                           |
 | Returned by a function     | `onNode(22)('reads the order book', ...)`, also kept in a variable, where `onNode` is declared in the file or a local file and returns a test or describe function, as in `it.skip`                                                                                                                                                                                                                                    |
 | Destructured members       | `const { describe, skip, beforeEach } = test`: each works as `test.describe` or `test.skip` does. Some members read the function they are called on, so a call through one destructured fails the file, reported as `invalid-chain`: `each`, `for`, `skipIf` and `runIf` of `test` and `each` of `describe` in every version, `extend`, `scoped` and `override` from Vitest 4.1, and `for` of `describe` from Vitest 5 |
+| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies, also to a choice written in place, as `(process.env.CI ? test.skip : test)(...)`                                                                                                                                                                                                                                              |
 
 ### Calls
 
@@ -92,7 +93,7 @@ Jest 29.0 and newer.
 | Globals                    | `describe`, `it`, `test`, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` used without an import or declaration                                                                      |
 | Named import, also renamed | `import { test, it, describe, xit } from '@jest/globals'`                                                                                                                               |
 | The module                 | `import * as globals from '@jest/globals'`, a default import (with Babel or TypeScript), or `require('@jest/globals')`, whole, destructured or in place                                 |
-| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies                                                                                                 |
+| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies, also to a choice written in place, as `(process.env.CI ? test.skip : test)(...)`               |
 | Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, a global it exports, as `export const pendingTest = xit`, and functions that return a test function |
 
 `fit` and `fdescribe` are `.only`; `xit`, `xtest` and `xdescribe` are `.skip`. As in Jest, a describe's own `.only` or
@@ -133,7 +134,7 @@ Mocha 10.0 and newer.
 | Globals                    | `describe`, `context`, `it`, `specify`, `xdescribe`, `xcontext`, `xit` and `xspecify` used without an import or declaration; with `ui: tdd` in the config, `suite` and `test` |
 | Named import, also renamed | `import { describe, it } from 'mocha'`                                                                                                                                        |
 | The module                 | `import * as mocha from 'mocha'`, a default import, or `require('mocha')`, whole, destructured or in place                                                                    |
-| Kept in a variable         | `const onCi = process.env.CI ? it.skip : it`: only what both branches share applies                                                                                           |
+| Kept in a variable         | `const onCi = process.env.CI ? it.skip : it`: only what both branches share applies, also to a choice written in place, as `(process.env.CI ? it.skip : it)(...)`             |
 | Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                |
 
 `xit`, `xspecify`, `xdescribe` and `xcontext` are `.skip`. Mocha's QUnit and exports interfaces, and a `ui` that names
@@ -170,11 +171,11 @@ Jasmine 4.0 and newer.
 
 ### Where test comes from
 
-| Form               | Example                                                                                                                                                        |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Globals            | `describe`, `xdescribe`, `fdescribe`, `it`, `xit` and `fit`, which the jasmine command, Karma or a browser page set; Jasmine has no module to import them from |
-| Kept in a variable | `const later = xit`: the variable keeps the `x` or `f`                                                                                                         |
-| Local helpers file | `import { spec } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare specs, read at each call               |
+| Form               | Example                                                                                                                                                                      |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals            | `describe`, `xdescribe`, `fdescribe`, `it`, `xit` and `fit`, which the jasmine command, Karma or a browser page set; Jasmine has no module to import them from               |
+| Kept in a variable | `const later = xit`: the variable keeps the `x` or `f`; of a choice, also one written in place, as `(process.env.CI ? xit : it)(...)`, only what both branches share applies |
+| Local helpers file | `import { spec } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare specs, read at each call                             |
 
 `xit` and `xdescribe` are `.skip`, and `fit` and `fdescribe` `.only`. Jasmine's functions have no members, so a call
 such as `it.only()` is an `invalid-chain` error. Jasmine runs the innermost focus: a `fit` runs also inside an
@@ -206,11 +207,11 @@ Cypress 13.0 and newer.
 
 ### Where test comes from
 
-| Form               | Example                                                                                                                                        |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Globals            | Mocha's BDD globals, `describe`, `context`, `it`, `specify`, their `x` forms and the hooks, which Cypress sets in every spec                   |
-| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies                                                                     |
-| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call |
+| Form               | Example                                                                                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals            | Mocha's BDD globals, `describe`, `context`, `it`, `specify`, their `x` forms and the hooks, which Cypress sets in every spec                        |
+| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? it.skip : it)(...)` |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call      |
 
 ### Calls
 
@@ -239,7 +240,7 @@ feature files are not read.
 | Form               | Example                                                                                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Globals            | With Mocha, its BDD globals, or with `mochaOpts.ui: 'tdd'` `suite` and `test`; with Jasmine, `describe`, `it` and their `x` and `f` forms. WebdriverIO sets them in every spec file. |
-| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies                                                                                                           |
+| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? it.skip : it)(...)`                                  |
 | Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                       |
 
 ### Calls
@@ -259,13 +260,13 @@ Node.js 22.0 and newer, the version the project pins; see [framework version](/g
 
 ### Where test comes from
 
-| Form                       | Example                                                                                                                                        |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Default import             | `import test from 'node:test'`, whose `test` also carries `describe`, `it`, `suite` and the hooks                                              |
-| Named import, also renamed | `import { describe, it, suite, test } from 'node:test'`                                                                                        |
-| `require()`                | `const test = require('node:test')`, whole, destructured or in place, as `require('node:test').it(...)`                                        |
-| Kept in a variable         | `const later = test.skip`: only what both branches of a choice share applies                                                                   |
-| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call |
+| Form                       | Example                                                                                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default import             | `import test from 'node:test'`, whose `test` also carries `describe`, `it`, `suite` and the hooks                                                         |
+| Named import, also renamed | `import { describe, it, suite, test } from 'node:test'`                                                                                                   |
+| `require()`                | `const test = require('node:test')`, whole, destructured or in place, as `require('node:test').it(...)`                                                   |
+| Kept in a variable         | `const later = test.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? test.skip : test)(...)` |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call            |
 
 node:test sets no globals: `it()` without an import is not a test.
 
@@ -299,7 +300,7 @@ Bun 1.2.23 and newer, which runs tests the way 1.3 and 1.4 do; see [framework ve
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Globals            | `test`, `it`, `describe`, `xtest`, `xit`, `xdescribe` and the hooks, which `bun test` sets in its test files                                                                          |
 | Imports            | `import { describe, test } from 'bun:test'`, a namespace or default import, or `require('bun:test')`; imports from `@jest/globals` and `vitest` too, which Bun rewrites to `bun:test` |
-| Kept in a variable | `const later = test.skip`: only what both branches of a choice share applies                                                                                                          |
+| Kept in a variable | `const later = test.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? test.skip : test)(...)`                             |
 | Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                        |
 
 ### Calls

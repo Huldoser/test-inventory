@@ -56,6 +56,29 @@ describe('custodian', () => {
     expect(onlyTest(inventory).hooks).toMatchObject({ beforeAll: 1, beforeEach: 1, afterEach: 1, afterAll: 1 });
     expect(codes(inventory)).toEqual(['framework-mismatch']);
   });
+
+  it('keeps the x or f of a variable that holds xit, fit, xdescribe or fdescribe', () => {
+    const inventory = scanJasmine(`
+const later = xit;
+const dark = xdescribe;
+const now = fit;
+dark('dark pool', () => {
+  it('matches at the midpoint', () => {});
+});
+describe('lit book', () => {
+  later('crosses the spread', () => {});
+  now('reprices a pegged order', () => {});
+  it('rests a limit order', () => {});
+});
+`);
+    // Jasmine 4.6.0 to 7.0.0: both specs under xit and xdescribe are pending, and the fit is the only one that runs.
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isOnly])).toEqual([
+      ['dark pool > matches at the midpoint', 'skip', false],
+      ['lit book > crosses the spread', 'skip', false],
+      ['lit book > reprices a pegged order', 'active', true],
+      ['lit book > rests a limit order', 'active', false],
+    ]);
+  });
 });
 
 describe('Jasmine specs marked pending at run time', () => {
