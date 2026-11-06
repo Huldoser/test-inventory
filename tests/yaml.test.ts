@@ -100,6 +100,63 @@ describe('readYaml', () => {
     });
   });
 
+  it('reads quotes and comments in brackets, in list items and in quoted keys, as js-yaml does', () => {
+    const text = [
+      'spec: [test/unit, \'test/e2e #smoke\', "test/fx, #slow"] # the folders',
+      "grep: buy[limit, 'stop # the order types",
+      "'order key': 'fills # partial'",
+      'fgrep: fills#partial',
+      'invert: "say \\"fill\\"" # a comment',
+      'require:',
+      "  - 'ts-node/register # first'  # loaded first",
+      '  - [source-map-support, register]',
+      'reporter-option:',
+      '  output: reports/orders.xml',
+      '  nested:',
+      '    suiteName: orders',
+      'ui: bdd',
+    ].join('\n');
+    expect(readYaml(text)).toEqual({
+      spec: ['test/unit', 'test/e2e #smoke', 'test/fx, #slow'],
+      grep: "buy[limit, 'stop",
+      'order key': 'fills # partial',
+      fgrep: 'fills#partial',
+      invert: 'say "fill"',
+      require: ['ts-node/register # first', ['source-map-support', 'register']],
+      'reporter-option': { output: 'reports/orders.xml', nested: { suiteName: 'orders' } },
+      ui: 'bdd',
+    });
+  });
+
+  it('reads booleans, null and numbers only when the whole value is one, as js-yaml does', () => {
+    const text = [
+      'parallel: truely',
+      'grep: nullable',
+      'invert: Falsey',
+      'ui: 0x1G',
+      'slow: 1e5x',
+      'bail: 0o19',
+      'timeout: -.5',
+      'retries: 1.',
+      'jobs: 1e+3',
+      'delay: -1.5e-3',
+      'check-leaks: .5e3',
+    ].join('\n');
+    expect(readYaml(text)).toEqual({
+      parallel: 'truely',
+      grep: 'nullable',
+      invert: 'Falsey',
+      ui: '0x1G',
+      slow: '1e5x',
+      bail: '0o19',
+      timeout: '-.5',
+      retries: 1,
+      jobs: 1000,
+      delay: -0.0015,
+      'check-leaks': 500,
+    });
+  });
+
   it('reads a long line in time linear in its length', () => {
     const quotes = "'".repeat(200_000);
     const started = performance.now();
@@ -129,6 +186,10 @@ describe('readYaml', () => {
     ['spec: "test/unit', 1, 'a quoted value must end on its line'],
     ['spec: "test\\qunit"', 1, '"test\\qunit" has an escape that is not read'],
     ['spec: "test\\x4"', 1, '"test\\x4" has an escape that is not read'],
+    ['spec: "test\\x4G"', 1, '"test\\x4G" has an escape that is not read'],
+    ['spec: "test\\U00110000"', 1, '"test\\U00110000" has an escape that is not read'],
+    ['spec: "', 1, 'a quoted value must end on its line'],
+    ['grep: limit:', 1, '"limit:" has a colon and a space outside quotes, which YAML refuses'],
     ['spec: "test/a\\"', 1, 'a quoted value must end on its line'],
     ['spec: "test/"a"', 1, 'a quoted value must end on its line'],
     ["spec: 'it's'", 1, 'a quoted value must end on its line'],

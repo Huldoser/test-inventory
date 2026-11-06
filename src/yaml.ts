@@ -155,7 +155,8 @@ function scalar(text: string, line: number): Value {
   // Numbers as YAML 1.2 writes them, which js-yaml, Mocha's reader, follows: `1_000` is a string.
   if (/^0o[0-7]+$/.test(text)) return Number.parseInt(text.slice(2), 8);
   if (/^0x[\da-fA-F]+$/.test(text)) return Number.parseInt(text.slice(2), 16);
-  if (/^[-+]?(\.\d+|\d+(\.\d*)?)([eE][-+]?\d+)?$/.test(text)) return Number(text);
+  // A sign needs a digit after it: js-yaml reads `-.5` as a string.
+  if (/^([-+]?\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(text)) return Number(text);
   return text;
 }
 
