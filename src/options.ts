@@ -29,6 +29,11 @@ export interface ScanOptions {
    * out, each with the title the runner gives it. Defaults to `false`: one record per declaration.
    */
   expandCases?: boolean;
+  /**
+   * Stops the scan when it aborts: the scan checks it before it starts and between files, and then rejects with the
+   * signal's `reason`, as `fetch` does.
+   */
+  signal?: AbortSignal;
 }
 
 /** @inline */
@@ -82,6 +87,12 @@ export function checkComments(value: unknown, option: string): CommentsMode {
 export function checkFlag(value: unknown, option: string): boolean {
   if (value === undefined) return false;
   if (typeof value !== 'boolean') throw invalid(option, 'true or false');
+  return value;
+}
+
+export function checkSignal(value: unknown, option: string): AbortSignal | null {
+  if (value === undefined) return null;
+  if (!(value instanceof AbortSignal)) throw invalid(option, 'an AbortSignal');
   return value;
 }
 

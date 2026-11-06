@@ -1824,6 +1824,26 @@ describe('scan options', () => {
     await expect(scan(options as unknown as ScanOptions)).rejects.toThrow(new TypeError(message));
   });
 
+  it('stops with the reason of an aborted signal, before it starts or between files', async () => {
+    const root = project({
+      'package.json': '{}',
+      'tests/orders.test.ts': "import { test } from 'vitest';\ntest('places a market order', () => {});\n",
+    });
+    const options = { root, patterns: ['tests/*.test.ts'], framework: 'vitest' as const };
+    await expect(scan({ ...options, signal: 'stop' as unknown as AbortSignal })).rejects.toThrow(
+      new TypeError('options.signal must be an AbortSignal.'),
+    );
+    await expect(scan({ ...options, signal: AbortSignal.abort(new Error('the session ended')) })).rejects.toThrow(
+      'the session ended',
+    );
+    const live = new AbortController();
+    expect((await scan({ ...options, signal: live.signal })).tests).toHaveLength(1);
+    const later = new AbortController();
+    const scanning = scan({ ...options, signal: later.signal });
+    later.abort(new Error('the client cancelled'));
+    await expect(scanning).rejects.toThrow('the client cancelled');
+  });
+
   it('rejects a root that is not a directory', async () => {
     const root = project({ 'package.json': '{}' });
     await expect(scan({ root: path.join(root, 'package.json'), patterns: ['x'], framework: 'vitest' })).rejects.toThrow(

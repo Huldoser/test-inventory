@@ -13,7 +13,8 @@ import { filterInventory, pickTestFields, scan, scanSource, type Inventory } fro
 ## scan
 
 Scans the files that match the patterns and returns the inventory. The options are the same as on the
-[command line](/guide/cli), in camel case.
+[command line](/guide/cli), in camel case, and `signal`, an `AbortSignal` that stops the scan between files, as a
+server does when its client goes away.
 
 <!-- types: scan, ScanOptions, Framework, CommentsMode -->
 
@@ -90,7 +91,8 @@ Both scan functions return an inventory, the object the command line writes as J
 ## Errors
 
 Every function throws a `TypeError` that names the option when an option is invalid. Anything about the scanned code
-or files becomes a [diagnostic](/reference/diagnostics) in the result.
+or files becomes a [diagnostic](/reference/diagnostics) in the result. A scan whose `signal` aborts rejects with the
+signal's `reason`, as `fetch` does.
 
 ## JSON Schema
 

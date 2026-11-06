@@ -16,12 +16,13 @@ import {
   checkFlag,
   checkFramework,
   checkObject,
+  checkSignal,
   checkStrings,
   checkVersion,
   invalid,
   majorMinor,
-  toPosixPath,
   type ScanOptions,
+  toPosixPath,
 } from './options.ts';
 import type { FileRecords } from './records.ts';
 import { moduleResolver } from './resolve.ts';
@@ -165,6 +166,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const comments = checkComments(checked.comments, 'options.comments');
   const expandCases = checkFlag(checked.expandCases, 'options.expandCases');
   const override = checkVersion(checked.frameworkVersion, 'options.frameworkVersion');
+  const signal = checkSignal(checked.signal, 'options.signal');
+  signal?.throwIfAborted();
   if (checked.root !== undefined && (typeof checked.root !== 'string' || checked.root === '')) {
     throw invalid('options.root', 'a non-empty string');
   }
@@ -178,6 +181,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
 
   // Without patterns, the configs choose among all JavaScript and TypeScript files.
   const found = await findFiles(root, patterns ?? [SCRIPT_FILES], ignore, framework);
+  signal?.throwIfAborted();
   const scanned = found.files.map((file) => file.relativeFilePath);
   const detected = override === null ? detectFrameworkVersion(root, framework, scanned) : null;
   const frameworkVersion = override ?? detected?.version ?? null;
@@ -227,6 +231,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
   for (const { absolutePath, relativeFilePath } of files) {
+    signal?.throwIfAborted();
     const placement = placements.get(absolutePath) as Placement;
     if (placement.config) configs.use(placement.config);
     const config = placement.config?.record.relativeFilePath ?? null;
