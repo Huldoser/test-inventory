@@ -82,6 +82,8 @@ export interface PendingSuite {
 
 export interface PendingTest {
   scope: Scope;
+  /** The test whose body declares this one as a subtest; null for a test declared in the file or a describe. */
+  parent: PendingTest | null;
   declaration: TestDeclaration;
   call: CallExpression;
   /** For a test declared in an imported helper, the call in the scanned file that registers it; null otherwise. */
@@ -1473,21 +1475,19 @@ class Walker {
     }
   }
 
-  private nested(call: CallExpression, context: Context): boolean {
+  private nested(call: CallExpression, context: Context, isTest: boolean): boolean {
     if (!context.test && !context.hookScope) return false;
-    this.report(
-      problem(
-        'nested-test',
-        call,
-        'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.',
-        snippet(this.frame.parsed.source.slice(call.start, call.end)),
-      ),
-    );
+    const inTest = context.test !== null && !context.hookScope && this.frame.adapter.nestsTests === true;
+    if (isTest && inTest) return false;
+    const message = inTest
+      ? 'A describe declared inside a test body runs as a nested describe of the test, but the scan does not list it or its tests.'
+      : 'A test or describe declared inside a test or hook body is not collected by the runner, so it is not listed.';
+    this.report(problem('nested-test', call, message, snippet(this.frame.parsed.source.slice(call.start, call.end))));
     return true;
   }
 
   private declareTest(call: CallExpression, declaration: TestDeclaration, context: Context): void {
-    if (context.quiet || this.nested(call, context)) return;
+    if (context.quiet || this.nested(call, context, true)) return;
     for (const item of this.cases(declaration, call, context)) this.declareCase(call, item, context);
   }
 
@@ -1544,6 +1544,7 @@ class Walker {
     const empty = emptyTitle(declaration, call);
     const test: PendingTest = {
       scope: context.scope,
+      parent: context.test,
       declaration,
       call,
       site: this.site,
@@ -1599,7 +1600,7 @@ class Walker {
   }
 
   private declareSuite(call: CallExpression, declaration: SuiteDeclaration, context: Context): void {
-    if (context.quiet || this.nested(call, context)) return;
+    if (context.quiet || this.nested(call, context, false)) return;
     for (const item of this.cases(declaration, call, context)) this.declareSuiteCase(call, item, context);
   }
 

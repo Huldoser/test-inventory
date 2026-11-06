@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "framework": "node",
+    "kind": "missing-in-runner",
+    "state": "skip",
+    "stateSource": "suite",
+    "reason": "node:test reports a skipped describe, or a test skipped where it is declared, as one entry, without the tests inside it"
+  }
+]

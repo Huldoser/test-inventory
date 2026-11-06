@@ -130,6 +130,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
+      "parentTestId": null,
       "suitePath": [
         "CandlestickChart"
       ],
@@ -216,6 +217,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
+      "parentTestId": null,
       "suitePath": [
         "CandlestickChart"
       ],
@@ -302,6 +304,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
+      "parentTestId": null,
       "suitePath": [
         "CandlestickChart"
       ],
@@ -388,6 +391,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
+      "parentTestId": null,
       "suitePath": [
         "CandlestickChart"
       ],
@@ -476,6 +480,7 @@
       ],
       "hasUnfollowedDependencies": false,
       "suiteId": "03fc2198f0b00f73",
+      "parentTestId": null,
       "suitePath": [
         "CandlestickChart"
       ],

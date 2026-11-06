@@ -11,7 +11,7 @@ test-inventory is written and maintained by [Andrey Rychkov](https://github.com/
 
 - [Star it on GitHub](https://github.com/Huldoser/test-inventory). Stars help other teams find it.
 - [Sponsor it on GitHub](https://github.com/sponsors/Huldoser). Sponsorship pays for the time that goes into new
-  Playwright, Vitest, Jest, Mocha, Jasmine, Cypress and WebdriverIO versions, fixes and docs.
+  Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO and node:test versions, fixes and docs.
 - [Report a problem](https://github.com/Huldoser/test-inventory/issues/new?template=scan-reads-test-wrong.yml) with a
   test file the scan reads wrong. A small file that shows it is the most useful part of a report.
 
@@ -25,6 +25,7 @@ project, run the checks and add a changeset.
 Every example in these docs comes from a made-up trading app: a web app with Playwright tests; a strategy engine, an
 order service, a React dashboard, a Vue watchlist, a chart tested in the browser and a monorepo, all with Vitest; a
 settlement service and browser tests driven by Puppeteer, with Jest; a FIX gateway and more Puppeteer tests, with Mocha;
-a risk service with Jasmine; a trading UI with Cypress; and a broker portal with WebdriverIO. They live in
-[`tests/fixtures`](https://github.com/Huldoser/test-inventory/tree/main/tests/fixtures), the [examples](/guide/examples)
-page shows each one, and every output in these docs is produced by scanning them, which the test suite checks.
+a risk service with Jasmine; a trading UI with Cypress; a broker portal with WebdriverIO; and a pricing service with
+node:test. They live in [`tests/fixtures`](https://github.com/Huldoser/test-inventory/tree/main/tests/fixtures), the
+[examples](/guide/examples) page shows each one, and every output in these docs is produced by scanning them, which the
+test suite checks.

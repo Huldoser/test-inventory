@@ -191,7 +191,7 @@ test.describe('orders', () => {
   it.each([
     [
       ['tests', '--framework', 'ava'],
-      '--framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress" or "webdriverio".',
+      '--framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress", "webdriverio" or "node".',
     ],
     [['tests', '--framework', 'vitest', '--comments', 'some'], '--comments must be "all", "non-active" or "none".'],
     [
@@ -270,7 +270,7 @@ describe('the built binary', () => {
     await expect(exec(process.execPath, [bin, 'tests/*.spec.ts', '--framework', 'ava'])).rejects.toMatchObject({
       code: 2,
       stderr:
-        'test-inventory: --framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress" or "webdriverio".\nRun test-inventory --help for usage.\n',
+        'test-inventory: --framework must be "playwright", "vitest", "jest", "mocha", "jasmine", "cypress", "webdriverio" or "node".\nRun test-inventory --help for usage.\n',
     });
   });
 

@@ -251,6 +251,42 @@ Tests and describes are read as in [Mocha](#mocha) or [Jasmine](#jasmine), with 
 | A Mocha or Jasmine version gate     | Read with the version WebdriverIO depends on: Mocha 12 and Jasmine 6 from WebdriverIO 10, Mocha 10.8 and Jasmine 5 before. So `describe(...).timeout(ms)` reaches its tests from WebdriverIO 10, and Jasmine 7's `notApplicable()` is not read.                                                                                                                                                                                     |
 | A call the runner refuses           | The same errors as in Mocha or Jasmine, with what WebdriverIO does then. With Mocha, the file stops loading at the call: the tests declared above it run, those below are `notLoaded`, and the spec files grouped after it in the same worker don't run. With Jasmine, a call refused at the top level fails the whole worker: the file's tests are `notLoaded`, and the files grouped with it don't run either. Other workers run. |
 
+## node:test
+
+Node.js 22.0 and newer, the version the project pins; see [framework version](/guide/cli#framework-version).
+
+### Where test comes from
+
+| Form                       | Example                                                                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default import             | `import test from 'node:test'`, whose `test` also carries `describe`, `it`, `suite` and the hooks                                              |
+| Named import, also renamed | `import { describe, it, suite, test } from 'node:test'`                                                                                        |
+| `require()`                | `const test = require('node:test')`, whole, destructured or in place, as `require('node:test').it(...)`                                        |
+| Kept in a variable         | `const later = test.skip`: only what both branches of a choice share applies                                                                   |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call |
+
+node:test sets no globals: `it()` without an import is not a test.
+
+### Calls
+
+| Call                                                           | Read as                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test(name, options, fn)`, `it`, and `describe` or `suite`     | A test or describe. Each part may be left out: without a name, the test is named after its function, or `<anonymous>`; an object first is the options. A test without a function runs and passes.                                                               |
+| `.skip`, `.todo`, `.only`, from Node.js 24.14 `.expectFailure` | A skipped or todo test or describe, `isOnly`, or `expectedToFail`. Any other member, as `test.concurrent`, is an `invalid-chain` error: Node.js fails the file and runs none of its tests.                                                                      |
+| `{ skip }`, `{ todo }`                                         | A skipped or todo test or describe, with a string as its reason; only `false` and `undefined` set nothing, as in Node.js, where even `''` and `0` skip. A value the scan can't work out is a condition. `skip` wins over `todo`, and both over `expectFailure`. |
+| `{ only }`                                                     | `isOnly`. Under `node --test`, Node.js applies it only with `--test-only`.                                                                                                                                                                                      |
+| `{ timeout }`, `{ concurrency }`                               | `timeout`, and `isParallel` for the tests inside a describe or test whose `concurrency` is `true` or above 1.                                                                                                                                                   |
+| `{ expectFailure }`                                            | From Node.js 24.14 and 25.5, `expectedToFail`; from 24.15 and 25.8 a string is its label, in `reason`.                                                                                                                                                          |
+| `{ tags }`                                                     | From Node.js 24.19 and 26.2, `tags`.                                                                                                                                                                                                                            |
+| `t.skip(reason)`, `t.todo(reason)`                             | On the test's context, its function's first parameter: the test skipped or todo. The body still runs, and so do its subtests.                                                                                                                                   |
+| `t.test(...)`, or `test()` or `it()` called in a test's body   | A subtest: a test record with the titles of the tests around it in `suitePath` and the test that runs it in `parentTestId`. A subtest of a test skipped where it is declared is skipped too, as its body never runs.                                            |
+| `before`, `after`, `beforeEach`, `afterEach`                   | Hooks, counted as `beforeAll`, `afterAll`, `beforeEach` and `afterEach`.                                                                                                                                                                                        |
+
+Not read: `t.todo()` before a `t.test()` call, which makes the subtest todo too; `t.skip()` in a `beforeEach` hook,
+which skips each test; `t.test()` in a helper function the test passes its context to; and a `describe` inside a test
+body, which runs as a nested describe and gets a `nested-test` warning. A glob in a script is read as written, though
+`sh`, which npm runs scripts with, reads an unquoted `**` as `*`; quote it, as Node.js expands it then.
+
 ## In every runner
 
 - Tests in loops, conditions and plain functions are listed with `isInLoop`, `isInCondition` and `isInFunction`.

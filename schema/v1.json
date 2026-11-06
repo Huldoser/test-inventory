@@ -103,7 +103,8 @@
             "mocha",
             "jasmine",
             "cypress",
-            "webdriverio"
+            "webdriverio",
+            "node"
           ]
         },
         {
@@ -800,12 +801,24 @@
           ],
           "description": "The nearest describe; null outside any describe."
         },
+        "parentTestId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The test whose body declares this one as a subtest, which `node:test` runs while it runs that test; null for every other test."
+        },
         "suitePath": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Titles of the describes around the test, outermost first."
+          "description": "Titles of the describes around the test, and of the tests a subtest is declared in, outermost first."
         },
         "relativeFilePath": {
           "type": "string",
@@ -1210,6 +1223,7 @@
         "dependencies",
         "hasUnfollowedDependencies",
         "suiteId",
+        "parentTestId",
         "suitePath",
         "relativeFilePath",
         "fileName",

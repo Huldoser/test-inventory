@@ -1,5 +1,5 @@
 ---
-description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine, Cypress and WebdriverIO.
+description: Scans of a made-up trading app in common setups, from Playwright end-to-end tests to a monorepo, Jest, Mocha, Jasmine, Cypress, WebdriverIO and node:test.
 ---
 
 # Examples
@@ -749,5 +749,43 @@ A test that skips itself under a condition keeps the condition:
   "state": "skip",
   "isConditional": true,
   "condition": "!process.env.AFTER_HOURS"
+}
+```
+
+## A node:test service
+
+`pricing-service` tests a quote service with Node.js's own runner, `node:test`, run by `node --test` from its `test`
+script. A test runs subtests with `t.test()`, and a subtest can skip itself.
+
+<!-- code: pricing-service/test/quotes.test.js -->
+
+```js
+// test/quotes.test.js
+test('reprices a basket', { timeout: 2_000 }, async (t) => {
+  await t.test('reprices equities', () => {
+  // ...
+  await t.test('reprices bonds', async (bonds) => {
+    if (!process.env.BOND_FEED) bonds.skip('no bond feed');
+```
+
+<!-- scan: pricing-service -->
+
+```sh
+npx test-inventory "test/**/*.js" "src/**/*.test.js" --framework node --output inventory.json
+```
+
+Without the globs and `--framework`, the scan finds the same files from Node.js's default patterns, and node:test from
+the `test` script. A subtest is listed under its parent's title, with the id of `reprices a basket` in `parentTestId`:
+
+<!-- output: pricing-service -->
+
+```json
+{
+  "parentTestId": "76080f80b7409d6f",
+  "fullName": "reprices a basket > reprices bonds",
+  "state": "skip",
+  "isConditional": true,
+  "condition": "!process.env.BOND_FEED",
+  "reason": "no bond feed"
 }
 ```

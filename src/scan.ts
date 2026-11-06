@@ -155,6 +155,9 @@ function noFiles(
   if ([...placements.values()].some((placement) => placement.config)) {
     return 'No test files were found from the configs in the root.';
   }
+  if (framework === 'node') {
+    return "No patterns were given, and no file in the root matches what node --test runs: Node.js's default patterns, or the files a package.json script gives it.";
+  }
   const name = FRAMEWORK_NAMES[framework];
   return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
 }
@@ -281,11 +284,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  // Mocha, Jasmine, Cypress and WebdriverIO always set their globals, and Playwright has none.
+  // Mocha, Jasmine, Cypress and WebdriverIO always set their globals, and Playwright and node:test have none.
   const missingGlobals =
     framework === 'jest'
       ? (file: string) => jestGlobals(placements.get(file) as Placement)
-      : ['mocha', 'jasmine', 'cypress', 'webdriverio'].includes(framework)
+      : ['mocha', 'jasmine', 'cypress', 'webdriverio', 'node'].includes(framework)
         ? () => null
         : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;

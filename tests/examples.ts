@@ -28,6 +28,7 @@ export const EXAMPLES: { name: string; framework: Framework; patterns: string[] 
     framework: 'webdriverio',
     patterns: ['test/specs/*.e2e.js', 'test/specs/{orders,accounts}/*.e2e.js'],
   },
+  { name: 'pricing-service', framework: 'node', patterns: ['test/**/*.js', 'src/**/*.test.js'] },
 ];
 
 export function goldenPath(name: string): string {

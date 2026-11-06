@@ -218,6 +218,8 @@ export interface Adapter {
   /** Where each of `fileTags` is written. */
   fileTagSpans: Span[];
   usesGlobals: boolean;
+  /** Whether a test declared in a test's body is a subtest the runner runs as the test does, as in `node:test`. */
+  nestsTests?: boolean;
   classify(call: CallExpression, context: CallContext): ApiCall | null;
   /**
    * The test or describe function a value holds, in the adapter's own terms, as `it.skip` in `return it.skip`; null

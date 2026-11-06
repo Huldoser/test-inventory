@@ -10,14 +10,15 @@ test-inventory [glob...] [options]
 
 The globs select the test files, relative to `--root`. Quote them so the shell passes them on unchanged. Without globs,
 the test files are those the Playwright, Vitest, Jest, Mocha, Jasmine, Cypress or WebdriverIO configs in the root and
-the folders below it run, each with the config it uses; see [configs](/reference/output#configs). `node_modules` and
-`.git` folders are always left out. As in the runners, globs match folders and files whose names start with a dot, as in
-`.storybook/`. On Windows a `\` in a glob separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it
-escapes the next character, as in `tests/\[legacy\]/*.spec.ts`. A `/` separates folders on every system.
+the folders below it run, or for node:test the files `node --test` runs, each with the config it uses; see
+[configs](/reference/output#configs). `node_modules` and `.git` folders are always left out. As in the runners, globs
+match folders and files whose names start with a dot, as in `.storybook/`. On Windows a `\` in a glob separates folders,
+so `tests\**\*.spec.ts` works; on Linux and macOS it escapes the next character, as in `tests/\[legacy\]/*.spec.ts`. A
+`/` separates folders on every system.
 
 | Option                        | Meaning                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--framework <name>`          | `playwright`, `vitest`, `jest`, `mocha`, `jasmine`, `cypress` or `webdriverio`. One run reads one framework. Default: the one the project uses; see [framework](#framework).                                                         |
+| `--framework <name>`          | `playwright`, `vitest`, `jest`, `mocha`, `jasmine`, `cypress`, `webdriverio` or `node`. One run reads one framework. Default: the one the project uses; see [framework](#framework).                                                 |
 | `--root <dir>`                | The project root. Paths in the output are relative to it. Default: the current folder.                                                                                                                                               |
 | `--ignore <glob>`             | Leave out matching files. Can be given more than once.                                                                                                                                                                               |
 | `--framework-version <x.y.z>` | Apply the rules of this version instead of the one read from the project.                                                                                                                                                            |
@@ -126,7 +127,8 @@ node -e "if (require('./inventory.json').summary.onlyCount > 0) process.exit(1)"
 Without `--framework`, the scan takes the runner the project uses: the one whose package, `@playwright/test`, `vitest`,
 `jest`, `mocha`, `cypress`, `@wdio/cli`, or for Jasmine `jasmine` or `karma-jasmine`, a `package.json` in the root or a
 folder below it lists, or whose config file is there: `playwright.config.*`, `vitest.config.*`, `jest.config.*`,
-`.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*`, or a `jest` or `mocha` key in `package.json`.
+`.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*`, or a `jest` or `mocha` key in `package.json`;
+for node:test, a `package.json` script that runs `node --test`, or a `node.config.json`.
 A `vite.config.*` alone doesn't count, as Vite apps without Vitest have one, and `node_modules` is left out. Only when
 nothing is found there are the `package.json` files above the root read, as a monorepo may list its runner once at the
 top.
@@ -146,11 +148,14 @@ in this order:
 2. `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`.
 3. The version in `package.json`.
 
-Each is looked for in the root, then in each folder above it, as a package in a monorepo may be installed or locked
-at the top. When none of them has the framework, as in a monorepo whose root leaves it to a package such as `code/`,
-the shallowest `package.json` below the root that declares it and holds scanned files is used instead, outside
-`node_modules`, and its folder is read in the same order. `--framework-version` overrides all of them. The version
-ends up in `frameworkVersion` in the output.
+Each is looked for in the root, then in each folder above it, as a package in a monorepo may be installed or locked at
+the top. When none of them has the framework, as in a monorepo whose root leaves it to a package such as `code/`, the
+shallowest `package.json` below the root that declares it and holds scanned files is used instead, outside
+`node_modules`, and its folder is read in the same order. For node:test, the version is the Node.js version the project
+pins: the first of `.node-version`, `.nvmrc`, Volta's `node` in `package.json` and `engines.node`, in the root, then in
+each folder above it; a pin without a minor, such as `24`, is a range, and so is `engines.node`, of which the newest
+version it names counts, and never one older than 22.0. `--framework-version` overrides all of them. The version ends up
+in `frameworkVersion` in the output.
 
 When `package.json` gives only a range, such as `^4.0.0`, `frameworkVersion` is the lowest version in it, the rules of
 the newest release in that major apply, and an `approximate-framework-version` warning names the range and the file.

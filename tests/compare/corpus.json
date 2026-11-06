@@ -275,5 +275,17 @@
       "files": 28,
       "tests": 381
     }
+  },
+  {
+    "name": "undici unit tests",
+    "repository": "https://github.com/nodejs/undici.git",
+    "commit": "76f0b3e7d618dcb19248cd86c3bfdf35c683fa09",
+    "license": "MIT",
+    "framework": "node",
+    "patterns": ["test/*.js"],
+    "expected": {
+      "files": 180,
+      "tests": 1392
+    }
   }
 ]
