@@ -359,8 +359,11 @@ function workspaceSource(
  * `moduleDirectories`.
  */
 export interface ImportMap {
-  /** A string `find` maps the name itself and the names below it, as `@` maps `@/x`; a regex maps what it matches. */
-  aliases: { find: string | RegExp; replacements: string[] }[];
+  /**
+   * A string `find` maps the name itself and the names below it, as `@` maps `@/x`; a regex maps what it matches, as
+   * Vite does, or with `replacesName`, as Jest's `moduleNameMapper` does, the whole name, with `$1` for its groups.
+   */
+  aliases: { find: string | RegExp; replacements: string[]; replacesName: boolean }[];
   /** Folders a bare name is looked for in. */
   paths: string[];
   /** Names of folders a bare name is looked for in, in the importing file's folder and each folder above it. */
@@ -379,12 +382,18 @@ function searched(specifier: string, directory: string, map: ImportMap): string 
 
 /** The names an alias maps a specifier to; null when it doesn't match. */
 function mapped(specifier: string, alias: ImportMap['aliases'][number]): string[] | null {
-  const { find, replacements } = alias;
+  const { find, replacements, replacesName } = alias;
   if (typeof find === 'string') {
     if (specifier !== find && !specifier.startsWith(`${find}/`)) return null;
     return replacements.map((replacement) => replacement + specifier.slice(find.length));
   }
-  return find.test(specifier) ? replacements.map((replacement) => specifier.replace(find, replacement)) : null;
+  const match = specifier.match(find);
+  if (!match) return null;
+  if (!replacesName) return replacements.map((replacement) => specifier.replace(find, replacement));
+  // Jest fills in a group that matched nothing with an empty string.
+  return replacements.map((replacement) =>
+    replacement.replaceAll(/\$(\d+)/g, (_, index: string) => match[Number(index)] || ''),
+  );
 }
 
 /**

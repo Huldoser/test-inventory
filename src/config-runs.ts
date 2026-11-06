@@ -2025,7 +2025,7 @@ function readImportMap(
         replaceRootDir(rootDir, item),
       );
       const find = regExp(pattern, '');
-      if (find && replacements.length > 0) map.aliases.push({ find, replacements });
+      if (find && replacements.length > 0) map.aliases.push({ find, replacements, replacesName: true });
     }
     map.paths = strings(settingAt(settings, ['modulePaths'])).map((item) =>
       path.resolve(rootDir, replaceRootDir(rootDir, item)),
@@ -2042,7 +2042,7 @@ function readImportMap(
 function viteAliases(setting: Setting | null): ImportMap['aliases'] {
   if (setting?.kind === 'object') {
     return [...setting.keys].flatMap(([find, target]) =>
-      stringOf(target).map((replacement) => ({ find, replacements: [replacement] })),
+      stringOf(target).map((replacement) => ({ find, replacements: [replacement], replacesName: false })),
     );
   }
   if (setting?.kind !== 'list') return [];
@@ -2052,7 +2052,7 @@ function viteAliases(setting: Setting | null): ImportMap['aliases'] {
     const name = find?.kind === 'value' && typeof find.value === 'string' ? find.value : null;
     const pattern = find?.kind === 'regex' ? regExp(find.source, find.flags) : null;
     const written = name ?? pattern;
-    return written !== null && replacements.length > 0 ? [{ find: written, replacements }] : [];
+    return written !== null && replacements.length > 0 ? [{ find: written, replacements, replacesName: false }] : [];
   });
 }
 

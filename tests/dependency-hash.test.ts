@@ -515,6 +515,34 @@ test('nets and books a trade', () => {
     ]);
   });
 
+  it("replaces the whole name with Jest's moduleNameMapper, as Jest does, also for a pattern that matches part of it", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
+      'jest.config.js': `module.exports = {
+  moduleNameMapper: {
+    '\\\\.(css|less)$': '<rootDir>/test/style-mock.js',
+    'pricing/(\\\\w+)(-v2)?': '<rootDir>/src/pricing/$1$2',
+  },
+};
+`,
+      'test/style-mock.js': 'module.exports = {};\n',
+      'src/pricing/spread.js': 'module.exports = { spread: (bid, ask) => ask - bid };\n',
+      'tests/blotter.test.js': `require('./styles/blotter.css');
+const { spread } = require('@desk/pricing/spread');
+
+test('shows the spread on the blotter', () => {
+  expect(spread(99, 101)).toBe(2);
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['jest.config.js', 'src/pricing/spread.js', 'test/style-mock.js', 'tests/blotter.test.js'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('finds the TypeScript source of an import written with a JavaScript extension, as TypeScript does', async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,
