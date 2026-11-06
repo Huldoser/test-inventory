@@ -166,9 +166,9 @@ export interface Summary {
 }
 
 /**
- * A Playwright, Vitest or Jest config that scanned files use: the nearest one in a file's folder or a folder above it,
- * up to the root, as the runner started in that folder would; for Jest, the one at the root and the projects it names.
- * Read as code, never run.
+ * A runner's config that scanned files use. For Playwright and Vitest, the nearest one in a file's folder or a folder
+ * above it, up to the root, as the runner started in that folder would; for Jest, the one at the root and the projects
+ * it names; for the other runners, the one config they read for the whole run. Read as code, never run.
  */
 export interface ConfigRecord {
   /** Path from the project root, with `/` separators. */
@@ -177,7 +177,8 @@ export interface ConfigRecord {
   extends: string[];
   /**
    * The projects the config runs tests in: Playwright's `projects`, or one for a config without them; Vitest's, with
-   * each browser instance as one. Null when the scan can't work them out.
+   * each browser instance as one; Cypress's testing types, `e2e` and `component`; one for the other runners. Null when
+   * the scan can't work them out.
    */
   projects: ProjectRecord[] | null;
 }
@@ -186,7 +187,10 @@ export interface ConfigRecord {
 export interface ProjectRecord {
   /** As the runner names it: `''` for a project without a name. */
   name: string;
-  /** The folder the project's test files are found in, from the project root: Playwright's `testDir`, Vitest's `dir`. */
+  /**
+   * The folder the project's test files are found in, from the project root: Playwright's `testDir`, Vitest's `dir`,
+   * Jest's `rootDir`, Jasmine's `spec_dir`, Bun's `[test] root`; for the other runners, the config's folder.
+   */
   testDir: string;
   /** Playwright's projects that run before this one; `[]` for Vitest. */
   dependencies: string[];
@@ -412,8 +416,8 @@ export interface TestRecord {
   /** Vitest only: source text of the `retry` object's `condition`, a RegExp or a function. */
   retryCondition: string | null;
   /**
-   * How many times the runner runs the test again after the first run: Vitest's `repeats`, or Playwright's `repeatEach`
-   * from the config less one.
+   * How many times the runner runs the test again after the first run: Vitest's or Bun's `repeats`, or Playwright's
+   * `repeatEach` from the config less one.
    */
   repeats: Count | null;
   /**

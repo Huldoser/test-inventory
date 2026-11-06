@@ -22,10 +22,12 @@ export interface Io {
 export const HELP = `Usage: test-inventory [glob...] [options]
 
 Lists the tests in the matching files as JSON, read from the source code without running them. Without globs, the
-test files are those the Playwright, Vitest or Jest configs in the root and the folders below it run.
+test files are those the runner's configs in the root and the folders below it run, or for node:test and Bun those
+node --test and bun test run.
 
 Options:
-  --framework <name>           playwright, vitest, jest or mocha (default: the one the project uses)
+  --framework <name>           playwright, vitest, jest, mocha, jasmine, cypress, webdriverio, node or bun
+                               (default: the one the project uses)
   --root <dir>                 project root; paths in the output are relative to it (default: current directory)
   --ignore <glob>              leave out matching files; can be repeated (node_modules is always left out)
   --framework-version <x.y.z>  apply the rules of this framework version instead of the one in the project

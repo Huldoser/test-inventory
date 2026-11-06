@@ -6,13 +6,15 @@ export type { CommentsMode };
 /** @inline */
 export interface ScanOptions {
   /**
-   * Glob patterns for the test files, relative to `root`. As in Playwright, Vitest and Jest, they match names that
-   * start with a dot too. Without them, the test files are those the configs in the root and the folders below it run.
+   * Glob patterns for the test files, relative to `root`. As in the runners, they match names that start with a dot
+   * too. Without them, the test files are those the configs in the root and the folders below it run, or for node:test
+   * and Bun those `node --test` and `bun test` run.
    */
   patterns?: string[];
   /**
    * The runner whose tests are listed. Without it, the one the project uses: whose package a package.json in the root
-   * or below lists, or whose config is there, else one a package.json above the root lists. With none of them or
+   * or below lists, whose config is there, or for node:test and Bun, run by a package.json script, else one a
+   * package.json above the root lists. With none of them or
    * several, the scan throws a `TypeError` that names them.
    */
   framework?: Framework;

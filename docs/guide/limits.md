@@ -10,14 +10,17 @@ such as `isInLoop`; each section says when one does not.
 
 ## Config files are read only in part
 
-`playwright.config.*`, `vitest.config.*` and Jest's `jest.config.*` or `package.json` can change which tests run and
-how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
+A runner's config, such as `playwright.config.*`, `vitest.config.*`, Jest's `jest.config.*` or `package.json`,
+`.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*` or `bunfig.toml`, can change which tests run
+and how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
 which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
 it gives the tests, Playwright's `forbidOnly` and Vitest's `allowOnly`, and the tags Vitest defines. Other settings,
 such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves out is still listed, with
 that project missing from its `projects`.
 
-Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
+For Playwright and Vitest, which files a config runs is read from the configs in the file's folder and the folders
+above it. The other runners read one config for the whole run, as described under
+[configs](/reference/output#configs). A config elsewhere
 that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
 Vitest 3 project list in `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
 For a Playwright project's `grep`, a test's text is its project, file, the config's `tag`, describe and test titles
@@ -32,7 +35,7 @@ calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })` or Next.js'
 `testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. A config Jest refuses to start
 with, such as one whose `moduleFileExtensions` leaves out `js` or whose `roots` don't exist, is read as written, and a
 config that sets its keys one by one, as `module.exports.testMatch = [...]`, is not read. Jest's
-`moduleNameMapper`, `modulePaths` and `moduleDirectories` are read for `dependencyHash`; a mapping the scan can't
+`moduleNameMapper`, `modulePaths` and `moduleDirectories` are read for `dependencyHash` and to follow imports; a mapping the scan can't
 work out, as one built at run time, is left out.
 
 A run setting the config sets under a condition, as `retries: process.env.CI ? 2 : 0`, is `null` with its source
@@ -83,6 +86,9 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 Values, a custom `test` object, and a function that declares tests, as described under
 [tests in helper functions](#tests-in-helper-functions), are followed through imports found through:
 
+- an alias from the config the importing test file runs with, tried first: Vite's `resolve.alias`, Vitest's
+  `test.alias` or Jest's `moduleNameMapper`; Jest's `modulePaths` and `moduleDirectories` add folders a name is
+  looked up in;
 - a relative path, as in `../fixtures`; a `.js` or `.jsx` extension also finds the `.ts` or `.tsx` file, as
   TypeScript does;
 - a path alias from `compilerOptions.paths` or `baseUrl` in the tsconfig nearest the importing file, with every file
