@@ -24,6 +24,7 @@ describe('golden output', () => {
     ['mocha', 'mocha.test.ts', ['10.0.0', '12.0.0']],
     ['jasmine', 'jasmine.test.ts', ['4.0.0', '7.0.0']],
     ['cypress', 'cypress.cy.ts', ['15.9.0', '16.0.0']],
+    ['webdriverio', 'webdriverio.e2e.ts', ['9.0.0', '10.0.0']],
   ] as const)('of the %s syntax tour', (framework, file, versions) => {
     const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');
     it.each(versions)('matches for version %s', async (frameworkVersion) => {

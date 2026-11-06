@@ -3,7 +3,14 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { glob } from 'tinyglobby';
 import { ConfigDependencies } from './config-dependencies.ts';
-import { ConfigRuns, fileConfig, mochaInterface, type Placement } from './config-runs.ts';
+import {
+  ConfigRuns,
+  fileConfig,
+  mochaInterface,
+  webdriverioFramework,
+  webdriverioInterface,
+  type Placement,
+} from './config-runs.ts';
 import { Configs, settingAt } from './config.ts';
 import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
@@ -254,7 +261,13 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
-      mochaInterface: framework === 'mocha' ? mochaInterface(placement, configs) : undefined,
+      mochaInterface:
+        framework === 'mocha'
+          ? mochaInterface(placement, configs)
+          : framework === 'webdriverio'
+            ? webdriverioInterface(placement, configs)
+            : undefined,
+      webdriverioFramework: framework === 'webdriverio' ? webdriverioFramework(placement, configs) : undefined,
       graph,
       exports,
       runsWith,
@@ -268,11 +281,11 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     }
     results.push({ ...result, file: { ...result.file, config } });
   }
-  // Mocha, Jasmine and Cypress always set their globals, and Playwright has none.
+  // Mocha, Jasmine, Cypress and WebdriverIO always set their globals, and Playwright has none.
   const missingGlobals =
     framework === 'jest'
       ? (file: string) => jestGlobals(placements.get(file) as Placement)
-      : framework === 'mocha' || framework === 'jasmine' || framework === 'cypress'
+      : ['mocha', 'jasmine', 'cypress', 'webdriverio'].includes(framework)
         ? () => null
         : globalsCheck(root, configs, (file) => placements.get(file) as Placement);
   let globals: Diagnostic | null = null;

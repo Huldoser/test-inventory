@@ -23,6 +23,7 @@ import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { readFailure } from './files.ts';
 import { folders } from './framework-version.ts';
 import {
+  commonJsExport,
   exportName,
   moduleExportsValue,
   ownExport,
@@ -50,6 +51,8 @@ const CONFIG_FILES: Record<Framework, string[]> = {
   // From the root, which the jasmine command runs in; `.mjs` from Jasmine 5.
   jasmine: ['.mjs', '.json', '.js'].map((extension) => `spec/support/jasmine${extension}`),
   cypress: ['.ts', '.js', '.mjs', '.cjs', '.mts', '.cts'].map((extension) => `cypress.config${extension}`),
+  // The files `wdio run` takes without a config named, in its order.
+  webdriverio: ['.js', '.ts', '.mjs', '.mts', '.cjs', '.cts'].map((extension) => `wdio.conf${extension}`),
 };
 
 /** Methods that change the object or list they are called on. */
@@ -364,6 +367,9 @@ class ConfigCode {
       const commonJs = program.body.map(moduleExportsValue).find((value) => value !== null);
       return commonJs ? this.config(commonJs, frame, [program]) : null;
     }
+    // A name a CommonJS module exports, as WebdriverIO's `exports.config = { ... }`.
+    const commonJs = commonJsExport(program, name);
+    if (commonJs) return this.config(commonJs, frame, [program]);
     for (const statement of program.body) {
       const source = starReexport(statement);
       const found = source === null ? null : this.fromModule(frame, source, name, site);
@@ -854,9 +860,12 @@ export class Configs {
     return name ? this.at(path.join(this.root, name)) : null;
   }
 
-  /** The config `cypress run` reads, started in the root: the first `cypress.config` file there; null without one. */
-  cypressConfig(): ConfigFile | null {
-    const name = CONFIG_FILES.cypress.find((item) => existsSync(path.join(this.root, item)));
+  /**
+   * The config `cypress run` or `wdio` reads, started in the root without a config named: the first of its config
+   * files there; null without one.
+   */
+  rootConfig(): ConfigFile | null {
+    const name = CONFIG_FILES[this.framework].find((item) => existsSync(path.join(this.root, item)));
     return name ? this.at(path.join(this.root, name)) : null;
   }
 
@@ -971,7 +980,9 @@ export class Configs {
     const config = new ConfigCode(frame, this.framework, this.root, this.version);
     let settings: Setting | null;
     try {
-      settings = config.exported(frame, 'default', { frame, node: parsed.program });
+      // WebdriverIO's config is the module's `config` export.
+      const name = this.framework === 'webdriverio' ? 'config' : 'default';
+      settings = config.exported(frame, name, { frame, node: parsed.program });
     } catch (error) {
       // The scan runs none of the project's code, so what fails here is its own and throws an Error.
       const raw = (error as Error).message;
@@ -979,7 +990,7 @@ export class Configs {
       return unreadable(fileDiagnostic('internal-error', relativeFilePath, message));
     }
     if (settings === null) {
-      const message = `The config has no default export the scan can find, ${none}`;
+      const message = `The config has no ${this.framework === 'webdriverio' ? '`config`' : 'default'} export the scan can find, ${none}`;
       return unreadable(fileDiagnostic('config-value-unknown', relativeFilePath, message));
     }
     return { file, record: { relativeFilePath, extends: config.followed }, settings };

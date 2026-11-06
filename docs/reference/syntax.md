@@ -227,6 +227,30 @@ Cypress reads tests and describes as Mocha does, with these differences:
 A call Cypress refuses, as `it.concurrent()` or a describe without a function, fails its spec, and every test in the
 file is `notLoaded`; the other specs run.
 
+## WebdriverIO
+
+WebdriverIO 9.0 and newer, with Mocha or Jasmine. The config's `framework` decides which, Mocha by default; Cucumber's
+feature files are not read.
+
+### Where test comes from
+
+| Form               | Example                                                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Globals            | With Mocha, its BDD globals, or with `mochaOpts.ui: 'tdd'` `suite` and `test`; with Jasmine, `describe`, `it` and their `x` and `f` forms. WebdriverIO sets them in every spec file. |
+| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies                                                                                                           |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                       |
+
+### Calls
+
+Tests and describes are read as in [Mocha](#mocha) or [Jasmine](#jasmine), with these differences:
+
+| Call                                | Read as                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `it(title, fn, n)` with Mocha       | `retries`: WebdriverIO runs the function up to `n` more times when it fails. It does so inside each of Mocha's attempts, so with `this.retries()` as well, the record shows WebdriverIO's count; `0` leaves Mocha's. `it.only` and `it.skip` drop the count, as they pass Mocha only the title and function.                                                                                                                        |
+| `it(title, fn, ms, n)` with Jasmine | `timeout`, as in Jasmine, and `retries`, WebdriverIO's.                                                                                                                                                                                                                                                                                                                                                                             |
+| A Mocha or Jasmine version gate     | Read with the version WebdriverIO depends on: Mocha 12 and Jasmine 6 from WebdriverIO 10, Mocha 10.8 and Jasmine 5 before. So `describe(...).timeout(ms)` reaches its tests from WebdriverIO 10, and Jasmine 7's `notApplicable()` is not read.                                                                                                                                                                                     |
+| A call the runner refuses           | The same errors as in Mocha or Jasmine, with what WebdriverIO does then. With Mocha, the file stops loading at the call: the tests declared above it run, those below are `notLoaded`, and the spec files grouped after it in the same worker don't run. With Jasmine, a call refused at the top level fails the whole worker: the file's tests are `notLoaded`, and the files grouped with it don't run either. Other workers run. |
+
 ## In every runner
 
 - Tests in loops, conditions and plain functions are listed with `isInLoop`, `isInCondition` and `isInFunction`.

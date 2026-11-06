@@ -1,5 +1,5 @@
 ---
-description: Install test-inventory and list the tests of a Playwright, Vitest, Jest, Mocha, Jasmine or Cypress suite as JSON, without running them.
+description: Install test-inventory and list the tests of a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress or WebdriverIO suite as JSON, without running them.
 ---
 
 # Getting started
@@ -9,8 +9,9 @@ and never runs it, so it needs no browsers, no build and no configuration of the
 
 It supports [Playwright](https://playwright.dev) 1.42 and newer, [Vitest](https://vitest.dev) 3.0 and newer,
 [Jest](https://jestjs.io) 29.0 and newer, [Mocha](https://mochajs.org) 10.0 and newer and
-[Jasmine](https://jasmine.github.io) 4.0 and newer and [Cypress](https://www.cypress.io) 13.0 and newer. It needs
-Node.js 22.12 or newer, and runs on Linux, macOS and Windows, on x64 and Arm.
+[Jasmine](https://jasmine.github.io) 4.0 and newer, [Cypress](https://www.cypress.io) 13.0 and newer and
+[WebdriverIO](https://webdriver.io) 9.0 and newer. It needs Node.js 22.12 or newer, and runs on Linux, macOS and
+Windows, on x64 and Arm.
 
 ## Install
 
@@ -131,7 +132,7 @@ npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" 
 ## Next
 
 - [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest, Mocha,
-  Jasmine, Cypress and Puppeteer.
+  Jasmine, Cypress, WebdriverIO and Puppeteer.
 - The [command line](/guide/cli) options.
 - [Query recipes](/guide/recipes) and [CI recipes](/guide/ci).
 - The [MCP server and other ways in](/guide/agents) for AI agents.
@@ -141,4 +142,4 @@ npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" 
 ---
 
 If test-inventory turns out to be useful to you, [sponsoring its development](https://github.com/sponsors/Huldoser) pays
-for the time that keeps it current with new Playwright, Vitest, Jest, Mocha, Jasmine and Cypress versions.
+for the time that keeps it current with new Playwright, Vitest, Jest, Mocha, Jasmine, Cypress and WebdriverIO versions.
