@@ -58,6 +58,31 @@ describe('rates', () => {
     expect(scanNode("it('uses no import', () => {});").tests).toEqual([]);
   });
 
+  it("reads a function passed by name as the test's function, and its name as the title when there is no other", () => {
+    const inventory = scanNode(`
+import { test } from 'node:test';
+async function fillsMarketOrder() {
+  await placeOrder('AAPL');
+}
+const fillsLimitOrder = async () => {
+  await placeOrder('MSFT', 410.5);
+};
+test('fills a market order', fillsMarketOrder);
+test(fillsMarketOrder);
+test(fillsLimitOrder);
+test('fills with options', { timeout: 500 }, fillsMarketOrder);
+`);
+    // Node.js 26.12.1 runs all four, the second and third titled with the function's name.
+    expect(inventory.tests.map((test) => [test.title, test.timeout, test.bodyHash === null])).toEqual([
+      ['fills a market order', null, false],
+      ['fillsMarketOrder', null, false],
+      ['fillsLimitOrder', null, false],
+      ['fills with options', 500, false],
+    ]);
+    expect(new Set(inventory.tests.map((test) => test.bodyHash)).size).toBe(2);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it('reads skip, todo and only as members and options, with a reason, skip winning over todo', () => {
     const inventory = scanNode(`
 import test from 'node:test';
