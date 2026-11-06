@@ -70,6 +70,7 @@ export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   cypress: new Set(['invalid-chain', 'test-without-body', 'describe-throws']),
   webdriverio: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
   node: new Set(['invalid-chain']),
+  bun: new Set(['invalid-chain', 'test-without-body']),
 };
 
 export function toDiagnostic(

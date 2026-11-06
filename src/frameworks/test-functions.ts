@@ -77,6 +77,8 @@ export interface Dialect {
   defaultImport: string | null;
   /** Why `require()` of the module fails; null when the module can be required. */
   required: string | null;
+  /** Other modules the runner reads as its own, as Bun rewrites `@jest/globals` and `vitest` to `bun:test`. */
+  aliases?: ReadonlySet<string>;
   /** What the module is when called, as `node:test`'s default export and `require()` are its `test`. */
   callable?: Start;
   /** The module's other members, which a chain on the callable module may start with and is then no test. */
@@ -130,7 +132,7 @@ export class SuiteBindings implements TestObjects {
     this.program = program;
     this.isFollowed = isFollowed;
     this.declared = topLevelNames(program);
-    this.imported = moduleImports(program, (source) => source === dialect.source || dialect.mismatched.has(source));
+    this.imported = moduleImports(program, (source) => isOwnModule(dialect, source) || dialect.mismatched.has(source));
     this.follow = follow;
     this.functions = new ModuleFunctions(program, this.imported, follow);
     for (const statement of program.body) {
@@ -145,7 +147,7 @@ export class SuiteBindings implements TestObjects {
           ),
         );
       }
-      if (source !== dialect.source) continue;
+      if (!isOwnModule(dialect, source)) continue;
       for (const specifier of statement.specifiers) {
         this.declarations.add(specifier);
         if (specifier.type === 'ImportNamespaceSpecifier') {
@@ -161,7 +163,7 @@ export class SuiteBindings implements TestObjects {
     const declarators = allDeclarators(program);
     if (dialect.required !== null) {
       for (const declarator of declarators) {
-        if (declarator.init && requiredModule(declarator.init) === dialect.source) {
+        if (declarator.init && isOwnModule(dialect, requiredModule(declarator.init))) {
           this.problems.push(problem('invalid-import', declarator, dialect.required));
         }
       }
@@ -263,7 +265,7 @@ export class SuiteBindings implements TestObjects {
   }
 
   reexports(source: string, imported: string, exported: Exported): boolean {
-    if (source !== this.dialect.source) return this.follow(source, imported, exported);
+    if (!isOwnModule(this.dialect, source)) return this.follow(source, imported, exported);
     return exported === 'test object' && this.dialect.starts.has(imported);
   }
 
@@ -309,6 +311,11 @@ export class SuiteBindings implements TestObjects {
     }
     return true;
   }
+}
+
+/** Whether a module is the framework's own, or one it reads as its own. */
+function isOwnModule(dialect: Dialect, source: string | null): boolean {
+  return source !== null && (source === dialect.source || (dialect.aliases?.has(source) ?? false));
 }
 
 /** Where a chain's names are looked up. */
@@ -362,7 +369,7 @@ export abstract class SuiteAdapter implements Adapter {
     this.problems = [...this.bindings.problems];
     this.imports = moduleImports(
       parsed.program,
-      (source) => source === dialect.source || dialect.mismatched.has(source),
+      (source) => isOwnModule(dialect, source) || dialect.mismatched.has(source),
     );
   }
 
@@ -577,7 +584,7 @@ export abstract class SuiteAdapter implements Adapter {
     const { dialect } = this;
     return {
       name: dialect.name,
-      isSource: (source) => source === dialect.source,
+      isSource: (source) => isOwnModule(dialect, source),
       testObjects: (program, follow) => new SuiteBindings(program, dialect, follow, true),
     };
   }

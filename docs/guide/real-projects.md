@@ -42,6 +42,7 @@ that the projects' runners never load.
 | [cypress-io/cypress-realworld-app](https://github.com/cypress-io/cypress-realworld-app) `0729f68`, e2e and component | Cypress     |    26 |    113 |
 | [webdriverio/webdriverio](https://github.com/webdriverio/webdriverio) `7411de3`, headless end to end                 | WebdriverIO |    28 |    381 |
 | [nodejs/undici](https://github.com/nodejs/undici) `76f0b3e`, unit                                                    | node:test   |   180 |  1,392 |
+| [elysiajs/elysia](https://github.com/elysiajs/elysia) `1cf5ce1`                                                      | Bun         |   137 |  1,633 |
 
 No scan had a `parse-error` or `internal-error`. Most diagnostics are warnings about values the scan can't work out
 without running the code: titles built in loops, `.each` tables built by functions, and tests declared in loops. The

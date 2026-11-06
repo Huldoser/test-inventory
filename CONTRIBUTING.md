@@ -31,7 +31,7 @@ Mode turned on or a terminal run as administrator.
 ## How the code is laid out
 
 - `src/types.ts` is the output format. `schema/v1.json` is generated from it; a test fails when it is out of date.
-- `src/frameworks/` reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO and node:test calls.
+- `src/frameworks/` reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun calls.
   `src/extract.ts` walks a file and `src/records.ts` turns what it found into records.
 - `tests/fixtures/` holds realistic projects of a made-up trading app, one per common setup: Playwright end-to-end
   tests, a Node.js service, React, Vue, browser mode and a monorepo. `tests/examples.ts` lists them, and

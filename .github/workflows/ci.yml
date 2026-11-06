@@ -238,6 +238,12 @@ jobs:
             version: 9.33.1
           - framework: webdriverio
             version: 10.1.0
+          - framework: bun
+            version: 1.2.23
+          - framework: bun
+            version: 1.3.14
+          - framework: bun
+            version: 1.4.4
           - framework: node
             version: 22.23.4
           - framework: node
@@ -253,6 +259,10 @@ jobs:
           # node:test is compared on the Node.js line under test; the other runners on 24.
           node-version: ${{ matrix.framework == 'node' && matrix.version || 24 }}
           cache: npm
+      - if: matrix.framework == 'bun'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ matrix.version }}
       - run: npm ci
       - run: npm run compare -- ${{ matrix.framework }} ${{ matrix.version }}
 

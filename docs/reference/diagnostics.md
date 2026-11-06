@@ -89,6 +89,8 @@ Some problems make the runner fail while it loads a file:
   `notLoaded`. With Jasmine, a call at the top level fails the whole worker, and every test in the file is `notLoaded`;
   inside a describe, it is caught as in Jasmine itself. Other workers still run.
 - node:test: `invalid-chain`. Node.js then fails the file and runs none of its tests; other files still run.
+- Bun: `invalid-chain` and `test-without-body`. Bun then fails the file and runs none of its tests; other files still
+  run.
 
 Every test in such a file, or with WebdriverIO's Mocha every test at or below the call, gets `state: "notLoaded"`, with
 `stateSource: "file"` and `stateLine` at the first of these problems. These tests are counted in `notLoadedCount`, not

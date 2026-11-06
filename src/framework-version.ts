@@ -6,7 +6,7 @@ import { OptionsError } from './options.ts';
 import type { Framework } from './types.ts';
 
 /** The package of each runner; `node:test` ships with Node.js. */
-const PACKAGES: Record<Exclude<Framework, 'node'>, string> = {
+const PACKAGES: Record<Exclude<Framework, 'node' | 'bun'>, string> = {
   playwright: '@playwright/test',
   vitest: 'vitest',
   jest: 'jest',
@@ -18,7 +18,7 @@ const PACKAGES: Record<Exclude<Framework, 'node'>, string> = {
 };
 
 /** The packages that give a framework's version, the first found. */
-function versionPackages(framework: Exclude<Framework, 'node'>): string[] {
+function versionPackages(framework: Exclude<Framework, 'node' | 'bun'>): string[] {
   return framework === 'jasmine' ? [PACKAGES.jasmine, 'jasmine'] : [PACKAGES[framework]];
 }
 
@@ -26,7 +26,7 @@ function versionPackages(framework: Exclude<Framework, 'node'>): string[] {
  * The packages that show a project runs a framework. For Jasmine, the jasmine command or Karma's adapter: jasmine-core
  * alone is often left over in projects that moved to Jest, or comes with type packages.
  */
-function runnerPackages(framework: Exclude<Framework, 'node'>): string[] {
+function runnerPackages(framework: Exclude<Framework, 'node' | 'bun'>): string[] {
   return framework === 'jasmine' ? ['jasmine', 'karma-jasmine'] : [PACKAGES[framework]];
 }
 
@@ -40,10 +40,11 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
   cypress: 'Cypress',
   webdriverio: 'WebdriverIO',
   node: 'node:test',
+  bun: 'Bun',
 };
 
-/** Oldest supported version of each framework. */
-export const OLDEST: Record<Framework, [number, number]> = {
+/** Oldest supported version of each framework, as major, minor and for Bun, whose 1.2.23 changed how it runs tests, patch. */
+export const OLDEST: Record<Framework, number[]> = {
   playwright: [1, 42],
   vitest: [3, 0],
   jest: [29, 0],
@@ -52,6 +53,7 @@ export const OLDEST: Record<Framework, [number, number]> = {
   cypress: [13, 0],
   webdriverio: [9, 0],
   node: [22, 0],
+  bun: [1, 2, 23],
 };
 
 /** Where the framework version came from. */
@@ -149,6 +151,7 @@ export function detectFrameworkVersion(
   files: readonly string[],
 ): DetectedVersion | null {
   if (framework === 'node') return nodeVersion(root);
+  if (framework === 'bun') return bunVersion(root);
   for (const name of versionPackages(framework)) {
     const found = detectIn(root, folders(root), name);
     if (found) return found;
@@ -231,6 +234,39 @@ function compareParts(a: number[], b: number[]): number {
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
+/**
+ * The Bun version a project pins: `.bun-version`, which setup-bun reads, or `packageManager` or `engines.bun` in
+ * package.json, in the root, then in each folder above it; else the version of `@types/bun` or `bun-types`, which Bun
+ * publishes with each release, read as other packages are.
+ */
+function bunVersion(root: string): DetectedVersion | null {
+  const source = (folder: string, file: string) => path.relative(root, path.join(folder, file)).replaceAll('\\', '/');
+  for (const folder of folders(root)) {
+    const pinned = readText(path.join(folder, '.bun-version'))?.trim() ?? '';
+    if (/^v?\d+\.\d+\.\d+$/.test(pinned)) {
+      return { version: pinned.replace(/^v/, ''), source: source(folder, '.bun-version'), range: null };
+    }
+    const manifest = readJson(path.join(folder, 'package.json')) as {
+      packageManager?: unknown;
+      engines?: { bun?: unknown };
+    } | null;
+    const manager =
+      typeof manifest?.packageManager === 'string' ? /^bun@(\d+\.\d+\.\d+)/.exec(manifest.packageManager) : null;
+    if (manager) return { version: manager[1], source: source(folder, 'package.json'), range: null };
+    const engines = manifest?.engines?.bun;
+    const lowest = typeof engines === 'string' ? /\d+\.\d+(\.\d+)?/.exec(engines) : null;
+    if (typeof engines === 'string' && lowest) {
+      const [major, minor, patch = '0'] = lowest[0].split('.');
+      return { version: `${major}.${minor}.${patch}`, source: source(folder, 'package.json'), range: engines };
+    }
+  }
+  for (const name of ['@types/bun', 'bun-types']) {
+    const found = detectIn(root, folders(root), name);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** Config file names of each runner. A Vite config alone doesn't count, as Vite apps without Vitest have one. */
 const CONFIG_NAMES: Record<Framework, RegExp> = {
   playwright: /^playwright\.config\.[cm]?[jt]s$/,
@@ -242,7 +278,18 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
   cypress: /^cypress\.config\.[cm]?[jt]s$/,
   webdriverio: /^wdio\.conf\.[cm]?[jt]s$/,
   node: /^node\.config\.json$/,
+  bun: /^bunfig\.toml$/,
 };
+
+/**
+ * Whether a file is a runner's config. A `bunfig.toml` counts only with a `[test]` table, as projects that run another
+ * runner keep one for Bun's installs.
+ */
+function isConfig(root: string, file: string, framework: Framework): boolean {
+  if (!CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) return false;
+  // A file that can't be read gives null, which holds no table.
+  return framework !== 'bun' || /^\s*\[test\]/m.test(String(readText(path.join(root, file))));
+}
 
 /**
  * Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config, or for
@@ -251,6 +298,11 @@ const CONFIG_NAMES: Record<Framework, RegExp> = {
 function declares(manifest: string, framework: Framework): boolean {
   const json = readJson(manifest) as Record<string, Record<string, unknown> | undefined> | null;
   const fields = ['devDependencies', 'dependencies', 'peerDependencies', 'optionalDependencies'];
+  if (framework === 'bun') {
+    return Object.values(json?.scripts ?? {}).some(
+      (script) => typeof script === 'string' && /(^|[\s;&|(])bun\s+test(?=\s|$)/.test(script),
+    );
+  }
   if (framework === 'node') {
     return Object.values(json?.scripts ?? {}).some(
       (script) => typeof script === 'string' && nodeTestCommands(script).length > 0,
@@ -277,6 +329,7 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
       '**/spec/support/jasmine.*',
       '**/wdio.conf.*',
       '**/node.config.json',
+      '**/bunfig.toml',
     ],
     {
       cwd: root,
@@ -287,17 +340,17 @@ export function detectFramework(root: string, ignore: readonly string[]): Framew
   const above = folders(root)
     .slice(1)
     .map((folder) => path.join(folder, 'package.json'));
-  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress', 'webdriverio', 'node'] as const;
+  const all = ['playwright', 'vitest', 'jest', 'mocha', 'jasmine', 'cypress', 'webdriverio', 'node', 'bun'] as const;
   let found: Framework[] = all.filter(
     (framework) =>
-      below.some((file) => CONFIG_NAMES[framework].test(framework === 'jasmine' ? file : path.basename(file))) ||
+      below.some((file) => isConfig(root, file, framework)) ||
       manifests.some((manifest) => declares(manifest, framework)),
   );
   if (found.length === 0) found = all.filter((framework) => above.some((manifest) => declares(manifest, framework)));
   if (found.length === 1) return found[0];
   if (found.length === 0) {
     throw new OptionsError(
-      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli or has a script that runs node --test, and no config of theirs is in the root or below.',
+      'options.framework is needed: no package.json in the root, below it or above it lists @playwright/test, vitest, jest, mocha, jasmine, cypress or @wdio/cli or has a script that runs node --test or bun test, and no config of theirs is in the root or below.',
     );
   }
   const names = found.map((framework) => FRAMEWORK_NAMES[framework]);

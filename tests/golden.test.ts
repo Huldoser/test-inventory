@@ -26,6 +26,7 @@ describe('golden output', () => {
     ['cypress', 'cypress.cy.ts', ['15.9.0', '16.0.0']],
     ['webdriverio', 'webdriverio.e2e.ts', ['9.0.0', '10.0.0']],
     ['node', 'node.test.ts', ['22.12.0', '24.19.0', '26.8.0']],
+    ['bun', 'bun.test.ts', ['1.2.23', '1.4.4']],
   ] as const)('of the %s syntax tour', (framework, file, versions) => {
     const code = readFileSync(path.join(fixtures, 'syntax', file), 'utf8');
     it.each(versions)('matches for version %s', async (frameworkVersion) => {

@@ -1,0 +1,4 @@
+[test]
+root = "src"
+retry = 1
+concurrentTestGlob = "**/routing/*.spec.ts"

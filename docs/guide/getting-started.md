@@ -1,5 +1,5 @@
 ---
-description: Install test-inventory and list the tests of a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO or node:test suite as JSON, without running them.
+description: Install test-inventory and list the tests of a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test or Bun suite as JSON, without running them.
 ---
 
 # Getting started
@@ -10,9 +10,9 @@ and never runs it, so it needs no browsers, no build and no configuration of the
 It supports [Playwright](https://playwright.dev) 1.42 and newer, [Vitest](https://vitest.dev) 3.0 and newer,
 [Jest](https://jestjs.io) 29.0 and newer, [Mocha](https://mochajs.org) 10.0 and newer,
 [Jasmine](https://jasmine.github.io) 4.0 and newer, [Cypress](https://www.cypress.io) 13.0 and newer,
-[WebdriverIO](https://webdriver.io) 9.0 and newer, and [node:test](https://nodejs.org/api/test.html) 22.0 and newer,
-which is Node.js's own runner and goes by the Node.js version. It needs Node.js 22.12 or newer, and runs on Linux, macOS
-and Windows, on x64 and Arm.
+[WebdriverIO](https://webdriver.io) 9.0 and newer, [node:test](https://nodejs.org/api/test.html) 22.0 and newer, which
+is Node.js's own runner and goes by the Node.js version, and [Bun](https://bun.com)'s `bun test`, Bun 1.2.23 and newer.
+It needs Node.js 22.12 or newer, and runs on Linux, macOS and Windows, on x64 and Arm.
 
 ## Install
 
@@ -133,7 +133,7 @@ npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" 
 ## Next
 
 - [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest, Mocha,
-  Jasmine, Cypress, WebdriverIO, node:test and Puppeteer.
+  Jasmine, Cypress, WebdriverIO, node:test, Bun and Puppeteer.
 - The [command line](/guide/cli) options.
 - [Query recipes](/guide/recipes) and [CI recipes](/guide/ci).
 - The [MCP server and other ways in](/guide/agents) for AI agents.
@@ -143,5 +143,5 @@ npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" 
 ---
 
 If test-inventory turns out to be useful to you, [sponsoring its development](https://github.com/sponsors/Huldoser) pays
-for the time that keeps it current with new Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO and Node.js
-versions.
+for the time that keeps it current with new Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, Node.js and
+Bun versions.

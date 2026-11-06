@@ -1,8 +1,8 @@
-// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node> <version>
+// Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node|bun> <version>
 //
 // Copies the fixture project for the framework to a temporary folder, installs that version of the runner, has the
 // runner list the tests (Playwright) or run them with its JSON reporter (Vitest, Jest) or one of ours (Mocha, Jasmine,
-// Cypress, WebdriverIO, node:test, whose version is the Node.js running this), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
+// Cypress, WebdriverIO, node:test, whose version is the Node.js running this, Bun, its JUnit report), and compares tests, states and tags with the inventory, scanned once as it is by default and once with
 // expandCases, whose cases must have the runner's names. Differences described in
 // tests/compare/expected-differences.json are allowed; any other difference fails the run.
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -82,6 +82,12 @@ const PROJECTS: Record<Framework, { fixture: string; patterns: string[]; package
       '@wdio/local-runner': version,
       '@wdio/mocha-framework': version,
     }),
+  },
+  // Bun ships its own runner, so CI picks the version with setup-bun; this checks it runs the one asked for.
+  bun: {
+    fixture: 'quote-gateway',
+    patterns: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
+    packages: () => ({}),
   },
   // node:test ships with Node.js, so CI picks the version with setup-node; this checks it runs the one asked for.
   node: {
@@ -322,6 +328,59 @@ function webdriverioTests(work: string): RunnerTest[] {
   });
 }
 
+/** XML's escapes in an attribute. */
+function unescapeXml(text: string): string {
+  const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  return text.replace(/&(#x?[0-9a-f]+|\w+);/gi, (written, name: string) =>
+    name.startsWith('#')
+      ? String.fromCodePoint(Number.parseInt(name.slice(name[1] === 'x' ? 2 : 1), name[1] === 'x' ? 16 : 10))
+      : (named[name] ?? written),
+  );
+}
+
+/**
+ * Bun's tests, run with its JUnit reporter, which gives each test's file, line and the describes around it, nested as
+ * test suites inside the one for the file. A skipped test has `<skipped/>`, a todo one `<skipped message="TODO"/>`.
+ */
+function bunTests(work: string, version: string): RunnerTest[] {
+  const running = run('bun', ['--version'], work).trim();
+  if (running !== version) throw new Error(`Bun ${running} runs this, not ${version}; set it up with setup-bun.`);
+  const output = path.join(work, 'bun-tests.xml');
+  try {
+    run('bun', ['test', '--reporter=junit', `--reporter-outfile=${output}`], work);
+  } catch {
+    // A failing test makes bun test exit with 1; the report still holds every test.
+  }
+  const tests: RunnerTest[] = [];
+  const suites: string[] = [];
+  let current: RunnerTest | null = null;
+  for (const [tag] of readFileSync(output, 'utf8').matchAll(/<\/?(testsuite|testcase|skipped)\b[^>]*>/g)) {
+    const attribute = (name: string) => {
+      const found = new RegExp(`\\s${name}="([^"]*)"`).exec(tag);
+      return found ? unescapeXml(found[1]) : null;
+    };
+    if (tag.startsWith('<testsuite')) {
+      suites.push(attribute('name') ?? '');
+      if (tag.endsWith('/>')) suites.pop();
+    } else if (tag.startsWith('</testsuite')) {
+      suites.pop();
+    } else if (tag.startsWith('<testcase')) {
+      current = {
+        file: posix(path.relative(work, path.resolve(work, attribute('file') ?? ''))),
+        line: Number(attribute('line')),
+        // The outermost suite is the file.
+        name: [...suites.slice(1), attribute('name') ?? ''].join(' > '),
+        status: 'ran',
+        tags: [],
+      };
+      tests.push(current);
+    } else if (tag.startsWith('<skipped') && current) {
+      current.status = attribute('message') === 'TODO' ? 'todo' : 'skipped';
+    }
+  }
+  return tests;
+}
+
 /** node:test's tests, run with a reporter of ours, which gives each test's line and the titles around it. */
 function nodeTests(work: string, version: string): RunnerTest[] {
   if (process.versions.node !== version) {
@@ -473,7 +532,7 @@ async function main(): Promise<void> {
   const [name, version = ''] = process.argv.slice(2);
   if (!Object.hasOwn(PROJECTS, name) || !/^\d+\.\d+\.\d+$/.test(version)) {
     throw new Error(
-      'Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node> <version>',
+      'Usage: node scripts/compare-runners.ts <playwright|vitest|jest|mocha|jasmine|cypress|webdriverio|node|bun> <version>',
     );
   }
   const framework = name as Framework;
@@ -497,6 +556,7 @@ async function main(): Promise<void> {
       cypress: cypressTests,
       webdriverio: webdriverioTests,
       node: (work: string) => nodeTests(work, version),
+      bun: (work: string) => bunTests(work, version),
     };
     const listed = listers[framework](work);
     const rules = JSON.parse(
@@ -505,8 +565,8 @@ async function main(): Promise<void> {
     const lines = [`### ${framework} ${version}`, ''];
     let unexpected = 0;
     for (const expandCases of [false, true]) {
-      // node:test has no package to read its version from; it is the Node.js running the comparison.
-      const frameworkVersion = framework === 'node' ? process.versions.node : undefined;
+      // node:test and Bun have no package to read their version from; it is the one running the comparison.
+      const frameworkVersion = framework === 'node' ? process.versions.node : framework === 'bun' ? version : undefined;
       const inventory = await scan({
         root: work,
         patterns: project.patterns,

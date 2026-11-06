@@ -345,3 +345,77 @@ function prettyFormatMin(value: Value, depth = 0): string {
   const keys = Object.keys(value).sort();
   return `{${keys.map((key) => `${prettyFormatMin(key)}: ${prettyFormatMin(value[key], depth + 1)}`).join(', ')}}`;
 }
+
+/**
+ * The title Bun gives one case of `.each`, read from Bun 1.2.23, 1.3.14 and 1.4.4: for a case whose first value is an
+ * object, first `$key` and `$key.path` for its values, then for every case the placeholders, left to right. `%s` takes
+ * a string, `%d` and `%f` a number, `%i` an integer, `%j` and `%o` any value as JSON; a value of another type leaves
+ * the placeholder as written, but is used up. `%#` is the index, `%%` a `%`, and `%` before any other character is
+ * dropped. Once the values are used up, the rest stays as written. Null where Bun pretty-prints: `%p`, and `$key`
+ * of an object, `null` or `undefined`.
+ */
+export function bunCaseTitle(
+  template: string,
+  args: readonly Value[],
+  index: number,
+  version: readonly [number, number] | null,
+): string | null {
+  let text = template;
+  const [first] = args;
+  if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
+    const quotes = version !== null && (version[0] < 1 || (version[0] === 1 && version[1] < 3));
+    const shown = { all: true };
+    text = text.replace(/\$([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/g, (written, path: string) => {
+      let value: Value | undefined = first;
+      for (const key of path.split('.')) {
+        value = value !== null && typeof value === 'object' && !Array.isArray(value) ? value[key] : undefined;
+      }
+      if (value === undefined && !hasPath(first, path)) return written;
+      if (typeof value === 'string') return quotes ? JSON.stringify(value) : value;
+      if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
+      if (typeof value === 'boolean') return String(value);
+      shown.all = false;
+      return written;
+    });
+    if (!shown.all) return null;
+  }
+  let out = '';
+  let used = 0;
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at];
+    if (char !== '%' || at === text.length - 1) {
+      out += char;
+      continue;
+    }
+    if (used >= args.length) return out + text.slice(at);
+    const placeholder = text[++at];
+    if (placeholder === '#') out += String(index);
+    else if (placeholder === '%') out += '%';
+    else if (placeholder === 'p') return null;
+    else if ('sdfijo'.includes(placeholder)) {
+      const formatted = bunValue(placeholder, args[used++]);
+      if (formatted === null) return null;
+      out += formatted;
+    } else out += placeholder;
+  }
+  return out;
+}
+
+/** Whether an object has a value at a dotted path, `undefined` included. */
+function hasPath(item: Value, path: string): boolean {
+  let value: Value | undefined = item;
+  for (const key of path.split('.')) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value) || !(key in value)) return false;
+    value = value[key];
+  }
+  return true;
+}
+
+/** One placeholder of a Bun title, or the placeholder as written for a value of another type; null for a JSON Bun shows otherwise. */
+function bunValue(placeholder: string, value: Value): string | null {
+  const written = `%${placeholder}`;
+  if (placeholder === 's') return typeof value === 'string' ? value : written;
+  if (placeholder === 'd' || placeholder === 'f') return typeof value === 'number' ? String(value) : written;
+  if (placeholder === 'i') return typeof value === 'number' && Number.isInteger(value) ? String(value) : written;
+  return value === undefined ? null : JSON.stringify(value);
+}
