@@ -18,6 +18,7 @@ import { nodeTestCommands } from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
+import type { ImportMap } from './resolve.ts';
 import type { ConfigDefaults, FileConfig, TagDefinition, TagOptions, VitestTags } from './records.ts';
 import type { Framework, MetaValue, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
 import {
@@ -1982,6 +1983,82 @@ export function webdriverioFramework(placement: Placement, configs: Configs | nu
     configs?.reportConfig(config as ConfigFile, message);
   }
   return 'mocha';
+}
+
+/**
+ * How the config a file runs with maps its imports, for its dependencies: Vite's `resolve.alias` and Vitest's
+ * `test.alias`, from the project and from the config file, and Jest's `moduleNameMapper`, `modulePaths` and
+ * `moduleDirectories` other than `node_modules`, with `<rootDir>` in them. Null for the other runners, without a
+ * config, or when it maps nothing.
+ */
+export function importMap(placement: Placement, framework: Framework): ImportMap | null {
+  const { config, settings } = placement;
+  if (!config || !settings) return null;
+  // The files of a project share its map, so the modules they import are read once.
+  if (!importMaps.has(settings)) importMaps.set(settings, readImportMap(config, settings, placement, framework));
+  return importMaps.get(settings) ?? null;
+}
+
+const importMaps = new WeakMap<Setting, ImportMap | null>();
+
+function readImportMap(
+  config: ConfigFile,
+  settings: Setting,
+  placement: Placement,
+  framework: Framework,
+): ImportMap | null {
+  const map: ImportMap = { aliases: [], paths: [], directories: [] };
+  if (framework === 'vitest') {
+    const sources = settings === config.settings ? [settings] : [settings, config.settings];
+    for (const source of sources) {
+      for (const key of [
+        ['test', 'alias'],
+        ['resolve', 'alias'],
+      ])
+        map.aliases.push(...viteAliases(settingAt(source, key)));
+    }
+  } else if (framework === 'jest') {
+    const rootDir = placement.projects?.[0]?.root ?? path.dirname(config.file);
+    const mapper = settingAt(settings, ['moduleNameMapper']);
+    for (const [pattern, target] of mapper?.kind === 'object' ? mapper.keys : []) {
+      const replacements = (target.kind === 'list' ? strings(target) : stringOf(target)).map((item) =>
+        replaceRootDir(rootDir, item),
+      );
+      const find = regExp(pattern, '');
+      if (find && replacements.length > 0) map.aliases.push({ find, replacements });
+    }
+    map.paths = strings(settingAt(settings, ['modulePaths'])).map((item) =>
+      path.resolve(rootDir, replaceRootDir(rootDir, item)),
+    );
+    map.directories = strings(settingAt(settings, ['moduleDirectories'])).filter((name) => name !== 'node_modules');
+  }
+  return map.aliases.length + map.paths.length + map.directories.length > 0 ? map : null;
+}
+
+/**
+ * Vite's aliases: an object of names and their replacements, or a list of `{ find, replacement }`, where `find` is a
+ * name or a regex. Entries the scan can't work out are left out.
+ */
+function viteAliases(setting: Setting | null): ImportMap['aliases'] {
+  if (setting?.kind === 'object') {
+    return [...setting.keys].flatMap(([find, target]) =>
+      stringOf(target).map((replacement) => ({ find, replacements: [replacement] })),
+    );
+  }
+  if (setting?.kind !== 'list') return [];
+  return setting.items.flatMap((item) => {
+    const find = settingAt(item, ['find']);
+    const replacements = stringOf(settingAt(item, ['replacement']));
+    const name = find?.kind === 'value' && typeof find.value === 'string' ? find.value : null;
+    const pattern = find?.kind === 'regex' ? regExp(find.source, find.flags) : null;
+    const written = name ?? pattern;
+    return written !== null && replacements.length > 0 ? [{ find: written, replacements }] : [];
+  });
+}
+
+/** A setting's string as a list of one; empty for anything else. */
+function stringOf(setting: Setting | null): string[] {
+  return setting?.kind === 'value' && typeof setting.value === 'string' ? [setting.value] : [];
 }
 
 /** Whether a Node.js version runs TypeScript files without a flag: from 22.18 on the 22 line, and from 23.6. */
