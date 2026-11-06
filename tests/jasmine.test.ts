@@ -255,6 +255,22 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it("counts a describe callback's arguments by its length, as Jasmine does: not TypeScript's this, a default or a rest", () => {
+    const inventory = scanJasmine(`
+describe('order router', function (this: object) {
+  it('routes a market order', () => {});
+});
+describe('smart routing', (venues = ['XNAS']) => {
+  it('splits across venues', () => {});
+});
+describe('dark pools', (...pools) => {
+  it('matches at the midpoint', () => {});
+});
+`);
+    expect(inventory.tests.map((test) => test.state)).toEqual(['active', 'active', 'active']);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it('reports those at the top level of a file, which stop the whole run, and lists the tests as not loaded', () => {
     const inventory = scanJasmine(`
 describe('settlement', () => {
