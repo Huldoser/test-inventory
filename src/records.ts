@@ -86,8 +86,11 @@ export interface VitestTags {
 
 /** What the config the file uses gives it. */
 export interface FileConfig {
-  /** Whether a `.only` fails the run: Playwright's `forbidOnly`, always, never, or under the condition with this text. */
-  forbidOnly: boolean | string;
+  /**
+   * Why a `.only` fails, from Playwright's `forbidOnly` or Vitest's `allowOnly`, and whether it surely does; null when
+   * it doesn't.
+   */
+  forbidOnly: { message: string; isSure: boolean } | null;
   /** The names of the projects that run a test, null when unknown, and what they set for it. */
   forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
   /** Vitest's tags; null when the scan can't work them out, or the projects that run the file define different ones. */
@@ -436,15 +439,11 @@ class RecordBuilder {
    * warning. `call` is the `.only` call when it is in this file, whose callee the diagnostic shows.
    */
   private forbidOnly(located: Span, call: CallExpression | null): void {
-    const forbid = this.options.config?.forbidOnly ?? false;
-    if (forbid === false) return;
-    const message =
-      forbid === true
-        ? 'The config sets forbidOnly, so this .only fails the run before any test runs.'
-        : `The config sets forbidOnly when ${forbid}, so then this .only fails the run before any test runs.`;
+    const forbid = this.options.config?.forbidOnly ?? null;
+    if (forbid === null) return;
     const callee = call && snippet(this.parsed.source.text.slice(call.callee.start, call.callee.end));
-    const found = problem('forbidden-only', located, message, callee);
-    this.diagnostics.push(this.diagnostic(forbid === true ? found : { ...found, level: 'warning' }));
+    const found = problem('forbidden-only', located, forbid.message, callee);
+    this.diagnostics.push(this.diagnostic(forbid.isSure ? found : { ...found, level: 'warning' }));
   }
 
   private suite(pending: PendingSuite): SuiteRecord {

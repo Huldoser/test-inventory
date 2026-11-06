@@ -40,6 +40,8 @@ export interface FileSettings {
   config?: FileConfig | null;
   /** The interface Mocha's config sets for the tests: `describe` and `it`, or `suite` and `test`. */
   mochaInterface?: MochaInterface;
+  /** The length Vitest's config shortens a value in a case title to; Vitest's default, 40, when unset. */
+  titleTruncate?: number;
   /** The framework a WebdriverIO config runs the specs with. */
   webdriverioFramework?: WebdriverIOFramework;
   /** Shared by the files of one scan, so that code many tests reach is read once. */
@@ -64,7 +66,7 @@ const ADAPTERS: Record<
   (parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, settings: FileSettings) => Adapter
 > = {
   playwright: (parsed, file, readModule) => new PlaywrightAdapter(parsed.program, file, readModule),
-  vitest: (parsed, file, readModule) => new VitestAdapter(parsed, file, readModule),
+  vitest: (parsed, file, readModule, settings) => new VitestAdapter(parsed, file, readModule, settings.titleTruncate),
   jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
   mocha: (parsed, file, readModule, settings) => new MochaAdapter(parsed, file, readModule, settings.mochaInterface),
   jasmine: (parsed, file, readModule) => new JasmineAdapter(parsed, file, readModule),

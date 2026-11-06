@@ -250,7 +250,8 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
       ['cancels an order', 'active', true, null],
       ['amends an order', 'skip', false, 'config'],
     ]);
-    expect(codes(inventory)).toEqual([]);
+    // A .only, which Vitest fails in CI, where allowOnly is off by default.
+    expect(codes(inventory)).toEqual(['forbidden-only']);
   });
 
   it("lets skipIf and runIf replace a tag's skip from Vitest 5, and an option set to undefined leave it", async () => {
