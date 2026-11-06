@@ -12,9 +12,11 @@ Notes for coding agents working in this repository. People should read CONTRIBUT
 ## Layout
 
 - `src/types.ts`: the output format and the source of `schema/v1.json`.
-- `src/frameworks/playwright.ts`, `src/frameworks/vitest.ts`: which calls are tests, describes or modifiers.
+- `src/frameworks/`: a file per runner, with which calls are tests, describes or modifiers; the parts they share are in
+  `common.ts`, `bindings.ts` and `test-functions.ts`.
 - `src/extract.ts`: walks one file. `src/records.ts`: builds records, ids and hashes. `src/scan.ts`: files and versions.
-- `src/resolve.ts`: finds the file a test object is imported from: relative paths, tsconfig paths, `#imports`, workspaces.
+- `src/resolve.ts`: finds the file a test object is imported from: relative paths, config aliases,
+  tsconfig paths, `#imports`, workspaces.
 - `tests/fixtures/`: realistic trading-app projects and per-framework syntax files. Never run by the test suite.
 - `tests/golden/`: expected scan output, updated only with `npx vitest run tests/golden.test.ts -u` and reviewed.
 - `tests/docs.test.ts`: checks the docs against the fixtures. Code and JSON blocks in docs carry a `<!-- code: -->`,
