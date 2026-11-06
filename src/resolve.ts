@@ -368,6 +368,8 @@ export interface ImportMap {
   paths: string[];
   /** Names of folders a bare name is looked for in, in the importing file's folder and each folder above it. */
   directories: string[];
+  /** Vite's root, from which it takes an alias's path that starts with `/` first; null for Jest. */
+  root: string | null;
 }
 
 /** A file a bare name stands for in the folders an import map adds; null when none has it. */
@@ -472,8 +474,13 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
     (specifier) => {
       const directory = path.dirname(fromFile);
       const aliased = map?.aliases.map((alias) => mapped(specifier, alias)).find((names) => names !== null);
+      // Vite takes `/src/x` from its root first, unless it is already a path inside the root.
+      const fromRoot = (name: string) =>
+        map?.root && name.startsWith('/') && !name.startsWith(map.root + path.sep)
+          ? [path.join(map.root, name), name]
+          : [name];
       // The config maps the name to others, each a path or a name looked up as written, the first that is found.
-      const located = (aliased ?? [specifier]).map((name) => locate(name, directory, map));
+      const located = (aliased?.flatMap(fromRoot) ?? [specifier]).map((name) => locate(name, directory, map));
       const found = located.find((item) => typeof item === 'string');
       if (found === undefined) {
         return aliased

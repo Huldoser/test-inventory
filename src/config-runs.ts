@@ -2038,8 +2038,9 @@ function readImportMap(
   placement: Placement,
   framework: Framework,
 ): ImportMap | null {
-  const map: ImportMap = { aliases: [], paths: [], directories: [] };
+  const map: ImportMap = { aliases: [], paths: [], directories: [], root: null };
   if (framework === 'vitest') {
+    map.root = placement.projects?.[0]?.root ?? path.dirname(config.file);
     const sources = settings === config.settings ? [settings] : [settings, config.settings];
     for (const source of sources) {
       for (const key of [
@@ -2061,7 +2062,12 @@ function readImportMap(
     map.paths = strings(settingAt(settings, ['modulePaths'])).map((item) =>
       path.resolve(rootDir, replaceRootDir(rootDir, item)),
     );
-    map.directories = strings(settingAt(settings, ['moduleDirectories'])).filter((name) => name !== 'node_modules');
+    // A `<rootDir>` entry of moduleDirectories is a folder, as a modulePaths entry is, not a name to look for.
+    for (const item of strings(settingAt(settings, ['moduleDirectories']))) {
+      const directory = replaceRootDir(rootDir, item);
+      if (path.isAbsolute(directory)) map.paths.push(directory);
+      else if (directory !== 'node_modules') map.directories.push(directory);
+    }
   }
   return map.aliases.length + map.paths.length + map.directories.length > 0 ? map : null;
 }

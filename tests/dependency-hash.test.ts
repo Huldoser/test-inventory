@@ -441,6 +441,31 @@ test('quotes the mid price of AAPL', () => {
     ]);
   });
 
+  it('follows a Vite alias to a path that starts with /, from the root first, as Vite does', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+
+export default defineConfig({ resolve: { alias: { '@desk': '/src/desk' } } });
+`,
+      'src/desk/orders.ts': 'export const placeOrder = (symbol: string) => ({ symbol, status: "new" });\n',
+      'tests/orders.test.ts': `import { expect, test } from 'vitest';
+import { placeOrder } from '@desk/orders';
+
+test('places an order for AAPL', () => {
+  expect(placeOrder('AAPL').status).toBe('new');
+});
+`,
+    });
+    // Vitest 3.2.7, 4.1.12 and 5.1.0 load src/desk/orders.ts.
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['src/desk/orders.ts', 'tests/orders.test.ts', 'vitest.config.ts'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it("follows Vite's alias list, with a name or a regex, and Vitest's test.alias, to paths or other names", async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,
@@ -554,6 +579,26 @@ test('shows the spread on the blotter', () => {
       hasUnfollowedDependencies: false,
     });
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it("takes a <rootDir> entry of Jest's moduleDirectories as a folder to look in", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
+      'jest.config.js': "module.exports = { moduleDirectories: ['node_modules', '<rootDir>/src'] };\n",
+      'src/ledger/book.js': "module.exports = { book: () => 'booked' };\n",
+      'tests/ledger.test.js': `const { book } = require('ledger/book');
+
+test('books a trade in the ledger', () => {
+  expect(book()).toBe('booked');
+});
+`,
+    });
+    // Jest 30.5.2 runs it, loading src/ledger/book.js.
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['jest.config.js', 'src/ledger/book.js', 'tests/ledger.test.js'],
+      hasUnfollowedDependencies: false,
+    });
   });
 
   it('finds the TypeScript source of an import written with a JavaScript extension, as TypeScript does', async () => {
