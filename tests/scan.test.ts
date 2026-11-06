@@ -1,7 +1,7 @@
 import { symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { scan, scanSource, type ScanOptions } from '../src/index.ts';
+import { scan, scanSource, type Framework, type ScanOptions } from '../src/index.ts';
 import { findFiles, normalizePattern } from '../src/files.ts';
 import { scanFile } from '../src/scan-file.ts';
 import { expectValidInventory, onlyTest } from './helpers.ts';
@@ -1215,6 +1215,77 @@ describe('scan and symbolic links', () => {
     const vitest = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest', frameworkVersion: '5.0.3' });
     // Read once, from the file's own path, though the link sorts first.
     expect(vitest.tests.map((test) => test.relativeFilePath)).toEqual(['tests/orders.test.ts']);
+  });
+
+  function linkedProject(extension: string): string {
+    const root = project({
+      [`shared/fees.test.${extension}`]: '',
+      [`tests/orders.test.${extension}`]: '',
+      [`tests/settlement.test.${extension}`]: '',
+    });
+    symlinkSync(path.join(root, 'shared'), path.join(root, 'tests/linked'), 'junction');
+    symlinkSync(path.join(root, `shared/fees.test.${extension}`), path.join(root, `tests/fees.test.${extension}`));
+    return root;
+  }
+
+  async function found(root: string, patterns: string[], framework: Framework) {
+    const { files, diagnostics } = await findFiles(root, patterns, [], framework);
+    return {
+      files: files.map((file) => file.relativeFilePath),
+      ignored: diagnostics.map((diagnostic) => `${diagnostic.relativeFilePath}: ${diagnostic.message}`),
+    };
+  }
+
+  it('reads linked files once for Jasmine, as Vitest does (TI-93)', async () => {
+    const root = linkedProject('js');
+    expect(await found(root, ['tests/**/*.test.js'], 'jasmine')).toEqual({
+      files: ['tests/fees.test.js', 'tests/orders.test.js', 'tests/settlement.test.js'],
+      ignored: [],
+    });
+  });
+
+  it('reads linked files once for Bun, by their own path, as Bun reports them (TI-93)', async () => {
+    const root = linkedProject('ts');
+    const outside = project({ 'quotes.test.ts': '' });
+    symlinkSync(path.join(outside, 'quotes.test.ts'), path.join(root, 'tests/quotes.test.ts'));
+    expect(await found(root, ['tests/**/*.test.ts'], 'bun')).toEqual({
+      // A file outside the project keeps the link's path, as output paths never leave the root.
+      files: ['shared/fees.test.ts', 'tests/orders.test.ts', 'tests/quotes.test.ts', 'tests/settlement.test.ts'],
+      ignored: [],
+    });
+  });
+
+  it('reads a linked file for node:test, twice when its own path matches too, but not a linked folder a wildcard reaches (TI-93)', async () => {
+    const root = linkedProject('mjs');
+    expect(await found(root, ['**/*.test.mjs'], 'node')).toEqual({
+      files: ['shared/fees.test.mjs', 'tests/fees.test.mjs', 'tests/orders.test.mjs', 'tests/settlement.test.mjs'],
+      ignored: [
+        'tests/linked/fees.test.mjs: The file is in a linked folder, which a wildcard in a node:test pattern does not enter.',
+      ],
+    });
+    expect(await found(root, ['tests/linked/*.test.mjs'], 'node')).toEqual({
+      files: ['tests/linked/fees.test.mjs'],
+      ignored: [],
+    });
+    expect(await found(root, ['tests/*/fees.test.mjs'], 'node')).toEqual({
+      files: [],
+      ignored: [
+        'tests/linked/fees.test.mjs: The file is in a linked folder, which a wildcard in a node:test pattern does not enter.',
+      ],
+    });
+  });
+
+  it.each([
+    ['cypress', 'Cypress'],
+    ['webdriverio', 'WebdriverIO'],
+  ] as const)('names %s when it leaves out a linked file (TI-93)', async (framework, name) => {
+    const root = linkedProject('js');
+    expect(await found(root, ['tests/*.test.js'], framework)).toEqual({
+      files: ['tests/orders.test.js', 'tests/settlement.test.js'],
+      ignored: [
+        `tests/fees.test.js: The file is reached through a symbolic link, which the scan does not follow for ${name}.`,
+      ],
+    });
   });
 });
 

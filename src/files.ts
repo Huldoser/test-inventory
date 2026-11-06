@@ -1,7 +1,9 @@
-import { readdir, realpath, realpathSync } from 'node:fs';
+import { lstatSync, readdir, realpath, realpathSync } from 'node:fs';
 import path from 'node:path';
+import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import { fileDiagnostic } from './diagnostics.ts';
+import { FRAMEWORK_NAMES } from './framework-version.ts';
 import type { Diagnostic, Framework } from './types.ts';
 
 const EXTENSIONS = /\.[cm]?[jt]sx?$/;
@@ -55,10 +57,44 @@ function recordingFs(failures: Failure[]) {
   };
 }
 
+/** Runners that load a test file reached through a symbolic link; Playwright and Jest don't. */
+const FOLLOWS_LINKS = new Set<Framework>(['vitest', 'mocha', 'jasmine', 'bun', 'node']);
+
+/** Runners checked to leave such a file out; for the others, Cypress and WebdriverIO, it is not known. */
+const IGNORES_LINKS = new Set<Framework>(['playwright', 'jest']);
+
+/**
+ * Whether a file is in a linked folder that no pattern names. `node --test` finds files with Node.js's glob, which
+ * doesn't enter a linked folder through `*` or `**`, only where a pattern spells out its name.
+ */
+function inUnnamedLinkedFolder(root: string, match: string, patterns: string[]): boolean {
+  const segments = match.split('/');
+  for (let index = 0; index < segments.length - 1; index++) {
+    if (!lstatSync(path.join(root, ...segments.slice(0, index + 1))).isSymbolicLink()) continue;
+    if (!patterns.some((pattern) => namesFolder(pattern, segments, index))) return true;
+  }
+  return false;
+}
+
+/** Whether a pattern matches the file with the folder at `index` matched by a part that is its name, not a wildcard. */
+function namesFolder(pattern: string, segments: string[], index: number): boolean {
+  const parts = pattern.replace(/^\.\//, '').split('/');
+  const matches = (glob: string[], items: string[]) => picomatch(glob.join('/'), { dot: true })(items.join('/'));
+  return parts.some(
+    (part, at) =>
+      at < parts.length - 1 &&
+      part === segments[index] &&
+      !picomatch.scan(part).isGlob &&
+      matches(parts.slice(0, at + 1), segments.slice(0, index + 1)) &&
+      matches(parts.slice(at + 1), segments.slice(index + 1)),
+  );
+}
+
 /**
  * Finds the test files, sorted so the output is the same on every run. Files reached through a symbolic link are
- * left out for Playwright, which doesn't follow them, and read once for Vitest, which does, from the file's own path
- * when it matches too.
+ * left out for runners that don't follow links, and read once for those that do, from the file's own path when it
+ * matches too. Bun names such a file by its own path even when only the link matches, and node:test, which runs each
+ * file in a process of its own, runs a file matched by both paths twice.
  */
 export async function findFiles(
   root: string,
@@ -108,28 +144,34 @@ export async function findFiles(
     const absolutePath = path.resolve(root, match);
     const realPath = realpathSync(absolutePath);
     const linked = realPath !== path.join(realRoot, match);
-    // Vitest and Mocha load a file through a link; Node.js loads it once, by its real path.
-    if (linked && framework !== 'vitest' && framework !== 'mocha') {
-      const name = framework === 'jest' ? 'Jest' : 'Playwright';
-      diagnostics.push(
-        fileDiagnostic(
-          'symlink-ignored',
-          match,
-          `The file is reached through a symbolic link, which ${name} does not follow.`,
-        ),
-      );
+    const name = FRAMEWORK_NAMES[framework];
+    if (linked && !FOLLOWS_LINKS.has(framework)) {
+      const message = IGNORES_LINKS.has(framework)
+        ? `The file is reached through a symbolic link, which ${name} does not follow.`
+        : `The file is reached through a symbolic link, which the scan does not follow for ${name}.`;
+      diagnostics.push(fileDiagnostic('symlink-ignored', match, message));
+      continue;
+    }
+    if (linked && framework === 'node' && inUnnamedLinkedFolder(root, match, patterns)) {
+      const message = `The file is in a linked folder, which a wildcard in a ${name} pattern does not enter.`;
+      diagnostics.push(fileDiagnostic('symlink-ignored', match, message));
+      continue;
+    }
+    const own = path.relative(realRoot, realPath).replaceAll('\\', '/');
+    if (linked && framework === 'bun' && !own.startsWith('../') && !path.isAbsolute(own)) {
+      candidates.push({ absolutePath: path.resolve(root, own), relativeFilePath: own, realPath, linked: false });
       continue;
     }
     candidates.push({ absolutePath, relativeFilePath: match, realPath, linked });
   }
-  // Vitest reads a file once; when both a link and the file itself match, the file's own path is the one kept.
+  // Other runners read a file once; when both a link and the file itself match, the file's own path is the one kept.
   const kept = new Map<string, { linked: boolean }>();
   for (const candidate of candidates) {
     const current = kept.get(candidate.realPath);
     if (!current || (current.linked && !candidate.linked)) kept.set(candidate.realPath, candidate);
   }
   const files = candidates
-    .filter((candidate) => kept.get(candidate.realPath) === candidate)
+    .filter((candidate) => framework === 'node' || kept.get(candidate.realPath) === candidate)
     .map(({ absolutePath, relativeFilePath }) => ({ absolutePath, relativeFilePath }));
   return { files, diagnostics };
 }
