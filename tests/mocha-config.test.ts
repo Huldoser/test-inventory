@@ -199,6 +199,21 @@ describe('Mocha config files', () => {
     expect(files(inventory)).toEqual(['test/e2e/checkout.js', 'test/setup.js', 'test/smoke.js']);
   });
 
+  it('runs the files of an absolute glob, as a .mocharc.js builds it with path.join(__dirname, ...)', async () => {
+    const root = project({
+      'package.json': MOCHA_PACKAGE,
+      '.mocharc.cjs':
+        "const path = require('node:path');\nmodule.exports = { spec: path.join(__dirname, 'test', '**', '*.spec.js') };\n",
+      'test/orders.spec.js': TEST,
+      'test/fills/partial.spec.js': TEST,
+      'test/helpers.js': TEST,
+    });
+    // Mocha 10.8.2 and 12.0.3 run both spec files.
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(files(inventory)).toEqual(['test/fills/partial.spec.js', 'test/orders.spec.js']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('reads suite and test with ui: tdd, and warns about an interface the scan does not read', async () => {
     const tdd = await scan({
       root: project({

@@ -1605,7 +1605,9 @@ function writtenRoot(settings: Setting): string | null | { setting: Unknown; key
 function mochaSpec(folder: string, spec: string, extensions: string[], recursive: boolean): (file: string) => boolean {
   const target = path.resolve(folder, spec);
   if (picomatch.scan(posix(spec)).isGlob) {
-    const isMatch = picomatch(posix(spec).replace(/^\.\//, ''));
+    // An absolute glob, as `path.join(__dirname, 'test', '**', '*.spec.js')` builds it, is taken from the folder.
+    const written = path.isAbsolute(spec) ? path.relative(folder, spec) : spec;
+    const isMatch = picomatch(posix(written).replace(/^\.\//, ''));
     return (file) => isMatch(posix(path.relative(folder, file)));
   }
   const stat = statSync(target, { throwIfNoEntry: false });
