@@ -1552,8 +1552,8 @@ const UNKNOWN_DEFAULTS: ConfigDefaults = {
 };
 
 /**
- * What the config a file uses gives it: Playwright's `forbidOnly`, read from the top level only, as Playwright reads
- * it, and for each test, the projects that run it and what they set; null without a config.
+ * What the config a file uses gives it: Playwright's `forbidOnly` or Vitest's `allowOnly`, read from the top level
+ * only, as the runners read them, and for each test, the projects that run it and what they set; null without a config.
  */
 export function fileConfig(
   placement: Placement,
@@ -1565,14 +1565,11 @@ export function fileConfig(
   if (config === null) {
     // Without a config, Vitest defines no tags and keeps strictTags on.
     const tags = vitestTags(null, null, null, atLeast(version, 5, 0));
-    return framework === 'vitest' ? { forbidOnly: false, forTest: () => NO_CONFIG, tags, configTags: [] } : null;
+    const forbidOnly = onlyRule(framework, null);
+    return framework === 'vitest' ? { forbidOnly, forTest: () => NO_CONFIG, tags, configTags: [] } : null;
   }
-  const forbidOnly = framework === 'playwright' ? settingAt(config.settings, ['forbidOnly']) : null;
   return {
-    forbidOnly:
-      forbidOnly?.kind === 'unknown'
-        ? (unknownText(forbidOnly) ?? false)
-        : forbidOnly?.kind === 'value' && forbidOnly.value === true,
+    forbidOnly: onlyRule(framework, config.settings),
     forTest(test, suites) {
       if (projects === null) return { projects: null, defaults: UNKNOWN_DEFAULTS };
       const running = projectsRunning(projects, test, suites, file, placement.tags);
@@ -1582,6 +1579,40 @@ export function fileConfig(
     tags: agreedTags(projects),
     configTags: placement.tags ?? [],
   };
+}
+
+/**
+ * Why a `.only` fails: with Playwright's `forbidOnly`, the run, before any test; with Vitest's `allowOnly` off, the
+ * test itself, which Vitest marks failed instead of running it (checked in 3.2.4, 4.1.12 and 5.1.0). `allowOnly` is
+ * off by default when `process.env.CI` is set. Null when nothing fails.
+ */
+function onlyRule(framework: Framework, settings: Setting | null): FileConfig['forbidOnly'] {
+  if (framework === 'playwright') {
+    const forbid = settings && settingAt(settings, ['forbidOnly']);
+    const condition = forbid?.kind === 'unknown' ? unknownText(forbid) : null;
+    if (condition) {
+      const message = `The config sets forbidOnly when ${condition}, so then this .only fails the run before any test runs.`;
+      return { message, isSure: false };
+    }
+    if (forbid?.kind !== 'value' || forbid.value !== true) return null;
+    return { message: 'The config sets forbidOnly, so this .only fails the run before any test runs.', isSure: true };
+  }
+  if (framework !== 'vitest') return null;
+  const allow = settings && settingAt(settings, ['test', 'allowOnly']);
+  const effect = 'Vitest fails this .only test instead of running it';
+  if (allow === null || isUnset(allow)) {
+    return {
+      message: `Vitest's allowOnly is off when process.env.CI is set, as in CI, and then ${effect}.`,
+      isSure: false,
+    };
+  }
+  const condition = allow.kind === 'unknown' ? unknownText(allow) : null;
+  if (condition) {
+    return { message: `The config sets allowOnly to ${condition}; when that is false, ${effect}.`, isSure: false };
+  }
+  // An object or a list is true, as is any value but `false` and the other falsy ones.
+  if (allow.kind !== 'value' || allow.value) return null;
+  return { message: `The config sets allowOnly to ${String(allow.value)}, so ${effect}.`, isSure: true };
 }
 
 /** The tags the projects that run a file define, when they all define the same; null otherwise. */

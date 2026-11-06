@@ -1143,7 +1143,8 @@ describe.only('rates desk', { skip: true }, () => {
       ['rates desk > reconciles DTCC fills', 'skip', 'test', 8],
       ['rates desk > DTCC breaks > flags a missing fill', 'skip', 'suite', 8],
     ]);
-    expect(inventory.diagnostics).toEqual([]);
+    // A .only, which Vitest fails in CI, where allowOnly is off by default.
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual(['forbidden-only']);
   });
 });
 

@@ -13,8 +13,9 @@ such as `isInLoop`; each section says when one does not.
 `playwright.config.*`, `vitest.config.*` and Jest's `jest.config.*` or `package.json` can change which tests run and
 how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
 which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
-it gives the tests, Playwright's `forbidOnly`, and the tags Vitest defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves
-out is still listed, with that project missing from its `projects`.
+it gives the tests, Playwright's `forbidOnly` and Vitest's `allowOnly`, and the tags Vitest defines. Other settings,
+such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves out is still listed, with
+that project missing from its `projects`.
 
 Which files a config runs is read from the configs in the file's folder and the folders above it. A config elsewhere
 that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
