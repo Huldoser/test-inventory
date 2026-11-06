@@ -129,6 +129,33 @@ test('reprices swaps', () => {}, 500);
     expect(codes(scanBun(noRetry, { frameworkVersion: '1.3.14' }))).toEqual([]);
   });
 
+  it('takes a function passed by name second, before options or a timeout, as Bun does', () => {
+    const inventory = scanBun(`
+import { settlesTrade } from './helpers.ts';
+async function repricesBasket() {
+  expect(await basketPrice()).toBeGreaterThan(0);
+}
+const slow = { timeout: 2_000 };
+test('reprices a basket', repricesBasket, 5_000);
+test('reprices bonds', repricesBasket, { timeout: 5_000 });
+test('reprices swaps', slow, repricesBasket);
+test('settles a trade', settlesTrade, 500);
+test('settles a bond', slow, settlesTrade);
+test.each([1, 2])('fills lot %d', repricesBasket, 500);
+`);
+    expect(codes(inventory)).toEqual([]);
+    expect(
+      inventory.tests.map((test) => [test.title, test.state, test.timeout, test.bodyHash === null ? null : 'hashed']),
+    ).toEqual([
+      ['reprices a basket', 'active', 5000, 'hashed'],
+      ['reprices bonds', 'active', 5000, 'hashed'],
+      ['reprices swaps', 'active', 2000, 'hashed'],
+      ['settles a trade', 'active', 500, null],
+      ['settles a bond', 'active', 2000, null],
+      ['fills lot %d', 'active', 500, 'hashed'],
+    ]);
+  });
+
   it('refuses a test or describe without a function, unless it is skipped or todo', () => {
     expect(codes(scanBun("test.skip('streams quotes');\ntest.todo('drops a stale quote');"))).toEqual([]);
     // In a test's body, Bun refuses it when the test runs, so it is a nested test only.

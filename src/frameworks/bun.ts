@@ -151,9 +151,15 @@ export class BunAdapter extends SuiteAdapter {
     });
     if (titleProblem) problems.push(titleProblem);
     const spread = args.some((arg) => arg.type === 'SpreadElement');
-    // (title, fn, options) or (title, options, fn); a number is the timeout.
+    // (title, fn, options) or (title, options, fn), by whether the second is a function; a number is the timeout. A
+    // name the scan can't follow, as an imported function, is taken for the function unless the third is one.
     const [second, third] = [args.at(1), args.at(2)];
-    const fnSecond = third === undefined || isFunctionLike(second);
+    const isFunction = (node: Argument | undefined) =>
+      isFunctionLike(node) || namedFunction(this.file, context.scopes, node) !== null;
+    const fnSecond =
+      third === undefined ||
+      isFunction(second) ||
+      (!isFunction(third) && !this.isKnownValue(second as Argument, context));
     const body = spread ? undefined : fnSecond ? second : third;
     const options = spread ? undefined : fnSecond ? third : second;
     const fn = isFunctionNode(body) ? body : null;
@@ -295,6 +301,11 @@ export class BunAdapter extends SuiteAdapter {
       );
     }
     return length;
+  }
+
+  /** Whether an argument is a value that can't be a function: a literal, or a constant the scan works out. */
+  private isKnownValue(node: Argument, context: CallContext): boolean {
+    return node.type !== 'SpreadElement' && (isValue(node) || this.file.values.resolve(node, context.scopes).ok);
   }
 
   /** The cases of a table the scan can work out: an item that is an array is spread into the arguments, another is one. */
