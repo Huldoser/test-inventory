@@ -73,6 +73,36 @@ describe('Cypress config files', () => {
     ]);
   });
 
+  it('reads ! and folders as globby does: ! takes files out of specPattern and is dropped in excludeSpecPattern', async () => {
+    const root = project({
+      'package.json': CYPRESS_PACKAGE,
+      'cypress.config.js': [
+        'module.exports = {',
+        '  e2e: {',
+        "    specPattern: ['cypress/e2e/**/*.cy.js', '!cypress/e2e/legacy/**'],",
+        "    excludeSpecPattern: ['!cypress/e2e/drafts/**', 'cypress/e2e/archive'],",
+        '  },',
+        "  component: { specPattern: 'src/widgets/' },",
+        '};',
+        '',
+      ].join('\n'),
+      'cypress/e2e/orders/place.cy.js': SPEC,
+      'cypress/e2e/legacy/old.cy.js': SPEC,
+      'cypress/e2e/drafts/margin.cy.js': SPEC,
+      'cypress/e2e/archive/fills.cy.js': SPEC,
+      'cypress/e2e/helpers.js': SPEC,
+      'src/widgets/OrderTicket.cy.jsx': SPEC,
+      'src/widgets/format.js': SPEC,
+      'src/charts/Candles.cy.jsx': SPEC,
+    });
+    expect(placed(await scan({ root, framework: 'cypress' }))).toEqual([
+      ['cypress/e2e/orders/place.cy.js', ['e2e']],
+      // A folder runs every file below it, as globby expands it to `src/widgets/**`.
+      ['src/widgets/OrderTicket.cy.jsx', ['component']],
+      ['src/widgets/format.js', ['component']],
+    ]);
+  });
+
   it("runs no file without a config, and can't tell the files when a pattern can't be worked out", async () => {
     const noConfig = await scan({
       root: project({ 'package.json': CYPRESS_PACKAGE, 'cypress/e2e/ticket.cy.js': SPEC }),

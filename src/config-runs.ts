@@ -539,8 +539,21 @@ export class ConfigRuns {
       }
       const [specs, excludes] = lists;
       if (type === 'e2e') e2eSpecs = specs;
-      const isSpec = picomatch(specs.map(relative));
-      const excluded = [...excludes, ...(type === 'component' ? e2eSpecs : [])].map(relative);
+      // globby takes a `!` pattern among the specs as files to leave out, and a folder as every file below it; the
+      // excludes are fast-glob's `ignore`, which drops a `!` and skips everything in a folder it matches.
+      const below = (glob: string) => [glob, `${glob.replace(/\/+$/, '')}/**`];
+      const isFolder = (glob: string) =>
+        !picomatch.scan(glob).isGlob && statSync(path.resolve(folder, glob), { throwIfNoEntry: false })?.isDirectory();
+      const isSpec = picomatch(
+        specs
+          .filter((glob) => !glob.startsWith('!'))
+          .map(relative)
+          .flatMap((glob) => (isFolder(glob) ? below(glob) : [glob])),
+      );
+      const excluded = [...excludes, ...(type === 'component' ? e2eSpecs : [])]
+        .map((glob) => relative(glob.replace(/^!/, '')))
+        .flatMap(below);
+      excluded.push(...specs.filter((glob) => glob.startsWith('!')).flatMap((glob) => below(relative(glob.slice(1)))));
       if (!specs.some((glob) => glob.includes('node_modules'))) excluded.push('**/node_modules/**');
       const isExcluded = picomatch(excluded, { dot: true });
       const retry = settingAt(config.settings, [type, 'retries']) ?? settingAt(config.settings, ['retries']);
@@ -738,9 +751,14 @@ export class ConfigRuns {
       const slashed = glob.replaceAll('\\', '/');
       return path.posix.normalize(path.isAbsolute(slashed) ? posix(path.relative(folder, slashed)) : slashed);
     };
-    // As glob's matchBase does, a pattern without a slash matches at any depth, outside dot folders too.
+    // As glob's matchBase does, a pattern without a slash matches at any depth, outside dot folders too; the slash of
+    // `./` counts. A pattern that starts with `!` matches no file in glob.
     const matcher = (list: string[]) =>
-      picomatch(list.map(fromRoot).map((glob) => (glob.includes('/') ? glob : `**/${glob}`)));
+      picomatch(
+        list
+          .filter((glob) => !glob.startsWith('!'))
+          .map((glob) => (/[/\\]/.test(glob) ? fromRoot(glob) : `**/${fromRoot(glob)}`)),
+      );
     const specs = globs(settings, ['specs']) ?? [];
     if (!Array.isArray(specs)) return this.unknownProject(config, specs, 'specs');
     const written = globs(settings, ['exclude']) ?? [];
@@ -750,15 +768,23 @@ export class ConfigRuns {
     const isPathExcluded = matcher(excludes);
     const isExcluded = (file: string, relative: string) =>
       isGlob ? isPathExcluded(relative) : excludes.some((item) => pathToFileURL(file).href.includes(item));
-    // Each capability may set its own specs, which replace the config's, and excludes, added to the config's.
+    // Each capability may set its own specs, which replace the config's, and excludes, added to the config's, inside
+    // `alwaysMatch` when it has one. WebdriverIO 10 reads only `wdio:specs` and `wdio:exclude`.
     const capabilities = settingAt(settings, ['capabilities']);
+    const [specKeys, excludeKeys] = atLeast(this.version, 10, 0)
+      ? [['wdio:specs'], ['wdio:exclude']]
+      : [
+          ['specs', 'wdio:specs'],
+          ['exclude', 'wdio:exclude'],
+        ];
     const runs: { isSpec: (relative: string) => boolean; isExcluded: (relative: string) => boolean }[] = [];
     for (const capability of capabilities?.kind === 'list' && capabilities.items.length > 0
       ? capabilities.items
       : [emptySettings()]) {
-      const own = globs(capability, ['specs', 'wdio:specs']);
+      const options = settingAt(capability, ['alwaysMatch']) ?? capability;
+      const own = globs(options, specKeys);
       if (own !== null && !Array.isArray(own)) return this.unknownProject(config, own, 'capabilities.specs');
-      const exclude = globs(capability, ['exclude', 'wdio:exclude']) ?? [];
+      const exclude = globs(options, excludeKeys) ?? [];
       if (!Array.isArray(exclude)) return this.unknownProject(config, exclude, 'capabilities.exclude');
       runs.push({ isSpec: matcher(own ?? specs), isExcluded: matcher(exclude) });
     }
