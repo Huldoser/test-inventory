@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { scanSource, type Inventory } from '../src/index.ts';
+import { scan, scanSource, type Inventory } from '../src/index.ts';
 import { codes, PLAYWRIGHT_IMPORT, scanPlaywright, scanVitest, VITEST_IMPORT } from './helpers.ts';
+import { project } from './project.ts';
 
 const expand = { expandCases: true };
 const cases = (inventory: Inventory) => inventory.tests.map((test) => [test.fullName, test.caseIndex, test.caseCount]);
@@ -611,5 +612,21 @@ for (side of SIDES) test(\`cancels a \${side} order\`, async () => {});
       ['`cancels a ${side} order`', null, 2],
     ]);
     expect(codes(inventory)).toEqual(['duplicate-title', 'test-in-loop', 'dynamic-title', 'dynamic-title']);
+  });
+});
+
+describe("expanded Vitest titles with the config's truncate", () => {
+  it.each([
+    ['5.1.0', 'taskTitleValueFormatTruncate: 10', 'settles ACME Hold…'],
+    ['4.1.0', 'chaiConfig: { truncateThreshold: 10 }', "settles 'ACME Ho…'"],
+    ['5.1.0', null, 'settles ACME Holdings International'],
+  ])('shortens a value as Vitest %s does with %s', async (version, setting, title) => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { vitest: version } }),
+      'tests/settle.test.ts': `${VITEST_IMPORT}\ntest.each([{ desk: 'ACME Holdings International' }])('settles $desk', () => {});\n`,
+      ...(setting ? { 'vitest.config.ts': `export default { test: { ${setting} } };\n` } : {}),
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest', expandCases: true });
+    expect(inventory.tests.map((test) => test.title)).toEqual([title]);
   });
 });

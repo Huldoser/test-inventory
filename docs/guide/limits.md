@@ -233,11 +233,11 @@ outside any other is expanded while the file has fewer than 1,000 expanded loop 
 in whole; past that, loops and describe tables that register tests are one record with a `cases-not-expanded`
 warning, so that a long loop over test data can't slow the scan down.
 
-Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`,
-`%#`, `%$` and `$name`, with values cut to 40 characters as Vitest does by default. A table
-stays one record, with a `cases-not-expanded` warning, when the scan can't work out a value in it or its title, or the
-title would show an array or object. A config that sets `taskTitleValueFormatTruncate`, or before Vitest 5
-`chaiConfig.truncateThreshold`, is not read, so long values are cut at 40 characters there too.
+Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%#`,
+`%$` and `$name`, with values cut as the config of the project that runs the file cuts them:
+`taskTitleValueFormatTruncate`, or before Vitest 5 `chaiConfig.truncateThreshold`, and 40 characters, Vitest's default,
+when it sets neither. A table stays one record, with a `cases-not-expanded` warning, when the scan can't work out a
+value in it or its title, or the title would show an array or object.
 
 ## Conditions are not evaluated
 
