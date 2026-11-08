@@ -65,6 +65,7 @@ export default defineConfig({
           { text: 'Examples', link: '/guide/examples' },
           { text: 'Command line', link: '/guide/cli' },
           { text: 'Library', link: '/guide/library' },
+          { text: 'Compare inventories', link: '/guide/diff' },
           { text: 'Query recipes', link: '/guide/recipes' },
           { text: 'CI recipes', link: '/guide/ci' },
           { text: 'AI agents', link: '/guide/agents' },

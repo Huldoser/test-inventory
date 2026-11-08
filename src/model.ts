@@ -1,5 +1,6 @@
 import type { CallExpression, Expression, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
+import type { Scope } from './extract.ts';
 import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue } from './types.ts';
 import type { Value } from './values.ts';
 
@@ -45,6 +46,8 @@ export interface Problem {
   afterLoad?: boolean;
   /** The runner still runs the tests the file declared before the call that stops it loading, as WebdriverIO's Mocha. */
   keepsEarlierTests?: boolean;
+  /** The describe whose callback encountered the refusal, when its failure is contained by the runner. */
+  scope?: Scope;
 }
 
 export interface Title {

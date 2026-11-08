@@ -88,9 +88,8 @@ Some problems make the runner fail while it loads a file:
   Mocha, the file stops loading at the call: the tests declared above it run, and only those at or below it are
   `notLoaded`. With Jasmine, a call at the top level fails the whole worker, and every test in the file is `notLoaded`;
   inside a describe, it is caught as in Jasmine itself. Other workers still run.
-- node:test: `invalid-chain`. Node.js then fails the file and runs none of its tests; other files still run.
-- Bun: `invalid-chain` and `test-without-body`. Bun then fails the file and runs none of its tests; other files still
-  run.
+- node:test: `invalid-chain`. At file level the file fails; inside a describe only its tests at or after the refused call are `notLoaded`, with `stateSource: "suite"`. Earlier tests and tests outside that describe still run.
+- Bun: `invalid-chain` and `test-without-body`. At file level the file fails; inside a describe every test of that describe is `notLoaded`, with `stateSource: "suite"`. Tests outside it still run.
 
 Every test in such a file, or with WebdriverIO's Mocha every test at or below the call, gets `state: "notLoaded"`, with
 `stateSource: "file"` and `stateLine` at the first of these problems. These tests are counted in `notLoadedCount`, not
@@ -123,3 +122,5 @@ the runner refuses, as `it('title')` without a function in Jest: the runner refu
   "source": "`shows a live quote for ${symbol}`"
 }
 ```
+
+Vitest's `allowOnly` is read from the projects that run the test. Projects that disagree produce a warning; a focused test or describe that is unconditionally skipped or todo is not failed by this check.

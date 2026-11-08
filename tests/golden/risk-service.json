@@ -235,9 +235,10 @@
     {
       "id": "7cfe182ee38db442",
       "bodyHash": "bfb92313bed7d130",
-      "dependencyHash": "db604c3602ac3be4",
+      "dependencyHash": "a6051ac02b62134d",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -321,9 +322,10 @@
     {
       "id": "58fa5e98e2f2fdc3",
       "bodyHash": "06f1c1f08d63acdd",
-      "dependencyHash": "6971c3d5ba10fecb",
+      "dependencyHash": "05387493813930fb",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -407,9 +409,10 @@
     {
       "id": "719ff59ac6e10151",
       "bodyHash": "511694cfc3691ea5",
-      "dependencyHash": "2c0c808edd7b2d4e",
+      "dependencyHash": "6292c27855230e54",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -493,9 +496,10 @@
     {
       "id": "09d522e59c303b87",
       "bodyHash": null,
-      "dependencyHash": "15f55826061dd9f9",
+      "dependencyHash": "2bb4ea3c28c2a4e7",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -581,9 +585,10 @@
     {
       "id": "b9db53d6cacdf455",
       "bodyHash": "d860f84295f4b486",
-      "dependencyHash": "80bee872050b9a68",
+      "dependencyHash": "d60ecd8c63a370eb",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -667,9 +672,10 @@
     {
       "id": "9549259475023135",
       "bodyHash": "a255e8288ba8bc54",
-      "dependencyHash": "d9b7b891b203fcf5",
+      "dependencyHash": "38e126bfa3c48b43",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -753,9 +759,10 @@
     {
       "id": "99c4bd55382b20d1",
       "bodyHash": "52784fec060ab785",
-      "dependencyHash": "000f0cdb55b87128",
+      "dependencyHash": "da746e4b3e2e6592",
       "dependencies": [
         "spec/exposure.spec.js",
+        "spec/helpers/matchers.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
       ],
@@ -839,8 +846,9 @@
     {
       "id": "298b68621432f090",
       "bodyHash": "dde63c7d1ef8c3ee",
-      "dependencyHash": "29a0250e27e0b32c",
+      "dependencyHash": "515f8be8c71be777",
       "dependencies": [
+        "spec/helpers/matchers.js",
         "spec/limits/var.spec.js",
         "spec/support/jasmine.json",
         "src/exposure.js"
@@ -925,8 +933,9 @@
     {
       "id": "450e7df652728bdc",
       "bodyHash": "d860f84295f4b486",
-      "dependencyHash": "c3941716543ab724",
+      "dependencyHash": "623a50b0e3f9f2a4",
       "dependencies": [
+        "spec/helpers/matchers.js",
         "spec/limits/var.spec.js",
         "spec/support/jasmine.json",
         "src/exposure.js"

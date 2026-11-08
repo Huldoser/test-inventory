@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { Ajv, type SchemaObject } from 'ajv';
 import { describe, expect, it } from 'vitest';
-import { generateSchema, schemaPath } from '../scripts/schema.ts';
+import { diffSchemaPath, generateSchema, schemaPath } from '../scripts/schema.ts';
+import { diffInventories } from '../src/index.ts';
 import { PLAYWRIGHT_IMPORT, scanPlaywright, schema, strictSchema } from './helpers.ts';
 
 const validate = new Ajv({ allErrors: true }).compile(schema);
@@ -14,6 +15,16 @@ test.describe('orders', { tag: '@orders' }, () => {
   test.fixme('rejects an order above buying power', async ({ browserName }) => {});
 });
 `);
+
+describe('schema/diff-v1.json', () => {
+  it('is generated from the exported diff types and validates a comparison', () => {
+    const written = readFileSync(diffSchemaPath, 'utf8');
+    expect(written).toBe(generateSchema('diff'));
+    const validateDiff = new Ajv({ allErrors: true }).compile(JSON.parse(written));
+    expect(validateDiff(diffInventories(output, output))).toBe(true);
+    expect(validateDiff({ schemaVersion: 1, changes: [] })).toBe(false);
+  }, 20_000);
+});
 
 /** A copy of the scan output with one value changed, in shapes the types don't allow. */
 function edited(path: (string | number)[], value: unknown): unknown {

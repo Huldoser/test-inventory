@@ -60,23 +60,30 @@ const VALUE_OPTIONS = new Set([
  * that gives none. A command runs node:test when `--test` comes before any file, as `node build.js --test` passes it on
  * to the script.
  */
-export function nodeTestCommands(script: string): string[][] {
+export function nodeTestCommands(script: string, setups = false): string[][] {
   const commands: string[][] = [];
   for (const words of commandsOf(script)) {
     const node = words.findIndex((word) => /(^|[/\\])node(\.exe)?$/.test(word));
     if (node === -1) continue;
     let runsTests = false;
     const files: string[] = [];
+    const preload: string[] = [];
     for (let index = node + 1; index < words.length; index++) {
       const word = words[index];
+      const [option] = word.split('=');
+      const setup = ['--import', '--require', '-r', '--test-global-setup'].includes(option);
       if (word === '--test') runsTests = true;
-      else if (VALUE_OPTIONS.has(word)) index++;
-      else if (!word.startsWith('-')) {
+      else if (setup && word.includes('=')) preload.push(word.slice(word.indexOf('=') + 1));
+      else if (VALUE_OPTIONS.has(word)) {
+        const value = words.at(index + 1);
+        if (setup && value !== undefined) preload.push(value);
+        index++;
+      } else if (!word.startsWith('-')) {
         if (!runsTests) break;
         files.push(word);
       }
     }
-    if (runsTests) commands.push(files);
+    if (runsTests) commands.push(setups ? preload : files);
   }
   return commands;
 }

@@ -16,7 +16,15 @@ function expectedFiles(): string[] {
     .filter((file) => file.endsWith('.ts'))
     .map((file) => `dist/${file.replaceAll('\\', '/').replace(/\.ts$/, '')}`);
   const files = modules.flatMap((module) => [`${module}.js`, `${module}.d.ts`]);
-  return [...files, 'CHANGELOG.md', 'LICENSE', 'README.md', 'package.json', 'schema/v1.json'].sort();
+  return [
+    ...files,
+    'CHANGELOG.md',
+    'LICENSE',
+    'README.md',
+    'package.json',
+    'schema/v1.json',
+    'schema/diff-v1.json',
+  ].sort();
 }
 
 try {
@@ -51,22 +59,52 @@ try {
   ) as { summary: { testCount: number }; tests: { tags: string[] }[] };
   assert.equal(output.summary.testCount, 1);
   assert.deepEqual(output.tests[0].tags, ['@smoke']);
+  writeFileSync(path.join(app, 'before.json'), JSON.stringify(output));
+  writeFileSync(
+    path.join(app, 'tests', 'orders.spec.ts'),
+    "import { test } from '@playwright/test';\ntest('routes a market order @smoke', async () => {});\n",
+  );
+  run(
+    'npx',
+    [
+      'test-inventory',
+      'tests/*.spec.ts',
+      '--framework',
+      'playwright',
+      '--framework-version',
+      '1.63.0',
+      '-o',
+      'after.json',
+    ],
+    app,
+  );
+  const diff = JSON.parse(run('npx', ['test-inventory', 'diff', 'before.json', 'after.json'], app)) as {
+    summary: { renamed: number };
+  };
+  assert.equal(diff.summary.renamed, 1);
+  assert.match(
+    run('npx', ['test-inventory', 'diff', 'before.json', 'after.json', '--format', 'markdown'], app),
+    /routes a market order/,
+  );
 
   writeFileSync(
     path.join(app, 'library.mjs'),
-    `import { scanSource } from 'test-inventory';
+    `import { scanSource, diffInventories } from 'test-inventory';
 import schema from 'test-inventory/schema/v1.json' with { type: 'json' };
+import diffSchema from 'test-inventory/schema/diff-v1.json' with { type: 'json' };
 const inventory = scanSource({
   code: "import { test } from 'vitest';\\ntest.todo('charges a borrow fee');",
   relativeFilePath: 'tests/fees.test.ts',
   framework: 'vitest',
 });
-console.log(JSON.stringify({ state: inventory.tests[0].state, schemaId: schema.$id }));
+console.log(JSON.stringify({ state: inventory.tests[0].state, schemaId: schema.$id, diffSchemaId: diffSchema.$id, unchanged: diffInventories(inventory, inventory).summary.unchanged }));
 `,
   );
   assert.deepEqual(JSON.parse(run(process.execPath, ['library.mjs'], app)), {
     state: 'todo',
     schemaId: 'https://huldoser.github.io/test-inventory/schema/v1.json',
+    diffSchemaId: 'https://huldoser.github.io/test-inventory/schema/diff-v1.json',
+    unchanged: 1,
   });
   console.log(`${filename}: the CLI, the library and the schema work from the installed tarball.`);
 } finally {

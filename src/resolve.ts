@@ -474,6 +474,7 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
     (specifier) => {
       const directory = path.dirname(fromFile);
       const aliased = map?.aliases.map((alias) => mapped(specifier, alias)).find((names) => names !== null);
+      if (aliased?.length === 0) return { reason: 'has a config alias whose replacement could not be worked out' };
       // Vite takes `/src/x` from its root first, unless it is already a path inside the root.
       const fromRoot = (name: string) =>
         map?.root && name.startsWith('/') && !name.startsWith(map.root + path.sep)

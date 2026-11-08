@@ -5,7 +5,7 @@ import { PassThrough, Readable, Writable } from 'node:stream';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { HELP, run } from '../src/cli.ts';
-import type { Inventory } from '../src/index.ts';
+import { scanSource, type Inventory } from '../src/index.ts';
 import { toolVersion } from '../src/version.ts';
 import { expectValidInventory } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
@@ -33,6 +33,78 @@ async function related(argv: string[], cwd: string, input: string) {
 }
 
 describe('run', () => {
+  it('compares saved JSON scans and writes Markdown to a file', async () => {
+    const before = scanSource({ code: SPEC, framework: 'playwright', relativeFilePath: 'tests/orders.spec.ts' });
+    const after = scanSource({
+      code: SPEC.replace("'fills'", "'fills a market order'"),
+      framework: 'playwright',
+      relativeFilePath: 'tests/orders.spec.ts',
+    });
+    const root = project({ 'before.json': JSON.stringify(before), 'after.json': JSON.stringify(after) });
+    const result = await cli(['diff', 'before.json', 'after.json', '--pretty'], root);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ summary: { renamed: 1 } });
+    const compact = await cli(['diff', 'before.json', 'after.json'], root);
+    expect(compact.stdout.split('\n')).toHaveLength(2);
+    expect(await cli(['diff', 'before.json', 'after.json', '--format', 'markdown', '-o', 'changes.md'], root)).toEqual({
+      code: 0,
+      stdout: '',
+      stderr: '',
+    });
+    expect(readFileSync(path.join(root, 'changes.md'), 'utf8')).toContain('fills a market order');
+  });
+
+  it.each([
+    [['diff'], 'pass two inventory files'],
+    [['diff', 'before.json', 'after.json', '--format', 'jsonl'], '--format must be json or markdown'],
+    [['diff', 'before.json', 'after.json', '--format', 'markdown', '--pretty'], '--pretty indents JSON'],
+    [['diff', '--unknown'], 'Unknown option'],
+    [['diff', 'missing.json', 'after.json'], 'could not read missing.json'],
+    [['diff', 'malformed.json', 'after.json'], 'malformed.json is not a JSON inventory'],
+    [['diff', 'incomplete.json', 'after.json'], 'before must be a complete schema v1'],
+    [['diff', 'before.json', 'after.json', '-o', 'absent/changes.json'], 'could not write absent/changes.json'],
+  ])('rejects invalid diff arguments %j', async (args, message) => {
+    const before = scanSource({ code: SPEC, framework: 'playwright', relativeFilePath: 'tests/orders.spec.ts' });
+    const root = project({
+      'before.json': JSON.stringify(before),
+      'after.json': JSON.stringify(before),
+      'malformed.json': '{',
+      'incomplete.json': '{}',
+    });
+    const result = await cli(args, root);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain(message);
+  });
+
+  it('shows diff help without reading a saved inventory', async () => {
+    const result = await cli(['diff', '--help'], '.');
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('test-inventory diff old.json new.json');
+  });
+
+  it('ends diff output quietly when the reader closes the pipe', async () => {
+    const before = scanSource({ code: SPEC, framework: 'playwright', relativeFilePath: 'tests/orders.spec.ts' });
+    const root = project({ 'before.json': JSON.stringify(before) });
+    const stdout = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+      },
+    });
+    expect(await run(['diff', 'before.json', 'before.json'], { stdout, stderr: new PassThrough(), cwd: root })).toBe(0);
+  });
+
+  it('reports a failed standard-output stream for a diff', async () => {
+    const before = scanSource({ code: SPEC, framework: 'playwright', relativeFilePath: 'tests/orders.spec.ts' });
+    const root = project({ 'before.json': JSON.stringify(before) });
+    const stdout = new Writable().destroy(Object.assign(new Error('write EIO'), { code: 'EIO' }));
+    stdout.on('error', () => undefined);
+    const stderr = new PassThrough();
+    const messages: string[] = [];
+    stderr.on('data', (chunk: Buffer) => messages.push(chunk.toString()));
+    expect(await run(['diff', 'before.json', 'before.json'], { stdout, stderr, cwd: root })).toBe(2);
+    expect(messages.join('')).toContain('could not write the output');
+  });
   it('writes compact JSON with a final newline to standard output', async () => {
     const root = project({ 'package.json': PLAYWRIGHT_PACKAGE, 'tests/orders.spec.ts': SPEC });
     const result = await cli(['tests/**/*.spec.ts', '--framework', 'playwright'], root);

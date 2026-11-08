@@ -250,7 +250,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     [...setupDirs].map((folder) => glob(SCRIPT_FILES, { cwd: folder, absolute: true, ignore: ['**/node_modules/**'] })),
   );
   const candidates = setupFiles.flat().map((file) => path.resolve(file));
-  const configDependencies = new ConfigDependencies(framework, runs, readerFor, candidates);
+  const configDependencies = new ConfigDependencies(framework, runs, readerFor, candidates, root);
   // Many tests of a file compare against one folder, so each is listed once.
   const listed = new Map<string, string[] | 'unreadable'>();
   const list = (folder: string) => {

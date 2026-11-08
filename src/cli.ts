@@ -1,5 +1,6 @@
 import { createWriteStream, openSync, renameSync, rmSync } from 'node:fs';
 import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { Readable, Writable } from 'node:stream';
@@ -10,6 +11,9 @@ import { OptionsError, toPosixPath } from './options.ts';
 import { scan } from './scan.ts';
 import type { Framework, TestRecord, TestState } from './types.ts';
 import { toolVersion } from './version.ts';
+import { diffInventories } from './diff.ts';
+import { formatDiffMarkdown } from './diff-markdown.ts';
+import type { Inventory } from './types.ts';
 
 export interface Io {
   stdout: Writable;
@@ -20,6 +24,7 @@ export interface Io {
 }
 
 export const HELP = `Usage: test-inventory [glob...] [options]
+       test-inventory diff old.json new.json [--format json|markdown] [--pretty] [--output file]
 
 Lists the tests in the matching files as JSON, read from the source code without running them. Without globs, the
 test files are those the runner's configs in the root and the folders below it run, or for node:test and Bun those
@@ -117,8 +122,82 @@ async function text(stream: Readable): Promise<string> {
 const FINISHED = 0;
 const FAILED = 2;
 
+async function runDiff(argv: string[], io: Io): Promise<number> {
+  const fail = (message: string) => {
+    io.stderr.write(`test-inventory diff: ${message}\nRun test-inventory diff --help for usage.\n`);
+    return FAILED;
+  };
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: argv,
+      allowPositionals: true,
+      strict: true,
+      options: {
+        format: { type: 'string' },
+        pretty: { type: 'boolean' },
+        output: { type: 'string', short: 'o' },
+        help: { type: 'boolean', short: 'h' },
+      },
+    });
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+  const { values, positionals } = parsed;
+  if (values.help) {
+    io.stdout.write(
+      'Usage: test-inventory diff old.json new.json [--format json|markdown] [--pretty] [--output file]\n\nCompares complete JSON inventories. Use the same tool version, framework, root, filters and case expansion for both scans.\n',
+    );
+    return FINISHED;
+  }
+  if (positionals.length !== 2) return fail('pass two inventory files: old.json new.json.');
+  const format = values.format ?? 'json';
+  if (!['json', 'markdown'].includes(format)) return fail('--format must be json or markdown.');
+  if (format === 'markdown' && values.pretty)
+    return fail('--pretty indents JSON, so it does not go with --format markdown.');
+  let result;
+  try {
+    const inputs: Inventory[] = [];
+    for (const file of positionals) {
+      let content: string;
+      try {
+        content = await readFile(path.resolve(io.cwd, file), 'utf8');
+      } catch (error) {
+        return fail(`could not read ${file}: ${readFailure(error)}.`);
+      }
+      try {
+        inputs.push(JSON.parse(content) as Inventory);
+      } catch {
+        return fail(`${file} is not a JSON inventory. Save a scan without --format jsonl.`);
+      }
+    }
+    result = diffInventories(inputs[0], inputs[1]);
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+  const quiet = () => undefined;
+  io.stdout.on('error', quiet);
+  try {
+    await writeOutput(io, values.output, (output) =>
+      writeTo(
+        output,
+        format === 'markdown'
+          ? formatDiffMarkdown(result)
+          : `${JSON.stringify(result, null, values.pretty ? 2 : undefined)}\n`,
+      ),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPIPE') return FINISHED;
+    return fail(`could not write ${values.output ?? 'the output'}: ${readFailure(error)}.`);
+  } finally {
+    io.stdout.off('error', quiet);
+  }
+  return FINISHED;
+}
+
 /** Runs the command line with the given arguments and streams. Resolves to the exit code. */
 export async function run(argv: string[], io: Io): Promise<number> {
+  if (argv[0] === 'diff') return runDiff(argv.slice(1), io);
   const fail = (message: string) => {
     io.stderr.write(`test-inventory: ${message}\nRun test-inventory --help for usage.\n`);
     return FAILED;

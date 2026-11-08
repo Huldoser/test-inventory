@@ -959,7 +959,7 @@ class Walker {
         // Code that runs after the file loads, or only when a condition holds, can't be sure to stop it loading.
         const afterLoad =
           context.test !== null || context.hookScope !== null || context.helper !== null || context.isInCondition;
-        this.report(afterLoad ? { ...api.problem, afterLoad } : api.problem);
+        this.report({ ...api.problem, afterLoad: afterLoad || api.problem.afterLoad, scope: context.scope });
         // Under a condition, the call either never runs or fails the file, so it declares nothing either way.
         return api.declaration && !context.isInCondition ? this.handle(call, api.declaration, context) : true;
       }

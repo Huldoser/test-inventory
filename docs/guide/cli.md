@@ -4,6 +4,9 @@ description: The test-inventory command, its options and exit codes, and how it 
 
 # Command line
 
+To compare saved scans, use `test-inventory diff old.json new.json`. It takes `--format json` (default) or
+`--format markdown`, `--pretty` for JSON, and `--output` (`-o`). See [Compare inventories](/guide/diff).
+
 ```sh
 test-inventory [glob...] [options]
 ```

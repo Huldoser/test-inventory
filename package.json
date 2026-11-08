@@ -41,6 +41,7 @@
       "default": "./dist/index.js"
     },
     "./schema/v1.json": "./schema/v1.json",
+    "./schema/diff-v1.json": "./schema/diff-v1.json",
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",

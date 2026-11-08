@@ -1,5 +1,7 @@
 import path from 'node:path';
-import type { ConfigRuns, Placement, ProjectAbout } from './config-runs.ts';
+import { globSync } from 'tinyglobby';
+import { importMap, nodeTestArguments, type ConfigRuns, type Placement, type ProjectAbout } from './config-runs.ts';
+import type { ImportMap } from './resolve.ts';
 import { settingAt, type ConfigFile, type Setting } from './config.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { SourceText } from './source.ts';
@@ -61,7 +63,7 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
   jest: [['setupFiles'], ['setupFilesAfterEnv'], ['globalSetup'], ['globalTeardown']],
   // Mocha loads both before the tests: `require` for root hooks and global fixtures, `file` as test files.
   mocha: [['require'], ['file']],
-  // Jasmine's `helpers` are globs from `spec_dir`, which these paths from the config's folder don't cover.
+  // Jasmine's helpers are read separately as globs from spec_dir.
   jasmine: [],
   // The support file Cypress loads before every spec.
   cypress: [
@@ -71,7 +73,7 @@ const SETUP_KEYS: Record<Framework, string[][]> = {
   // Mocha's `require` runs before the specs, as root hooks may.
   webdriverio: [['mochaOpts', 'require']],
   node: [],
-  bun: [],
+  bun: [['test', 'preload']],
 };
 
 const UNKNOWN_PROJECTS =
@@ -86,25 +88,30 @@ const UNKNOWN_PROJECTS =
 export class ConfigDependencies {
   private readonly framework: Framework;
   private readonly runs: ConfigRuns;
-  private readonly readerFor: (fromFile: string) => ModuleReader;
+  private readonly readerFor: (fromFile: string, map?: ImportMap | null) => ModuleReader;
+  private readonly root: string;
   /** The files setup projects may run. */
   private readonly candidates: readonly string[];
   private readonly found = new Map<string, RunsWith>();
   private readonly ids = new Map<ProjectAbout, number>();
+  private nodeRuns: RunsWith | null = null;
 
   constructor(
     framework: Framework,
     runs: ConfigRuns,
-    readerFor: (fromFile: string) => ModuleReader,
+    readerFor: (fromFile: string, map?: ImportMap | null) => ModuleReader,
     candidates: readonly string[],
+    root: string,
   ) {
     this.framework = framework;
     this.runs = runs;
     this.readerFor = readerFor;
     this.candidates = candidates;
+    this.root = root;
   }
 
   of(placement: Placement): RunsWith {
+    if (this.framework === 'node') return this.nodeSetup();
     const { config } = placement;
     if (config === null) return NOTHING;
     // Projects without a name are told apart by identity, as two may have different setup.
@@ -116,6 +123,29 @@ export class ConfigDependencies {
       this.found.set(key, found);
     }
     return found;
+  }
+
+  /** Node has no config file: its package scripts name modules loaded before the tests. */
+  private nodeSetup(): RunsWith {
+    if (this.nodeRuns) return this.nodeRuns;
+    const manifest = path.join(this.root, 'package.json');
+    const files = nodeTestArguments(manifest, true).flat();
+    const own = files.length > 0 ? this.module(manifest) : null;
+    if (!own) return (this.nodeRuns = NOTHING);
+    const modules: ModuleSource[] = [];
+    const gaps: ConfigGap[] = [];
+    for (const file of files) {
+      const read = this.setupFile(this.root, file);
+      if (read && !('reason' in read)) modules.push(read);
+      else if (read)
+        gaps.push({
+          module: own,
+          text: file,
+          message: `The script preload '${file}' ${read.reason}, so dependencyHash doesn't cover it.`,
+          isQuiet: false,
+        });
+    }
+    return (this.nodeRuns = { config: own, modules, gaps, moved: null });
   }
 
   private idOf(project: ProjectAbout): number {
@@ -140,18 +170,32 @@ export class ConfigDependencies {
     const gaps: ConfigGap[] = [];
     const places = new Set<Span>();
     /** The setup files a key of `settings` names, found from `root`, as written in the config `module`. */
-    const setup = (module: ModuleSource, settings: Setting, root: string, keys: string[]) => {
+    const map = importMap(placement, this.framework);
+    const setup = (
+      module: ModuleSource,
+      settings: Setting,
+      root: string,
+      keys: string[],
+      globs = false,
+      fallback?: string,
+    ) => {
       const key = keys.join('.');
-      const found = written(settings, keys);
+      const found =
+        fallback === undefined
+          ? written(settings, keys)
+          : { setting: { kind: 'value', value: fallback } as Setting, isInherited: false };
       for (const item of found ? listOf(found.setting) : []) {
         if (item.kind === 'value' && typeof item.value === 'string') {
           // Jest's `<rootDir>` at the start of a path is the project's root.
           const file = item.value.startsWith('<rootDir>') ? `.${item.value.slice(9)}` : item.value;
-          const read = this.setupFile(root, file);
-          if (read && !('reason' in read)) modules.add(read);
-          else if (read) {
-            const message = `${key} names '${item.value}', which ${read.reason}, so dependencyHash doesn't cover it.`;
-            gaps.push({ module, text: item.value, message, isQuiet: false });
+          const files = globs ? globSync(file, { cwd: root, absolute: true, onlyFiles: true }) : [file];
+          for (const named of files) {
+            const read = this.setupFile(root, named, map);
+            if (read && !('reason' in read)) modules.add(read);
+            else if (read) {
+              const message = `${key} names '${item.value}', which ${read.reason}, so dependencyHash doesn't cover it.`;
+              gaps.push({ module, text: item.value, message, isQuiet: false });
+            }
           }
         } else if (item.kind === 'unknown') {
           const message = `${key} can't be worked out, so dependencyHash doesn't cover the files it names.`;
@@ -185,7 +229,27 @@ export class ConfigDependencies {
         // reader has read that config, so it can be read.
         const written = 'config' in project ? (this.module(project.config.file) as ModuleSource) : own;
         modules.add(written);
-        for (const keys of SETUP_KEYS[this.framework]) setup(written, project.settings, project.root, keys);
+        for (const keys of SETUP_KEYS[this.framework])
+          setup(written, project.settings, project.root, keys, this.framework === 'cypress');
+        if (this.framework === 'jasmine') {
+          const dir = settingAt(project.settings, ['spec_dir']);
+          const specDir = dir?.kind === 'value' && typeof dir.value === 'string' ? dir.value : '';
+          setup(written, project.settings, path.resolve(this.root, specDir), ['helpers'], true);
+        }
+        if (this.framework === 'cypress') {
+          const type = 'name' in project && project.name === 'component' ? 'component' : 'e2e';
+          const support = settingAt(project.settings, [type, 'supportFile']);
+          if (support === null || (support.kind === 'value' && support.value === undefined)) {
+            setup(
+              written,
+              project.settings,
+              project.root,
+              [type, 'supportFile'],
+              true,
+              `cypress/support/${type}.{js,jsx,ts,tsx}`,
+            );
+          }
+        }
         const { container } = project;
         const outer = container && this.module(container.file);
         if (container && outer) {
@@ -260,12 +324,16 @@ export class ConfigDependencies {
    * A setup file a config names, found from `root` as the runners find it; null for a name that isn't a file there,
    * which is a package, whose code is left out as installed code is.
    */
-  private setupFile(root: string, file: string): ReturnType<ModuleReader> | null {
+  private setupFile(root: string, file: string, map: ImportMap | null = null): ReturnType<ModuleReader> | null {
     // `path.join(__dirname, 'setup.ts')` gives an absolute path.
     const relative = path.isAbsolute(file) ? path.relative(root, file).replaceAll('\\', '/') : file;
     const isPath = /^\.\.?[\\/]/.test(relative);
-    const read = this.readerFor(path.join(root, 'config'))(isPath ? relative : `./${relative}`);
-    return 'reason' in read && !isPath ? null : read;
+    const reader = this.readerFor(path.join(root, 'config'), map);
+    const read = reader(relative);
+    if (!('reason' in read) || isPath) return read;
+    const local = reader(`./${relative}`);
+    if (!('reason' in local)) return local;
+    return read.reason === 'is not a local file, a path alias or a workspace package' ? null : read;
   }
 
   /** A file the scan reads code from, by its absolute path, as the modules a test imports are read. */

@@ -116,7 +116,8 @@ for (const test of head.tests.filter((test) => !test.isActive && active.has(test
 }
 ```
 
-A renamed test gets a new id, so it shows up as removed and added rather than as stopped.
+A renamed test gets a new id, so this id-only recipe shows it as removed and added. The
+[inventory diff](/guide/diff) follows renames and moves by body hash and reports newly skipped and re-enabled tests.
 
 ## GitLab CI
 
