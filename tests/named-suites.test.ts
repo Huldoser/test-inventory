@@ -173,11 +173,13 @@ it('applies the helper-call limit to repeated named callbacks', () => {
   const result = scanSource({
     framework: 'vitest',
     relativeFilePath: 'tests/orders.test.ts',
-    code: `import { test, describe } from 'vitest';
-function ordersBlock() { test('quotes the bid', () => {}); }
+    code: `import { beforeEach, describe } from 'vitest';
+function ordersBlock() { beforeEach(() => {}); }
 ${calls}`,
   });
-  expect(result.tests).toHaveLength(10_000);
+  expect(result.suites).toHaveLength(10_001);
+  expect(result.suites.slice(0, 10_000).every(({ hooks }) => hooks.beforeEach === 1)).toBe(true);
+  expect(result.suites[10_000].hooks.beforeEach).toBe(0);
   expect(result.diagnostics.filter(({ code }) => code === 'test-in-function')).toHaveLength(1);
   expect(result.diagnostics.some(({ code }) => code === 'internal-error')).toBe(false);
 }, 20_000);
