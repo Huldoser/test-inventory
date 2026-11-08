@@ -48,6 +48,7 @@ const CAUSES = {
   sourceText: 'Vitest names a test by the source text of a title the scan works out, as in `OrderBook.name`',
   helperTitle:
     'Vitest names a test in a helper function where it is written; the scan, like the runner, where it is called',
+  namedDescribe: 'Vitest lists a named describe callback where it is declared; the scan expands each describe call',
   vitestName: "Vitest finds test objects by name: `test`, `it`, `describe`, `suite`, or a name like 'testX' or 'xTest'",
   importedHelper: 'The test is written in an imported helper, and Vitest reads each file on its own',
   fileError: 'Both say the runner refuses the file',
@@ -224,7 +225,15 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
     }
     matched.add(entry);
     if (records.length > 1 && !records.every((test) => test.isInFunction)) {
-      differences.push({ at, detail: `${records.length} records, one in Vitest's list`, cause: null });
+      const callbacks = records.filter((test) => !test.isInFunction);
+      const named =
+        callbacks.every((test) => lexicalCallbackName(test) !== null) &&
+        new Set(callbacks.map((test) => test.suiteId)).size === callbacks.length;
+      differences.push({
+        at,
+        detail: `${records.length} records, one in Vitest's list`,
+        cause: named ? CAUSES.namedDescribe : null,
+      });
     }
     for (const test of records) {
       if (modeOf(test) !== entry.mode) {
@@ -299,11 +308,34 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
   function nameCause(test: TestRecord, entry: ListedTest): string | null {
     if (unescape(entry.name) === test.fullName) return CAUSES.escapes;
     if (test.isInFunction) return CAUSES.helperTitle;
+    if (lexicalCallbackName(test) === unescape(entry.name)) return CAUSES.namedDescribe;
     const titled = [...describesOf(test), test];
     if (titled.some((item) => item.hasDynamicTitle)) return CAUSES.dynamicTitle;
     if (inDroppedDescribe(test)) return CAUSES.chainedAfterCall;
     if (titled.some((item) => !isPlainTitle(codeOf(item.relativeFilePath).of(item)))) return CAUSES.sourceText;
     return null;
+  }
+
+  /** The lexical name after removing named describe calls that don't physically enclose the callback's test. */
+  function lexicalCallbackName(test: TestRecord): string | null {
+    const testCall = codeOf(test.relativeFilePath).of(test);
+    if (!testCall) return null;
+    const describes = describesOf(test);
+    const named = describes.filter((suite) => {
+      const call = codeOf(suite.relativeFilePath).of(suite);
+      const callback = call?.arguments.at(-1);
+      return Boolean(
+        call &&
+        callback &&
+        callback.type !== 'SpreadElement' &&
+        unwrap(callback).type === 'Identifier' &&
+        suite.relativeFilePath === test.relativeFilePath &&
+        (testCall.start < call.start || testCall.end > call.end),
+      );
+    });
+    if (named.length === 0) return null;
+    const lexical = describes.filter((suite) => !named.includes(suite));
+    return [...lexical.map((suite) => suite.title), test.title].join(' > ');
   }
 
   /** Why Vitest lists a test the inventory doesn't have. */
