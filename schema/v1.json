@@ -897,11 +897,11 @@
         },
         "isNotLoaded": {
           "type": "boolean",
-          "description": "The runner refuses to load the file; a diagnostic at `stateLine` says why."
+          "description": "The runner did not load this test, possibly because its describe failed; a diagnostic at `stateLine` says why."
         },
         "isOnly": {
           "type": "boolean",
-          "description": "The test or a describe around it uses `.only`."
+          "description": "The test is selected by a `.only`, following the runner's focus rules."
         },
         "isConditional": {
           "type": "boolean",

@@ -13,6 +13,10 @@ export function createInventory(
 ): Inventory {
   const suites = files.flatMap((file) => file.suites);
   const tests = files.flatMap((file) => file.tests);
+  // Mocha shares one root suite across files; a root .only test drops every child suite.
+  if (framework === 'mocha' && tests.some((test) => test.suiteId === null && test.isOnly)) {
+    for (const test of tests) if (test.suiteId !== null) test.isOnly = false;
+  }
   const diagnostics = [...projectDiagnostics, ...files.flatMap((file) => file.diagnostics)];
   return {
     schemaVersion: 1,

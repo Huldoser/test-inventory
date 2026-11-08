@@ -368,9 +368,9 @@ export interface TestRecord {
   isFixme: boolean;
   isTodo: boolean;
   isExpectedToFail: boolean;
-  /** The runner refuses to load the file; a diagnostic at `stateLine` says why. */
+  /** The runner did not load this test, possibly because its describe failed; a diagnostic at `stateLine` says why. */
   isNotLoaded: boolean;
-  /** The test or a describe around it uses `.only`. */
+  /** The test is selected by a `.only`, following the runner's focus rules. */
   isOnly: boolean;
   /** The state applies only when a condition holds, as with `test.skip(condition)` or `skipIf`. */
   isConditional: boolean;

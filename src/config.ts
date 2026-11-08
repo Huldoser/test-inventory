@@ -408,6 +408,30 @@ class ConfigCode {
         return this.call(expression, frame, scopes);
       case 'NewExpression':
         return this.newUrl(expression, frame, scopes);
+      case 'BinaryExpression': {
+        if (expression.operator !== '+') break;
+        const left = this.evaluate(expression.left, frame, scopes);
+        const right = this.evaluate(expression.right, frame, scopes);
+        if (left.kind === 'value' && right.kind === 'value') {
+          if (typeof left.value === 'string' || typeof right.value === 'string') {
+            return { kind: 'value', value: String(left.value) + String(right.value) };
+          }
+        }
+        break;
+      }
+      case 'TemplateLiteral': {
+        const values = expression.expressions.map((item) => this.evaluate(item, frame, scopes));
+        if (values.every((item) => item.kind === 'value')) {
+          const value = expression.quasis
+            .map(
+              (item, index) =>
+                (item.value.cooked as string) + (index < values.length ? String(values[index].value) : ''),
+            )
+            .join('');
+          return { kind: 'value', value };
+        }
+        break;
+      }
       case 'Literal':
         if ('regex' in expression)
           return { kind: 'regex', source: expression.regex.pattern, flags: expression.regex.flags };

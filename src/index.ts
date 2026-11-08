@@ -1,4 +1,7 @@
 export { scan } from './scan.ts';
+export { diffInventories } from './diff.ts';
+export { formatDiffMarkdown } from './diff-markdown.ts';
+export type { ChangeKind, CloneGroup, InventoryDiff, MatchMethod, TestChange } from './diff.ts';
 export { scanSource } from './scan-source.ts';
 export { filterInventory, pickTestFields } from './filter.ts';
 export type { InventoryFilter, PickedInventory } from './filter.ts';

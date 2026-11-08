@@ -1,5 +1,5 @@
 ---
-description: The scan and scanSource functions, filterInventory and pickTestFields, the inventory they return and the JSON Schema of the output.
+description: Scan, filter and compare inventories using the library, with TypeScript types and JSON Schemas.
 ---
 
 # Library
@@ -80,6 +80,19 @@ which keys are left.
 const short = pickTestFields(fixme, ['fullName', 'reason']);
 short.tests[0].reason; // string | null
 ```
+
+## diffInventories
+
+Compares two complete saved inventories, matching tests by id and body hash. See [Compare inventories](/guide/diff)
+for matching rules, change categories, hash compatibility and incomplete-scan warnings.
+
+<!-- types: diffInventories, InventoryDiff, TestChange, ChangeKind, MatchMethod, CloneGroup -->
+
+## formatDiffMarkdown
+
+Formats a diff as a Markdown summary and table. Titles and paths are escaped as text.
+
+<!-- types: formatDiffMarkdown -->
 
 ## Inventory
 

@@ -92,7 +92,14 @@ export interface FileConfig {
    */
   forbidOnly: { message: string; isSure: boolean } | null;
   /** The names of the projects that run a test, null when unknown, and what they set for it. */
-  forTest(test: TestRecord, suites: SuiteRecord[]): { projects: string[] | null; defaults: ConfigDefaults | null };
+  forTest(
+    test: TestRecord,
+    suites: SuiteRecord[],
+  ): {
+    projects: string[] | null;
+    defaults: ConfigDefaults | null;
+    forbidOnly?: FileConfig['forbidOnly'];
+  };
   /** Vitest's tags; null when the scan can't work them out, or the projects that run the file define different ones. */
   tags: VitestTags | null;
   /** The tags Playwright's config `tag` gives every test, before the test's own. */
@@ -356,6 +363,7 @@ class RecordBuilder {
   private readonly diagnostics: Diagnostic[] = [];
   /** The line of the first problem for which the runner refuses the file; null when it loads. */
   private rejectedAt: number | null = null;
+  private readonly rejectedScopes = new Map<Scope, { line: number; offset: number }>();
   /** Whether the tests declared before the line that stops the file loading still run. */
   private keepsEarlierTests = false;
   /** Jest: the describes with a test of their own that uses `.only`, which then keep their mode from their others. */
@@ -372,7 +380,9 @@ class RecordBuilder {
   build(extraction: Extraction): FileRecords {
     const duplicates = this.duplicates(extraction.tests);
     const tags = this.options.framework === 'vitest' ? (this.options.config?.tags ?? null) : null;
-    const testProblems = extraction.tests.flatMap((test) => test.problems);
+    const testProblems = extraction.tests.flatMap((test) =>
+      test.problems.map((item) => ({ ...item, scope: test.scope })),
+    );
     // With the config's tags known, what they do is in the records, unless a tag can't be worked out.
     const isTagMissing = [...extraction.problems, ...testProblems].some((item) => item.code === 'unresolved-tag');
     const undefinedUses = tags?.isStrict ? undefinedTags(extraction, tags) : [];
@@ -390,7 +400,15 @@ class RecordBuilder {
     );
     // Each of these problems points at the code that causes it. Vitest meets the tags in the order they are listed.
     const firstTag = undefinedUses.find((use) => use.isSure)?.problem;
-    const lines = [...rejecting, ...(firstTag ? [firstTag] : [])].map((item) =>
+    const contained = (item: Problem) =>
+      ['node', 'bun'].includes(this.options.framework) && item.scope?.kind === 'describe';
+    for (const item of rejecting.filter(contained).sort((a, b) => (a.node as Span).start - (b.node as Span).start)) {
+      const scope = item.scope as Scope;
+      const offset = (item.node as Span).start;
+      if (!this.rejectedScopes.has(scope))
+        this.rejectedScopes.set(scope, { offset, line: this.parsed.source.line(offset) });
+    }
+    const lines = [...rejecting.filter((item) => !contained(item)), ...(firstTag ? [firstTag] : [])].map((item) =>
       this.parsed.source.line((item.node as Span).start),
     );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
@@ -426,6 +444,18 @@ class RecordBuilder {
   }
 
   private diagnostic(item: Problem, testId: string | null = null): Diagnostic {
+    if (item.scope && this.rejectedScopes.has(item.scope)) {
+      const effect =
+        this.options.framework === 'node'
+          ? 'fails this describe; its earlier tests and tests outside it still run'
+          : 'fails this describe; tests outside it still run';
+      item = {
+        ...item,
+        message: item.message
+          .replace('fails the file and runs none of its tests', effect)
+          .replace('fails the file', effect),
+      };
+    }
     return toDiagnostic(item, this.options.relativeFilePath, this.parsed.source, testId);
   }
 
@@ -457,8 +487,8 @@ class RecordBuilder {
    * Reports a `.only` that the config's `forbidOnly` makes fail the run, at `located`; one under a condition is a
    * warning. `call` is the `.only` call when it is in this file, whose callee the diagnostic shows.
    */
-  private forbidOnly(located: Span, call: CallExpression | null): void {
-    const forbid = this.options.config?.forbidOnly ?? null;
+  private forbidOnly(located: Span, call: CallExpression | null, override?: FileConfig['forbidOnly']): void {
+    const forbid = override === undefined ? (this.options.config?.forbidOnly ?? null) : override;
     if (forbid === null) return;
     const callee = call && snippet(this.parsed.source.text.slice(call.callee.start, call.callee.end));
     const found = problem('forbidden-only', located, forbid.message, callee);
@@ -467,7 +497,12 @@ class RecordBuilder {
 
   private suite(pending: PendingSuite): SuiteRecord {
     const { scope, declaration, call } = pending;
-    if (declaration.isOnly) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
+    const skipped =
+      this.options.framework === 'vitest' &&
+      outward(scope).some((parent) =>
+        parent.states.some((setting) => ['skip', 'todo'].includes(setting.state) && setting.condition === null),
+      );
+    if (declaration.isOnly && !skipped) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
     const parents = outward(scope).slice(1, -1).reverse();
     const title = declaration.title;
     // Suite ids are marked so that a describe and a test with the same title in the same place differ.
@@ -566,6 +601,16 @@ class RecordBuilder {
     return nearest !== -1 && !this.focusedBelow.has(scopes[nearest]) ? nearest : null;
   }
 
+  /** Mocha keeps a suite's own focused tests first, otherwise only its innermost focused suites. */
+  private mochaFocus(pending: PendingTest, scopes: Scope[]): boolean {
+    for (const scope of [...scopes].reverse()) {
+      if (this.focused.has(scope)) return pending.scope === scope && pending.declaration.isOnly;
+      if (scope.isOnly && !this.focusedBelow.has(scope)) return true;
+      if (!this.focusedBelow.has(scope)) return false;
+    }
+    return pending.declaration.isOnly;
+  }
+
   private test(pending: PendingTest, suites: SuiteRecord[]): TestRecord {
     const { declaration } = pending;
     const dependencies = this.options.dependencies(pending);
@@ -597,6 +642,8 @@ class RecordBuilder {
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
     const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
     const focus = this.options.focusesLikeJasmine ? this.jasmineFocus(pending, scopes) : undefined;
+    const mocha =
+      !this.options.focusesLikeJasmine && ['mocha', 'cypress', 'webdriverio'].includes(this.options.framework);
     // A focus inside an `xdescribe` runs, as the describe's own skip doesn't reach it; `pending()` still does. An
     // `xdescribe` inside the focus stays skipped.
     const declaredSkip = (scope: Scope, index: number, setting: StateSetting) =>
@@ -631,8 +678,15 @@ class RecordBuilder {
           ...around.filter((candidate) => !candidate.overrides),
         ]);
     // When the runner refuses the file, no test in it runs, whatever else is written, or none after the refused call.
+    const scopeFailure = scopes
+      .map((scope) => this.rejectedScopes.get(scope))
+      .find(
+        (failure) => failure !== undefined && (this.options.framework === 'bun' || located.start >= failure.offset),
+      );
     const rejected =
-      this.rejectedAt !== null && !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt);
+      scopeFailure !== undefined ||
+      (this.rejectedAt !== null &&
+        !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt));
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
     const setting = rejected ? null : (chosen?.setting ?? null);
     const suitePath = [
@@ -654,7 +708,9 @@ class RecordBuilder {
       ? jest.isOnly
       : focus !== undefined
         ? focus !== null
-        : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
+        : mocha
+          ? this.mochaFocus(pending, scopes)
+          : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments
@@ -669,7 +725,8 @@ class RecordBuilder {
         'The test uses the bench fixture, which Vitest only provides in benchmark files such as *.bench.ts; elsewhere the test fails.';
       this.diagnostics.push(this.diagnostic(problem('bench-outside-benchmark-file', located, message), id));
     }
-    if (declaration.isOnly) this.forbidOnly(located, pending.site ? null : pending.call);
+    if (declaration.isOnly && this.options.framework !== 'vitest')
+      this.forbidOnly(located, pending.site ? null : pending.call);
     // A loop the scan counts is described by caseCount, as a table is.
     if (pending.loops.includes(null)) {
       this.diagnostics.push(
@@ -730,8 +787,8 @@ class RecordBuilder {
       condition: setting?.condition ?? null,
       reason: setting?.reason ?? null,
       hasDynamicReason: setting?.hasDynamicReason ?? false,
-      stateSource: rejected ? 'file' : (chosen?.source ?? null),
-      stateLine: rejected ? this.rejectedAt : (setting?.line ?? null),
+      stateSource: scopeFailure ? 'suite' : rejected ? 'file' : (chosen?.source ?? null),
+      stateLine: scopeFailure ? scopeFailure.line : rejected ? this.rejectedAt : (setting?.line ?? null),
       isParallel: mode === 'parallel',
       isSerial: mode === 'serial',
       tags,
@@ -772,7 +829,14 @@ class RecordBuilder {
       isInFunction: pending.isInFunction,
       projects: null,
     };
-    const { projects, defaults } = this.options.config?.forTest(record, suites) ?? { projects: null, defaults: null };
+    const { projects, defaults, forbidOnly } = this.options.config?.forTest(record, suites) ?? {
+      projects: null,
+      defaults: null,
+    };
+    const skippedOnly = chosen && ['skip', 'todo'].includes(chosen.setting.state) && chosen.setting.condition === null;
+    if (declaration.isOnly && this.options.framework === 'vitest' && !skippedOnly) {
+      this.forbidOnly(located, pending.site ? null : pending.call, forbidOnly);
+    }
     return {
       ...withConfig(record, defaults),
       isParallel: record.isParallel || (mode === null && defaults?.parallel === true),

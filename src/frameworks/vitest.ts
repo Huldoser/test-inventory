@@ -294,7 +294,10 @@ export class VitestAdapter extends SuiteAdapter {
       if (MODIFIERS[kind].has(link.name)) return !called && !removed(link);
       return TABLES.has(link.name) ? called : CONDITIONS.has(link.name) && link.args !== null;
     };
-    const invalid = links.find((link) => !valid(link));
+    const tableIndex = links.findIndex(
+      (link) => TABLES.has(link.name) && (link.args !== null || link.template !== null),
+    );
+    const invalid = links.find((link, index) => !valid(link) || (tableIndex !== -1 && index > tableIndex));
     if (!invalid) return this.declaration(call, kind, links, context);
     const refusal = removed(invalid)
       ? problem('removed-api', call, `sequential was removed in Vitest 5; ${callee}(...) fails.`, callee)

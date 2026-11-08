@@ -9,6 +9,9 @@ when the state only applies sometimes. Each test has an id that survives a move 
 it runs, from its hooks and fixtures to its page objects, test data, snapshots and config, so it can also list the tests
 a change can affect. It parses the code and runs nothing, so it needs no browsers, no build and no runner configuration.
 
+Compare saved scans with `test-inventory diff old.json new.json`: additions, removals, renames and moves, changes to
+code, dependencies, state and tags, as JSON or Markdown. See [Compare inventories](https://huldoser.github.io/test-inventory/guide/diff).
+
 Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/)
 
 ## Install

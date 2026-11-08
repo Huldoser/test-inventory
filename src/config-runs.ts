@@ -1830,8 +1830,8 @@ const UNKNOWN_DEFAULTS: ConfigDefaults = {
 };
 
 /**
- * What the config a file uses gives it: Playwright's `forbidOnly` or Vitest's `allowOnly`, read from the top level
- * only, as the runners read them, and for each test, the projects that run it and what they set; null without a config.
+ * What the config a file uses gives it: Playwright's `forbidOnly`, Vitest's per-project `allowOnly`, and for each test,
+ * the projects that run it and what they set; null without a config.
  */
 export function fileConfig(
   placement: Placement,
@@ -1847,15 +1847,34 @@ export function fileConfig(
     return framework === 'vitest' ? { forbidOnly, forTest: () => NO_CONFIG, tags, configTags: [] } : null;
   }
   return {
-    forbidOnly: onlyRule(framework, config.settings),
+    forbidOnly: projectOnlyRule(framework, config.settings, projects),
     forTest(test, suites) {
       if (projects === null) return { projects: null, defaults: UNKNOWN_DEFAULTS };
       const running = projectsRunning(projects, test, suites, file, placement.tags);
       // A grep the scan can't match leaves the projects that run the file, which may still agree.
-      return { projects: running?.map(({ name }) => name) ?? null, defaults: configDefaults(running ?? projects) };
+      return {
+        projects: running?.map(({ name }) => name) ?? null,
+        defaults: configDefaults(running ?? projects),
+        forbidOnly: projectOnlyRule(framework, config.settings, running ?? projects),
+      };
     },
     tags: agreedTags(projects),
     configTags: placement.tags ?? [],
+  };
+}
+
+function projectOnlyRule(
+  framework: Framework,
+  settings: Setting,
+  projects: ProjectAbout[] | null,
+): FileConfig['forbidOnly'] {
+  if (framework !== 'vitest' || projects === null || projects.length === 0) return onlyRule(framework, settings);
+  const rules = projects.map((project) => onlyRule(framework, project.settings));
+  const first = rules[0];
+  if (rules.every((rule) => JSON.stringify(rule) === JSON.stringify(first))) return first;
+  return {
+    message: 'The projects disagree on allowOnly; this .only fails in the projects that disable it.',
+    isSure: false,
   };
 }
 
@@ -2046,8 +2065,10 @@ function readImportMap(
       for (const key of [
         ['test', 'alias'],
         ['resolve', 'alias'],
-      ])
-        map.aliases.push(...viteAliases(settingAt(source, key)));
+      ]) {
+        const parent = settingAt(source, key.slice(0, -1));
+        if (parent?.kind === 'object') map.aliases.push(...viteAliases(parent.keys.get('alias') ?? null));
+      }
     }
   } else if (framework === 'jest') {
     const rootDir = placement.projects?.[0]?.root ?? path.dirname(config.file);
@@ -2057,8 +2078,9 @@ function readImportMap(
         replaceRootDir(rootDir, item),
       );
       const find = regExp(pattern, '');
-      if (find && replacements.length > 0) map.aliases.push({ find, replacements, replacesName: true });
+      if (find) map.aliases.push({ find, replacements, replacesName: true });
     }
+    if (mapper?.kind === 'unknown') map.aliases.push({ find: /./, replacements: [], replacesName: true });
     map.paths = strings(settingAt(settings, ['modulePaths'])).map((item) =>
       path.resolve(rootDir, replaceRootDir(rootDir, item)),
     );
@@ -2074,14 +2096,19 @@ function readImportMap(
 
 /**
  * Vite's aliases: an object of names and their replacements, or a list of `{ find, replacement }`, where `find` is a
- * name or a regex. Entries the scan can't work out are left out.
+ * name or a regex. An unreadable replacement keeps its match, so its imports are marked unfollowed.
  */
 function viteAliases(setting: Setting | null): ImportMap['aliases'] {
   if (setting?.kind === 'object') {
-    return [...setting.keys].flatMap(([find, target]) =>
-      stringOf(target).map((replacement) => ({ find, replacements: [replacement], replacesName: false })),
-    );
+    const aliases: ImportMap['aliases'] = [...setting.keys].map(([find, target]) => ({
+      find,
+      replacements: stringOf(target),
+      replacesName: false,
+    }));
+    if (setting.rest) aliases.push({ find: /./, replacements: [], replacesName: false });
+    return aliases;
   }
+  if (setting?.kind === 'unknown') return [{ find: /./, replacements: [], replacesName: false }];
   if (setting?.kind !== 'list') return [];
   return setting.items.flatMap((item) => {
     const find = settingAt(item, ['find']);
@@ -2089,7 +2116,7 @@ function viteAliases(setting: Setting | null): ImportMap['aliases'] {
     const name = find?.kind === 'value' && typeof find.value === 'string' ? find.value : null;
     const pattern = find?.kind === 'regex' ? regExp(find.source, find.flags) : null;
     const written = name ?? pattern;
-    return written !== null && replacements.length > 0 ? [{ find: written, replacements, replacesName: false }] : [];
+    return written !== null ? [{ find: written, replacements, replacesName: false }] : [];
   });
 }
 
@@ -2109,15 +2136,16 @@ function stripsTypes(version: [number, number] | null): boolean {
  * The `node --test` commands of the `test` script and the scripts it runs, or else of the first script that runs one,
  * each as the files it gives; none when no script runs it or there is no package.json.
  */
-function nodeTestArguments(manifest: string): string[][] {
+export function nodeTestArguments(manifest: string, setups = false): string[][] {
   let scripts: Record<string, unknown> = {};
   try {
     scripts = (JSON.parse(readFileSync(manifest, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
   } catch {
     return [];
   }
-  const fromTest = scriptsRunBy(scripts, 'test').flatMap(nodeTestCommands);
+  const read = (script: string) => nodeTestCommands(script, setups);
+  const fromTest = scriptsRunBy(scripts, 'test').flatMap(read);
   if (fromTest.length > 0) return fromTest;
   const others = Object.values(scripts).filter((script) => typeof script === 'string');
-  return others.map(nodeTestCommands).find((commands) => commands.length > 0) ?? [];
+  return others.map(read).find((commands) => commands.length > 0) ?? [];
 }
