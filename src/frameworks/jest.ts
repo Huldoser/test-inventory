@@ -180,6 +180,7 @@ export class JestAdapter extends SuiteAdapter {
     const spread = args.some((arg) => arg.type === 'SpreadElement');
     const body = spread ? undefined : args.at(1);
     const fn = isFunctionNode(body) ? body : null;
+    const callback = fn ?? namedFunction(this.file, context.scopes, body);
     const table = links.find((link) => link.name === 'each') ?? null;
     const line = this.file.source.line(call.start);
     const declared = (given: FunctionNode | null = fn): ApiCall => {
@@ -190,7 +191,7 @@ export class JestAdapter extends SuiteAdapter {
         mode: flags.has('concurrent') && !flags.has('skip') ? ('parallel' as const) : null,
         details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
         fn: given,
-        hashed: given ?? namedFunction(this.file, context.scopes, body),
+        hashed: given ?? callback,
         isParameterized: table !== null,
         caseCount: table ? this.caseCount(table, context, problems) : null,
         cases: table ? this.tableCases(table, title, context) : null,
@@ -252,16 +253,16 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, declared);
     }
-    if (kind === 'describe' && fn?.async) {
+    if (kind === 'describe' && callback?.async) {
       const refusal = problem(
         'async-describe',
-        fn,
+        callback,
         'The describe callback is async, and Jest throws when a describe returns a promise, so it fails the file.',
       );
       return refused(call, refusal, context, declared);
     }
-    if (kind === 'describe' && fn) {
-      const returned = describeReturns(fn);
+    if (kind === 'describe' && callback) {
+      const returned = describeReturns(callback);
       if (returned) {
         const refusal = problem(
           returned === 'promise' ? 'async-describe' : 'describe-throws',

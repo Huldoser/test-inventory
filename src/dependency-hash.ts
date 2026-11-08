@@ -1743,13 +1743,15 @@ export function fileDependencies(
     let units = suiteUnits.get(suite);
     if (!units) {
       // A describe without a callback has no tests in it.
-      const fn = suite.declaration.fn as FunctionNode;
+      const fn = (suite.declaration.fn ?? suite.declaration.hashed) as FunctionNode;
+      // Its load code is listed separately; following a named reference would pull in sibling test bodies too.
+      const callback = suite.declaration.fn ? [] : suite.call.arguments.slice(-1);
       units = [
         graph.unit(
           moduleOf(suite.frame),
           [suite.call, ...bodyNodes(fn).filter(isLoadCode)],
           // Offsets in another file could match these by chance.
-          [fn, ...suite.cuts, ...(suite.frame === main ? registered : [])],
+          [fn, ...callback, ...suite.cuts, ...(suite.frame === main ? registered : [])],
           types,
         ),
         ...registering(suite.registeredBy),

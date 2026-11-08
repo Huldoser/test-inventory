@@ -4,6 +4,8 @@ description: The Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO,
 
 # Supported syntax
 
+Across runners, a describe callback may be a function or arrow declared in the file and passed by name. Its tests inherit the calling suite's state and metadata, and its closed-over values come from where the function is declared. Vitest, Jest and Bun describe tables bind each expanded case's arguments to the named callback. Imported describe callbacks are not followed.
+
 ## Playwright
 
 Playwright 1.42 and newer.

@@ -510,7 +510,7 @@ class RecordBuilder {
     this.suiteIds.set(scope, id);
     const chosen = chooseState(scope.states.map((setting) => ({ setting, source: 'suite' as const })));
     const state = chosen?.setting.state;
-    const fn = declaration.fn;
+    const fn = declaration.fn ?? declaration.hashed;
     return {
       id,
       parentId: parents.length > 0 ? (this.suiteIds.get(parents[parents.length - 1]) as string) : null,

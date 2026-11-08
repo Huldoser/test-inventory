@@ -49,8 +49,10 @@ function, and calls in an imported function passed to a hook by name, as in `tes
 `slowOnCI` from another file.
 
 `expectCount`, `steps` and `fixtures` read the test function only. Assertions and steps in page objects and helpers,
-and fixtures that other fixtures or automatic fixtures set up, are not in them. A test or hook function passed by name
+and fixtures that other fixtures or automatic fixtures set up, are not in them. A test, describe or hook function passed by name
 is read when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read.
+
+Named describe callbacks are read in their lexical scope, inside each suite that calls them, including expanded table cases. Reusing one callback does not add a second copy where the function is declared. They use the same depth and call-count bounds as directly called helpers; recursion or a depth limit produces a `test-in-function` warning instead of following more nested tests. Named callbacks keep the runner's rules for async describes and callback arguments.
 
 ## Values from installed packages are not worked out
 
