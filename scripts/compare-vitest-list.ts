@@ -334,7 +334,14 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
       );
     });
     if (named.length === 0) return null;
-    const lexical = describes.filter((suite) => !named.includes(suite));
+    const lexical = describes.filter((suite) => {
+      const call = codeOf(suite.relativeFilePath).of(suite);
+      return (
+        !call ||
+        suite.relativeFilePath !== test.relativeFilePath ||
+        (call.start <= testCall.start && call.end >= testCall.end)
+      );
+    });
     return [...lexical.map((suite) => suite.title), test.title].join(' > ');
   }
 

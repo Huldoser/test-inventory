@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scanSource, type Framework } from '../src/index.ts';
+import { expectValidInventory } from './helpers.ts';
 
 const runners: { framework: Framework; prefix: string; test: string; suite: string; skip: string }[] = [
   {
@@ -84,6 +85,23 @@ function ordersBlock() { ${test}('quotes ' + venue, () => {}); }
 ${suite}('orders', () => { const venue = 'live'; ${suite}('venue', ordersBlock); });`,
     });
     expect(result.tests.map(({ fullName }) => fullName)).toEqual(['orders > venue > quotes paper']);
+  });
+
+  it('links nested suites registered by a callback declared before its calling suite', () => {
+    const result = scanSource({
+      framework,
+      relativeFilePath: 'tests/orders.test.ts',
+      code: `${prefix}
+function ordersBlock() { ${suite}('desk', () => { ${test}('quotes the bid', () => {}); }); }
+${suite}('paper venue', ordersBlock);`,
+    });
+    expectValidInventory(result);
+    const [inner, outer] = result.suites;
+    expect([inner.title, outer.title]).toEqual(['desk', 'paper venue']);
+    expect(inner.parentId).toBe(outer.id);
+    expect(outer.parentId).toBeNull();
+    expect(result.tests[0].suiteId).toBe(inner.id);
+    expect(result.tests[0].fullName).toBe('paper venue > desk > quotes the bid');
   });
 
   it('bounds recursive named callbacks and explains the missing nested tests', () => {

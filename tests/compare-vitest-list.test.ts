@@ -73,3 +73,39 @@ it('keeps a duplicated named-callback record in the same suite unexplained', () 
     expect.objectContaining({ detail: "4 records, one in Vitest's list" }),
   ]);
 });
+
+it.each([
+  {
+    code: `function ordersBlock() { test('quotes the bid', () => {}); }
+describe('orders', () => { describe('paper', ordersBlock); });`,
+    name: 'quotes the bid',
+  },
+  {
+    code: `describe('orders', () => {
+  function ordersBlock() { test('quotes the bid', () => {}); }
+  describe('paper', ordersBlock);
+});`,
+    name: 'orders > quotes the bid',
+  },
+  {
+    code: `function ordersBlock() { describe('venue', () => { test('quotes the bid', () => {}); }); }
+describe('orders', ordersBlock);`,
+    name: 'venue > quotes the bid',
+  },
+])('compares named callbacks by their lexical suite path: $name', ({ code: body, name }) => {
+  const file = 'orders.test.ts';
+  const code = `import { describe, test } from 'vitest';\n${body}`;
+  const root = project({ [file]: code });
+  const inventory = scanSource({ code, relativeFilePath: file, framework: 'vitest' });
+  const test = inventory.tests[0];
+  const modules: ListedModule[] = [
+    {
+      file,
+      errors: [],
+      tests: [{ name, line: test.lineStart, column: test.columnStart, mode: 'run' }],
+    },
+  ];
+  const differences = compareWithVitest(root, inventory, modules);
+  expect(differences).toHaveLength(1);
+  expect(differences.filter(({ cause }) => cause === null)).toEqual([]);
+});
