@@ -136,6 +136,7 @@ export class JasmineAdapter extends SuiteAdapter {
     // `undefined` given as the function is no function, as when none is given.
     const body = written?.type === 'Identifier' && written.name === 'undefined' ? undefined : written;
     const fn = isFunctionNode(body) ? body : null;
+    const callback = fn ?? namedFunction(this.file, context.scopes, body ?? undefined);
     const line = this.file.source.line(call.start);
     // A spec without a function is pending, unless it is focused: `fit` needs one.
     const isSkipped = flags.has('skip') || (kind === 'test' && body === undefined);
@@ -148,7 +149,7 @@ export class JasmineAdapter extends SuiteAdapter {
       mode: null,
       details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
       fn,
-      hashed: fn ?? namedFunction(this.file, context.scopes, body ?? undefined),
+      hashed: callback,
       isParameterized: false,
       caseCount: null,
       cases: null,
@@ -186,28 +187,28 @@ export class JasmineAdapter extends SuiteAdapter {
       const refusal = this.refusal('test-without-body', call, `${callee}() has no function`, context);
       return refused(call, refusal, context, () => declared);
     }
-    if (fn?.async) {
+    if (callback?.async) {
       const refusal = this.refusal(
         'async-describe',
-        fn,
+        callback,
         'The describe callback is async, which Jasmine refuses',
         context,
       );
       return refused(call, refusal, context, () => declared);
     }
-    if (fn && declaresNothing(fn)) {
+    if (callback && declaresNothing(callback)) {
       const refusal = this.refusal(
         'describe-throws',
-        fn,
+        callback,
         'The describe declares no spec or describe, which Jasmine refuses',
         context,
       );
       return refused(call, refusal, context, () => declared);
     }
-    if (fn && functionLength(fn) > 0) {
+    if (callback && functionLength(callback) > 0) {
       const refusal = this.refusal(
         'describe-throws',
-        fn,
+        callback,
         'The describe callback takes arguments, which Jasmine refuses',
         context,
       );

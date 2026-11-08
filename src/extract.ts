@@ -1589,9 +1589,7 @@ class Walker {
     if (context.declaredIn) this.declaredIn.set(test, context.declaredIn);
     this.cut(context.scope, call);
     // A function declared in the file and passed by name runs as the test body too.
-    const body = declaration.fn ?? declaration.hashed;
-    if (body) {
-      if (!declaration.fn) this.walkedAtCall.add(body);
+    this.withDeclarationBody(declaration, call, (body) => {
       this.withCase(body, args, () => {
         this.visitCallback(body, {
           ...context,
@@ -1604,7 +1602,38 @@ class Walker {
           helper: null,
         });
       });
+    });
+  }
+
+  /** Named callbacks keep their lexical scopes and use the same traversal bounds as directly called helpers. */
+  private withDeclarationBody(
+    declaration: TestDeclaration | SuiteDeclaration,
+    call: CallExpression,
+    walk: (fn: FunctionNode) => void,
+  ): void {
+    const fn = declaration.fn ?? declaration.hashed;
+    if (!fn) return;
+    if (declaration.fn) {
+      walk(fn);
+      return;
     }
+    this.walkedAtCall.add(fn);
+    if (this.callStack.includes(fn) || this.callStack.length >= MAX_DEPTH) {
+      this.report(
+        problem(
+          'test-in-function',
+          call,
+          'The named callback recurses or exceeds the helper depth limit, so its nested tests are not followed here.',
+        ),
+      );
+      return;
+    }
+    if (!this.withinLimit({ fn, frame: this.frame }, call)) return;
+    const saved = this.scopes.splice(0, this.scopes.length, ...this.scopeChain(fn));
+    this.callStack.push(fn);
+    walk(fn);
+    this.callStack.pop();
+    this.scopes.splice(0, this.scopes.length, ...saved);
   }
 
   /** Runs `walk` with a case's arguments bound to the parameters of its callback, as the runner calls it. */
@@ -1656,8 +1685,7 @@ class Walker {
     this.suites.push(suite);
     this.cut(context.scope, call);
     this.suiteFrames.set(suite, this.frame);
-    const { fn } = declaration;
-    if (fn) {
+    this.withDeclarationBody(declaration, call, (fn) => {
       this.withCase(fn, args, () => {
         this.visitCallback(fn, {
           ...context,
@@ -1675,7 +1703,7 @@ class Walker {
           expandedAt: this.expandedAt(context, index === null ? null : call.start),
         });
       });
-    }
+    });
   }
 
   /** The statement a call forms, such as `test(...);`, or the call itself when it is part of a larger expression. */

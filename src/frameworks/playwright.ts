@@ -731,7 +731,8 @@ export class PlaywrightAdapter implements Adapter {
   ): ApiCall {
     const args = call.arguments;
     if (args.length === 0) return { kind: 'other' };
-    const anonymous = isFunctionNode(args[0]);
+    const anonymous =
+      isFunctionNode(args[0]) || (args.length === 1 && namedFunction(this.file, context.scopes, args[0]) !== null);
     const problems: Problem[] = [];
     let title = null;
     if (!anonymous) {
@@ -739,12 +740,13 @@ export class PlaywrightAdapter implements Adapter {
       title = read.title;
       if (read.problem) problems.push(read.problem);
     }
-    const fn = anonymous ? (args[0] as FunctionNode) : findFunction(args, 1);
-    if (fn?.async && containsAwait(fn)) {
+    const fn = anonymous ? (isFunctionNode(args[0]) ? args[0] : null) : findFunction(args, 1);
+    const callback = fn ?? namedFunction(this.file, context.scopes, args.at(-1));
+    if (callback?.async && containsAwait(callback)) {
       problems.push(
         problem(
           'async-describe',
-          fn,
+          callback,
           'The describe callback awaits, but Playwright does not wait for it; tests declared after the first await end up in the describe around it, or are not collected.',
         ),
       );
@@ -765,7 +767,7 @@ export class PlaywrightAdapter implements Adapter {
         title?.text ?? '',
       ),
       fn,
-      hashed: fn,
+      hashed: callback,
       isParameterized: false,
       caseCount: null,
       cases: null,

@@ -420,6 +420,15 @@ class RecordBuilder {
       ...extraction.suites.filter((suite) => suite.declaration.isOnly).map((suite) => suite.scope.parent as Scope),
     ];
     this.focusedBelow = new Set(focusedAt.flatMap((scope) => outward(scope)));
+    // A named callback can place a child before its calling parent in source order.
+    for (const { scope, declaration } of extraction.suites) {
+      const parents = outward(scope).slice(1, -1).reverse();
+      // Mark describe ids so that a describe and test with the same title in the same place differ.
+      this.suiteIds.set(
+        scope,
+        this.id(['describe', this.describeTitles(parents), declaration.title?.withoutTags ?? '']),
+      );
+    }
     const suites = extraction.suites.map((suite) => this.suite(suite));
     const tests = extraction.tests.map((test) => this.test(test, suites));
     for (const item of problems) {
@@ -505,12 +514,10 @@ class RecordBuilder {
     if (declaration.isOnly && !skipped) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
     const parents = outward(scope).slice(1, -1).reverse();
     const title = declaration.title;
-    // Suite ids are marked so that a describe and a test with the same title in the same place differ.
-    const id = this.id(['describe', this.describeTitles(parents), title?.withoutTags ?? '']);
-    this.suiteIds.set(scope, id);
+    const id = this.suiteIds.get(scope) as string;
     const chosen = chooseState(scope.states.map((setting) => ({ setting, source: 'suite' as const })));
     const state = chosen?.setting.state;
-    const fn = declaration.fn;
+    const fn = declaration.fn ?? declaration.hashed;
     return {
       id,
       parentId: parents.length > 0 ? (this.suiteIds.get(parents[parents.length - 1]) as string) : null,
