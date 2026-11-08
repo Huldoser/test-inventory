@@ -151,7 +151,7 @@ describe('diffInventories', () => {
   it('does not compare hashes across tool versions and warns about scan errors', () => {
     const before = inventory();
     const after = inventory(code.replace('187.25', '188.25'));
-    after.tool.version = '0.10.0';
+    after.tool.version = `${before.tool.version}-EXAMPLE`;
     after.diagnostics.push({
       code: 'parse-error',
       level: 'error',

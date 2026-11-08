@@ -1,5 +1,28 @@
 # test-inventory
 
+## 0.10.0
+
+### Minor Changes
+
+- [#96](https://github.com/Huldoser/test-inventory/pull/96) [`86e1765`](https://github.com/Huldoser/test-inventory/commit/86e1765d7b8fb763f34d0f024fb53931192b4e1b) - Compare two complete saved scans with `test-inventory diff old.json new.json` or `diffInventories(before, after)`.
+  Reports additions, removals, renamed and moved tests, changed code and dependencies, state, tags and other metadata.
+  Matches ids first, then body hashes with file, suite or dependency context, leaving ambiguous matches unmatched.
+  Includes exact body clone groups, JSON Schema, and escaped Markdown output through `--format markdown` or
+  `formatDiffMarkdown`. Hash comparisons and rename matching require identical tool versions; incomplete scans warn.
+
+### Patch Changes
+
+- [#96](https://github.com/Huldoser/test-inventory/pull/96) [`86e1765`](https://github.com/Huldoser/test-inventory/commit/86e1765d7b8fb763f34d0f024fb53931192b4e1b) - Keep unreadable config aliases as dependency gaps rather than silently treating their imports as installed packages.
+  Read string concatenation and templates in config paths. Follow config aliases in setup paths, Jasmine helper globs,
+  Cypress's default and configured support files, Bun preload files, and Node script preloads in dependencies and
+  dependencyHash, so --related keeps tests affected by changes to those files.
+
+- [#96](https://github.com/Huldoser/test-inventory/pull/96) [`86e1765`](https://github.com/Huldoser/test-inventory/commit/86e1765d7b8fb763f34d0f024fb53931192b4e1b) - Apply Mocha's focus filtering, including Cypress and WebdriverIO on Mocha, so an outer describe.only does not focus
+  tests that a more specific focus excludes. A root focused test in standalone Mocha excludes child suites across
+  files. Contain refused calls inside node:test and Bun describe callbacks: Node keeps earlier tests and tests outside
+  the describe; Bun loses that describe only. Vitest reads allowOnly per project, does not fail unconditionally skipped
+  focused tests, and refuses modifiers after a called each or for table.
+
 ## 0.9.1
 
 ### Patch Changes
