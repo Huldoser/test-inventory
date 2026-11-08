@@ -2112,6 +2112,7 @@ function viteAliases(setting: Setting | null): ImportMap['aliases'] {
   if (setting?.kind !== 'list') return [];
   return setting.items.flatMap((item) => {
     const find = settingAt(item, ['find']);
+    if (find?.kind === 'unknown') return [{ find: /./, replacements: [], replacesName: false }];
     const replacements = stringOf(settingAt(item, ['replacement']));
     const name = find?.kind === 'value' && typeof find.value === 'string' ? find.value : null;
     const pattern = find?.kind === 'regex' ? regExp(find.source, find.flags) : null;

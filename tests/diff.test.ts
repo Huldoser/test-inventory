@@ -10,6 +10,29 @@ function inventory(source = code, file = 'tests/quotes.test.ts'): Inventory {
 }
 
 describe('diffInventories', () => {
+  it('ignores line moves in annotations and Playwright steps', () => {
+    const source = `import { test } from '@playwright/test';
+test('routes a limit order', { annotation: { type: 'issue', description: 'EXAMPLE-123' } }, async () => {
+  await test.step('reads the order book', async () => {});
+  test.info().annotations.push({ type: 'venue', description: 'paper' });
+});`;
+    const before = scanSource({ code: source, relativeFilePath: 'tests/orders.spec.ts', framework: 'playwright' });
+    const after = scanSource({
+      code: `\n\n${source}`,
+      relativeFilePath: 'tests/orders.spec.ts',
+      framework: 'playwright',
+    });
+    expect(before.tests[0].annotations).toHaveLength(2);
+    expect(before.tests[0].steps).toHaveLength(1);
+    const saved = JSON.stringify([before, after]);
+    const result = diffInventories(before, after);
+    expect(result.changes).toEqual([]);
+    expect(result.summary).toMatchObject({ unchanged: 1, changed: 0 });
+    expect(JSON.stringify([before, after])).toBe(saved);
+    after.tests[0].annotations[0].description = 'EXAMPLE-456';
+    after.tests[0].steps[0].title = 'reads the live order book';
+    expect(diffInventories(before, after).changes[0].changedFields).toEqual(['annotations', 'steps']);
+  });
   it('keeps records without bodies unmatched and orders several clone groups deterministically', () => {
     const before = inventory(`${code}\ntest.todo('reports overnight margin');`);
     before.tests.push({ ...before.tests[0], id: '1111111111111111' }, { ...before.tests[1], id: '2222222222222222' });
