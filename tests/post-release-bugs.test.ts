@@ -1,9 +1,32 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import { scanPlaywright } from './helpers.ts';
 import { scan } from '../src/index.ts';
 import { project, VITEST_PACKAGE } from './project.ts';
 
 describe('Playwright modifier aliases', () => {
+  it('reads a deeply nested test-object choice without repeatedly traversing its branches', () => {
+    let value = 'test';
+    for (let index = 0; index < 35; index++) value = `process.env.CI ? (${value}) : test`;
+    const root = project({
+      'tests/orders.spec.ts': `import { test } from '@playwright/test'; const later = ${value}; later('books a paper fill', () => {});`,
+    });
+    const output = execFileSync(
+      process.execPath,
+      [
+        '--max-old-space-size=512',
+        path.resolve(import.meta.dirname, '../dist/bin.js'),
+        'tests/orders.spec.ts',
+        '--framework',
+        'playwright',
+        '--framework-version',
+        '1.65.0',
+      ],
+      { cwd: root, encoding: 'utf8', timeout: 10_000 },
+    );
+    expect(JSON.parse(output)).toMatchObject({ summary: { testCount: 1 }, tests: [{ state: 'active' }] });
+  }, 20_000);
   it.each([
     ['skip', 'skip', false],
     ['fixme', 'fixme', false],

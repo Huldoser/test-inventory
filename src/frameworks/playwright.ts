@@ -198,14 +198,19 @@ class PlaywrightBindings implements TestObjects {
       case 'MemberExpression':
         return propertyName(node) === 'test' && this.isModule(node.object);
       case 'ConditionalExpression': {
-        const branches = [node.consequent, node.alternate];
+        const branches = [node.consequent, node.alternate].map((expression) => ({
+          expression,
+          isObject: this.isTestObject(expression, followsCalls),
+        }));
         // Keep inference through unknown factories, but a known member such as describe or skip is not an object.
-        const mayBeObject = (branch: Expression) => {
-          if (this.isTestObject(branch, followsCalls)) return true;
-          const chain = readChain(branch);
-          return !chain || chain.links.length === 0 || !this.isTestObject(chain.base, followsCalls);
-        };
-        return branches.some((branch) => this.isTestObject(branch, followsCalls)) && branches.every(mayBeObject);
+        return (
+          branches.some((branch) => branch.isObject) &&
+          branches.every(({ expression, isObject }) => {
+            if (isObject) return true;
+            const chain = readChain(expression);
+            return !chain || chain.links.length === 0 || !this.isTestObject(chain.base, followsCalls);
+          })
+        );
       }
       case 'CallExpression': {
         const callee = unwrap(node.callee);
