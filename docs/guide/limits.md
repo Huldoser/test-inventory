@@ -121,7 +121,7 @@ and a body counts through any member, as in `it.effect('fills an order', ...)` o
 extends, and with a timeout after the body. Helpers shaped the same way, such as `waitForFill('AAPL', (order) => ...)`,
 are not reported. `scanSource()` reads no files, so it follows no imports.
 
-An alias explicitly configured with an unreadable replacement marks its imports as unfollowed, including bare package-like names. Config paths built by string `+` or a template over `__dirname` or `import.meta.dirname` are read. Bun's `[test].preload`, Jasmine helper globs, Cypress support files (including the default), and Node script `--import`, `--require` and `--test-global-setup` files are included in dependencies. Setup files use the config's aliases too.
+An alias explicitly configured with an unreadable replacement marks its imports as unfollowed, including bare package-like names. An unreadable alias entry or `find` in an array can match any import, so imports that reach it are marked unfollowed too. Vite's `mergeConfig` puts overriding list aliases first and converts object aliases to list entries when either side is a list; two object maps keep the overriding values. Config paths built by string `+` or a template over `__dirname` or `import.meta.dirname` are read. Bun's `[test].preload`, Jasmine helper globs, Cypress support files (including the default), and Node script `--import`, `--require` and `--test-global-setup` files are included in dependencies. Setup files use the config's aliases too.
 
 ## Test objects made by helpers
 

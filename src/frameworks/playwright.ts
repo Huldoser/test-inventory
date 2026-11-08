@@ -88,6 +88,7 @@ const STATES = new Map<string, State>([
   ['fail', 'expectedToFail'],
   ['fail.only', 'expectedToFail'],
 ]);
+const TEST_DECLARATIONS = new Set(['', 'only', ...STATES.keys()]);
 
 /** Members of `test` that are known but don't declare or modify tests. */
 const OTHER_MEMBERS = new Set(['use', 'slow', 'setTimeout', 'extend']);
@@ -196,9 +197,21 @@ class PlaywrightBindings implements TestObjects {
         );
       case 'MemberExpression':
         return propertyName(node) === 'test' && this.isModule(node.object);
-      case 'ConditionalExpression':
-        // `process.env.CI ? ciTest : test` is a test object either way.
-        return this.isTestObject(node.consequent, followsCalls) || this.isTestObject(node.alternate, followsCalls);
+      case 'ConditionalExpression': {
+        const branches = [node.consequent, node.alternate].map((expression) => ({
+          expression,
+          isObject: this.isTestObject(expression, followsCalls),
+        }));
+        // Keep inference through unknown factories, but a known member such as describe or skip is not an object.
+        return (
+          branches.some((branch) => branch.isObject) &&
+          branches.every(({ expression, isObject }) => {
+            if (isObject) return true;
+            const chain = readChain(expression);
+            return !chain || chain.links.length === 0 || !this.isTestObject(chain.base, followsCalls);
+          })
+        );
+      }
       case 'CallExpression': {
         const callee = unwrap(node.callee);
         if (callee.type === 'MemberExpression' && propertyName(callee) === 'extend') {
@@ -328,7 +341,7 @@ export class PlaywrightAdapter implements Adapter {
     if (links.some((link) => link.args ?? link.template)) {
       return this.invalid(call, names, "is not part of Playwright's API", context);
     }
-    if (key === '' || key === 'only' || key === 'skip' || key === 'fixme' || key === 'fail' || key === 'fail.only') {
+    if (TEST_DECLARATIONS.has(key)) {
       return this.testCall(call, key, context);
     }
     const describe = DESCRIBES.get(key);
@@ -370,6 +383,10 @@ export class PlaywrightAdapter implements Adapter {
       ...members.map((name) => ({ name, args: null, template: null })),
       ...links,
     ];
+    if (base.type === 'ConditionalExpression' || base.type === 'LogicalExpression') {
+      const members = this.members(base, lookup);
+      return members && withMembers(members);
+    }
     if (base.type === 'Identifier') {
       // A local variable or parameter with the same name, such as `(test) => test.result()`, is not Playwright's.
       const declaration = this.file.values.declarationOf(base.name, scopes);
@@ -464,18 +481,38 @@ export class PlaywrightAdapter implements Adapter {
     return members && [...members, ...destructured];
   }
 
-  /** The members of `test` a value holds: none for a test object, or those of a describe function. */
+  /** The members of `test` a value holds: none for a test object, or those of a declaring function. */
   private members(expression: Expression, lookup: Lookup): string[] | null {
+    const choices = this.choices(expression, lookup);
+    if (!choices || choices.mayBeOther || choices.members.length === 0) return null;
+    return choices.members.slice(1).reduce<string[] | null>(sharedMembers, choices.members[0]);
+  }
+
+  /** Function-valued branches stay distinct until a logical fallback rules out non-functions. */
+  private choices(expression: Expression, lookup: Lookup): { members: string[][]; mayBeOther: boolean } | null {
     const node = unwrap(expression);
     if (node.type === 'ConditionalExpression') {
-      // `IS_PLATFORM ? test.describe.serial : test.describe`: only the members both branches have apply.
-      return sharedMembers(this.members(node.consequent, lookup), this.members(node.alternate, lookup));
+      const [yes, no] = [this.choices(node.consequent, lookup), this.choices(node.alternate, lookup)];
+      if (!yes || !no) return null;
+      return { members: [...yes.members, ...no.members], mayBeOther: yes.mayBeOther || no.mayBeOther };
     }
-    if (this.bindings.isTestObject(node, false)) return [];
+    if (node.type === 'LogicalExpression') {
+      const [left, right] = [this.choices(node.left, lookup), this.choices(node.right, lookup)];
+      const isFunction = left !== null && !left.mayBeOther;
+      if (node.operator === '&&') return isFunction ? right : { members: right?.members ?? [], mayBeOther: true };
+      if (isFunction) return left;
+      return {
+        members: [...(left?.members ?? []), ...(right?.members ?? [])],
+        mayBeOther: right?.mayBeOther ?? true,
+      };
+    }
+    if (this.bindings.isTestObject(node, false)) return { members: [[]], mayBeOther: false };
     const chain = readChain(node);
     if (!chain || chain.links.some((link) => link.args ?? link.template)) return null;
     const members = this.testLinks(chain, [], lookup)?.map((link) => link.name);
-    return members && (members.length === 0 || DESCRIBES.has(members.join('.'))) ? members : null;
+    return members && (TEST_DECLARATIONS.has(members.join('.')) || DESCRIBES.has(members.join('.')))
+      ? { members: [members], mayBeOther: false }
+      : null;
   }
 
   /** Follows the import of `name` once, and reports it once when it can't be followed and `report` is set. */

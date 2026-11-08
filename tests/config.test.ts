@@ -321,6 +321,24 @@ function settingsOf(code: string, framework: Framework = 'vitest'): Setting {
 }
 
 describe('the config reader', () => {
+  it('merges root aliases like Vite, while aliases deeper than resolve use ordinary list merging', () => {
+    const settings = settingsOf(`export default mergeConfig(
+      { alias: { '@venue': 'paper' }, test: { alias: ['paper'] } },
+      { alias: { '@venue': 'live' }, test: { alias: ['live'] } }
+    );`);
+    expect(plain(settingAt(settings, ['alias']))).toEqual({ '@venue': 'live' });
+    expect(plain(settingAt(settings, ['test', 'alias']))).toEqual(['paper', 'live']);
+  });
+
+  it.each([
+    ['null', "{ '@venue': 'live' }"],
+    ["{ '@venue': 'live' }", 'null'],
+  ])('keeps an alias map when the other side is null: %s', (base, over) => {
+    const settings = settingsOf(`export default mergeConfig(
+      { resolve: { alias: ${base} } }, { resolve: { alias: ${over} } }
+    );`);
+    expect(plain(settingAt(settings, ['resolve', 'alias']))).toEqual({ '@venue': 'live' });
+  });
   it('merges like Vite: lists joined, a single setting taken as a list of one, and null or undefined keeping the base', () => {
     const settings = settingsOf(
       [

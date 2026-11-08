@@ -312,7 +312,7 @@ function either(a: Setting | null, b: Setting | null, at: Site): Setting {
  * Vite's `mergeConfig(base, over)`: objects merge key by key, lists are joined with a single setting taken as a list
  * of one, and `null` or `undefined` keeps the other side.
  */
-export function mergeDeep(base: Setting, over: Setting): Setting {
+export function mergeDeep(base: Setting, over: Setting, rootPath = ''): Setting {
   if (isNullish(over)) return base;
   if (isNullish(base) || over.kind === 'unknown') return over;
   if (base.kind === 'list' || over.kind === 'list') {
@@ -325,9 +325,45 @@ export function mergeDeep(base: Setting, over: Setting): Setting {
   const keys = new Map(base.kind === 'object' && !over.rest ? base.keys : []);
   for (const [key, value] of over.keys) {
     const existing = child(base, key);
-    keys.set(key, existing ? mergeDeep(existing, value) : value);
+    keys.set(
+      key,
+      existing
+        ? key === 'alias' && (rootPath === '' || rootPath === 'resolve')
+          ? mergeAliases(existing, value)
+          : mergeDeep(existing, value, rootPath ? `${rootPath}.${key}` : key)
+        : value,
+    );
   }
   return { kind: 'object', keys, rest: over.rest ?? (base.kind === 'object' ? base.rest : base) };
+}
+
+/** Vite puts overriding list aliases first and normalizes object aliases when either side is a list. */
+function mergeAliases(base: Setting, over: Setting): Setting {
+  if (isNullish(over)) return base;
+  if (isNullish(base)) return over;
+  if (base.kind === 'object' && over.kind === 'object') {
+    return {
+      kind: 'object',
+      keys: new Map([...(over.rest ? [] : base.keys), ...over.keys]),
+      rest: over.rest ?? base.rest,
+    };
+  }
+  const entries = (setting: Setting): Setting[] => {
+    if (setting.kind === 'list') return setting.items;
+    if (setting.kind !== 'object') return [setting];
+    return [
+      ...[...setting.keys].map(([find, replacement]): Setting => ({
+        kind: 'object',
+        keys: new Map<string, Setting>([
+          ['find', { kind: 'value', value: find }],
+          ['replacement', replacement],
+        ]),
+        rest: null,
+      })),
+      ...(setting.rest ? [setting.rest] : []),
+    ];
+  };
+  return { kind: 'list', items: [...entries(over), ...entries(base)] };
 }
 
 /** Works out a config's settings from its code, following the modules it imports them from. */

@@ -127,6 +127,11 @@ function changed(before: TestRecord, after: TestRecord, hashesComparable: boolea
     .filter((key) => {
       if (LOCATION.has(key) || (!hashesComparable && ['bodyHash', 'dependencyHash'].includes(key))) return false;
       if (key === 'tags') return stable([...before.tags].sort()) !== stable([...after.tags].sort());
+      if (key === 'annotations' || key === 'steps') {
+        const content = (test: TestRecord) =>
+          test[key].map((item) => Object.fromEntries(Object.entries(item).filter(([name]) => name !== 'lineStart')));
+        return stable(content(before)) !== stable(content(after));
+      }
       return stable(before[key]) !== stable(after[key]);
     })
     .sort();
