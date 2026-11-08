@@ -18,7 +18,7 @@ code from the project, writes nothing and opens no network connections.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.7 --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.8 --framework playwright
 ```
 
 `--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. It scans the test
@@ -27,21 +27,27 @@ files the project's configs run, with the runner `--framework` names: `playwrigh
 agent names one when the project has several. Globs pick the files instead, as on the [command line](/guide/cli). The
 setup for Cursor and VS Code, the options and the security notes are in the server's [README](https://github.com/Huldoser/test-inventory-mcp#setup).
 
-| Tool               | Answers                                                                                                                             |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `test_summary`     | Counts by state, tag and annotation, for the whole suite or for each file, tag or project, with the configs and their projects.     |
-| `find_tests`       | The tests that match states, tags, title text, changed files (`related`), projects, `.only` or a missing reason, with chosen keys.  |
-| `get_tests`        | Every key of up to 20 tests by id, with the diagnostics about them; as many as fit in one answer, and the other ids in `remaining`. |
-| `scan_diagnostics` | What the scan could not read, such as a file that failed to parse.                                                                  |
+| Tool               | Answers                                                                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `test_summary`     | Counts by state, tag and annotation, for the whole suite or for each file, tag or project, with the configs and their projects.                  |
+| `find_tests`       | The tests that match states, tags, title text, changed files (`related`), projects, `.only` or a missing reason, with chosen keys.               |
+| `get_tests`        | Every key of up to 20 tests by id, with the diagnostics about them; as many as fit in one answer, and the other ids in `remaining`.              |
+| `scan_diagnostics` | What the scan could not read, such as a file that failed to parse.                                                                               |
+| `diff_inventories` | Changes between two complete saved JSON scans: additions, removals, renames, moves, states, tags, code and dependencies, with matching evidence. |
 
-The tests have the keys of the [output](/reference/output). Each call scans the files again, so answers follow the
+The tests have the keys of the [output](/reference/output). Each scan-tool call reads the files again, so answers follow the
 agent's edits. `related` takes the files a change touches, as `git diff --name-only` writes them, and keeps the tests
 whose [`dependencies`](/reference/output#tests) include one of them, as [`--related`](/guide/cli#tests-a-change-can-affect)
-does on the command line. Every tool also takes `expandCases`, which lists each case of a `.each` or `.for` table and
+does on the command line. Every scan tool also takes `expandCases`, which lists each case of a `.each` or `.for` table and
 each pass of a loop as its own test, with the name the runner gives it, as `--expand-cases` does.
 
 The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.7` gets fixes only.
+`test-inventory-mcp@0.8` gets fixes only.
+
+`diff_inventories` reads saved scans instead. Pass `before` and `after`, paths inside the server's project, and
+`limit` and `cursor` for pages. Save complete JSON inventories with matching roots, patterns, filters and case
+expansion. Rename and hash comparisons require the same exact core version; warnings describe incomplete comparisons.
+See [Compare inventories](/guide/diff).
 
 ## Command line
 
