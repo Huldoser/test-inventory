@@ -18,7 +18,7 @@ code from the project, writes nothing and opens no network connections.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.8 --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.9 --framework playwright
 ```
 
 `--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. It scans the test
@@ -42,7 +42,7 @@ does on the command line. Every scan tool also takes `expandCases`, which lists 
 each pass of a loop as its own test, with the name the runner gives it, as `--expand-cases` does.
 
 The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.8` gets fixes only.
+`test-inventory-mcp@0.9` gets fixes only. Pass only the arguments a tool lists; unknown keys are errors.
 
 `diff_inventories` reads saved scans instead. Pass `before` and `after`, paths inside the server's project, and
 `limit` and `cursor` for pages. Save complete JSON inventories with matching roots, patterns, filters and case
