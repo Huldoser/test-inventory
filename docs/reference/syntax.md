@@ -282,7 +282,7 @@ feature files are not read.
 
 ### Calls
 
-Tests and describes are read as in [Mocha](/reference/syntax#mocha) or [Jasmine](/reference/syntax#jasmine), with these differences:
+Tests and describes are read as in [Mocha](/frameworks/mocha#supported-syntax) or [Jasmine](/frameworks/jasmine#supported-syntax), with these differences:
 
 | Call                                | Read as                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

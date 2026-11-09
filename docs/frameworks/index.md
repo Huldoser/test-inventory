@@ -1,5 +1,7 @@
 ---
 description: Choose a test runner for a focused scan walkthrough, supported syntax and relevant limitations.
+prev: false
+next: false
 ---
 
 # Choose your framework

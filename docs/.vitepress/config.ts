@@ -31,10 +31,17 @@ export default defineConfig({
       typesInMarkdown(),
       llmstxt({
         domain: 'https://huldoser.github.io',
-        // Flatten API groups in this index so nested sections retain the site's deployment prefix.
+        // Flatten nested groups in this index so links retain the site's deployment prefix.
         sidebar: (sidebar) =>
           (sidebar as DefaultTheme.SidebarItem[]).flatMap((section) =>
-            section.text === 'API' ? (section.items ?? []) : [section],
+            section.text === 'API'
+              ? (section.items ?? [])
+              : [
+                  {
+                    ...section,
+                    items: section.items?.flatMap((item) => [{ ...item, items: undefined }, ...(item.items ?? [])]),
+                  },
+                ],
           ),
         customLLMsTxtTemplate: `# {title}
 
@@ -112,9 +119,24 @@ The complete page index follows, including background, type reference and histor
         collapsed: true,
         items: [
           { text: 'Playwright', link: '/frameworks/playwright' },
-          { text: 'Vitest', link: '/frameworks/vitest' },
-          { text: 'Jest', link: '/frameworks/jest' },
-          { text: 'Mocha', link: '/frameworks/mocha' },
+          {
+            text: 'Vitest',
+            link: '/frameworks/vitest',
+            collapsed: true,
+            items: [{ text: 'Vitest examples', link: '/frameworks/vitest-examples' }],
+          },
+          {
+            text: 'Jest',
+            link: '/frameworks/jest',
+            collapsed: true,
+            items: [{ text: 'Jest examples', link: '/frameworks/jest-examples' }],
+          },
+          {
+            text: 'Mocha',
+            link: '/frameworks/mocha',
+            collapsed: true,
+            items: [{ text: 'Mocha examples', link: '/frameworks/mocha-examples' }],
+          },
           { text: 'Jasmine', link: '/frameworks/jasmine' },
           { text: 'Cypress', link: '/frameworks/cypress' },
           { text: 'WebdriverIO', link: '/frameworks/webdriverio' },
