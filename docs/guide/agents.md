@@ -15,6 +15,10 @@ gets the answer without running the suite.
 Cursor, VS Code and other MCP clients call its tools instead of running commands. It reads the test files, runs no
 code from the project, writes nothing and opens no network connections.
 
+Those promises describe the running server. `npx` may download packages during installation, and the MCP client may
+send tool answers to its model provider. Read the server's [security boundaries](https://github.com/Huldoser/test-inventory-mcp#security)
+before scanning private code.
+
 In Claude Code, from the project folder:
 
 ```sh
@@ -26,6 +30,20 @@ files the project's configs run, with the runner `--framework` names: `playwrigh
 `jasmine`, `cypress`, `webdriverio`, `node` or `bun`. Without `--framework`, it uses the runner the project uses, and an
 agent names one when the project has several. Globs pick the files instead, as on the [command line](/guide/cli). The
 setup for Cursor and VS Code, the options and the security notes are in the server's [README](https://github.com/Huldoser/test-inventory-mcp#setup).
+
+### Verify and try it
+
+Open the client's MCP server list and confirm that `test-inventory` is connected. In Claude Code use `/mcp`, then ask:
+
+> Use test-inventory to summarize this project's tests. If there are scan errors, show the diagnostics.
+
+The agent should call `test_summary` and report counts for the intended project and framework. Next, try:
+
+> List tests marked skip or fixme, with their conditions and reasons.
+
+Conditional states do not prove a test was skipped in a run, and expected-to-fail tests execute. See
+[key concepts](/guide/concepts) before treating these counts as execution results. If tools are missing or a path is
+refused, use the server's [troubleshooting steps](https://github.com/Huldoser/test-inventory-mcp#troubleshooting).
 
 | Tool               | Answers                                                                                                                                          |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |

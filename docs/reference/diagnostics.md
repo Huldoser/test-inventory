@@ -4,8 +4,10 @@ description: Every diagnostic a scan reports, its level and when it is given.
 
 # Diagnostics
 
-A diagnostic is part of the output, not a failure: the scan always finishes and exits with 0. Its `level` is `error`
-when tests may be missing from the output, and `warning` when a value is missing or approximate.
+Diagnostics describe the scanned code and do not by themselves change a completed scan's exit code from 0. Invalid
+arguments, output failures and unexpected crashes can still exit with 2; see [exit codes](/guide/cli#exit-codes).
+A diagnostic's `level` is `error` when tests may be missing, and `warning` when a value is missing or approximate.
+Start with [troubleshooting](/guide/troubleshooting) for steps to resolve common problems.
 
 ## Files and imports
 
@@ -91,8 +93,8 @@ Some problems make the runner fail while it loads a file:
 - node:test: `invalid-chain`. At file level the file fails; inside a describe only its tests at or after the refused call are `notLoaded`, with `stateSource: "suite"`. Earlier tests and tests outside that describe still run.
 - Bun: `invalid-chain` and `test-without-body`. At file level the file fails; inside a describe every test of that describe is `notLoaded`, with `stateSource: "suite"`. Tests outside it still run.
 
-Every test in such a file, or with WebdriverIO's Mocha every test at or below the call, gets `state: "notLoaded"`, with
-`stateSource: "file"` and `stateLine` at the first of these problems. These tests are counted in `notLoadedCount`, not
+The tests affected by the failure scope above get `state: "notLoaded"`, with `stateSource: "file"` or `"suite"` and
+`stateLine` at the problem that prevents them from loading. These tests are counted in `notLoadedCount`, not
 in `activeCount`. Everything else about them is kept, so the records show what the file declares once the problem is
 fixed. A refused call written like a declaration, such as `test.only.skip('title', fn)` or `describe.sequential('title',
 fn)` in Vitest 5, is listed too, as a plain test or describe without the part that fails, so its tests are `notLoaded`

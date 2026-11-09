@@ -80,7 +80,9 @@ errors and the larger warning counts have these causes:
   test inside its body on purpose. The `unsupported-framework-version` warning is because the repository is Jest
   itself, whose version there is `0.0.0-use.local`.
 
-## Compared with the runners
+## Historical runner comparison {#compared-with-the-runners}
+
+This section records a historical check, not a comparison of the current release.
 
 Three of the projects were installed and listed with their own runner, and the lists were matched with the scan by
 file and line, as described in [Compared with the runners](/guide/runners). This was done with test-inventory 0.1.1,

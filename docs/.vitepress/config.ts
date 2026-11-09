@@ -11,11 +11,14 @@ const apiSidebar = JSON.parse(
 
 const base = '/test-inventory/';
 const url = `https://huldoser.github.io${base}`;
+const { version, description } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+  version: string;
+  description: string;
+};
 
 export default defineConfig({
   title: 'test-inventory',
-  description:
-    'Lists every Playwright, Vitest and Jest test from the source code, without running it: its state and why, tags, an id that survives a move, a hash of everything it runs, and the tests a change can affect.',
+  description,
   base,
   cleanUrls: true,
   lastUpdated: true,
@@ -53,22 +56,32 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Reference', link: '/reference/output' },
       { text: 'API', link: '/api/' },
-      { text: 'Changelog', link: '/changelog' },
+      { text: `v${version}`, link: '/changelog' },
       { text: 'About', link: '/about' },
     ],
     sidebar: [
       {
-        text: 'Guide',
+        text: 'Start here',
         items: [
-          { text: 'Why test-inventory', link: '/guide/why' },
           { text: 'Getting started', link: '/guide/getting-started' },
+          { text: 'Key concepts', link: '/guide/concepts' },
           { text: 'Examples', link: '/guide/examples' },
-          { text: 'Command line', link: '/guide/cli' },
-          { text: 'Library', link: '/guide/library' },
+        ],
+      },
+      {
+        text: 'Tasks',
+        items: [
           { text: 'Compare inventories', link: '/guide/diff' },
           { text: 'Query recipes', link: '/guide/recipes' },
           { text: 'CI recipes', link: '/guide/ci' },
           { text: 'AI agents', link: '/guide/agents' },
+          { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+        ],
+      },
+      {
+        text: 'Understanding the scan',
+        items: [
+          { text: 'Why test-inventory', link: '/guide/why' },
           { text: 'Known limits', link: '/guide/limits' },
           { text: 'Compared with the runners', link: '/guide/runners' },
           { text: 'Real projects', link: '/guide/real-projects' },
@@ -77,6 +90,8 @@ export default defineConfig({
       {
         text: 'Reference',
         items: [
+          { text: 'Command line', link: '/guide/cli' },
+          { text: 'Library', link: '/guide/library' },
           { text: 'Output', link: '/reference/output' },
           { text: 'Supported syntax', link: '/reference/syntax' },
           { text: 'Diagnostics', link: '/reference/diagnostics' },
@@ -94,14 +109,16 @@ export default defineConfig({
     },
     search: { provider: 'local' },
     footer: {
-      message: 'Released under the MIT License.',
+      message: `Documentation for test-inventory ${version}. Released under the MIT License.`,
       copyright: 'Copyright © 2026 <a href="https://github.com/Huldoser">Andrey Rychkov</a>',
     },
   },
-  // The JSON Schema is published next to the pages, at the URL in its $id.
+  // Both schemas are published at their $id URLs.
   buildEnd(site) {
-    const target = path.join(site.outDir, 'schema', 'v1.json');
-    mkdirSync(path.dirname(target), { recursive: true });
-    copyFileSync(path.resolve(site.root, '../schema/v1.json'), target);
+    const target = path.join(site.outDir, 'schema');
+    mkdirSync(target, { recursive: true });
+    for (const file of ['v1.json', 'diff-v1.json']) {
+      copyFileSync(path.resolve(site.root, '../schema', file), path.join(target, file));
+    }
   },
 });

@@ -4,7 +4,7 @@ layout: home
 hero:
   name: test-inventory
   text: Test metadata from source code, not from test results.
-  tagline: Lists every test declaration in a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test or Bun suite as JSON, and the tests a change can affect, by reading the code. Nothing is run.
+  tagline: Find tests, their skip reasons and the tests a change can affect. Read the source code without running the suite.
   image:
     light: /mark-light.svg
     dark: /mark-dark.svg
@@ -23,19 +23,25 @@ hero:
 
 ## What you get
 
-One JSON document per scan. For each test it has the title, the file, the lines and columns, the describes around
-it, the tags, the annotations and the state: active, skipped, fixme, todo, expected to fail, or not loaded when
-the runner would refuse the file. For a state that only applies sometimes, it has the condition and the reason. Each
-test also has an id that stays the same when the test moves to another line, a hash of its body that changes when its
-code does, but not when only its formatting or comments do, and a hash of everything it runs: its hooks, fixtures,
-helpers, page objects, test data, snapshots and config. From those, `--related` lists the tests a change can affect.
+Scan Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun suites into a shared JSON format.
+Each test has its title, location, suite, tags and declared state, with reasons and conditions where available.
+
+Ids survive moves to another line. Hashes track code and supported dependencies, so you can compare saved scans and
+find tests that may be affected by a change. The inventory describes source declarations, not pass/fail results.
 
 ```sh
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 ```
 
-Read [getting started](/guide/getting-started) to try it, the [examples](/guide/examples) for your setup, the
-[query](/guide/recipes) and [CI](/guide/ci) recipes, or the [output reference](/reference/output) for every key.
+## Choose your starting point
+
+- **Use the CLI:** [scan an existing project](/guide/getting-started), then try the [query recipes](/guide/recipes).
+- **Use the library:** call [scan or scanSource](/guide/library) from an application or editor.
+- **Use an AI agent:** [connect the MCP server](/guide/agents) to your client.
+- **Review a change:** [compare saved inventories](/guide/diff) or add a [CI report](/guide/ci).
+
+Read [key concepts](/guide/concepts) before interpreting counts and states. If the result is unexpected, start with
+[troubleshooting](/guide/troubleshooting); the [output reference](/reference/output) describes every key.
 
 ## Support
 

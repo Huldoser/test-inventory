@@ -274,7 +274,7 @@
         "extends",
         "projects"
       ],
-      "description": "A runner's config that scanned files use. For Playwright and Vitest, the nearest one in a file's folder or a folder above it, up to the root, as the runner started in that folder would; for Jest, the one at the root and the projects it names; for the other runners, the one config they read for the whole run. Read as code, never run."
+      "description": "A runner's config that scanned files use. For Playwright and Vitest, the outermost config at or above the file that runs it, up to the root, else the nearest; for Jest, the one at the root and the projects it names; for the other runners, the one config they read for the whole run. Read as code, never run."
     },
     "ProjectRecord": {
       "type": "object",
@@ -881,7 +881,8 @@
           "$ref": "#/definitions/TestState"
         },
         "isActive": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "True only for state active; false does not establish that the test never executes."
         },
         "isSkipped": {
           "type": "boolean"
@@ -1032,7 +1033,7 @@
               "type": "null"
             }
           ],
-          "description": "How many times the runner retries the test when it fails; null when the file sets none."
+          "description": "Effective retry count from the test, suite, file or config; null when absent or unknown. See retriesSource."
         },
         "retryDelay": {
           "anyOf": [

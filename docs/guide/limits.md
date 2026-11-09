@@ -8,14 +8,17 @@ test-inventory reads the code as text and builds a syntax tree. It does not run 
 runner knows at run time are out of its reach. Most limits below show up in the output, as a diagnostic or a key
 such as `isInLoop`; each section says when one does not.
 
-## Config files are read only in part
+## Reading configs and settings {#config-files-are-read-only-in-part}
+
+### File and project selection
 
 A runner's config, such as `playwright.config.*`, `vitest.config.*`, Jest's `jest.config.*` or `package.json`,
 `.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*` or `bunfig.toml`, can change which tests run
 and how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
 which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
 it gives the tests, Playwright's `forbidOnly`, Mocha's `forbid-only` and Vitest's `allowOnly`, and the tags Vitest
-defines. Other settings, such as `workers`, `use` or setup files, are not read. A test that a project's `grep` leaves out is still listed, with
+defines. Other settings, such as `workers` and config `use`, are not interpreted as test record settings.
+Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects. A test that a project's `grep` leaves out is still listed, with
 that project missing from its `projects`.
 
 For Playwright and Vitest, which files a config runs is read from the configs in the file's folder and the folders
@@ -54,7 +57,9 @@ is read when the file declares it, not when it is imported. Vitest's `annotate()
 
 Named describe callbacks are read in their lexical scope, inside each suite that calls them, including expanded table cases. Reusing one callback does not add a second copy where the function is declared. They use the same depth and call-count bounds as directly called helpers; recursion or a depth limit produces a `test-in-function` warning instead of following more nested tests. Named callbacks keep the runner's rules for async describes and callback arguments.
 
-## Values from installed packages are not worked out
+## Resolving project code and values
+
+### Values from installed packages are not worked out {#values-from-installed-packages-are-not-worked-out}
 
 Titles, tags, annotations, reasons, run settings and tables are worked out when they are built from values the scan
 can read: string and number literals, constants, enums, arrays and objects built from them, spreads, string
@@ -264,7 +269,9 @@ Code after an `if` whose branch always returns, throws, breaks or continues, as 
 runs only when that branch isn't taken, so it is under the opposite condition, `!(!account.active)` here. A branch that
 leaves on only some of its paths, as in `if (isEquity) { if (isHoliday) return; }`, leaves what follows as it is.
 
-## What dependencyHash leaves out
+## Dependency coverage {#what-dependencyhash-leaves-out}
+
+### Dependencies the hash cannot follow
 
 A test's [`dependencyHash`](/reference/output#tests) follows the names its code uses to where they are declared, in
 its own file and through imports, and takes the code each module runs when it loads, declarations that call

@@ -14,23 +14,26 @@ npm test
 Every test runs on every system; none is skipped. On Windows, the tests create symbolic links, which needs Developer
 Mode turned on or a terminal run as administrator.
 
-| Command                                               | Does                                                                                   |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `npm test`                                            | Builds `dist/`, then runs every test.                                                  |
-| `npm run coverage`                                    | The tests with coverage. Every file in `src/` must stay at 100%.                       |
-| `npm run typecheck`                                   | Type checks the sources, scripts and tests.                                            |
-| `npm run lint`, `npm run format`                      | ESLint and Prettier.                                                                   |
-| `npm run schema`                                      | Regenerates `schema/v1.json` from `src/types.ts`.                                      |
-| `npm run test:pack`                                   | Packs the package, installs it in a temporary project and uses it.                     |
-| `npm run publint`, `npm run attw`, `npm run licenses` | Checks the package metadata, its types and the licenses of its dependencies.           |
-| `npm run compare -- vitest 5.0.3`                     | Lists the fixture tests with a real runner and compares the list with the inventory.   |
-| `npm run docs:dev`                                    | The docs site at localhost.                                                            |
-| `npm run corpus`                                      | Scans the open-source projects in `tests/compare/corpus.json` at their pinned commits. |
-| `npm run release -- --dry-run`                        | Checks and prints the steps of a release without changing anything.                    |
+| Command                                               | Does                                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `npm test`                                            | Builds `dist/`, then runs every test.                                                     |
+| `npm run coverage`                                    | The tests with coverage. Every file in `src/` must stay at 100%.                          |
+| `npm run typecheck`                                   | Type checks the sources, scripts and tests.                                               |
+| `npm run lint`, `npm run format:check`                | Checks ESLint rules and formatting without rewriting files.                               |
+| `npm run format`                                      | Rewrites files with Prettier; review the diff afterwards.                                 |
+| `npm run schema`                                      | Regenerates `schema/v1.json` and `schema/diff-v1.json` from the inventory and diff types. |
+| `npm run test:pack`                                   | Packs the package, installs it in a temporary project and uses it.                        |
+| `npm run publint`, `npm run attw`, `npm run licenses` | Checks the package metadata, its types and the licenses of its dependencies.              |
+| `npm run compare -- vitest 5.0.3`                     | Lists the fixture tests with a real runner and compares the list with the inventory.      |
+| `npm run docs:dev`                                    | The docs site at localhost.                                                               |
+| `npm run docs:build`                                  | Generates API docs and builds the site, checking page links.                              |
+| `npm run corpus`                                      | Scans the open-source projects in `tests/compare/corpus.json` at their pinned commits.    |
+| `npm run release -- --dry-run`                        | Checks and prints the steps of a release without changing anything.                       |
 
 ## How the code is laid out
 
-- `src/types.ts` is the output format. `schema/v1.json` is generated from it; a test fails when it is out of date.
+- `src/types.ts` is the inventory format and `src/diff.ts` defines diffs. Their schemas are `schema/v1.json` and
+  `schema/diff-v1.json`; tests fail when either generated schema is out of date.
 - `src/frameworks/` reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun calls.
   `src/extract.ts` walks a file and `src/records.ts` turns what it found into records.
 - `tests/fixtures/` holds realistic projects of a made-up trading app, one per common setup: Playwright end-to-end
@@ -48,6 +51,14 @@ Mode turned on or a terminal run as administrator.
 - Every output a test produces is checked against the JSON Schema.
 
 ## Docs
+
+The sidebar separates first-use guidance, tasks, explanation and reference. Keep those purposes distinct: explain
+concepts in the guide, give complete procedures in task pages, and describe exact behavior in the reference. Preserve
+existing page URLs and heading anchors when reorganizing content.
+
+Before submitting a docs change, run `npm run docs:build` and inspect the affected pages in both light and dark modes,
+at narrow and wide widths. Run the docs tests as part of `npm test` or `npm run coverage`. Source excerpts must say
+when closing lines are omitted; JSON excerpts must not look like complete inventories.
 
 A pull request that changes `src/` or `schema/` changes the docs too, or says why not: the "Docs required" check
 fails until a file in `docs/` or `README.md` changes, the "No docs change is needed" box in the pull request template

@@ -636,7 +636,8 @@
           "$ref": "#/definitions/TestState"
         },
         "isActive": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "True only for state active; false does not establish that the test never executes."
         },
         "isSkipped": {
           "type": "boolean"
@@ -787,7 +788,7 @@
               "type": "null"
             }
           ],
-          "description": "How many times the runner retries the test when it fails; null when the file sets none."
+          "description": "Effective retry count from the test, suite, file or config; null when absent or unknown. See retriesSource."
         },
         "retryDelay": {
           "anyOf": [
