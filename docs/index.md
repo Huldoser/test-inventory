@@ -14,8 +14,8 @@ hero:
       text: Get started
       link: /guide/getting-started
     - theme: alt
-      text: Why test-inventory
-      link: /guide/why
+      text: Choose your framework
+      link: /frameworks/
     - theme: alt
       text: Output reference
       link: /reference/output
@@ -35,6 +35,7 @@ npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventor
 
 ## Choose your starting point
 
+- **Choose a runner:** [framework guides](/frameworks/) for focused examples, syntax and limitations.
 - **Use the CLI:** [scan an existing project](/guide/getting-started), then try the [query recipes](/guide/recipes).
 - **Use the library:** call [scan or scanSource](/guide/library) from an application or editor.
 - **Use an AI agent:** [connect the MCP server](/guide/agents) to your client.

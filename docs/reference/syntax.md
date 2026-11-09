@@ -4,6 +4,9 @@ description: The Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO,
 
 # Supported syntax
 
+This reference covers **all frameworks**. For a scan command, example and syntax for just your runner,
+choose a [framework guide](/frameworks/). Shared syntax is under [In every runner](#in-every-runner).
+
 Choose your runner below for imports, common declarations and version-specific forms. The tables describe what
 the scanner recognizes; they do not execute these calls. Start with the [examples](/guide/examples) for complete
 setups and [key concepts](/guide/concepts) for the meaning of states, cases and projects.
@@ -11,6 +14,8 @@ setups and [key concepts](/guide/concepts) for the meaning of states, cases and 
 Across runners, a describe callback may be a function or arrow declared in the file and passed by name. Its tests inherit the calling suite's state and metadata, and its closed-over values come from where the function is declared. Vitest, Jest and Bun describe tables bind each expanded case's arguments to the named callback. Imported describe callbacks are not followed.
 
 ## Playwright
+
+<!-- #region syntax-playwright -->
 
 Playwright 1.42 and newer.
 
@@ -51,7 +56,11 @@ Playwright 1.42 and newer.
 an array of `{ type, description }`; `lock` a string or an array of strings, from Playwright 1.63. Tags are also read
 from `@words` in titles.
 
+<!-- #endregion syntax-playwright -->
+
 ## Vitest
+
+<!-- #region syntax-vitest -->
 
 Vitest 3.0 and newer.
 
@@ -89,19 +98,23 @@ Vitest 3.0 and newer.
 | `vi.mock`, `vi.unmock`, `vi.hoisted` below the top level of the file                                       | A `removed-api` error from Vitest 5, except in files with in-source tests.                                                  |
 | Any other chain, such as `test.fixme`                                                                      | An `invalid-chain` error.                                                                                                   |
 
+<!-- #endregion syntax-vitest -->
+
 ## Jest
+
+<!-- #region syntax-jest -->
 
 Jest 29.0 and newer.
 
 ### Where test comes from
 
-| Form                       | Example                                                                                                                                                                                 |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Globals                    | `describe`, `it`, `test`, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` used without an import or declaration                                                                      |
-| Named import, also renamed | `import { test, it, describe, xit } from '@jest/globals'`                                                                                                                               |
-| The module                 | `import * as globals from '@jest/globals'`, a default import (with Babel or TypeScript), or `require('@jest/globals')`, whole, destructured or in place                                 |
-| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies, also to a choice written in place, as `(process.env.CI ? test.skip : test)(...)`               |
-| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, a global it exports, as `export const pendingTest = xit`, and functions that return a test function |
+| Form                       | Example                                                                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Globals                    | `describe`, `it`, `test`, `fit`, `xit`, `xtest`, `fdescribe` and `xdescribe` used without an import or declaration                                                                              |
+| Named import, also renamed | `import { test, it, describe, xit } from '@jest/globals'`                                                                                                                                       |
+| The module                 | `import * as globals from '@jest/globals'`, a default import (with Babel or TypeScript), or `require('@jest/globals')`, whole, destructured or in place                                         |
+| Kept in a variable         | `const onCi = process.env.CI ? test.skip : test`: only what both branches share applies, also to a choice written in place, as `(process.env.CI ? test.skip : test)(...)`                       |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed through local imports, a global it exports, as `export const pendingTest = xit`, and functions that return a test function |
 
 `fit` and `fdescribe` are `.only`; `xit`, `xtest` and `xdescribe` are `.skip`. As in Jest, a describe's own `.only` or
 `.skip` wins over the one around it, a skipped describe skips every test in it, a todo or a `.only` too, and in a
@@ -130,7 +143,11 @@ Jest's `.each` titles take `%p`, `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%#`,
 `$#` for tables of objects and tagged templates. A title that shows an object through `%s` or `%o` stays one record with
 `--expand-cases`, as Node.js prints objects differently from one version to the next.
 
+<!-- #endregion syntax-jest -->
+
 ## Mocha
+
+<!-- #region syntax-mocha -->
 
 Mocha 10.0 and newer.
 
@@ -142,7 +159,7 @@ Mocha 10.0 and newer.
 | Named import, also renamed | `import { describe, it } from 'mocha'`                                                                                                                                        |
 | The module                 | `import * as mocha from 'mocha'`, a default import, or `require('mocha')`, whole, destructured or in place                                                                    |
 | Kept in a variable         | `const onCi = process.env.CI ? it.skip : it`: only what both branches share applies, also to a choice written in place, as `(process.env.CI ? it.skip : it)(...)`             |
-| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed through local imports, and helper functions that declare tests, read at each call                        |
 
 `xit`, `xspecify`, `xdescribe` and `xcontext` are `.skip`. Mocha's QUnit and exports interfaces, and a `ui` that names
 a package, are reported on the config with a `config-value-unknown` warning, and the files are read as BDD.
@@ -172,7 +189,11 @@ spec file runs around the tests of every file, but is counted only in that file.
 which a file the config lists in `require` exports as `mochaHooks`, run around every test, but are not counted in
 `hooks`; the file is in each test's `dependencies`.
 
+<!-- #endregion syntax-mocha -->
+
 ## Jasmine
+
+<!-- #region syntax-jasmine -->
 
 Jasmine 4.0 and newer.
 
@@ -182,7 +203,7 @@ Jasmine 4.0 and newer.
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Globals            | `describe`, `xdescribe`, `fdescribe`, `it`, `xit` and `fit`, which the jasmine command, Karma or a browser page set; Jasmine has no module to import them from               |
 | Kept in a variable | `const later = xit`: the variable keeps the `x` or `f`; of a choice, also one written in place, as `(process.env.CI ? xit : it)(...)`, only what both branches share applies |
-| Local helpers file | `import { spec } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare specs, read at each call                             |
+| Local helpers file | `import { spec } from './helpers'` or `require('./helpers')`, followed through local imports, and helper functions that declare specs, read at each call                     |
 
 `xit` and `xdescribe` are `.skip`, and `fit` and `fdescribe` `.only`. Jasmine's functions have no members, so a call
 such as `it.only()` is an `invalid-chain` error. Jasmine runs the innermost focus: a `fit` or `fdescribe` runs also
@@ -209,17 +230,21 @@ error, keeps the file's tests as they are, and still lists those later specs. `j
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
 `hooks`.
 
+<!-- #endregion syntax-jasmine -->
+
 ## Cypress
+
+<!-- #region syntax-cypress -->
 
 Cypress 13.0 and newer.
 
 ### Where test comes from
 
-| Form               | Example                                                                                                                                             |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Globals            | Mocha's BDD globals, `describe`, `context`, `it`, `specify`, their `x` forms and the hooks, which Cypress sets in every spec                        |
-| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? it.skip : it)(...)` |
-| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call      |
+| Form               | Example                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Globals            | Mocha's BDD globals, `describe`, `context`, `it`, `specify`, their `x` forms and the hooks, which Cypress sets in every spec                           |
+| Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? it.skip : it)(...)`    |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed through local imports, and helper functions that declare tests, read at each call |
 
 ### Calls
 
@@ -238,7 +263,11 @@ Cypress reads tests and describes as Mocha does, with these differences:
 A call Cypress refuses, as `it.concurrent()` or a describe without a function, fails its spec, and every test in the
 file is `notLoaded`; the other specs run.
 
+<!-- #endregion syntax-cypress -->
+
 ## WebdriverIO
+
+<!-- #region syntax-webdriverio -->
 
 WebdriverIO 9.0 and newer, with Mocha or Jasmine. The config's `framework` decides which, Mocha by default; Cucumber's
 feature files are not read.
@@ -249,11 +278,11 @@ feature files are not read.
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Globals            | With Mocha, its BDD globals, or with `mochaOpts.ui: 'tdd'` `suite` and `test`; with Jasmine, `describe`, `it` and their `x` and `f` forms. WebdriverIO sets them in every spec file. |
 | Kept in a variable | `const later = it.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? it.skip : it)(...)`                                  |
-| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                       |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed through local imports, and helper functions that declare tests, read at each call                               |
 
 ### Calls
 
-Tests and describes are read as in [Mocha](#mocha) or [Jasmine](#jasmine), with these differences:
+Tests and describes are read as in [Mocha](/reference/syntax#mocha) or [Jasmine](/reference/syntax#jasmine), with these differences:
 
 | Call                                | Read as                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -262,7 +291,11 @@ Tests and describes are read as in [Mocha](#mocha) or [Jasmine](#jasmine), with 
 | A Mocha or Jasmine version gate     | Read with the version WebdriverIO depends on: Mocha 12 and Jasmine 6 from WebdriverIO 10, Mocha 10.8 and Jasmine 5 before. So `describe(...).timeout(ms)` reaches its tests from WebdriverIO 10, and Jasmine 7's `notApplicable()` is not read.                                                                                                                                                                                     |
 | A call the runner refuses           | The same errors as in Mocha or Jasmine, with what WebdriverIO does then. With Mocha, the file stops loading at the call: the tests declared above it run, those below are `notLoaded`, and the spec files grouped after it in the same worker don't run. With Jasmine, a call refused at the top level fails the whole worker: the file's tests are `notLoaded`, and the files grouped with it don't run either. Other workers run. |
 
+<!-- #endregion syntax-webdriverio -->
+
 ## node:test
+
+<!-- #region syntax-node -->
 
 Node.js 22.0 and newer, the version the project pins; see [framework version](/guide/cli#framework-version).
 
@@ -274,7 +307,7 @@ Node.js 22.0 and newer, the version the project pins; see [framework version](/g
 | Named import, also renamed | `import { describe, it, suite, test } from 'node:test'`                                                                                                   |
 | `require()`                | `const test = require('node:test')`, whole, destructured or in place, as `require('node:test').it(...)`                                                   |
 | Kept in a variable         | `const later = test.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? test.skip : test)(...)` |
-| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call            |
+| Local helpers file         | `import { it } from './helpers'` or `require('./helpers')`, followed through local imports, and helper functions that declare tests, read at each call    |
 
 node:test sets no globals: `it()` without an import is not a test.
 
@@ -298,7 +331,11 @@ which skips each test; `t.test()` in a helper function the test passes its conte
 body, which runs as a nested describe and gets a `nested-test` warning. A glob in a script is read as written, though
 `sh`, which npm runs scripts with, reads an unquoted `**` as `*`; quote it, as Node.js expands it then.
 
+<!-- #endregion syntax-node -->
+
 ## Bun
+
+<!-- #region syntax-bun -->
 
 Bun 1.2.23 and newer, which runs tests the way 1.3 and 1.4 do; see [framework version](/guide/cli#framework-version).
 
@@ -309,7 +346,7 @@ Bun 1.2.23 and newer, which runs tests the way 1.3 and 1.4 do; see [framework ve
 | Globals            | `test`, `it`, `describe`, `xtest`, `xit`, `xdescribe` and the hooks, which `bun test` sets in its test files                                                                          |
 | Imports            | `import { describe, test } from 'bun:test'`, a namespace or default import, or `require('bun:test')`; imports from `@jest/globals` and `vitest` too, which Bun rewrites to `bun:test` |
 | Kept in a variable | `const later = test.skip`: only what both branches of a choice share applies, also of one written in place, as `(process.env.CI ? test.skip : test)(...)`                             |
-| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed as for Vitest, and helper functions that declare tests, read at each call                                        |
+| Local helpers file | `import { it } from './helpers'` or `require('./helpers')`, followed through local imports, and helper functions that declare tests, read at each call                                |
 
 ### Calls
 
@@ -327,6 +364,8 @@ A refusal inside a describe fails that describe, whose tests are `notLoaded` wit
 A `.only` makes Bun run only the focused tests of its file, and from 1.3 with `--only`, none of the files without one;
 from 1.3, with `CI=true`, as in GitHub Actions, it fails its file instead. The other tests of the file are listed as
 written, with `isOnly` on the focused ones.
+
+<!-- #endregion syntax-bun -->
 
 ## In every runner
 

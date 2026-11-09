@@ -4,6 +4,9 @@ description: Scans of a made-up trading app in common setups, from Playwright en
 
 # Examples
 
+This page collects examples for **all frameworks**. Choose a [framework guide](/frameworks/) for a focused
+walkthrough, its syntax and its limitations.
+
 Each example below is a small project of a made-up trading app, in a common setup. The projects are in
 [`tests/fixtures`](https://github.com/Huldoser/test-inventory/tree/main/tests/fixtures), and the output shown is from
 scanning them; the test suite checks that both stay as shown here.
@@ -19,6 +22,8 @@ complete runnable source. JSON blocks show selected record keys, not complete in
 | Specialized layouts         | [In-source and type tests](#in-source-and-type-tests), [monorepos](#a-monorepo), [Puppeteer on Jest](#puppeteer-on-jest), [Puppeteer on Mocha](#puppeteer-on-mocha)              |
 
 ## Playwright end-to-end tests
+
+<!-- #region example-playwright -->
 
 `trading-web` tests the trading app's UI with page objects and fixtures. Its specs import `test` from a fixtures file
 that extends Playwright's:
@@ -102,7 +107,11 @@ npx test-inventory ".features-gen/**/*.spec.js" --framework playwright --output 
 
 Records point at the generated files. The generated comments identify their source feature files.
 
-## A Node.js service
+<!-- #endregion example-playwright -->
+
+## A Node.js service with Vitest {#a-node-js-service}
+
+<!-- #region example-vitest -->
 
 `order-service` is an HTTP service that sends orders to a broker, tested with Vitest. Its repository tests need a
 database and skip themselves without one:
@@ -186,7 +195,9 @@ A known bug marked with `test.fails` is `expectedToFail`, and the comment above 
 }
 ```
 
-## React with Testing Library
+<!-- #endregion example-vitest -->
+
+## React with Vitest and Testing Library {#react-with-testing-library}
 
 `trading-dashboard` keeps its tests next to its React components, in `*.test.tsx` files. JSX is read like the rest
 of the code:
@@ -232,7 +243,7 @@ npx test-inventory "src/**/*.test.tsx" --framework vitest --output inventory.jso
 }
 ```
 
-## Vue with Vue Test Utils
+## Vue with Vitest and Vue Test Utils {#vue-with-vue-test-utils}
 
 `watchlist-vue` turns on Vitest's globals, so its specs use `describe` and `it` without importing them:
 
@@ -377,7 +388,7 @@ The `import.meta.vitest` check is how in-source tests are written, so it does no
 }
 ```
 
-## A monorepo
+## A Vitest monorepo {#a-monorepo}
 
 `trading-monorepo` has three packages, each with its own Vitest config, and a root config that lists them as
 projects. Scan them all from the root:
@@ -419,6 +430,8 @@ To scan one package, pass it as the root: `--root packages/risk`. The framework 
 `node_modules` in the root or a folder above it, so a package of a monorepo gets the version installed at the top.
 
 ## A Jest service
+
+<!-- #region example-jest -->
 
 `settlement-service` settles trades with a custodian and is tested with Jest, in plain CommonJS. Its config splits the
 tests into two projects:
@@ -494,6 +507,8 @@ case, titled as Jest titles it:
 }
 ```
 
+<!-- #endregion example-jest -->
+
 ## Puppeteer on Jest
 
 Puppeteer has no test runner of its own; its end-to-end suites run on Jest through the `jest-puppeteer` preset, which
@@ -536,6 +551,8 @@ The preset only sets up the browser, so the scan reads the file as any Jest file
 ```
 
 ## A Mocha service
+
+<!-- #region example-mocha -->
 
 `fix-gateway` sends orders to venues over FIX and is tested with Mocha, in plain CommonJS. Its config is
 `.mocharc.yml`:
@@ -605,6 +622,8 @@ The test's own timeout wins over the config's `'5s'`, and the retries come from 
 }
 ```
 
+<!-- #endregion example-mocha -->
+
 ## Puppeteer on Mocha
 
 On Mocha, a Puppeteer suite usually starts the browser in root hooks, which a file in the config's `require` exports
@@ -644,6 +663,8 @@ The root hooks aren't counted in `hooks`, but the file that exports them is one 
 ```
 
 ## A Jasmine service
+
+<!-- #region example-jasmine -->
 
 `risk-service` measures exposure and value at risk, and is tested with the jasmine command, in plain CommonJS. Its
 config, `spec/support/jasmine.json`, runs `**/*.spec.js` under `spec`, and its `!fixtures/**` leaves the sample
@@ -688,7 +709,11 @@ Without the globs and `--framework`, the scan finds the same files from `jasmine
 }
 ```
 
+<!-- #endregion example-jasmine -->
+
 ## Cypress end-to-end tests
+
+<!-- #region example-cypress -->
 
 `trading-ui-cypress` checks order tickets with Cypress. Tests take Cypress's test config before their function:
 retries, tags for `@cypress/grep`, and the browsers they run in.
@@ -726,7 +751,11 @@ Without the glob and `--framework`, the scan finds the same files from Cypress's
 }
 ```
 
+<!-- #endregion example-cypress -->
+
 ## WebdriverIO end-to-end tests
+
+<!-- #region example-webdriverio -->
 
 `broker-portal` checks a broker's client portal with WebdriverIO on Mocha. A number after a test's function is
 WebdriverIO's retry count, and `this.timeout()` sets the describe's timeout over the config's `mochaOpts.timeout`.
@@ -780,7 +809,11 @@ A test that skips itself under a condition keeps the condition:
 }
 ```
 
+<!-- #endregion example-webdriverio -->
+
 ## A node:test service
+
+<!-- #region example-node -->
 
 `pricing-service` tests a quote service with Node.js's own runner, `node:test`, run by `node --test` from its `test`
 script. A test runs subtests with `t.test()`, and a subtest can skip itself.
@@ -818,7 +851,11 @@ the `test` script. A subtest is listed under its parent's title, with the id of 
 }
 ```
 
+<!-- #endregion example-node -->
+
 ## A Bun service
+
+<!-- #region example-bun -->
 
 `quote-gateway` tests a quote gateway with Bun's `bun test`, using Bun's own chains, as `test.skipIf(condition)`, and
 a `bunfig.toml` that runs its routing specs at once.
@@ -852,3 +889,5 @@ the `test` script. `skipIf` is a condition, and `[test] retry` applies to every 
   "retries": 1
 }
 ```
+
+<!-- #endregion example-bun -->

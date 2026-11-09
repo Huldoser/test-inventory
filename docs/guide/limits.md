@@ -4,6 +4,11 @@ description: What a scan can't know without running the code, such as config fil
 
 # Known limits
 
+These are **shared scanner limits**. For runner-specific settings and exceptions, read the configuration and limits
+section of your guide:
+
+[Playwright](/frameworks/playwright#configuration-and-limits) · [Vitest](/frameworks/vitest#configuration-and-limits) · [Jest](/frameworks/jest#configuration-and-limits) · [Mocha](/frameworks/mocha#configuration-and-limits) · [Jasmine](/frameworks/jasmine#configuration-and-limits) · [Cypress](/frameworks/cypress#configuration-and-limits) · [WebdriverIO](/frameworks/webdriverio#configuration-and-limits) · [node:test](/frameworks/node#configuration-and-limits) · [Bun](/frameworks/bun#configuration-and-limits)
+
 test-inventory reads the code as text and builds a syntax tree. It does not run the code, so a few things the
 runner knows at run time are out of its reach. Most limits below show up in the output, as a diagnostic or a key
 such as `isInLoop`; each section says when one does not.
@@ -12,48 +17,20 @@ such as `isInLoop`; each section says when one does not.
 
 ### File and project selection
 
-A runner's config, such as `playwright.config.*`, `vitest.config.*`, Jest's `jest.config.*` or `package.json`,
-`.mocharc.*`, `spec/support/jasmine.*`, `cypress.config.*`, `wdio.conf.*` or `bunfig.toml`, can change which tests run
-and how. The scan finds the config each file uses and lists it in [`configs`](/reference/output#configs), and reads from it
-which files and projects run each test, Vitest's `test.globals` and Jest's `injectGlobals`, the run settings and modes
-it gives the tests, Playwright's `forbidOnly`, Mocha's `forbid-only` and Vitest's `allowOnly`, and the tags Vitest
-defines. Other settings, such as `workers` and config `use`, are not interpreted as test record settings.
-Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects. A test that a project's `grep` leaves out is still listed, with
-that project missing from its `projects`.
+The scan reads supported file selection and run settings from config source without executing it.
+The [framework guides](/frameworks/) explain each runner's config lookup, defaults and exceptions;
+the [configs reference](/reference/output#configs) describes the exact output.
 
-For Playwright and Vitest, which files a config runs is read from the configs in the file's folder and the folders
-above it. The other runners read one config for the whole run, as described under
-[configs](/reference/output#configs). A config elsewhere
-that reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../e2e'`, is not found from it. A
-Vitest 3 project list in `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
-For a Playwright project's `grep`, a test's text is its project, file, the config's `tag`, describe and test titles
-and its tags, as Playwright builds it, but with every tag given as an option at the end, where Playwright puts a describe's after its
-title; only a pattern that depends on that order can tell them apart.
+A setting computed at run time, for example from `process.env`, or imported from an installed package cannot be
+worked out. When needed by the scan, a `config-value-unknown` warning names it. A run setting chosen by a condition,
+such as `retries: process.env.CI ? 2 : 0`, is `null` with source `config`; `retriesConfigText` and the other
+`ConfigText` keys keep its source. A config selected only by runner command-line arguments is not inferred.
 
-A config is read as code, never run. A setting computed at run time, as from `process.env`, or taken from an
-installed package, can't be worked out; when the scan needs it, a `config-value-unknown` warning names it. A config
-the runner is pointed to with `--config` is not known from the files, nor a config built by a function the config
-calls, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })` or Next.js's `createJestConfig(config)`. A Jest
-`preset` that is a package is not read; when it may choose the test files and the config doesn't set `testMatch` or
-`testRegex` itself, a `config-value-unknown` warning says Jest's defaults are used. A config Jest refuses to start
-with, such as one whose `moduleFileExtensions` leaves out `js` or whose `roots` don't exist, is read as written, and a
-config that sets its keys one by one, as `module.exports.testMatch = [...]`, is not read. Jest's
-`moduleNameMapper`, `modulePaths` and `moduleDirectories` are read for `dependencyHash` and to follow imports; a mapping the scan can't
-work out, as one built at run time, is left out.
-
-A run setting the config sets under a condition, as `retries: process.env.CI ? 2 : 0`, is `null` with its source
-`config`, since the scan doesn't know where the tests will run; `retriesConfigText` and the other `ConfigText` keys
-quote it. When the scan can't work out the tags a Vitest config defines, a file that uses tags gets a
-`config-may-change-state` warning, as a tag can skip a test or change how it runs.
-
-Calls that change settings while tests run are not read: `testInfo.setTimeout()` and
-`testInfo.slow()`, Vitest's `vi.setConfig()`, Jest's `jest.setTimeout()` and a `jest.retryTimes()` in a test, hook or
-function, and calls in an imported function passed to a hook by name, as in `test.beforeEach(slowOnCI)` with
-`slowOnCI` from another file.
-
-`expectCount`, `steps` and `fixtures` read the test function only. Assertions and steps in page objects and helpers,
-and fixtures that other fixtures or automatic fixtures set up, are not in them. A test, describe or hook function passed by name
-is read when the file declares it, not when it is imported. Vitest's `annotate()` in a hook is not read.
+Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects.
+`expectCount`, `steps` and `fixtures` inspect the test function only: assertions and steps inside page objects or
+helpers, and fixtures established by other or automatic fixtures, are not in them. A test, describe or hook callback
+passed by name is read when declared in the file, not when imported. See your framework guide for runtime setting
+calls that are not read.
 
 Named describe callbacks are read in their lexical scope, inside each suite that calls them, including expanded table cases. Reusing one callback does not add a second copy where the function is declared. They use the same depth and call-count bounds as directly called helpers; recursion or a depth limit produces a `test-in-function` warning instead of following more nested tests. Named callbacks keep the runner's rules for async describes and callback arguments.
 
@@ -93,9 +70,7 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 Values, a custom `test` object, and a function that declares tests, as described under
 [tests in helper functions](#tests-in-helper-functions), are followed through imports found through:
 
-- an alias from the config the importing test file runs with, tried first: Vite's `resolve.alias`, Vitest's
-  `test.alias` or Jest's `moduleNameMapper`; Jest's `modulePaths` and `moduleDirectories` add folders a name is
-  looked up in;
+- a supported alias from the importing file's runner config, tried first; see your [framework guide](/frameworks/);
 - a relative path, as in `../fixtures`; a `.js` or `.jsx` extension also finds the `.ts` or `.tsx` file, as
   TypeScript does;
 - a path alias from `compilerOptions.paths` or `baseUrl` in the tsconfig nearest the importing file, with every file
@@ -128,7 +103,7 @@ and a body counts through any member, as in `it.effect('fills an order', ...)` o
 extends, and with a timeout after the body. Helpers shaped the same way, such as `waitForFill('AAPL', (order) => ...)`,
 are not reported. `scanSource()` reads no files, so it follows no imports.
 
-An alias explicitly configured with an unreadable replacement marks its imports as unfollowed, including bare package-like names. An unreadable alias entry or `find` in an array can match any import, so imports that reach it are marked unfollowed too. Vite's `mergeConfig` puts overriding list aliases first and converts object aliases to list entries when either side is a list; two object maps keep the overriding values. Config paths built by string `+` or a template over `__dirname` or `import.meta.dirname` are read. Bun's `[test].preload`, Jasmine helper globs, Cypress support files (including the default), and Node script `--import`, `--require` and `--test-global-setup` files are included in dependencies. Setup files use the config's aliases too.
+An alias explicitly configured with an unreadable replacement marks its imports as unfollowed, including bare package-like names. An unreadable alias entry or `find` in an array can match any import, so imports that reach it are marked unfollowed too. Supported setup files use config aliases too; your [framework guide](/frameworks/) lists their treatment.
 
 ## Test objects made by helpers
 
@@ -165,23 +140,7 @@ Other calls, such as a helper named `expectFill('AAPL', 100, 'filled', check)`, 
 
 ## States set in helper functions
 
-In Playwright, a `test.skip()`, `test.fixme()`, `test.fail()` or `test.describe.configure()` call inside a plain
-function applies to the tests, hooks and describes that call that function by name, also through helpers that call
-other helpers. A function called from the file or a describe may also be imported from another file:
-
-```ts
-function skipWithoutMarketData() {
-  test.skip(!process.env.MARKET_DATA_URL, 'needs the market data feed');
-}
-
-test('streams AAPL quotes', async ({ page }) => {
-  skipWithoutMarketData(); // state: skip, isConditional: true
-});
-```
-
-When the file exports the function, or nothing in the file calls it by name, the scan can't tell which tests it
-affects, and a `state-in-helper` warning says the call was not applied. A function the file declares and passes by
-name to a hook or a test, as in `test.beforeEach(skipWithoutMarketData)`, is read as if its code were written there.
+Playwright helper-state handling is covered in the [Playwright guide](/frameworks/playwright#states-set-in-helper-functions).
 
 ## Tests in helper functions
 
@@ -229,8 +188,6 @@ registers the test on every pass, `caseCount` says how many tests the runner reg
 and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
 or `throw` in it, and a test under a condition inside the loop, such as one in a helper after
 `if (!strategy.enabled) return;`.
-In Playwright, a test in a loop whose title path is the same on each pass is registered twice with the same title, so
-Playwright refuses the file: it gets a `duplicate-title` error, and its tests are `notLoaded`.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
 count its rows. A list written out, its spreads, a constant the file doesn't change, and `Object.keys()`,
 `Object.values()` and `Object.entries()` of an object written out can be counted even when one of their values can't
@@ -242,17 +199,12 @@ values of the case are bound in its callback, as the runner passes them, so a ti
 them is worked out per case, and an `if`, `?:`, `&&`, `||` or `??` that decides whether a test is registered takes
 the branch they give when it reads nothing but them. A condition on a constant of the module still has both branches,
 under the condition, since code the scan doesn't follow may change the constant. Loops in test and hook bodies, which
-the runner runs after collecting the tests, and loops over a `var`, which holds its last value by the time Vitest runs
-the describes, are not expanded. A loop or describe table
+the runner runs after collecting the tests, and loops over a `var`, are not expanded. The [Vitest guide](/frameworks/vitest#tables-and-case-titles) explains why. A loop or describe table
 outside any other is expanded while the file has fewer than 1,000 expanded loop passes and describe cases, and then
 in whole; past that, loops and describe tables that register tests are one record with a `cases-not-expanded`
 warning, so that a long loop over test data can't slow the scan down.
 
-Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%O`, `%c`, `%#`,
-`%$` and `$name`, with values cut as the config of the project that runs the file cuts them:
-`taskTitleValueFormatTruncate`, or before Vitest 5 `chaiConfig.truncateThreshold`, and 40 characters, Vitest's default,
-when it sets neither. A table stays one record, with a `cases-not-expanded` warning, when the scan can't work out a
-value in it or its title, or the title would show an array or object.
+Framework-specific title rules are in the [Vitest guide](/frameworks/vitest#tables-and-case-titles).
 
 ## Conditions are not evaluated
 
@@ -277,52 +229,33 @@ A test's [`dependencyHash`](/reference/output#tests) follows the names its code 
 its own file and through imports, and takes the code each module runs when it loads, declarations that call
 something included. Some of what a test runs is out of its reach:
 
-- Installed packages, such as `@playwright/test` or a library from `node_modules`. An upgrade shows in the lockfile,
-  not in the hash.
-- Path aliases that neither tsconfig `paths`, Vite's `resolve.alias` and Vitest's `test.alias`, nor Jest's
-  `moduleNameMapper`, `modulePaths` and `moduleDirectories` set, as those of another bundler's config. An import that
-  starts with `@/` or `~/`, which no package name can, gives the test `hasUnfollowedDependencies`, with a
-  `dependency-not-followed` warning. Other aliases, such as `@app/pricing`, read as installed packages.
-- Files the code reads while it runs, with `fs` or `fetch`, environment variables, and the clock.
-- Modules loaded by a path worked out at run time, as in ``import(`./venues/${venue}`)``, or by a pattern, as with
-  `import.meta.glob()`, and a value imported from a module that only a declaration file (`.d.ts`) describes. The test
-  gets `hasUnfollowedDependencies`, with a `dependency-not-followed` warning.
-- Vitest's automatic mocks in `__mocks__` folders. A module `vi.mock()` names is in the hash, though its mock may
-  replace it.
-- Playwright's `webServer`, which is a command, its `teardown` projects, and a config given to the runner with
-  `--config`. A setup file a config names in a way the scan can't work out, as in `setupFiles: process.env.SETUP` or
-  `require.resolve('./global-setup')`, or a path that doesn't exist, gets a `dependency-not-followed` warning. Projects
-  the scan can't work out, such as those of a Vitest 3 workspace file, mark the tests without one, as the config's
-  own warning says where.
-- Snapshot files a config puts elsewhere than the runner's default place, with Playwright's `snapshotPathTemplate`,
-  `snapshotDir` or a matcher's `pathTemplate`, or Vitest's `resolveSnapshotPath`, `snapshotEnvironment` or browser
-  screenshot settings. Tests that use snapshots then get a `dependency-not-followed` warning at that setting. Folders
-  linked into a snapshots folder aren't followed; linked files are.
-- Types, which don't run. For a type test (`*.test-d.ts`), the hash follows the types it uses instead.
-- A Vue component's script loaded with `src`, as in `<script src="./watchlist.ts">`. A file that isn't JavaScript or
-  TypeScript, such as JSON, is taken by its text, and one that isn't text, such as an image, by its bytes.
+- Installed packages in `node_modules`. An upgrade shows in the lockfile, not in the hash.
+- Aliases missing from tsconfig or supported runner config settings. An unresolved import starting with `@/` or `~/`
+  gives `hasUnfollowedDependencies` and a `dependency-not-followed` warning. Other aliases, such as `@app/pricing`,
+  read as installed packages.
+- Files read at runtime through `fs` or `fetch`, environment variables and the clock.
+- Runtime import paths, patterns such as `import.meta.glob()`, and modules described only by `.d.ts` files.
+  These give `hasUnfollowedDependencies` and a `dependency-not-followed` warning.
+- A config selected only by the runner's `--config`. A setup path computed at runtime, such as
+  `setupFiles: process.env.SETUP` or `require.resolve('./global-setup')`, or a nonexistent path gives a
+  `dependency-not-followed` warning.
+- Types, which do not run. For `*.test-d.ts` type tests, the hash follows their types instead.
+- A Vue component's script loaded with `src`, such as `<script src="./watchlist.ts">`.
 
-Some of what the hash takes is more than the test needs, so a change can change the hash of a test it doesn't affect:
+Runner-specific gaps and broader dependencies are described under
+[Playwright fixtures and snapshots](/frameworks/playwright#fixtures-snapshots-and-dependency-hashes) and
+[Vitest mocks and snapshots](/frameworks/vitest#mocks-snapshots-and-dependency-hashes).
+Snapshot directories reached through symlinks are not followed; linked files are.
 
-- A test's fixtures are those that the test, the hooks around it, conditions such as `test.skip(({ account }) => ...)`
-  and `test.use()` values ask for, in the code the test reaches, helper functions that take the test object included,
-  with the fixtures those ask for. Any of them that takes its fixtures whole, as in `async (fixtures) => ...`, or whose
-  function the scan can't find, such as a hook a factory returns or one held in a `let`, or a fixture from an installed
-  package, brings in every fixture of the test's objects.
-- A fixtures file that overrides Playwright's own fixtures or options, such as `page`, `context`, `storageState` or
-  `baseURL`, or a fixture with `auto: true`, is in the hash of every test that uses the test object.
-- A test object whose fixtures aren't written as an object literal in `extend()`, as in `base.extend(fixtures)`, is
-  taken with all of them.
-- A helper function that declares tests is taken whole for each test it declares.
-- Vitest keeps one `.snap` file for all the snapshot tests of a file, so updating one test's snapshot changes the hash
-  of every test in the file that uses `toMatchSnapshot()`. A Playwright screenshot without a name, or with one worked out
-  at run time, takes every file in the test file's `-snapshots` folder. A name takes every file that starts with it,
-  so `holdings.png` also takes `holdings-by-sector-chromium-linux.png`. A custom matcher that calls Vitest's own, as
-  `Snapshots.toMatchSnapshot.call(this, received)`, gives every test that can reach it the file's snapshot file.
-- Importing a module runs the code of every module it imports, as a barrel file does for each module it re-exports,
-  so all of that is in the hash, whichever export the test uses.
-- A Vue or Svelte single-file component is taken whole, by its text, with every module its `<script>` blocks import,
-  except blocks whose `type` isn't JavaScript, such as `application/ld+json`, and types too, as its markup may use any of them and Vue builds the props of `defineProps<Props>()` from the types.
+Some dependencies are broader than one test's use, so unrelated changes can also change its hash:
+
+- A helper that declares tests is taken whole for each declared test.
+- Every module imported or re-exported by an imported module contributes its load-time code, even if the test uses
+  only one export.
+- Vue and Svelte single-file components are taken whole, with imports from JavaScript or TypeScript `<script>`
+  blocks. Types are included because markup can use them and Vue builds `defineProps<Props>()` from them.
+  Non-JavaScript script blocks, such as `application/ld+json`, are excluded from import traversal.
+- Other text files, such as JSON, are taken as text, and binary files, such as images, as bytes.
 
 When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
 `hasUnfollowedDependencies` without a warning.

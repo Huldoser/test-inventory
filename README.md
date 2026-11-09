@@ -16,6 +16,9 @@ code, dependencies, state and tags, as JSON or Markdown. See [Compare inventorie
 
 Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/)
 
+For a focused walkthrough, choose a [framework guide](https://huldoser.github.io/test-inventory/frameworks/).
+Each covers its runner's scan commands, examples, syntax and limitations.
+
 ## Install
 
 ```sh

@@ -42,6 +42,7 @@ export default defineConfig({
 
 ## Essential
 
+- [Framework guides](${url}frameworks.md): Choose a runner for commands, examples and relevant limitations.
 - [Agent reference](${url}guide/agent-reference.md): Tool selection, pagination, state interpretation and limits.
 - [Complete workflow](${url}guide/workflows.md): One query through CLI, library and MCP.
 - [CLI](${url}guide/cli.md): Flags, defaults, files and exit codes.
@@ -89,6 +90,7 @@ The complete page index follows, including background, type reference and histor
     logo: { light: '/mark-small-light.svg', dark: '/mark-small-dark.svg', alt: 'test-inventory' },
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Frameworks', link: '/frameworks/' },
       { text: 'Reference', link: '/reference/output' },
       { text: 'API', link: '/api/' },
       { text: `v${version}`, link: '/changelog' },
@@ -99,9 +101,25 @@ The complete page index follows, including background, type reference and histor
         text: 'Start here',
         items: [
           { text: 'Getting started', link: '/guide/getting-started' },
+          { text: 'Choose your framework', link: '/frameworks/' },
           { text: 'One task, three interfaces', link: '/guide/workflows' },
           { text: 'Key concepts', link: '/guide/concepts' },
           { text: 'Examples', link: '/guide/examples' },
+        ],
+      },
+      {
+        text: 'Framework guides',
+        collapsed: true,
+        items: [
+          { text: 'Playwright', link: '/frameworks/playwright' },
+          { text: 'Vitest', link: '/frameworks/vitest' },
+          { text: 'Jest', link: '/frameworks/jest' },
+          { text: 'Mocha', link: '/frameworks/mocha' },
+          { text: 'Jasmine', link: '/frameworks/jasmine' },
+          { text: 'Cypress', link: '/frameworks/cypress' },
+          { text: 'WebdriverIO', link: '/frameworks/webdriverio' },
+          { text: 'node:test', link: '/frameworks/node' },
+          { text: 'Bun', link: '/frameworks/bun' },
         ],
       },
       {
@@ -119,7 +137,7 @@ The complete page index follows, including background, type reference and histor
         text: 'Understanding the scan',
         items: [
           { text: 'Why test-inventory', link: '/guide/why' },
-          { text: 'Known limits', link: '/guide/limits' },
+          { text: 'Shared limits', link: '/guide/limits' },
           { text: 'Compared with the runners', link: '/guide/runners' },
           { text: 'Real projects', link: '/guide/real-projects' },
         ],
