@@ -199,6 +199,8 @@ A known bug marked with `test.fails` is `expectedToFail`, and the comment above 
 
 ## React with Vitest and Testing Library {#react-with-testing-library}
 
+<!-- #region example-vitest-react -->
+
 `trading-dashboard` keeps its tests next to its React components, in `*.test.tsx` files. JSX is read like the rest
 of the code:
 
@@ -243,7 +245,11 @@ npx test-inventory "src/**/*.test.tsx" --framework vitest --output inventory.jso
 }
 ```
 
+<!-- #endregion example-vitest-react -->
+
 ## Vue with Vitest and Vue Test Utils {#vue-with-vue-test-utils}
+
+<!-- #region example-vitest-vue -->
 
 `watchlist-vue` turns on Vitest's globals, so its specs use `describe` and `it` without importing them:
 
@@ -286,7 +292,11 @@ for
 }
 ```
 
+<!-- #endregion example-vitest-vue -->
+
 ## Vitest browser mode
+
+<!-- #region example-vitest-browser -->
 
 `chart-browser` draws candlestick charts on a canvas and tests them in Chromium and WebKit with Vitest's browser
 mode. One test is skipped in WebKit:
@@ -326,7 +336,11 @@ still has one record, even when the runner executes it in two browsers. This tes
 { "projects": ["chromium", "webkit"] }
 ```
 
+<!-- #endregion example-vitest-browser -->
+
 ## In-source and type tests
+
+<!-- #region example-vitest-in-source -->
 
 `strategy-engine` keeps some tests next to the code they test, inside `if (import.meta.vitest)`:
 
@@ -388,7 +402,11 @@ The `import.meta.vitest` check is how in-source tests are written, so it does no
 }
 ```
 
+<!-- #endregion example-vitest-in-source -->
+
 ## A Vitest monorepo {#a-monorepo}
+
+<!-- #region example-vitest-monorepo -->
 
 `trading-monorepo` has three packages, each with its own Vitest config, and a root config that lists them as
 projects. Scan them all from the root:
@@ -428,6 +446,8 @@ package's test files, so it gives no `globals-not-enabled` warning:
 
 To scan one package, pass it as the root: `--root packages/risk`. The framework version is read from
 `node_modules` in the root or a folder above it, so a package of a monorepo gets the version installed at the top.
+
+<!-- #endregion example-vitest-monorepo -->
 
 ## A Jest service
 
@@ -511,6 +531,8 @@ case, titled as Jest titles it:
 
 ## Puppeteer on Jest
 
+<!-- #region example-jest-puppeteer -->
+
 Puppeteer has no test runner of its own; its end-to-end suites run on Jest through the `jest-puppeteer` preset, which
 gives the tests a `page` and `browser`, and `expect(page)` matchers:
 
@@ -549,6 +571,8 @@ The preset only sets up the browser, so the scan reads the file as any Jest file
   "timeoutSource": "config"
 }
 ```
+
+<!-- #endregion example-jest-puppeteer -->
 
 ## A Mocha service
 
@@ -626,6 +650,8 @@ The test's own timeout wins over the config's `'5s'`, and the retries come from 
 
 ## Puppeteer on Mocha
 
+<!-- #region example-mocha-puppeteer -->
+
 On Mocha, a Puppeteer suite usually starts the browser in root hooks, which a file in the config's `require` exports
 as `mochaHooks`, and keeps the page on the test's context:
 
@@ -661,6 +687,8 @@ The root hooks aren't counted in `hooks`, but the file that exports them is one 
   "dependencies": [".mocharc.json", "e2e/browser.js", "e2e/order-ticket.e2e.js"]
 }
 ```
+
+<!-- #endregion example-mocha-puppeteer -->
 
 ## A Jasmine service
 

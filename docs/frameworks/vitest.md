@@ -1,5 +1,9 @@
 ---
 description: Scan Vitest tests without running them, interpret the inventory, and check Vitest syntax and limitations.
+prev: false
+next:
+  text: Vitest examples
+  link: /frameworks/vitest-examples
 ---
 
 # Vitest
@@ -39,11 +43,12 @@ The command replaces `inventory.json` once the new output is complete. It does n
 
 ## Find skipped tests
 
-<!-- scan: order-service -->
-
 ```sh
-npx test-inventory "tests/**/*.test.ts" --framework vitest --state skip --fields fullName,state,condition,reason --pretty
+npx test-inventory --framework vitest --state skip --fields fullName,state,condition,reason --pretty
 ```
+
+This uses the same file selection as the first scan. If you supplied globs, `--root` or `--framework-version`,
+repeat those options here.
 
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
@@ -52,7 +57,7 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 <!--@include: ../guide/examples.md#example-vitest-->
 
-Other Vitest examples: [React](/guide/examples#react-with-testing-library), [Vue](/guide/examples#vue-with-vue-test-utils), [browser mode](/guide/examples#vitest-browser-mode), [in-source and type tests](/guide/examples#in-source-and-type-tests), [monorepos](/guide/examples#a-monorepo).
+Other Vitest examples: [React](/frameworks/vitest-examples#react-with-testing-library), [Vue](/frameworks/vitest-examples#vue-with-vue-test-utils), [browser mode](/frameworks/vitest-examples#vitest-browser-mode), [in-source and type tests](/frameworks/vitest-examples#in-source-and-type-tests), [monorepos](/frameworks/vitest-examples#a-monorepo).
 
 ## Configuration and limits
 
@@ -78,7 +83,7 @@ value in it or its title, or the title would show an array or object.
 
 Loops over `var` are not expanded because the variable holds its last value by the time Vitest runs describes.
 Include source files when scanning in-source tests, and `*.test-d.ts` files for type tests. See the
-[in-source and type-test example](/guide/examples#in-source-and-type-tests).
+[in-source and type-test example](/frameworks/vitest-examples#in-source-and-type-tests).
 
 ### Mocks, snapshots and dependency hashes
 
@@ -109,4 +114,4 @@ The [shared syntax rules](/reference/syntax#in-every-runner) also apply.
 - [Key concepts](/guide/concepts): counts, states, IDs and hashes.
 - [Output reference](/reference/output) and [diagnostics](/reference/diagnostics): interpret every field and warning.
 - [CLI](/guide/cli), [library](/guide/library) and [MCP](/guide/agents): use the same inventory through each interface.
-- [Compare runners](/guide/runners): differences from runner collection and execution reports.
+- [Compare with Vitest](/guide/runners#vitest-5-s-static-list): differences from runner collection and execution reports.

@@ -1,5 +1,9 @@
 ---
 description: Scan Playwright tests without running them, interpret the inventory, and check Playwright syntax and limitations.
+prev: false
+next:
+  text: Query recipes
+  link: /guide/recipes
 ---
 
 # Playwright
@@ -39,11 +43,12 @@ The command replaces `inventory.json` once the new output is complete. It does n
 
 ## Find skipped tests
 
-<!-- scan: trading-web -->
-
 ```sh
-npx test-inventory "tests/**/*.spec.ts" --framework playwright --state skip --state fixme --fields fullName,state,condition,reason --pretty
+npx test-inventory --framework playwright --state skip --state fixme --fields fullName,state,condition,reason --pretty
 ```
+
+This uses the same file selection as the first scan. If you supplied globs, `--root` or `--framework-version`,
+repeat those options here.
 
 This selects source declarations marked skip or fixme; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.

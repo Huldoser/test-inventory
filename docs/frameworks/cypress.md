@@ -1,5 +1,9 @@
 ---
 description: Scan Cypress tests without running them, interpret the inventory, and check Cypress syntax and limitations.
+prev: false
+next:
+  text: Query recipes
+  link: /guide/recipes
 ---
 
 # Cypress
@@ -39,11 +43,12 @@ The command replaces `inventory.json` once the new output is complete. It does n
 
 ## Find skipped tests
 
-<!-- scan: trading-ui-cypress -->
-
 ```sh
-npx test-inventory "cypress/e2e/**/*.cy.js" --framework cypress --state skip --fields fullName,state,condition,reason --pretty
+npx test-inventory --framework cypress --state skip --fields fullName,state,condition,reason --pretty
 ```
+
+This uses the same file selection as the first scan. If you supplied globs, `--root` or `--framework-version`,
+repeat those options here.
 
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
@@ -80,4 +85,4 @@ The [shared syntax rules](/reference/syntax#in-every-runner) also apply.
 - [Key concepts](/guide/concepts): counts, states, IDs and hashes.
 - [Output reference](/reference/output) and [diagnostics](/reference/diagnostics): interpret every field and warning.
 - [CLI](/guide/cli), [library](/guide/library) and [MCP](/guide/agents): use the same inventory through each interface.
-- [Compare runners](/guide/runners): differences from runner collection and execution reports.
+- [Compare with Cypress](/guide/runners#cypress-s-list): differences from runner collection and execution reports.

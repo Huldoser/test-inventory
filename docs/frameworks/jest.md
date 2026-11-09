@@ -1,5 +1,9 @@
 ---
 description: Scan Jest tests without running them, interpret the inventory, and check Jest syntax and limitations.
+prev: false
+next:
+  text: Jest examples
+  link: /frameworks/jest-examples
 ---
 
 # Jest
@@ -39,11 +43,12 @@ The command replaces `inventory.json` once the new output is complete. It does n
 
 ## Find skipped tests
 
-<!-- scan: settlement-service -->
-
 ```sh
-npx test-inventory "src/**/*.test.js" "src/__tests__/*.js" "tests/**/*.test.js" --framework jest --state skip --fields fullName,state,condition,reason --pretty
+npx test-inventory --framework jest --state skip --fields fullName,state,condition,reason --pretty
 ```
+
+This uses the same file selection as the first scan. If you supplied globs, `--root` or `--framework-version`,
+repeat those options here.
 
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
@@ -52,7 +57,7 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 <!--@include: ../guide/examples.md#example-jest-->
 
-Other Jest examples: [Puppeteer on Jest](/guide/examples#puppeteer-on-jest).
+Other Jest examples: [Puppeteer on Jest](/frameworks/jest-examples#puppeteer-on-jest).
 
 ## Configuration and limits
 
@@ -94,4 +99,4 @@ The [shared syntax rules](/reference/syntax#in-every-runner) also apply.
 - [Key concepts](/guide/concepts): counts, states, IDs and hashes.
 - [Output reference](/reference/output) and [diagnostics](/reference/diagnostics): interpret every field and warning.
 - [CLI](/guide/cli), [library](/guide/library) and [MCP](/guide/agents): use the same inventory through each interface.
-- [Compare runners](/guide/runners): differences from runner collection and execution reports.
+- [Compare with Jest](/guide/runners#jest-s-list): differences from runner collection and execution reports.

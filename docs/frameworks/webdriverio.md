@@ -1,5 +1,9 @@
 ---
 description: Scan WebdriverIO tests without running them, interpret the inventory, and check WebdriverIO syntax and limitations.
+prev: false
+next:
+  text: Query recipes
+  link: /guide/recipes
 ---
 
 # WebdriverIO
@@ -39,11 +43,12 @@ The command replaces `inventory.json` once the new output is complete. It does n
 
 ## Find skipped tests
 
-<!-- scan: broker-portal -->
-
 ```sh
-npx test-inventory "test/specs/*.e2e.js" "test/specs/{orders,accounts}/*.e2e.js" --framework webdriverio --state skip --fields fullName,state,condition,reason --pretty
+npx test-inventory --framework webdriverio --state skip --fields fullName,state,condition,reason --pretty
 ```
+
+This uses the same file selection as the first scan. If you supplied globs, `--root` or `--framework-version`,
+repeat those options here.
 
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
@@ -83,4 +88,4 @@ The [shared syntax rules](/reference/syntax#in-every-runner) also apply.
 - [Key concepts](/guide/concepts): counts, states, IDs and hashes.
 - [Output reference](/reference/output) and [diagnostics](/reference/diagnostics): interpret every field and warning.
 - [CLI](/guide/cli), [library](/guide/library) and [MCP](/guide/agents): use the same inventory through each interface.
-- [Compare runners](/guide/runners): differences from runner collection and execution reports.
+- [Compare with WebdriverIO](/guide/runners#webdriverio-s-list): differences from runner collection and execution reports.
