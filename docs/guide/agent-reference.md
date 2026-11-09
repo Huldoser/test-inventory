@@ -4,6 +4,8 @@ description: A compact operational reference for agents choosing tools, paging r
 
 # Agent reference
 
+For runner-specific scan commands and limitations, choose a [framework guide](/frameworks/).
+
 test-inventory reads declarations without running project code. Use it to locate tests and review declared metadata;
 use a runner report for observed execution and pass/fail results. This page is operational guidance, not client setup.
 For installation, read [AI agents](https://huldoser.github.io/test-inventory/guide/agents).

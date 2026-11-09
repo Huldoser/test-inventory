@@ -4,6 +4,8 @@ description: How the inventory differs from playwright test --list, vitest list,
 
 # Compared with the runners
 
+For runner-specific scan commands and limitations, choose a [framework guide](/frameworks/).
+
 The runners can list their tests too: `playwright test --list --reporter=json`, `vitest list --json`, from Jest 30.4
 `jest --collectTests`, and `mocha --dry-run`. Playwright, Jest and Mocha load the files and execute top-level code
 and describe callbacks. Vitest 5 statically parses test files by default; earlier versions collect them by executing

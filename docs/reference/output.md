@@ -403,11 +403,17 @@ Which files a config runs is read as each runner decides it.
 
 ### Playwright file selection
 
+<!-- #region files-playwright -->
+
 For Playwright: the files under each project's `testDir`
 that `testMatch` matches and `testIgnore` doesn't, matched against the full path in any case, without those that
 `.gitignore` files in the test folder leave out when no `testDir` is set or `respectGitIgnore` is on.
 
+<!-- #endregion files-playwright -->
+
 ### Vitest file selection
+
+<!-- #region files-vitest -->
 
 For Vitest: the
 files under `test.dir`, `test.root` or `root` that `include` matches and `exclude` doesn't, with each version's
@@ -418,7 +424,11 @@ Vitest 5 resolves from the config's root and older versions from the config's fo
 is a project of its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config that lists projects
 runs only those.
 
+<!-- #endregion files-vitest -->
+
 ### Jest file selection
+
+<!-- #region files-jest -->
 
 For Jest: the files under `roots` with an extension in `moduleFileExtensions` that `testMatch` or
 `testRegex` match, without those `testPathIgnorePatterns` and `modulePathIgnorePatterns` leave out, with each version's
@@ -427,7 +437,11 @@ config Jest finds there, and objects, whose `rootDir` defaults to the config's f
 only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written as a path, such
 as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package isn't.
 
+<!-- #endregion files-jest -->
+
 ### Mocha file selection
+
+<!-- #region files-mocha -->
 
 For Mocha:
 from the root, each `spec` entry as a glob, a file, a file named without its extension, or a folder, whose files with
@@ -438,14 +452,22 @@ default `spec` is `./test`. Scanned with globs, every file they match counts as 
 a project's scripts often give Mocha the spec on its command line, which no config shows. The config's `timeout`, which
 may be a string such as `'5s'`, and `retries` apply to every test.
 
+<!-- #endregion files-mocha -->
+
 ### Jasmine file selection
+
+<!-- #region files-jasmine -->
 
 For Jasmine: the files under `spec_dir` that a
 `spec_files` glob matches, without those a glob starting with `!` matches. Without a config it runs no file; scanned
 with globs, every file they match counts as run, as files given to Jasmine replace `spec_files`. `JASMINE_CONFIG_PATH`
 and `--config` are not read.
 
+<!-- #endregion files-jasmine -->
+
 ### Cypress file selection
+
+<!-- #region files-cypress -->
 
 For Cypress: its testing types are the projects, `e2e` and, when the config sets up
 component testing, `component`; each runs the files under the config's folder that its `specPattern` matches, by default
@@ -458,7 +480,11 @@ which Cypress uses, reads them, a `specPattern` that starts with `!` leaves file
 testing type's `specPattern` takes it too, as `cypress run --spec` does. The testing type's `retries`, else the
 config's, applies to every test, its `runMode` when it is an object, as `cypress run` takes.
 
+<!-- #endregion files-cypress -->
+
 ### WebdriverIO file selection
+
+<!-- #region files-webdriverio -->
 
 For WebdriverIO: the files
 under `rootDir`, the config's folder unless the config sets it, that a `specs` glob matches, also in the nested lists
@@ -477,7 +503,11 @@ its `mochaOpts.timeout`, `retries` and `ui`, or `jasmineOpts.defaultTimeoutInter
 the timeout is WebdriverIO's, 10 seconds, and a `defaultTimeoutInterval` of `0` is 60 seconds. Cucumber runs feature
 files, which the scan doesn't read, and is reported. `mochaOpts.grep` and `jasmineOpts.grep` are not read.
 
+<!-- #endregion files-webdriverio -->
+
 ### node:test file selection
+
+<!-- #region files-node -->
 
 For node:test: the files the `node --test` commands of the `test` script give, with those of the scripts it runs through
 `npm run`, `pnpm`, `yarn`, `bun run`, `npm-run-all`, `run-s` or `run-p`, or when it runs none, of the first script that
@@ -487,6 +517,8 @@ any, Node.js's default patterns,
 `mjs` and `cjs`, and from Node.js 22.18, which strips types by default, `ts`, `mts` and `cts`. Dot folders and
 `node_modules` are left out. Scanned with globs, every file they match counts as run, as for the files given to
 `node --test`.
+
+<!-- #endregion files-node -->
 
 ### Bun file selection
 
