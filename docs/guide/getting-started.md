@@ -68,7 +68,7 @@ Take a spec from the UI tests of a trading app, `tests/orders/limit-orders.spec.
 
 <!-- code: trading-web/tests/orders/limit-orders.spec.ts -->
 
-```ts
+```ts excerpt
 import { test, expect } from '../../fixtures/index';
 import { TAGS } from '../../test-data/tags';
 
@@ -173,6 +173,8 @@ versions checked in CI; it does not claim every later release has been tested.
 - [Bun](https://bun.com): Bun 1.2.23 or newer.
 
 ## Next
+
+- [One task, three interfaces](/guide/workflows): a complete downloadable script, CLI query and MCP workflow.
 
 - [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest, Mocha,
   Jasmine, Cypress, WebdriverIO, node:test, Bun and Puppeteer.

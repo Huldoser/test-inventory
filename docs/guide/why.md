@@ -14,7 +14,7 @@ This test from the [trading-web](/guide/examples#playwright-end-to-end-tests) ex
 
 <!-- code: trading-web/tests/orders/limit-orders.spec.ts -->
 
-```ts
+```ts excerpt
 // FIXME: TRD-412 the confirm dialog stays open on WebKit
 test(
   'rejects a limit price far from the last trade',

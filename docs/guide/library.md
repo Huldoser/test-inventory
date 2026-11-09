@@ -6,6 +6,9 @@ description: Scan, filter and compare inventories using the library, with TypeSc
 
 The package also exports the functions the command line uses. It is ESM only.
 
+For a complete runnable file, use the [library workflow](/guide/workflows#complete-library-script).
+Feature-specific minimum versions are listed in [compatibility](/guide/compatibility).
+
 ```ts
 import { filterInventory, pickTestFields, scan, scanSource } from 'test-inventory';
 ```
