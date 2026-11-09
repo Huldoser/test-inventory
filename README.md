@@ -1,13 +1,15 @@
 # <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Huldoser/test-inventory/main/docs/public/logo-dark.svg"><img src="https://raw.githubusercontent.com/Huldoser/test-inventory/main/docs/public/logo-light.svg" alt="test-inventory" height="48"></picture>
 
-Test metadata from source code, not from test results.
+List tests, their declared states and skip reasons without running the suite.
 
-test-inventory reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun test files and
-lists every test declaration as JSON: its title, file and lines, the describes around it, its tags and annotations, and
-whether it is active, skipped, fixme, todo, expected to fail or in a file the runner refuses to load, with the condition
-when the state only applies sometimes. Each test has an id that survives a move to another line and a hash of everything
-it runs, from its hooks and fixtures to its page objects, test data, snapshots and config, so it can also list the tests
-a change can affect. It parses the code and runs nothing, so it needs no browsers, no build and no runner configuration.
+test-inventory reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun files and writes
+JSON. Each test record includes its title, location, suite, tags, annotations and state. Conditional states keep the
+condition as source text; they do not establish what happened in a particular run.
+
+Stable ids and code hashes help compare revisions and find tests a change can affect. The scanner reads supported
+runner configs and project imports without executing them. It needs no browsers, build or additional runner setup.
+Check diagnostics before treating a scan as complete; [known limits](https://huldoser.github.io/test-inventory/guide/limits)
+describes what static analysis can miss.
 
 Compare saved scans with `test-inventory diff old.json new.json`: additions, removals, renames and moves, changes to
 code, dependencies, state and tags, as JSON or Markdown. See [Compare inventories](https://huldoser.github.io/test-inventory/guide/diff).
@@ -106,7 +108,7 @@ in Claude Code, Cursor, VS Code and other MCP clients ask it which tests a proje
 ## Limits
 
 - Config files are read as code, never run, and only in part: settings computed at run time, as from `process.env`,
-  can't be worked out, and settings such as `workers` or `use` are not read.
+  can't be worked out. Settings such as `workers` and config `use` are not interpreted as test record settings.
 - Values from installed packages are not worked out; values from the project's own files are. A tag or title that
   comes from a package gets a diagnostic that names the module. A custom `test` object is followed through as many files as it takes, through relative
   paths, config and tsconfig path aliases, `#` imports in package.json and workspace packages; one that can't be followed gets

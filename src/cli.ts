@@ -42,7 +42,7 @@ Options:
   --tag <tag>                  keep tests with this tag, such as @smoke; can be repeated
   --grep <regex>               keep tests whose full name matches, ignoring case
   --only                       keep tests that use .only, or are inside a describe that does
-  --without-reason             keep tests that don't run and give no reason
+  --without-reason             keep non-active tests without a reason, excluding notLoaded
   --related <file>             keep tests a change to this file can affect; can be repeated; - reads files, one per
                                line, from standard input, as git diff --name-only writes them
   --fields <keys>              write only these keys of each test, separated by commas; id is always kept

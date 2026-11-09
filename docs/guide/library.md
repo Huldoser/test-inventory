@@ -7,7 +7,7 @@ description: Scan, filter and compare inventories using the library, with TypeSc
 The package also exports the functions the command line uses. It is ESM only.
 
 ```ts
-import { filterInventory, pickTestFields, scan, scanSource, type Inventory } from 'test-inventory';
+import { filterInventory, pickTestFields, scan, scanSource } from 'test-inventory';
 ```
 
 ## scan
@@ -88,6 +88,23 @@ for matching rules, change categories, hash compatibility and incomplete-scan wa
 
 <!-- types: diffInventories, InventoryDiff, TestChange, ChangeKind, MatchMethod, CloneGroup -->
 
+Read complete scans saved with the same version and scan options, then compare them:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { diffInventories, formatDiffMarkdown, type Inventory } from 'test-inventory';
+
+const before: Inventory = JSON.parse(readFileSync('inventories/base.json', 'utf8'));
+const after: Inventory = JSON.parse(readFileSync('inventories/head.json', 'utf8'));
+const diff = diffInventories(before, after);
+
+console.log(diff.summary.newlySkipped);
+console.log(diff.warnings);
+console.log(formatDiffMarkdown(diff));
+```
+
+The comparison validates the inventories at runtime. A TypeScript annotation on parsed JSON is not validation.
+
 ## formatDiffMarkdown
 
 Formats a diff as a Markdown summary and table. Titles and paths are escaped as text.
@@ -114,7 +131,9 @@ version of the format it understands:
 
 ```ts
 import schema from 'test-inventory/schema/v1.json' with { type: 'json' };
+import diffSchema from 'test-inventory/schema/diff-v1.json' with { type: 'json' };
 ```
 
 It is also published at [huldoser.github.io/test-inventory/schema/v1.json](https://huldoser.github.io/test-inventory/schema/v1.json),
-the URL in its `$id`.
+the URL in its `$id`. The diff schema is published at
+[schema/diff-v1.json](https://huldoser.github.io/test-inventory/schema/diff-v1.json).

@@ -5,8 +5,7 @@ description: What the runners' lists leave out, and what test-inventory reads fr
 # Why test-inventory
 
 The runners can list their tests: `playwright test --list`, `vitest list` and `jest --collectTests`. A list says which
-tests exist.
-It doesn't say which of them won't run, under what condition, or why. test-inventory reads the test files and answers
+tests exist, but may omit conditions and reasons written inside test bodies. test-inventory reads the test files and answers
 those questions from the code, without running anything.
 
 ## What a runner's list leaves out
@@ -55,14 +54,14 @@ suites get the same keys. [Compared with the runners](/guide/runners) has the fu
 
 Each links to a recipe that runs on a scan:
 
-- [Tests that don't run, and why](/guide/recipes#tests-that-don-t-run-and-why): skipped, fixme, todo and
-  expected-to-fail tests, with the reason given in the code.
-- [Tickets mentioned by tests that don't run](/guide/recipes#tickets-mentioned-by-tests-that-don-t-run): check that
-  every disabled test has one, or list the tests a ticket blocks.
+- [Tests marked skip, fixme or todo](/guide/recipes#tests-that-don-t-run-and-why): declared states, with the
+  condition and reason given in the code. Expected-to-fail tests run; query them with `--state expectedToFail`.
+- [Tickets mentioned by tests marked skip, fixme or todo](/guide/recipes#tickets-mentioned-by-tests-that-don-t-run): review why
+  those states were declared, or list the tests a ticket references.
 - [Tests per tag](/guide/recipes#smoke-tests-per-file): the smoke tests in each file, or the tests with any other tag.
 - [Focused tests](/guide/ci#github-actions): fail a CI job when a test or a describe uses `.only`.
-- [Tests a pull request stopped running](/guide/ci#tests-that-stopped-running-in-a-pull-request): the scans of its base
-  and its head, compared by id.
+- [Tests a pull request newly marked skip, fixme or todo](/guide/ci#tests-that-stopped-running-in-a-pull-request): the scans of its base
+  and its head, compared by id and body hash.
 - [The state of a test in an editor or a linter](/guide/library#scansource): `scanSource` reads code that isn't saved
   to disk.
 
@@ -79,7 +78,7 @@ Each links to a recipe that runs on a scan:
 ## What it doesn't do
 
 test-inventory reads declarations, not results. It doesn't know whether a test passed or how long it took, and it
-doesn't evaluate a condition; the runner's report has those. Some things are only known at run time, such as the tests
-a config file's `grep` leaves out. [Known limits](/guide/limits) lists them; most show up in the output as a
+doesn't evaluate runtime conditions; the runner's report has those. Some things are only known at run time, such as
+which branch a runtime-dependent config chooses. [Known limits](/guide/limits) lists them; most show up in the output as a
 diagnostic. When all you need is the names of the tests that will run on one machine, the runner's own list is the
 right tool.

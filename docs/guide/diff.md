@@ -4,6 +4,9 @@ description: Compare saved test inventories, follow renamed or moved tests, and 
 
 # Compare inventories
 
+Use a diff to review how test declarations changed between revisions. It reports source changes, not execution
+results. For a complete example that saves both scans from a pull request, see the [CI recipe](/guide/ci#tests-that-stopped-running-in-a-pull-request).
+
 Save complete JSON scans from the base and head revisions of a project, then compare them:
 
 ```sh
@@ -15,6 +18,23 @@ Use the same test-inventory version, framework, root, patterns, filters and `--e
 Save the scans before changing revisions. Do not use `--fields` or `--format jsonl`: the diff needs complete records.
 The command reads those two files and does not scan or run the project. Exit code 0 means the comparison finished,
 including one with changes or warnings; 2 means an invalid argument, unreadable input or output, or invalid inventory.
+
+## Example: a renamed test gains a skip
+
+Suppose a test titled `cancels an open limit order` becomes `cancels an order before it fills`, with `.skip` added.
+Its file and body stay unchanged, and no other unmatched test shares that body. The id changes with the title, but
+the diff can match the old and new declarations by body hash.
+
+The change has `renamed`, `newlySkipped` and `stateChanged` kinds, plus any hash or metadata changes. It remains a
+matched change rather than an unrelated removal and addition. A Markdown report starts with counts like:
+
+```text
+Test inventory diff: 0 added, 0 removed, 1 changed, 0 unchanged.
+```
+
+The following table names the change kinds, shows the before and after test locations and titles, and gives the
+matching method. If the skip is conditional, inspect `after.condition` in JSON before deciding whether execution
+changed in a particular environment.
 
 ## Matches and changes
 

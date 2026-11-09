@@ -13,7 +13,7 @@ export interface InventoryFilter {
   grep?: string;
   /** Keeps tests that use `.only`, or are inside a describe that does. */
   only?: boolean;
-  /** Keeps tests that don't run and give no reason. Tests in a file the runner refuses are left out. */
+  /** Keeps non-active tests without a reason, including expected failures and conditional states; excludes notLoaded. */
   withoutReason?: boolean;
   /**
    * Keeps the tests a change to one of these files can affect: those whose `dependencies` include it, and those that

@@ -4,6 +4,9 @@ description: The test-inventory command, its options and exit codes, and how it 
 
 # Command line
 
+This page describes scan options, followed by file and version detection. For an unexpected result, use
+[troubleshooting](/guide/troubleshooting).
+
 To compare saved scans, use `test-inventory diff old.json new.json`. It takes `--format json` (default) or
 `--format markdown`, `--pretty` for JSON, and `--output` (`-o`). See [Compare inventories](/guide/diff).
 
@@ -31,7 +34,7 @@ separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it escapes 
 | `--tag <tag>`                 | Keep tests with this tag, as the output writes it, such as `@smoke`. Can be given more than once.                                                                                                                                    |
 | `--grep <regex>`              | Keep tests whose `fullName` matches the regular expression, ignoring case.                                                                                                                                                           |
 | `--only`                      | Keep tests that use `.only`, or are inside a describe that does.                                                                                                                                                                     |
-| `--without-reason`            | Keep tests that don't run and give no reason.                                                                                                                                                                                        |
+| `--without-reason`            | Keep non-active tests without a reason, including expected failures and conditional states, but excluding `notLoaded`.                                                                                                               |
 | `--related <file>`            | Keep tests a change to this file can affect; see [Tests a change can affect](#tests-a-change-can-affect). Can be given more than once; `-` reads files from standard input, one per line.                                            |
 | `--fields <keys>`             | Write only these keys of each test, separated by commas. `id` is always kept.                                                                                                                                                        |
 | `--format <format>`           | `json`, or `jsonl` for one record per line. Default: `json`.                                                                                                                                                                         |
@@ -42,7 +45,8 @@ separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it escapes 
 
 ## Filters
 
-The filters answer a question about a few tests without reading the whole inventory. A test is kept when it passes
+The filters reduce the returned inventory to matching tests; the scan still reads the selected source files. See
+[key concepts](/guide/concepts) when interpreting states and counts. A test is kept when it passes
 every filter given; a filter given more than once keeps a test that has any of its values. To list the tests in the
 web app that are skipped or marked fixme, with their reasons:
 

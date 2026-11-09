@@ -166,9 +166,9 @@ export interface Summary {
 }
 
 /**
- * A runner's config that scanned files use. For Playwright and Vitest, the nearest one in a file's folder or a folder
- * above it, up to the root, as the runner started in that folder would; for Jest, the one at the root and the projects
- * it names; for the other runners, the one config they read for the whole run. Read as code, never run.
+ * A runner's config that scanned files use. For Playwright and Vitest, the outermost config at or above the file that
+ * runs it, up to the root, else the nearest; for Jest, the one at the root and the projects it names; for the other
+ * runners, the one config they read for the whole run. Read as code, never run.
  */
 export interface ConfigRecord {
   /** Path from the project root, with `/` separators. */
@@ -363,6 +363,7 @@ export interface TestRecord {
   /** Declared in a Vitest type test file (`*.test-d.ts`, `*.spec-d.ts`). */
   isTypeTest: boolean;
   state: TestState;
+  /** True only for state active; false does not establish that the test never executes. */
   isActive: boolean;
   isSkipped: boolean;
   isFixme: boolean;
@@ -406,7 +407,7 @@ export interface TestRecord {
   isSlow: boolean;
   /** Source text of the condition of the `test.slow()` that applies; null when unconditional or not slow. */
   slowCondition: string | null;
-  /** How many times the runner retries the test when it fails; null when the file sets none. */
+  /** Effective retry count from the test, suite, file or config; null when absent or unknown. See retriesSource. */
   retries: Count | null;
   /**
    * Milliseconds between retries: Vitest's from the `retry` object (4.1), Jest's from `waitBeforeRetry` of

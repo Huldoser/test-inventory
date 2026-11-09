@@ -1,5 +1,5 @@
 ---
-description: Node.js scripts that answer questions about a scan, such as which tests don't run and why.
+description: Query declared skip states, conditions, reasons, related tests and tags in a saved scan.
 ---
 
 # Query recipes
@@ -10,9 +10,13 @@ it with `node`. The output under each recipe is what it prints for the
 [trading-web](/guide/examples#playwright-end-to-end-tests) example project; the test suite runs the recipes on that
 project's scan, so they stay correct.
 
-## Tests that don't run, and why
+## Tests marked skip, fixme or todo {#tests-that-don-t-run-and-why}
 
-Skipped, fixme, todo and expected-to-fail tests, with the reason given in the code.
+List declared skip, fixme and todo states with their conditions and reasons. A conditional skip is not proof that a
+test was skipped in a run. Expected-to-fail tests run, so they are excluded from this query.
+
+For a quick query without a script, pass `--state skip --state fixme --state todo` to the CLI. The script below also
+shows each condition. [Key concepts](/guide/concepts#state-describes-the-code) explains the state model.
 
 <!-- recipe: trading-web -->
 
@@ -20,21 +24,21 @@ Skipped, fixme, todo and expected-to-fail tests, with the reason given in the co
 import { readFileSync } from 'node:fs';
 
 const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
-for (const test of tests.filter((test) => test.state !== 'active')) {
+for (const test of tests.filter((test) => ['skip', 'fixme', 'todo'].includes(test.state))) {
   const reason = test.reason ? ` (${test.reason})` : '';
-  console.log(`${test.state} ${test.relativeFilePath}:${test.lineStart} ${test.fullName}${reason}`);
+  const condition = test.isConditional ? ` [when ${test.condition}]` : '';
+  console.log(`${test.state} ${test.relativeFilePath}:${test.lineStart} ${test.fullName}${reason}${condition}`);
 }
 ```
 
 ```text
-skip tests/alerts.spec.ts:11 price alerts > notifies when the price crosses above the alert (Alerts only trigger while the market is open)
-skip tests/alerts.spec.ts:16 price alerts > does not notify for a price that was never reached (Alerts only trigger while the market is open)
-skip tests/alerts.spec.ts:21 price alerts > deletes an alert (Alerts only trigger while the market is open)
-expectedToFail tests/backtest.spec.ts:20 backtests > exports trades to CSV
+skip tests/alerts.spec.ts:11 price alerts > notifies when the price crosses above the alert (Alerts only trigger while the market is open) [when isMarketClosed()]
+skip tests/alerts.spec.ts:16 price alerts > does not notify for a price that was never reached (Alerts only trigger while the market is open) [when isMarketClosed()]
+skip tests/alerts.spec.ts:21 price alerts > deletes an alert (Alerts only trigger while the market is open) [when isMarketClosed()]
 fixme tests/login.spec.ts:25 login > asks for a one-time code on a new device
-fixme tests/orders/limit-orders.spec.ts:24 orders > limit orders > rejects a limit price far from the last trade (confirm dialog stays open on WebKit)
-fixme tests/price-stream.spec.ts:8 live price stream > updates prices without a reload (The WebSocket reconnects in a loop on WebKit (TRD-390))
-fixme tests/price-stream.spec.ts:14 live price stream > shows a stale badge when the stream disconnects (The WebSocket reconnects in a loop on WebKit (TRD-390))
+fixme tests/orders/limit-orders.spec.ts:24 orders > limit orders > rejects a limit price far from the last trade (confirm dialog stays open on WebKit) [when browserName === 'webkit']
+fixme tests/price-stream.spec.ts:8 live price stream > updates prices without a reload (The WebSocket reconnects in a loop on WebKit (TRD-390)) [when browserName === 'webkit']
+fixme tests/price-stream.spec.ts:14 live price stream > shows a stale badge when the stream disconnects (The WebSocket reconnects in a loop on WebKit (TRD-390)) [when browserName === 'webkit']
 ```
 
 ## Tests a change can affect
@@ -68,9 +72,10 @@ tests/orders/order-lifecycle.spec.ts:22 order lifecycle > cancels the remaining 
 tests/portfolio.spec.ts:18 portfolio > closes a position from the positions table (pages/orders-blotter.ts)
 ```
 
-## Tickets mentioned by tests that don't run
+## Tickets mentioned by tests marked skip, fixme or todo {#tickets-mentioned-by-tests-that-don-t-run}
 
-Ticket numbers such as `TRD-412` in the comments above a test or in its reason. Use it to check that every disabled test has a ticket, or to list the tests a ticket blocks.
+Find ticket numbers such as `TRD-412` in the comments above a test or in its reason. Use this to review why tests have
+skip, fixme or todo states, including conditional ones, or to list the tests a ticket references.
 
 <!-- recipe: trading-web -->
 
@@ -78,7 +83,7 @@ Ticket numbers such as `TRD-412` in the comments above a test or in its reason. 
 import { readFileSync } from 'node:fs';
 
 const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
-for (const test of tests.filter((test) => test.state !== 'active')) {
+for (const test of tests.filter((test) => ['skip', 'fixme', 'todo'].includes(test.state))) {
   const text = [...test.comments, test.reason ?? ''].join(' ');
   const tickets = [...new Set(text.match(/[A-Z]+-[0-9]+/g))].sort();
   for (const ticket of tickets) console.log(`${ticket} ${test.relativeFilePath}:${test.lineStart} ${test.fullName}`);
@@ -121,5 +126,4 @@ for (const [file, smoke] of [...perFile].sort(([a], [b]) => (a < b ? -1 : 1))) {
 
 ---
 
-If these recipes save you time, consider [sponsoring test-inventory](https://github.com/sponsors/Huldoser). A query you
-miss here is welcome as an [issue](https://github.com/Huldoser/test-inventory/issues).
+A query you miss here is welcome as an [issue](https://github.com/Huldoser/test-inventory/issues).

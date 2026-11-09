@@ -5,8 +5,14 @@ description: How the inventory differs from playwright test --list, vitest list,
 # Compared with the runners
 
 The runners can list their tests too: `playwright test --list --reporter=json`, `vitest list --json`, from Jest 30.4
-`jest --collectTests`, and `mocha --dry-run`. They load the test files, and so run the code at the top level of every
-file. test-inventory reads the files without running them.
+`jest --collectTests`, and `mocha --dry-run`. Playwright, Jest and Mocha load the files and execute top-level code
+and describe callbacks. Vitest 5 statically parses test files by default; earlier versions collect them by executing
+the files. test-inventory parses source without executing the scanned project.
+
+Use the runner when you need the tests selected for a particular run. Use test-inventory for declared metadata, skip
+conditions and reasons, stable ids and code hashes across frameworks. The full comparison is below.
+
+::: details Collection and metadata comparison
 
 |                                | test-inventory                       | `playwright test --list`     | `vitest list`                   | `jest --collectTests`                      | `mocha --dry-run`            | `jasmine --reporter=…` | `cypress run --reporter=…`    | `wdio run` with a reporter    | `node --test --test-reporter=…`                              | `bun test --reporter=junit`                                       |
 | ------------------------------ | ------------------------------------ | ---------------------------- | ------------------------------- | ------------------------------------------ | ---------------------------- | ---------------------- | ----------------------------- | ----------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -19,6 +25,11 @@ file. test-inventory reads the files without running them.
 | Line of each test              | Yes                                  | Yes                          | Yes                             | No                                         | No                           | No                     | No                            | No                            | Yes                                                          | Yes                                                               |
 | Stable id and body hash        | Yes                                  | No                           | No                              | No                                         | No                           | No                     | No                            | No                            | No                                                           | No                                                                |
 | One schema for every framework | Yes                                  | No                           | No                              | No                                         | No                           | No                     | No                            | No                            | No                                                           | No                                                                |
+
+:::
+
+By default the inventory keeps one record per declaration. `--expand-cases` expands supported tables and loops;
+browser and project execution counts remain separate. See [counts](/guide/concepts#counts-describe-declarations-by-default).
 
 ## Matching records with the runners' lists
 
@@ -41,7 +52,7 @@ runner does.
 Jest 30.4 added `--collectTests`, which lists the tests without running them; from 30.5 it lists each case of a `.each`
 table. It loads the test files and calls their describe callbacks, so Jest has to be installed and the files'
 top-level code runs. Its entries have no line (`location` is `null`), so they match records by file and full title.
-`jest --listTests` lists only the files. Jest 29 has neither, so the only way to see its tests there is to run them.
+`jest --listTests` lists only the files. Jest 29 supports `--listTests` but not `--collectTests`; listing individual test cases there requires collection through a run or a custom integration.
 
 ## Mocha's list
 

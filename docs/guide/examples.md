@@ -8,6 +8,16 @@ Each example below is a small project of a made-up trading app, in a common setu
 [`tests/fixtures`](https://github.com/Huldoser/test-inventory/tree/main/tests/fixtures), and the output shown is from
 scanning them; the test suite checks that both stay as shown here.
 
+Source blocks are excerpts, with unrelated code and some closing lines omitted; use the linked fixture files for
+complete runnable source. JSON blocks show selected record keys, not complete inventories.
+
+| Setup                       | Example                                                                                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser end-to-end tests    | [Playwright](#playwright-end-to-end-tests), [Gherkin](#gherkin-features-with-playwright-bdd), [Cypress](#cypress-end-to-end-tests), [WebdriverIO](#webdriverio-end-to-end-tests) |
+| Node.js services            | [Vitest](#a-node-js-service), [Jest](#a-jest-service), [Mocha](#a-mocha-service), [Jasmine](#a-jasmine-service), [node:test](#a-node-test-service), [Bun](#a-bun-service)        |
+| Components and browser mode | [React](#react-with-testing-library), [Vue](#vue-with-vue-test-utils), [Vitest browser mode](#vitest-browser-mode)                                                               |
+| Specialized layouts         | [In-source and type tests](#in-source-and-type-tests), [monorepos](#a-monorepo), [Puppeteer on Jest](#puppeteer-on-jest), [Puppeteer on Mocha](#puppeteer-on-mocha)              |
+
 ## Playwright end-to-end tests
 
 `trading-web` tests the trading app's UI with page objects and fixtures. Its specs import `test` from a fixtures file
@@ -79,6 +89,18 @@ The describe's record has the mode set by `describe.configure()`, and its tests 
   "tags": ["@orders"]
 }
 ```
+
+### Gherkin features with playwright-bdd
+
+[playwright-bdd](https://github.com/vitalets/playwright-bdd) generates Playwright tests from `.feature` files. Generate
+the files first, then scan them:
+
+```sh
+npx bddgen
+npx test-inventory ".features-gen/**/*.spec.js" --framework playwright --output inventory.json
+```
+
+Records point at the generated files. The generated comments identify their source feature files.
 
 ## A Node.js service
 
@@ -284,8 +306,14 @@ npx test-inventory "src/**/*.test.ts" --framework vitest --output inventory.json
 }
 ```
 
-Browser instances come from the config, which is not read, so each test is one record. The runner runs it once per
-browser.
+The scan reads browser instances from the config and lists their names in each test's `projects`. Each declaration
+still has one record, even when the runner executes it in two browsers. This test's record includes:
+
+<!-- output: chart-browser -->
+
+```json
+{ "projects": ["chromium", "webkit"] }
+```
 
 ## In-source and type tests
 
