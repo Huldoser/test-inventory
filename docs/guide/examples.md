@@ -25,7 +25,7 @@ that extends Playwright's:
 
 <!-- code: trading-web/fixtures/index.ts -->
 
-```ts
+```ts excerpt
 // fixtures/index.ts
 export const test = base.extend<TradingFixtures>({
   signedInPage,
@@ -43,7 +43,7 @@ it like any other:
 
 <!-- code: trading-web/tests/orders/order-lifecycle.spec.ts -->
 
-```ts
+```ts excerpt
 // tests/orders/order-lifecycle.spec.ts
 import { test, expect } from '../../fixtures/index';
 
@@ -109,7 +109,7 @@ database and skip themselves without one:
 
 <!-- code: order-service/tests/repository/orders-repository.test.ts -->
 
-```ts
+```ts excerpt
 // tests/repository/orders-repository.test.ts
 describe.skipIf(!process.env.DATABASE_URL)('orders repository', { tags: ['db'] }, () => {
   // ...
@@ -146,7 +146,7 @@ A skip from the test context is read as well, with its condition and note:
 
 <!-- code: order-service/tests/risk/daily-loss-limit.test.ts -->
 
-```ts
+```ts excerpt
 // tests/risk/daily-loss-limit.test.ts
   test('resets the loss at the start of the next session', ({ skip }) => {
     skip(process.env.TZ !== 'America/New_York', 'session boundaries are checked in New York time');
@@ -170,7 +170,7 @@ A known bug marked with `test.fails` is `expectedToFail`, and the comment above 
 
 <!-- code: order-service/tests/broker/fill-events.test.ts -->
 
-```ts
+```ts excerpt
 // tests/broker/fill-events.test.ts
   // BUG: TRD-588 fractional partial fills are rounded down to whole shares
   test.fails('keeps the fractional shares of a partial fill', () => {
@@ -193,7 +193,7 @@ of the code:
 
 <!-- code: trading-dashboard/src/components/OrderTicket.test.tsx -->
 
-```tsx
+```tsx excerpt
 // src/components/OrderTicket.test.tsx
 // TODO(TRD-731): the date picker for good-till-date orders is being rebuilt
 it.skip('submits a good-till-date order', async () => {
@@ -238,7 +238,7 @@ npx test-inventory "src/**/*.test.tsx" --framework vitest --output inventory.jso
 
 <!-- code: watchlist-vue/tests/unit/Watchlist.spec.ts -->
 
-```ts
+```ts excerpt
 // tests/unit/Watchlist.spec.ts
 import { mount } from '@vue/test-utils';
 import Watchlist from '../../src/components/Watchlist.vue';
@@ -282,7 +282,7 @@ mode. One test is skipped in WebKit:
 
 <!-- code: chart-browser/src/candlestick-chart.test.ts -->
 
-```ts
+```ts excerpt
 // src/candlestick-chart.test.ts
   // WebKit returns an empty blob for canvases larger than the device pixel ratio allows in headless mode.
   test.skipIf(server.browser === 'webkit')('exports the chart as a PNG', async () => {
@@ -321,7 +321,7 @@ still has one record, even when the runner executes it in two browsers. This tes
 
 <!-- code: strategy-engine/src/pnl/format.ts -->
 
-```ts
+```ts excerpt
 // src/pnl/format.ts
 if (import.meta.vitest) {
   const { describe, it, expect } = import.meta.vitest;
@@ -336,7 +336,7 @@ It also has type tests in `*.test-d.ts` files:
 
 <!-- code: strategy-engine/tests/orders/order.test-d.ts -->
 
-```ts
+```ts excerpt
 // tests/orders/order.test-d.ts
 describe('Order', () => {
   test('narrows to a limit order by its type', () => {
@@ -425,7 +425,7 @@ tests into two projects:
 
 <!-- code: settlement-service/jest.config.js -->
 
-```js
+```js excerpt
 // jest.config.js
 module.exports = {
   testTimeout: 10000,
@@ -440,7 +440,7 @@ The integration tests retry, and tag the file for jest-runner-groups:
 
 <!-- code: settlement-service/tests/integration/custodian.test.js -->
 
-```js
+```js excerpt
 // tests/integration/custodian.test.js
 /**
  * @group integration/custodian
@@ -501,7 +501,7 @@ gives the tests a `page` and `browser`, and `expect(page)` matchers:
 
 <!-- code: trading-e2e-puppeteer/e2e/order-ticket.e2e.js -->
 
-```js
+```js excerpt
 // e2e/order-ticket.e2e.js
 describe('order ticket', () => {
   beforeEach(async () => {
@@ -542,7 +542,7 @@ The preset only sets up the browser, so the scan reads the file as any Jest file
 
 <!-- code: fix-gateway/.mocharc.yml -->
 
-```yaml
+```yaml excerpt
 # Unit specs and the exchange specs, which share the session helpers in test/helpers.
 spec: 'test/**/*.spec.js'
 timeout: '5s'
@@ -554,7 +554,7 @@ themselves at run time:
 
 <!-- code: fix-gateway/test/session.spec.js -->
 
-```js
+```js excerpt
 // test/session.spec.js
 describe('FIX session', () => {
   // ...
@@ -612,7 +612,7 @@ as `mochaHooks`, and keeps the page on the test's context:
 
 <!-- code: trading-e2e-mocha/e2e/order-ticket.e2e.js -->
 
-```js
+```js excerpt
 // e2e/order-ticket.e2e.js
 describe('order ticket', function () {
   beforeEach(async function () {
@@ -653,7 +653,7 @@ Specs mark themselves pending at run time, with a reason, and take a timeout as 
 
 <!-- code: risk-service/spec/exposure.spec.js -->
 
-```js
+```js excerpt
 // spec/exposure.spec.js
   it('reads positions from the prime broker', async () => {
     expect(positions.length).toBe(2);
@@ -695,7 +695,7 @@ retries, tags for `@cypress/grep`, and the browsers they run in.
 
 <!-- code: trading-ui-cypress/cypress/e2e/orders/ticket.cy.js -->
 
-```js
+```js excerpt
 // cypress/e2e/orders/ticket.cy.js
 describe('order ticket', { tags: '@orders', retries: { runMode: 2, openMode: 0 } }, () => {
   // ...
@@ -733,7 +733,7 @@ WebdriverIO's retry count, and `this.timeout()` sets the describe's timeout over
 
 <!-- code: broker-portal/test/specs/orders/ticket.e2e.js -->
 
-```js
+```js excerpt
 // test/specs/orders/ticket.e2e.js
 describe('client order ticket', function () {
   this.timeout(90_000);
@@ -787,7 +787,7 @@ script. A test runs subtests with `t.test()`, and a subtest can skip itself.
 
 <!-- code: pricing-service/test/quotes.test.js -->
 
-```js
+```js excerpt
 // test/quotes.test.js
 test('reprices a basket', { timeout: 2_000 }, async (t) => {
   await t.test('reprices equities', () => {
@@ -825,7 +825,7 @@ a `bunfig.toml` that runs its routing specs at once.
 
 <!-- code: quote-gateway/bunfig.toml -->
 
-```toml
+```toml excerpt
 [test]
 root = "src"
 retry = 1

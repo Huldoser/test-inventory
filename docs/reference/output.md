@@ -240,7 +240,7 @@ In the web app, the live price stream retries its tests, since the demo feed dro
 
 <!-- code: trading-web/tests/price-stream.spec.ts -->
 
-```ts
+```ts excerpt
 test.describe('live price stream', () => {
   // The demo feed drops connections now and then.
   test.describe.configure({ retries: 2 });
@@ -272,7 +272,7 @@ In the web app, the order lifecycle enters and confirms the order in two steps:
 
 <!-- code: trading-web/tests/orders/order-lifecycle.spec.ts -->
 
-```ts
+```ts excerpt
 test('places a limit order for 100 NVDA', async ({ orderTicket, blotter }) => {
   await test.step('enter the order', async () => {
     await orderTicket.open('NVDA');
@@ -521,7 +521,7 @@ In the monorepo, the risk package builds on a config the packages share:
 
 <!-- code: trading-monorepo/packages/risk/vitest.config.ts -->
 
-```ts
+```ts excerpt
 import { defineProject, mergeConfig } from 'vitest/config';
 import shared from '../../vitest.shared';
 

@@ -52,6 +52,14 @@ Mode turned on or a terminal run as administrator.
 
 ## Docs
 
+The complete library example in `docs/public/examples/scan-skips.mjs` is downloadable and checked against its
+walkthrough, the CLI output and the exported declarations. `tests/docs-workflows.test.ts` exercises that workflow,
+including no files and incomplete imports. Use an `excerpt` suffix on illustrative code fences; it labels the block
+and removes its copy button. Complete runnable fences keep their copy control.
+
+The compact agent reference is prioritized in `llms.txt`. Keep essential links absolute and leave the full page
+catalog in the Optional section. Compatibility notes describe feature introduction versions, not every patch fix.
+
 The sidebar separates first-use guidance, tasks, explanation and reference. Keep those purposes distinct: explain
 concepts in the guide, give complete procedures in task pages, and describe exact behavior in the reference. Preserve
 existing page URLs and heading anchors when reorganizing content.

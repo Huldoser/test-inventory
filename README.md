@@ -42,7 +42,7 @@ For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:
 
 <!-- code: trading-web/tests/alerts.spec.ts -->
 
-```ts
+```ts excerpt
 import { test, expect } from '../fixtures/index';
 import { isMarketClosed } from '../test-data/market-hours';
 

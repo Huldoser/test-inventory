@@ -4,6 +4,10 @@ description: Give AI coding agents a project's tests with the test-inventory MCP
 
 # AI agents
 
+For tool selection, pagination and interpretation rules, start with the [compact agent reference](/guide/agent-reference).
+The [generated MCP tool reference](https://github.com/Huldoser/test-inventory-mcp/blob/main/docs/tools.md) provides
+argument types, defaults, bounds and complete request/response examples.
+
 Coding agents ask the questions about tests that people do: which tests cover limit orders, which are skipped on
 WebKit and why, whether a change left a `.only` behind, which tests a change can affect. test-inventory answers them from the source code, so an agent
 gets the answer without running the suite.
