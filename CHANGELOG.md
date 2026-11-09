@@ -1,5 +1,17 @@
 # test-inventory
 
+## 0.10.1
+
+### Patch Changes
+
+- [#99](https://github.com/Huldoser/test-inventory/pull/99) [`df8968d`](https://github.com/Huldoser/test-inventory/commit/df8968dc0357353913b96fadd417a266ab290b2c) - Keep Playwright declaring modifiers when functions are stored in variables or selected inline. Read logical choices with the same rules as the other runners, and classify each nested branch once to avoid exponential traversal.
+
+  Match Vite's alias merge precedence and preserve object aliases when mixed with lists. Mark imports as unfollowed when an unreadable alias entry or find could match them.
+
+  Ignore annotation and step line numbers in inventory diffs, so moving unchanged tests to another line does not report metadata changes.
+
+- [#100](https://github.com/Huldoser/test-inventory/pull/100) [`fa10d39`](https://github.com/Huldoser/test-inventory/commit/fa10d3970046e4e99b6f175ff5dcf0eee13ccfcd) - Read locally declared describe callbacks passed by name, preserving suite placement, inherited state, lexical values and expanded table arguments. Keep suite hashes, dependencies and nested parent links complete, including when a child is written before its calling parent. Apply the existing helper traversal limits and runner callback checks to these callbacks.
+
 ## 0.10.0
 
 ### Minor Changes
