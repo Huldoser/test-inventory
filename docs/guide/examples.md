@@ -21,6 +21,11 @@ complete runnable source. JSON blocks show selected record keys, not complete in
 | Components and browser mode | [React](#react-with-testing-library), [Vue](#vue-with-vue-test-utils), [Vitest browser mode](#vitest-browser-mode)                                                               |
 | Specialized layouts         | [In-source and type tests](#in-source-and-type-tests), [monorepos](#a-monorepo), [Puppeteer on Jest](#puppeteer-on-jest), [Puppeteer on Mocha](#puppeteer-on-mocha)              |
 
+The framework guides also show [Cypress component and E2E selection](/frameworks/cypress#cypress-component-and-end-to-end-tests),
+[WebdriverIO with Jasmine](/frameworks/webdriverio#webdriverio-with-jasmine),
+[Playwright project counts](/frameworks/playwright#playwright-projects-and-declaration-counts) and
+[Bun case expansion](/frameworks/bun#bun-parameterized-tests).
+
 ## Playwright end-to-end tests
 
 <!-- #region example-playwright -->
@@ -108,6 +113,53 @@ npx test-inventory ".features-gen/**/*.spec.js" --framework playwright --output 
 Records point at the generated files. The generated comments identify their source feature files.
 
 <!-- #endregion example-playwright -->
+
+## Playwright projects and declaration counts
+
+<!-- #region example-playwright-projects -->
+
+`trading-web` runs the same tests in Chromium and WebKit. Its config defines two projects:
+
+<!-- code: trading-web/playwright.config.ts -->
+
+```ts excerpt
+// playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  // ...
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+  ],
+});
+```
+
+Scan its declarations once:
+
+<!-- scan: trading-web -->
+
+```sh
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --pretty
+```
+
+The output contains one record for this test, with both project names. This is an excerpt of that record:
+
+<!-- output: trading-web -->
+
+```json
+{
+  "fullName": "order lifecycle > shows a partial fill",
+  "projects": ["chromium", "webkit"]
+}
+```
+
+Running the test in two browsers does not double the inventory's `testCount`. The inventory counts source
+declarations; a runner report can contain a separate result for each project. A test's `projects` lists the
+projects whose file-selection settings include it. Read [project configuration](/frameworks/playwright#configuration-and-limits)
+for the settings the scanner can resolve.
+
+<!-- #endregion example-playwright-projects -->
 
 ## A Node.js service with Vitest {#a-node-js-service}
 
@@ -781,6 +833,93 @@ Without the glob and `--framework`, the scan finds the same files from Cypress's
 
 <!-- #endregion example-cypress -->
 
+## Cypress component and end-to-end tests
+
+<!-- #region example-cypress-component -->
+
+`trading-components-cypress` models a project with E2E specs in `cypress/e2e/` and React component specs next to
+components in `src/`. Its config gives each testing type its own file pattern and support file:
+
+<!-- code: trading-components-cypress/cypress.config.js -->
+
+```js
+const { defineConfig } = require('cypress');
+
+module.exports = defineConfig({
+  retries: { runMode: 1, openMode: 0 },
+  e2e: {
+    baseUrl: 'http://localhost:4173',
+    specPattern: 'cypress/e2e/**/*.cy.js',
+    supportFile: 'cypress/support/e2e.js',
+  },
+  component: {
+    devServer: { framework: 'react', bundler: 'vite' },
+    specPattern: 'src/**/*.cy.tsx',
+    supportFile: 'cypress/support/component.js',
+  },
+});
+```
+
+The component spec imports a component from the same folder:
+
+<!-- code: trading-components-cypress/src/OrderTicket.cy.tsx -->
+
+```tsx excerpt
+// src/OrderTicket.cy.tsx
+import { mount } from 'cypress/react';
+import { OrderTicket } from './OrderTicket';
+
+// ...
+it('blocks orders without buying power', () => {
+  mount(<OrderTicket symbol="AAPL" buyingPower={0} />);
+  cy.contains('button', 'Buy AAPL').should('be.disabled');
+});
+```
+
+Scan both sets of files from the project root:
+
+<!-- scan: trading-components-cypress -->
+
+```sh
+npx test-inventory "cypress/e2e/**/*.cy.js" "src/**/*.cy.tsx" --framework cypress --pretty
+```
+
+Omitting the globs finds the same files from this config. These are excerpts of two output records:
+
+<!-- output: trading-components-cypress -->
+
+```json
+{
+  "fullName": "order entry > opens the order ticket from the watchlist",
+  "relativeFilePath": "cypress/e2e/orders.cy.js",
+  "projects": ["e2e"]
+}
+```
+
+<!-- output: trading-components-cypress -->
+
+```json
+{
+  "fullName": "OrderTicket > blocks orders without buying power",
+  "relativeFilePath": "src/OrderTicket.cy.tsx",
+  "projects": ["component"],
+  "dependencies": [
+    "cypress.config.js",
+    "cypress/support/component.js",
+    "cypress/support/e2e.js",
+    "src/OrderTicket.cy.tsx",
+    "src/OrderTicket.tsx"
+  ]
+}
+```
+
+The scan includes both configured support files in dependency hashes; it does not execute them, start the dev
+server or mount the component. `projects` identifies the testing type. Explicit globs do not override its
+`specPattern`: a selected file outside both patterns can appear with `projects: []` and state `not-loaded`.
+Use your project's patterns when adapting the command.
+
+<!-- #endregion example-cypress-component -->
+
 ## WebdriverIO end-to-end tests
 
 <!-- #region example-webdriverio -->
@@ -838,6 +977,79 @@ A test that skips itself under a condition keeps the condition:
 ```
 
 <!-- #endregion example-webdriverio -->
+
+## WebdriverIO with Jasmine
+
+<!-- #region example-webdriverio-jasmine -->
+
+`broker-portal-jasmine` models a WebdriverIO project using the Jasmine adapter. Its config selects Jasmine and
+sets the default spec timeout:
+
+<!-- code: broker-portal-jasmine/wdio.conf.js -->
+
+```js
+export const config = {
+  runner: 'local',
+  specs: ['./test/specs/**/*.e2e.js'],
+  baseUrl: 'http://localhost:4173',
+  capabilities: [{ browserName: 'chrome' }],
+  framework: 'jasmine',
+  jasmineOpts: { defaultTimeoutInterval: 45000 },
+};
+```
+
+A spec can override that timeout with its third argument. This spec also marks itself pending under a condition:
+
+<!-- code: broker-portal-jasmine/test/specs/statements.e2e.js -->
+
+```js excerpt
+// test/specs/statements.e2e.js
+it('offers archived statements', async () => {
+  if (!process.env.ARCHIVE_ENABLED) pending('Archived statements require archive access');
+  await browser.url('/statements/archive');
+  await expect($('[data-test="archive-download"]')).toBeEnabled();
+}, 15000);
+```
+
+Keep `--framework webdriverio`; the `framework` setting in `wdio.conf.js` selects Jasmine's syntax:
+
+<!-- scan: broker-portal-jasmine -->
+
+```sh
+npx test-inventory "test/specs/**/*.e2e.js" --framework webdriverio --pretty
+```
+
+Omitting the glob finds the same files from `specs`. These record excerpts show the config timeout and the
+spec's override:
+
+<!-- output: broker-portal-jasmine -->
+
+```json
+{
+  "fullName": "statement downloads > offers the latest monthly statement",
+  "timeout": 45000,
+  "timeoutSource": "config"
+}
+```
+
+<!-- output: broker-portal-jasmine -->
+
+```json
+{
+  "fullName": "statement downloads > offers archived statements",
+  "state": "skip",
+  "isConditional": true,
+  "condition": "!process.env.ARCHIVE_ENABLED",
+  "reason": "Archived statements require archive access",
+  "timeout": 15000,
+  "timeoutSource": "test"
+}
+```
+
+The conditional `pending()` keeps its reason; the scanner does not evaluate the environment variable or run the
+spec. Use [WebdriverIO's supported syntax](/frameworks/webdriverio#supported-syntax) for adapter-specific behavior.
+
+<!-- #endregion example-webdriverio-jasmine -->
 
 ## A node:test service
 
@@ -919,3 +1131,78 @@ the `test` script. `skipIf` is a condition, and `[test] retry` applies to every 
 ```
 
 <!-- #endregion example-bun -->
+
+## Bun parameterized tests
+
+<!-- #region example-bun-cases -->
+
+`quote-gateway` tests the same spread calculation with two rows of data:
+
+<!-- code: quote-gateway/src/quotes/spread.test.ts -->
+
+```ts excerpt
+// src/quotes/spread.test.ts
+test.each([
+  { mic: 'XNAS', bid: 99.95, ask: 100.05 },
+  { mic: 'XLON', bid: 49.9, ask: 50.1 },
+])('quotes the $mic spread', ({ bid, ask }) => {
+  expect(spreadBps({ bid, ask })).toBeGreaterThan(0);
+});
+```
+
+First scan the declarations:
+
+<!-- scan: quote-gateway -->
+
+```sh
+npx test-inventory "src/**/*.test.ts" "src/**/*.spec.ts" --framework bun --pretty
+```
+
+The table is one record with two cases. This is an excerpt:
+
+<!-- output: quote-gateway -->
+
+```json
+{
+  "fullName": "spread > quotes the $mic spread",
+  "caseCount": 2,
+  "caseIndex": null
+}
+```
+
+To list each resolvable case separately, add `--expand-cases` to the same scan:
+
+<!-- scan: quote-gateway -->
+
+```sh
+npx test-inventory "src/**/*.test.ts" "src/**/*.spec.ts" --framework bun --expand-cases --pretty
+```
+
+The table becomes two records with their substituted titles and zero-based indexes. These are record excerpts:
+
+<!-- output: quote-gateway --expand-cases -->
+
+```json
+{
+  "fullName": "spread > quotes the XNAS spread",
+  "caseCount": 1,
+  "caseIndex": 0
+}
+```
+
+<!-- output: quote-gateway --expand-cases -->
+
+```json
+{
+  "fullName": "spread > quotes the XLON spread",
+  "caseCount": 1,
+  "caseIndex": 1
+}
+```
+
+Expansion follows the detected Bun version's title rules. If your project does not record its Bun version,
+pass `--framework-version` with the version you use to both commands.
+Unresolved data stays one record with a `cases-not-expanded` warning. See [Bun's table syntax](/frameworks/bun#supported-syntax)
+for the supported title formats. The scanner reads the table without running Bun or executing either test case.
+
+<!-- #endregion example-bun-cases -->

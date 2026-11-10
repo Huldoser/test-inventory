@@ -57,6 +57,10 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 <!--@include: ../guide/examples.md#example-playwright-->
 
+## Playwright projects and declaration counts
+
+<!--@include: ../guide/examples.md#example-playwright-projects-->
+
 ## Configuration and limits
 
 The scan finds `playwright.config.*` in the test file's folder and its ancestors. A config elsewhere that

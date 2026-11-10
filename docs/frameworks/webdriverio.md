@@ -57,6 +57,10 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 <!--@include: ../guide/examples.md#example-webdriverio-->
 
+## WebdriverIO with Jasmine
+
+<!--@include: ../guide/examples.md#example-webdriverio-jasmine-->
+
 ## Configuration and limits
 
 The scan reads the root `wdio.conf.js`, `.ts`, `.mjs`, `.mts`, `.cjs` or `.cts`, using its `config` export.

@@ -24,10 +24,16 @@ export const EXAMPLES: { name: string; framework: Framework; patterns: string[] 
   { name: 'risk-service', framework: 'jasmine', patterns: ['spec/*.spec.js', 'spec/limits/**/*.spec.js'] },
   { name: 'trading-ui-cypress', framework: 'cypress', patterns: ['cypress/e2e/**/*.cy.js'] },
   {
+    name: 'trading-components-cypress',
+    framework: 'cypress',
+    patterns: ['cypress/e2e/**/*.cy.js', 'src/**/*.cy.tsx'],
+  },
+  {
     name: 'broker-portal',
     framework: 'webdriverio',
     patterns: ['test/specs/*.e2e.js', 'test/specs/{orders,accounts}/*.e2e.js'],
   },
+  { name: 'broker-portal-jasmine', framework: 'webdriverio', patterns: ['test/specs/**/*.e2e.js'] },
   { name: 'pricing-service', framework: 'node', patterns: ['test/**/*.js', 'src/**/*.test.js'] },
   { name: 'quote-gateway', framework: 'bun', patterns: ['src/**/*.test.ts', 'src/**/*.spec.ts'] },
 ];

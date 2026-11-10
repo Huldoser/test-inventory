@@ -38,8 +38,8 @@ Mode turned on or a terminal run as administrator.
   `src/extract.ts` walks a file and `src/records.ts` turns what it found into records.
 - `tests/fixtures/` holds realistic projects of a made-up trading app, one per common setup: Playwright end-to-end
   tests; Vitest in a Node.js service, React, Vue, browser mode and a monorepo; Jest and Mocha services and Puppeteer
-  tests; and a Jasmine, Cypress, WebdriverIO, node:test and Bun project each. `tests/examples.ts` lists them, and
-  `tests/golden/` holds their scan output. `tests/fixtures/syntax` holds one file per framework that uses every form
+  tests; Cypress E2E and component tests; WebdriverIO on Mocha and Jasmine; and Jasmine, node:test and Bun services.
+  `tests/examples.ts` lists them, and `tests/golden/` holds their scan output. `tests/fixtures/syntax` holds one file per framework that uses every form
   the scanner reads, and one with the forms for which the runner refuses the whole file.
 
 ## Tests
@@ -79,6 +79,7 @@ is ticked, or a maintainer adds the `no docs` label. A release pull request, whi
   lines left out.
 - `<!-- output: trading-web -->`: every key in the JSON block has the same value in that fixture's golden output.
   Every JSON block needs one.
+- `<!-- output: quote-gateway --expand-cases -->`: the JSON is checked against a fresh scan with case expansion.
 - `<!-- scan: trading-web -->`: the command scans that fixture with the patterns in `tests/examples.ts`.
 - `<!-- recipe: trading-web -->`: above a Node.js recipe, which runs on that fixture's golden output and must print
   the next block.

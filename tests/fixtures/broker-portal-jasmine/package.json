@@ -1,0 +1,8 @@
+{
+  "name": "broker-portal-jasmine",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@wdio/cli": "10.1.0"
+  }
+}
