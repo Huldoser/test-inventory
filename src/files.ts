@@ -104,19 +104,17 @@ export async function findFiles(
   platform: NodeJS.Platform = process.platform,
 ): Promise<{ files: FoundFile[]; diagnostics: Diagnostic[] }> {
   const failures: Failure[] = [];
+  const normalizedPatterns = patterns.map((pattern) => normalizePattern(pattern, platform));
   // Only files match; a folder named like a test file, such as a screenshot folder `checkout.spec.ts/`, is not expanded.
   // As in both runners, names that start with a dot match too, as in `.storybook/`.
-  const matches = await glob(
-    patterns.map((pattern) => normalizePattern(pattern, platform)),
-    {
-      cwd: root,
-      dot: true,
-      ignore: ['**/node_modules/**', '**/.git/**', ...ignore.map((pattern) => normalizePattern(pattern, platform))],
-      onlyFiles: true,
-      expandDirectories: false,
-      fs: recordingFs(failures),
-    },
-  );
+  const matches = await glob(normalizedPatterns, {
+    cwd: root,
+    dot: true,
+    ignore: ['**/node_modules/**', '**/.git/**', ...ignore.map((pattern) => normalizePattern(pattern, platform))],
+    onlyFiles: true,
+    expandDirectories: false,
+    fs: recordingFs(failures),
+  });
   const realRoot = realpathSync(root);
   const relative = (file: string) => path.relative(root, path.resolve(root, file)).replaceAll('\\', '/');
   const diagnostics: Diagnostic[] = [];
@@ -152,7 +150,7 @@ export async function findFiles(
       diagnostics.push(fileDiagnostic('symlink-ignored', match, message));
       continue;
     }
-    if (linked && framework === 'node' && inUnnamedLinkedFolder(root, match, patterns)) {
+    if (linked && framework === 'node' && inUnnamedLinkedFolder(root, match, normalizedPatterns)) {
       const message = `The file is in a linked folder, which a wildcard in a ${name} pattern does not enter.`;
       diagnostics.push(fileDiagnostic('symlink-ignored', match, message));
       continue;

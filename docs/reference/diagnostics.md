@@ -69,6 +69,9 @@ Start with [troubleshooting](/guide/troubleshooting) for steps to resolve common
 | `undefined-tag`                | error, warning in a function or condition | A Vitest file uses a tag the config doesn't define, and `strictTags` is on, as it is unless the config turns it off. Vitest fails the file while it loads, at the first such tag it meets: the file's `@module-tag` comments first, then the describes' tags, then the tests'. Reported at the first use of each such tag. A use in a function or under a condition fails the file only if that code runs, so it is a warning, and the file's tests keep their state.                                                                                                                                                                                                                                                                                                                                                 |
 | `config-value-unknown`         | warning                                   | The scan reads a setting of the config that it can't work out without running the config, such as `globals: process.env.CI === 'true'`, or it can't read the config at all. Also a Jest `preset` the scan doesn't read that may choose the test files, and a Jest config Jest refuses: `testMatch` with `testRegex`, a `testRegex` or ignore pattern that isn't a regular expression, or two configs in one folder. Also a Vitest config `retry` object before 4.1, where Vitest runs no test, Mocha's QUnit and exports interfaces or a `ui` that names a package, which are read as BDD, and a WebdriverIO config whose framework the scan doesn't read, such as Cucumber, whose specs are read as Mocha's. The message names the setting and what the scan does instead; see [configs](/reference/output#configs). |
 
+A known invalid node:test concurrency value produces `unresolved-option` at error level when the declaration loads.
+A concurrency value the scan cannot work out remains a warning, with its mode left unset.
+
 ## Files the runner refuses to load
 
 Some problems make the runner fail while it loads a file:
@@ -90,7 +93,7 @@ Some problems make the runner fail while it loads a file:
   Mocha, the file stops loading at the call: the tests declared above it run, and only those at or below it are
   `notLoaded`. With Jasmine, a call at the top level fails the whole worker, and every test in the file is `notLoaded`;
   inside a describe, it is caught as in Jasmine itself. Other workers still run.
-- node:test: `invalid-chain`. At file level the file fails; inside a describe only its tests at or after the refused call are `notLoaded`, with `stateSource: "suite"`. Earlier tests and tests outside that describe still run.
+- node:test: `invalid-chain`, and an error-level `unresolved-option` for a known invalid concurrency value. At file level the file fails; inside a describe only its tests at or after the refused call are `notLoaded`, with `stateSource: "suite"`. Earlier tests and tests outside that describe still run.
 - Bun: `invalid-chain` and `test-without-body`. At file level the file fails; inside a describe every test of that describe is `notLoaded`, with `stateSource: "suite"`. Tests outside it still run.
 
 The tests affected by the failure scope above get `state: "notLoaded"`, with `stateSource: "file"` or `"suite"` and

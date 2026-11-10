@@ -436,6 +436,8 @@ defaults and `<rootDir>` where Jest replaces it. Jest's `projects` takes folders
 config Jest finds there, and objects, whose `rootDir` defaults to the config's folder; the config's own files then count
 only when an entry names its folder, and an empty `projects` runs the config itself. A `preset` written as a path, such
 as `'../../jest.preset.js'`, is read, with the config's own settings over it; one that is a package isn't.
+If a required local preset is missing, Jest cannot start: config-based discovery finds no files, while explicit
+globs retain declarations with empty `projects` and a `file-not-run` diagnostic.
 
 <!-- #endregion files-jest -->
 

@@ -7,6 +7,53 @@ function states(inventory: Inventory): [string, string, string | null, string | 
 }
 
 describe('node:test tests', () => {
+  it.each(['0', '-1', '1.5', '4294967296', '1e400', "'many'", '{}', '[]'])(
+    'reports a startup refusal for invalid concurrency %s',
+    (concurrency) => {
+      const inventory = scanNode(`
+import { test } from 'node:test';
+test('routes a market order', { concurrency: ${concurrency} }, () => {});
+test('quotes a spread', () => {});
+`);
+      expect(inventory.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded']);
+      expect(inventory.diagnostics.map(({ code, level }) => [code, level])).toEqual([['unresolved-option', 'error']]);
+      expect(inventory.diagnostics[0].message).toContain('concurrency');
+    },
+  );
+
+  it('warns when the concurrency value cannot be worked out', () => {
+    const inventory = scanNode(
+      "import { test } from 'node:test'; test('routes an order', { concurrency: process.env.THREADS }, () => {});",
+    );
+    expect(inventory.tests[0].state).toBe('active');
+    expect(inventory.diagnostics.map(({ code, level }) => [code, level])).toEqual([['unresolved-option', 'warning']]);
+  });
+
+  it.each(['false', '1', '2'])('applies a subtest concurrency override %s', (concurrency) => {
+    const inventory = scanNode(`
+import { test } from 'node:test';
+test('routes an order basket', { concurrency: true }, (context) => {
+  context.test('routes a market order', { concurrency: ${concurrency} }, () => {});
+});
+`);
+    expect(inventory.tests.map((test) => test.isParallel)).toEqual([true, concurrency === '2']);
+    expect(codes(inventory)).toEqual([]);
+  });
+
+  it.each(['', ', { concurrency: null }', ', { concurrency: undefined }'])(
+    'inherits concurrency through parent tests with unset options %s',
+    (options) => {
+      const inventory = scanNode(`
+import { test } from 'node:test';
+test('routes an order basket', { concurrency: true }, (context) => {
+  context.test('routes a market order'${options}, () => {});
+});
+`);
+      expect(inventory.tests.map((test) => test.isParallel)).toEqual([true, true]);
+      expect(codes(inventory)).toEqual([]);
+    },
+  );
+
   it('reads node:test imported whole, by name or with require(), and no globals', () => {
     const imported = scanNode(`
 import test, { describe, it, suite } from 'node:test';
@@ -212,6 +259,26 @@ test(() => {});
       ['crossesRates', 'skip'],
       ['<anonymous>', 'active'],
     ]);
+  });
+
+  it.each([
+    'function checkVenue(context) { BODY }',
+    'const checkVenue = (context) => { BODY };',
+    'const checkVenue = function (context) { BODY };',
+  ])('reads the context of a named callback: %s', (callback) => {
+    const inventory = scanNode(`
+import { test } from 'node:test';
+${callback.replace('BODY', "context.skip('venue closed'); context.test('holds the order', () => {});")}
+test('routes a market order', checkVenue);
+`);
+    expect(states(inventory).sort(([a], [b]) => a.localeCompare(b))).toEqual([
+      ['routes a market order', 'skip', 'venue closed', null],
+      ['routes a market order > holds the order', 'active', null, null],
+    ]);
+    const parent = inventory.tests.find((test) => test.title === 'routes a market order');
+    const child = inventory.tests.find((test) => test.title === 'holds the order');
+    expect(child?.parentTestId).toBe(parent?.id);
+    expect(codes(inventory)).toEqual([]);
   });
 
   it("reads t.skip() and t.todo() in the test's body, which mark it without stopping it", () => {

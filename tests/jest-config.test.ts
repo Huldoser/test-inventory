@@ -665,6 +665,20 @@ describe('Jest configs checked against jest --listTests 29.7 and 30.5', () => {
     expect(inventory.configs[0].extends).toEqual(['jest.base.json']);
   });
 
+  it('does not claim Jest runs files when a local preset is missing', async () => {
+    const root = project({
+      'package.json': JEST_PACKAGE,
+      'jest.config.js': "module.exports = { preset: './missing-preset.js' };",
+      'src/fees.test.js': TEST,
+    });
+    const discovered = await scan({ root, framework: 'jest' });
+    expect(files(discovered)).toEqual([]);
+    expect(discovered.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown', 'no-files-matched']);
+    const explicit = await scan({ root, framework: 'jest', patterns: ['src/*.test.js'] });
+    expect(explicit.tests[0].projects).toEqual([]);
+    expect(explicit.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown', 'file-not-run']);
+  });
+
   it('reports a local preset that is missing, and keeps the config when the preset is not an object', async () => {
     const missing = project({
       'package.json': JEST_PACKAGE,
@@ -673,6 +687,7 @@ describe('Jest configs checked against jest --listTests 29.7 and 30.5', () => {
     });
     expect(messages(await scan({ root: missing, framework: 'jest' }))).toEqual([
       "config-value-unknown: The config's preset './jest.preset.js' doesn't exist, so Jest fails to start.",
+      'no-files-matched: No test files were found from the configs in the root.',
     ]);
     const computed = project({
       'package.json': JEST_PACKAGE,

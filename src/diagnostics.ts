@@ -69,7 +69,7 @@ export const REJECTS_FILE: Record<Framework, ReadonlySet<DiagnosticCode>> = {
   jasmine: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
   cypress: new Set(['invalid-chain', 'test-without-body', 'describe-throws']),
   webdriverio: new Set(['invalid-chain', 'test-without-body', 'async-describe', 'describe-throws']),
-  node: new Set(['invalid-chain']),
+  node: new Set(['invalid-chain', 'unresolved-option']),
   bun: new Set(['invalid-chain', 'test-without-body']),
 };
 

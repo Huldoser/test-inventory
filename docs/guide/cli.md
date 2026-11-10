@@ -21,6 +21,7 @@ uses; see [configs](/reference/output#configs). `node_modules` and `.git` folder
 runners, globs match folders and files whose names start with a dot, as in `.storybook/`. On Windows a `\` in a glob
 separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it escapes the next character, as in
 `tests/\[legacy\]/*.spec.ts`. A `/` separates folders on every system.
+This normalization also applies when a node:test pattern names a linked folder explicitly.
 
 | Option                        | Meaning                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

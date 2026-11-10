@@ -67,6 +67,14 @@ Script `--import`, `--require` and `--test-global-setup` files enter dependency 
 The inventory lists tests inside skipped suites; the runner may report only the enclosing skipped entry.
 `isOnly` records the source modifier, while node:test applies it only with `--test-only`.
 
+The context parameter also works in callbacks passed by name: `t.skip()` and `t.todo()` set the parent's state,
+and `t.test()` creates subtest records linked through `parentTestId`. A skip set inside the callback does not
+prevent its subtests from running.
+
+Concurrency is inherited by subtests unless they set it themselves. `null` and `undefined` keep the inherited
+value. A known value other than a boolean or an integer from 1 to 4294967295 is an `unresolved-option` error when
+the declaration loads; Node.js refuses the call. A value the scan cannot work out produces a warning.
+
 ::: details Exact file selection
 
 <!--@include: ../reference/output.md#files-node-->

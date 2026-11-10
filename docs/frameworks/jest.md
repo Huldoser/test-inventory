@@ -87,6 +87,9 @@ Flow annotations cannot be parsed, even if Babel would compile them before Jest 
 
 :::
 
+When a local preset is missing, Jest cannot start. Config-based discovery then returns no test files; explicit
+globs retain the declarations with empty `projects` and a `file-not-run` diagnostic.
+
 ## Supported syntax
 
 <!--@include: ../reference/syntax.md#syntax-jest-->

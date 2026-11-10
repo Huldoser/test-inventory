@@ -17,6 +17,7 @@ import {
   readTitle,
   refused,
   text,
+  unresolvedOption,
   unresolvedOptions,
   type FileContext,
   type Link,
@@ -148,6 +149,7 @@ export class NodeAdapter extends SuiteAdapter {
     const { name, options, body } = splitArguments(call.arguments, named);
     const problems: Problem[] = [];
     const fn = isFunctionNode(body) ? body : null;
+    const hashed = fn ?? namedFunction(this.file, context.scopes, body);
     let title = { text: '<anonymous>', withoutTags: '<anonymous>', isDynamic: false };
     // Without a name, Node.js names the test after its function, which takes the name of the variable that holds it.
     const fnName = fn?.id?.name ?? (body?.type === 'Identifier' ? body.name : null);
@@ -175,24 +177,27 @@ export class NodeAdapter extends SuiteAdapter {
       mode: null as Mode | null,
       details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
       fn,
-      hashed: fn ?? namedFunction(this.file, context.scopes, body),
+      hashed,
       isParameterized: false,
       caseCount: null,
       cases: null,
       problems,
     };
-    if (options) this.withOptions(base, options, line, context);
+    const refusal = options ? this.withOptions(base, options, line, context) : null;
     // `skip` wins over `todo`, and both over `expectFailure`, however they are written.
     base.states.sort((a, b) => PRECEDENCE.indexOf(a.state) - PRECEDENCE.indexOf(b.state));
-    if (kind === 'describe') return { kind: 'describe', ...base, isShuffled: false, passesDown: null };
-    return {
-      kind: 'test',
-      ...base,
-      testContext: contextName(fn),
-      fixtures: [],
-      takesAllFixtures: false,
-      usesBench: false,
-    };
+    const declared: ApiCall =
+      kind === 'describe'
+        ? { kind: 'describe', ...base, isShuffled: false, passesDown: null }
+        : {
+            kind: 'test',
+            ...base,
+            testContext: contextName(hashed),
+            fixtures: [],
+            takesAllFixtures: false,
+            usesBench: false,
+          };
+    return refusal ? refused(call, refusal, context, () => declared) : declared;
   }
 
   /**
@@ -211,9 +216,10 @@ export class NodeAdapter extends SuiteAdapter {
     node: Argument,
     line: number,
     context: CallContext,
-  ): void {
+  ): Problem | null {
     const options = readOptions(this.file, context.scopes, node);
     const { problems } = declared;
+    let refusal: Problem | null = null;
     problems.push(...unresolvedOptions(this.file, options, 'its states, timeout and tags are missing'));
     const states: ['skip' | 'todo' | 'expectedToFail', string][] = [
       ['skip', 'skip'],
@@ -240,14 +246,39 @@ export class NodeAdapter extends SuiteAdapter {
       if (value !== null) declared.details.run.timeout = value;
     }
     const concurrency = options.values.get('concurrency');
-    if (concurrency?.resolved.ok) {
+    if (concurrency && !concurrency.resolved.ok) {
+      problems.push(
+        unresolvedOption(
+          this.file,
+          'concurrency',
+          concurrency.node,
+          concurrency.resolved.importedFrom,
+          'its mode is not applied',
+        ),
+      );
+    } else if (concurrency?.resolved.ok) {
       const { value } = concurrency.resolved;
-      declared.mode = value === true || (typeof value === 'number' && value > 1) ? 'parallel' : 'default';
+      if (value !== null && value !== undefined) {
+        const count = typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 0xffff_ffff;
+        if (typeof value !== 'boolean' && !count) {
+          const source = snippet(text(this.file, concurrency.node));
+          refusal = {
+            ...problem(
+              'unresolved-option',
+              concurrency.node,
+              `Option concurrency: ${source} is not a boolean or an integer from 1 to 4294967295, so Node.js refuses the call.`,
+              source,
+            ),
+            level: 'error',
+          };
+        } else declared.mode = value === true || (typeof value === 'number' && value > 1) ? 'parallel' : 'default';
+      }
     }
     const tags = options.values.get('tags');
     if (tags && readsTags(this.file.version)) {
       declared.details.tags.push(...readStrings(this.file, context.scopes, tags).values);
     }
+    return refusal;
   }
 }
 

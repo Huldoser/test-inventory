@@ -66,6 +66,7 @@ See [query recipes](/guide/recipes) for other inventory queries.
 The scan reads the root `bunfig.toml` `[test]` table. Without it, files have no config.
 Explicit globs count as files given to `bun test`. Supported settings include `root`, `pathIgnorePatterns`,
 `concurrentTestGlob` and, from Bun 1.3, `retry`. Invalid pattern settings are reported.
+Malformed inline tables, including entries without a comma between them, produce a config diagnostic.
 
 `[test].preload` files enter dependency hashes but are not executed. A focused test can make Bun omit other
 tests from its run report; the inventory keeps all declarations and their `isOnly` flags.
