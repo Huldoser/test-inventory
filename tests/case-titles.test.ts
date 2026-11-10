@@ -779,6 +779,28 @@ const TITLES: Record<string, Record<number, (string | null)[]>> = {
 };
 
 describe('vitestCaseTitle', () => {
+  it('distinguishes numeric argument indexes from property names containing digits', () => {
+    expect(vitestCaseTitle('routes $0order and $order0', ['XNAS'], 0, [5, 1])).toBe('routes $0order and $order0');
+    expect(
+      vitestCaseTitle(
+        'routes $10',
+        Array.from({ length: 11 }, (_, index) => `venue-${index}`),
+        0,
+        [5, 1],
+      ),
+    ).toBe('routes venue-10');
+  });
+
+  it('stops a property path at null or undefined before reading inherited properties', () => {
+    expect(
+      vitestCaseTitle('routes $order.toString via $desk.toString', [{ order: null, desk: undefined }], 0, [5, 1]),
+    ).toBe('routes undefined via undefined');
+  });
+
+  it('escapes every repeated control character in older Vitest titles', () => {
+    expect(vitestCaseTitle('routes $venue', [{ venue: '\b\b\f\r' }], 0, [4, 1])).toBe("routes '\\b\\b\\f\\r'");
+  });
+
   it.each(
     Object.entries(TITLES).flatMap(([version, byTruncate]) =>
       Object.keys(byTruncate).map((truncate) => [version, Number(truncate)]),
@@ -829,6 +851,9 @@ const JEST_ROWS: [template: string, row: Value[], index: number, title: string |
 ];
 
 describe('jestRowTitle', () => {
+  it('uses the newest Jest formatting rules after major 30', () => {
+    expect(jestRowTitle('routes %p with %j', ['$&', undefined], 0, [31, 0])).toBe('routes "$&" with undefined');
+  });
   it('gives the titles of jest-each 30.5', () => {
     const titles = JEST_ROWS.map(([template, row, index]) => jestRowTitle(template, row, index, [30, 5]));
     expect(titles).toEqual(JEST_ROWS.map(([, , , title]) => title));
@@ -854,6 +879,15 @@ describe('jestRowTitle', () => {
 
 describe('jestKeysTitle', () => {
   const order = { symbol: 'AAPL', venue: { mic: 'XNAS' }, legs: ['AAPL', 'MSFT'] };
+
+  it('keeps the newest escaping and null-path rules after major 30', () => {
+    expect(jestKeysTitle('routes $a-b via $desk.name', { 'a-b': 'AAPL', desk: undefined }, 0, [31, 0], false)).toBe(
+      'routes AAPL via undefined',
+    );
+    expect(
+      jestKeysTitle('routes $symbol via $desk.name', { symbol: 'AAPL', desk: undefined }, 0, [29, 7], false),
+    ).toBeNull();
+  });
 
   it('gives the titles of jest-each 30.5', () => {
     expect(jestKeysTitle('settles $symbol on $venue.mic ($#)', order, 1, [30, 5], false)).toBe(
@@ -902,6 +936,7 @@ describe("Bun's case titles", () => {
     ['%j %o', [{ bid: 1 }, ['a']], '{"bid":1} ["a"]'],
     ['#%# %% %z %s', ['XNAS'], '#0 % z XNAS'],
     ['%s then %s %% %#', ['XNAS'], 'XNAS then %s %% %#'],
+    ['%s %# %%', ['XNAS'], 'XNAS %# %%'],
     ['spread 5%', ['XNAS'], 'spread 5%'],
     ['%p', [1], null],
     ['%j', [undefined], null],

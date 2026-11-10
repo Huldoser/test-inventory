@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { readToml } from '../src/toml.ts';
 
 describe('the TOML reader', () => {
+  it('refuses inline table entries without a comma', () => {
+    expect(() => readToml('test = { retry = 2 timeout = 5000 }')).toThrow('Expected "," or "}"');
+  });
+
+  it('keeps quoted dotted keys and inline tables on their own lines', () => {
+    expect(readToml("\t'quote desk'.timeout\t=\t5.25e+12\r\n[test]\r\nratio = 1.25e-12\r\n")).toEqual({
+      'quote desk': { timeout: 5.25e12 },
+      test: { ratio: 1.25e-12 },
+    });
+    expect(() => readToml("'quote desk'\n.timeout = 5")).toThrow('Expected "="');
+    expect(() => readToml('test = {\n retry = 2 }')).toThrow('Expected a key');
+    expect(() => readToml('test = { retry =\n2 }')).toThrow('Value');
+    expect(() => readToml('venue = "closed\nopen"')).toThrow('The string is not closed');
+    expect(readToml('venue = "line\\nreturn\\rslash\\\\"')).toEqual({ venue: 'line\nreturn\rslash\\' });
+  });
+
   it('reads tables, dotted keys, strings, numbers, booleans, arrays and inline tables', () => {
     const text = [
       'name = "quote-gateway" # the service',

@@ -431,6 +431,10 @@ class RecordBuilder {
     }
     const suites = extraction.suites.map((suite) => this.suite(suite));
     const tests = extraction.tests.map((test) => this.test(test, suites));
+    // A subtest in a named callback can precede its parent's declaration in source order.
+    for (const [index, pending] of extraction.tests.entries()) {
+      if (pending.parent) tests[index].parentTestId = this.testIds.get(pending.parent) as string;
+    }
     for (const item of problems) {
       const found = this.diagnostic(item);
       const isSure = undefinedUses.find((use) => use.problem === item)?.isSure ?? true;
@@ -771,7 +775,7 @@ class RecordBuilder {
       dependencies: dependencies.files,
       hasUnfollowedDependencies: !dependencies.isComplete,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
-      parentTestId: pending.parent ? (this.testIds.get(pending.parent) as string) : null,
+      parentTestId: null,
       suitePath,
       relativeFilePath: this.options.relativeFilePath,
       fileName: this.fileName,

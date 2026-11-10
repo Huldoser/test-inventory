@@ -138,6 +138,7 @@ function readValue(reader: Reader): Value {
       tableAt(table, keys.slice(0, -1), reader.line)[keys[keys.length - 1]] = readValue(reader);
       skipBlank(reader, false);
       if (text[reader.at] === ',') reader.at++;
+      else if (text[reader.at] !== '}') throw new TomlError('Expected "," or "}"', reader.line);
       skipBlank(reader, false);
     }
     reader.at++;

@@ -1149,7 +1149,7 @@ export class ConfigRuns {
   private jestProject(config: ConfigFile, written: Setting, folder: string, global: Setting): Project {
     const rootDir = jestRootDir(written, folder);
     if (typeof rootDir !== 'string') return this.unknownProject(config, rootDir, 'rootDir');
-    const settings = this.withPreset(config, written, rootDir);
+    const { settings, refusal: presetRefusal } = this.withPreset(written, rootDir);
     const isJest30 = this.version === null || this.version[0] >= 30;
     const lists: Record<string, string[] | RegExp[]> = {};
     const defaults: [string, string[]][] = [
@@ -1180,11 +1180,11 @@ export class ConfigRuns {
     );
     const invalid = (lists.testRegex as (string | RegExp)[]).find((_, index) => testRegex[index] === null);
     const testMatchSetting = settingAt(settings, ['testMatch']);
-    let refusal: string | null = null;
+    let refusal: string | null = presetRefusal;
     if (invalid !== undefined) {
-      refusal = `The config's testRegex '${String(invalid)}' is not a regular expression, so Jest fails to start.`;
+      refusal ??= `The config's testRegex '${String(invalid)}' is not a regular expression, so Jest fails to start.`;
     } else if (testRegex.length > 0 && isJestSet(testMatchSetting)) {
-      refusal = 'The config sets both testMatch and testRegex, which Jest refuses, so it runs no tests.';
+      refusal ??= 'The config sets both testMatch and testRegex, which Jest refuses, so it runs no tests.';
     }
     const roots = (lists.roots as string[])
       .map((item) => replaceRootDir(rootDir, item))
@@ -1261,18 +1261,21 @@ export class ConfigRuns {
    * A project's settings over those of its `preset` when that is a local file, as `'../../jest.preset.js'`, which Jest
    * finds from `rootDir`: the project's own settings win, as Jest merges them. A preset that is a package isn't read.
    */
-  private withPreset(config: ConfigFile, settings: Setting, rootDir: string): Setting {
+  private withPreset(settings: Setting, rootDir: string): { settings: Setting; refusal: string | null } {
     const preset = settingAt(settings, ['preset']);
-    if (preset?.kind !== 'value' || typeof preset.value !== 'string' || !isLocalPreset(preset.value)) return settings;
+    if (preset?.kind !== 'value' || typeof preset.value !== 'string' || !isLocalPreset(preset.value))
+      return { settings, refusal: null };
     const target = path.resolve(rootDir, replaceRootDir(rootDir, preset.value));
     const file = ['', '.js', '.json', '.cjs'].map((extension) => target + extension).find(isFileAt);
     if (!file) {
-      this.configs.reportConfig(config, `The config's preset '${preset.value}' doesn't exist, so Jest fails to start.`);
-      return settings;
+      return {
+        settings,
+        refusal: `The config's preset '${preset.value}' doesn't exist, so Jest fails to start.`,
+      };
     }
     const base = this.configs.at(file).settings;
-    if (base.kind !== 'object' || settings.kind !== 'object') return settings;
-    return { ...settings, keys: new Map([...base.keys, ...settings.keys]) };
+    if (base.kind !== 'object' || settings.kind !== 'object') return { settings, refusal: null };
+    return { settings: { ...settings, keys: new Map([...base.keys, ...settings.keys]) }, refusal: null };
   }
 
   private vitestProjects(config: ConfigFile, container: string | null = null): Project[] {

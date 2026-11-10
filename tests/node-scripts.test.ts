@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { nodeTestCommands, scriptsRunBy } from '../src/node-scripts.ts';
 
 describe('the node --test commands of a package.json script', () => {
+  it('keeps preload arguments separate from values of other Node options', () => {
+    expect(
+      nodeTestCommands(
+        'node --test --test-timeout 5000 -r ./setup/clock.cjs --import=./setup/venue.mjs tests/orders.test.mjs',
+        true,
+      ),
+    ).toEqual([['./setup/clock.cjs', './setup/venue.mjs']]);
+    expect(nodeTestCommands('node --test --require', true)).toEqual([[]]);
+  });
+
   // Each option Node.js reads with its value as the next word, so the value is never a file to test.
   it.each([
     ['--allow-fs-read', './fixtures'],
@@ -71,6 +81,37 @@ describe('the node --test commands of a package.json script', () => {
 });
 
 describe('the scripts a package.json script runs', () => {
+  it.each(['test', 't', 'tst'])('follows the npm %s alias without following its script arguments', (alias) => {
+    const scripts = {
+      orders: `npm ${alias} -- --run audit`,
+      test: 'node --test tests/orders.test.mjs',
+      audit: 'node audit.mjs',
+    };
+    expect(scriptsRunBy(scripts, 'orders')).toEqual([scripts.orders, scripts.test]);
+  });
+
+  it('uses npm-run-all task globs only before its argument separator', () => {
+    const scripts = {
+      orders: 'npm-run-all order:* -- audit',
+      'order:quotes': 'node --test tests/quotes.test.mjs',
+      audit: 'node audit.mjs',
+    };
+    expect(scriptsRunBy(scripts, 'orders')).toEqual([scripts.orders, scripts['order:quotes']]);
+  });
+
+  it('lets npm-run-all task globs span slashes, while colons separate task groups', () => {
+    const scripts = {
+      orders: 'run-s exchange/*',
+      'exchange/quotes': 'node --test tests/quotes.test.mjs',
+      'exchange/quotes/depth': 'node --test tests/depth.test.mjs',
+    };
+    expect(scriptsRunBy(scripts, 'orders')).toEqual([
+      scripts.orders,
+      scripts['exchange/quotes'],
+      scripts['exchange/quotes/depth'],
+    ]);
+  });
+
   const scripts = {
     test: 'TZ=UTC npm t && cross-env CI=1 npm run-script lint -- --fix && pnpm run fills && yarn quotes',
     lint: 'npm rum format; npm urn types',

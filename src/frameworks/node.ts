@@ -148,6 +148,7 @@ export class NodeAdapter extends SuiteAdapter {
     const { name, options, body } = splitArguments(call.arguments, named);
     const problems: Problem[] = [];
     const fn = isFunctionNode(body) ? body : null;
+    const hashed = fn ?? namedFunction(this.file, context.scopes, body);
     let title = { text: '<anonymous>', withoutTags: '<anonymous>', isDynamic: false };
     // Without a name, Node.js names the test after its function, which takes the name of the variable that holds it.
     const fnName = fn?.id?.name ?? (body?.type === 'Identifier' ? body.name : null);
@@ -175,7 +176,7 @@ export class NodeAdapter extends SuiteAdapter {
       mode: null as Mode | null,
       details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
       fn,
-      hashed: fn ?? namedFunction(this.file, context.scopes, body),
+      hashed,
       isParameterized: false,
       caseCount: null,
       cases: null,
@@ -188,7 +189,7 @@ export class NodeAdapter extends SuiteAdapter {
     return {
       kind: 'test',
       ...base,
-      testContext: contextName(fn),
+      testContext: contextName(hashed),
       fixtures: [],
       takesAllFixtures: false,
       usesBench: false,

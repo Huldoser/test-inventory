@@ -214,6 +214,26 @@ test(() => {});
     ]);
   });
 
+  it.each([
+    'function checkVenue(context) { BODY }',
+    'const checkVenue = (context) => { BODY };',
+    'const checkVenue = function (context) { BODY };',
+  ])('reads the context of a named callback: %s', (callback) => {
+    const inventory = scanNode(`
+import { test } from 'node:test';
+${callback.replace('BODY', "context.skip('venue closed'); context.test('holds the order', () => {});")}
+test('routes a market order', checkVenue);
+`);
+    expect(states(inventory).sort(([a], [b]) => a.localeCompare(b))).toEqual([
+      ['routes a market order', 'skip', 'venue closed', null],
+      ['routes a market order > holds the order', 'active', null, null],
+    ]);
+    const parent = inventory.tests.find((test) => test.title === 'routes a market order');
+    const child = inventory.tests.find((test) => test.title === 'holds the order');
+    expect(child?.parentTestId).toBe(parent?.id);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it("reads t.skip() and t.todo() in the test's body, which mark it without stopping it", () => {
     const inventory = scanNode(`
 import test from 'node:test';
