@@ -81,6 +81,11 @@ describe('the node --test commands of a package.json script', () => {
 });
 
 describe('the scripts a package.json script runs', () => {
+  it('keeps an empty preparation script without inventing a child command', () => {
+    const scripts = { orders: 'npm run prepare', prepare: '' };
+    expect(scriptsRunBy(scripts, 'orders')).toEqual([scripts.orders, scripts.prepare]);
+  });
+
   it.each(['test', 't', 'tst'])('follows the npm %s alias without following its script arguments', (alias) => {
     const scripts = {
       orders: `npm ${alias} -- --run audit`,

@@ -779,6 +779,14 @@ const TITLES: Record<string, Record<number, (string | null)[]>> = {
 };
 
 describe('vitestCaseTitle', () => {
+  it.each(['\ud800\udc00', '\udbff\udfff'])('does not split a surrogate pair at a truncation boundary: %s', (pair) => {
+    expect(vitestCaseTitle('routes $venue', [{ venue: `A${pair}Z` }], 0, [5, 1], 3)).toBe('routes A…');
+  });
+
+  it('keeps a quoted value that exactly fits the truncation threshold', () => {
+    expect(vitestCaseTitle('routes %o', ['AB'], 0, [5, 1], 4)).toBe("routes 'AB'");
+  });
+
   it('distinguishes numeric argument indexes from property names containing digits', () => {
     expect(vitestCaseTitle('routes $0order and $order0', ['XNAS'], 0, [5, 1])).toBe('routes $0order and $order0');
     expect(
