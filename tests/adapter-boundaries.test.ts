@@ -88,7 +88,7 @@ test.failingIf(process.env.FAIL).todoIf(process.env.TODO)('prices failing orders
 });
 
 describe('adapter option boundaries', () => {
-  it.each([0, 1, 2, 8])('sets Node suite concurrency from %s', (concurrency) => {
+  it.each([1, 2, 8, 4294967295])('sets Node suite concurrency from %s', (concurrency) => {
     const inventory = scanNode(`
 import { describe, test } from 'node:test';
 describe('routes an order basket', { concurrency: ${concurrency} }, () => {

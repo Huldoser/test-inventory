@@ -71,6 +71,10 @@ The context parameter also works in callbacks passed by name: `t.skip()` and `t.
 and `t.test()` creates subtest records linked through `parentTestId`. A skip set inside the callback does not
 prevent its subtests from running.
 
+Concurrency is inherited by subtests unless they set it themselves. `null` and `undefined` keep the inherited
+value. A known value other than a boolean or an integer from 1 to 4294967295 is an `unresolved-option` error when
+the declaration loads; Node.js refuses the call. A value the scan cannot work out produces a warning.
+
 ::: details Exact file selection
 
 <!--@include: ../reference/output.md#files-node-->

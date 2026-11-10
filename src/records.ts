@@ -709,7 +709,10 @@ class RecordBuilder {
     const [mode = null] = tagged(
       [declaration.mode],
       [tagMode],
-      scopes.map((scope) => scope.mode),
+      [
+        ...(this.options.framework === 'node' ? parents.map((parent) => parent.declaration.mode).reverse() : []),
+        ...scopes.map((scope) => scope.mode),
+      ],
     ).filter((item) => item !== null);
     const meta: Record<string, MetaValue> = {};
     for (const values of [fromTags?.meta, ...describes.map((scope) => scope.details.meta), declaration.details.meta]) {
