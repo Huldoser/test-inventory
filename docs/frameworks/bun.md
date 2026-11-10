@@ -57,6 +57,10 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 <!--@include: ../guide/examples.md#example-bun-->
 
+## Bun parameterized tests
+
+<!--@include: ../guide/examples.md#example-bun-cases-->
+
 ## Configuration and limits
 
 The scan reads the root `bunfig.toml` `[test]` table. Without it, files have no config.

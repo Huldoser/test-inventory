@@ -10,7 +10,7 @@ import { declarations, typeNames } from '../docs/.vitepress/declarations.ts';
 import { HELP } from '../src/cli.ts';
 import { LEVELS } from '../src/diagnostics.ts';
 import { FRAMEWORK_NAMES, OLDEST } from '../src/framework-version.ts';
-import type { Inventory } from '../src/index.ts';
+import { scan, type Inventory } from '../src/index.ts';
 import { EXAMPLES, fixtures, goldenPath, readGolden } from './examples.ts';
 import { schema } from './helpers.ts';
 
@@ -112,9 +112,21 @@ describe('docs', () => {
 
   it.each(marked('output').map((block) => [at(block), block] as const))(
     'show output from a real scan at %s',
-    (_, block) => {
+    async (_, block) => {
+      const [name, ...options] = (block.marker?.value ?? '').split(' ');
+      expect(options, at(block)).toEqual(options.length ? ['--expand-cases'] : []);
+      const example = EXAMPLES.find((item) => item.name === name);
+      if (!example) throw new Error(`${at(block)}: unknown example ${name}`);
+      const inventory = options.length
+        ? await scan({
+            root: path.join(fixtures, name),
+            framework: example.framework,
+            patterns: example.patterns,
+            expandCases: true,
+          })
+        : readGolden(name);
       const shown = JSON.parse(block.code) as unknown;
-      expect(candidates(readGolden(block.marker?.value ?? '')).some((item) => matches(shown, item))).toBe(true);
+      expect(candidates(inventory).some((item) => matches(shown, item))).toBe(true);
     },
   );
 

@@ -57,6 +57,10 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 <!--@include: ../guide/examples.md#example-cypress-->
 
+## Cypress component and end-to-end tests
+
+<!--@include: ../guide/examples.md#example-cypress-component-->
+
 ## Configuration and limits
 
 The scan reads the first `cypress.config.*` in the root. Its `e2e` and configured `component` testing types
