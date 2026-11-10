@@ -1,5 +1,29 @@
 # test-inventory
 
+## 0.10.2
+
+### Patch Changes
+
+- [#103](https://github.com/Huldoser/test-inventory/pull/103) [`2e6c3bf`](https://github.com/Huldoser/test-inventory/commit/2e6c3bfb905a0db110ab8a6d51449ed03ff997b0) - Clarify declared states, conditional skips and expected failures in CLI help, API comments, recipes and CI reports.
+  Correct config inheritance and failure-scope descriptions. Add first-use guidance, concepts and troubleshooting,
+  preserve existing documentation URLs, and publish the diff schema alongside the inventory schema.
+
+- [#104](https://github.com/Huldoser/test-inventory/pull/104) [`cf08b52`](https://github.com/Huldoser/test-inventory/commit/cf08b529fa20fb4ce389dc6be70a229a9a11cfaf) - Add a checked complete library example, a CLI/library/MCP walkthrough, compact agent guidance and feature-level
+  compatibility notes. Prioritize essential Markdown references and distinguish illustrative excerpts from runnable
+  code by their copy controls.
+
+- [#105](https://github.com/Huldoser/test-inventory/pull/105) [`9325281`](https://github.com/Huldoser/test-inventory/commit/9325281f366435ab227da50e328b0017a7339cde) - Add focused documentation guides for each supported test framework and separate shared scanner limits from runner-specific exceptions.
+
+- [#107](https://github.com/Huldoser/test-inventory/pull/107) [`ef35e6e`](https://github.com/Huldoser/test-inventory/commit/ef35e6e4cc4fea9e0f852a8a21c8640f75723726) - Add checked examples for Cypress component and E2E selection, WebdriverIO with Jasmine, Playwright projects and Bun case expansion to the framework guides.
+
+- [#106](https://github.com/Huldoser/test-inventory/pull/106) [`30dc03f`](https://github.com/Huldoser/test-inventory/commit/30dc03f7e2ba00d20ef6fd4341d19cf1138970cb) - Keep skipped-test queries consistent with the first scan, add focused Vitest, Jest and Mocha examples, and link framework guides to relevant next steps.
+
+- [#108](https://github.com/Huldoser/test-inventory/pull/108) [`7891cc0`](https://github.com/Huldoser/test-inventory/commit/7891cc086fa52503aaf8499d862ec265c36a70a3) - Read context modifiers and subtests in named node:test callbacks, retain valid parent test IDs when callbacks appear before their callers, recognize Windows patterns naming linked node:test folders, and reject TOML inline tables with missing commas.
+
+  Stop claiming that Jest runs tests when a required local preset is missing. Config-based discovery returns no files, while explicit globs retain the declarations with a file-not-run diagnostic.
+
+  Validate node:test concurrency values, report unknown values, and inherit concurrency through parent tests without resetting it for null or undefined options.
+
 ## 0.10.1
 
 ### Patch Changes
