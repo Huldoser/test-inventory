@@ -268,12 +268,30 @@ export class VitestAdapter extends SuiteAdapter {
    */
   private unboundCall(call: CallExpression, context: CallContext): ApiCall | null {
     const callee = unwrap(call.callee);
-    if (callee.type !== 'Identifier') return null;
-    const found = this.destructuredMember(callee.name, context);
-    if (!found || !readsItsFunction(found.kind, found.member, this.file.version)) return null;
-    const from = snippet(text(this.file, found.from));
-    const message = `${callee.name} is destructured from ${from}, so it loses the test object it reads, and Vitest fails the file.`;
-    return { kind: 'invalid', problem: problem('invalid-chain', call, message, callee.name) };
+    if (callee.type === 'CallExpression') return this.unboundCall(callee, context);
+    if (callee.type === 'Identifier') {
+      const found = this.destructuredMember(callee.name, context);
+      if (found && readsItsFunction(found.kind, found.member, this.file.version)) {
+        const from = snippet(text(this.file, found.from));
+        const message = `${callee.name} is destructured from ${from}, so it loses the test object it reads, and Vitest fails the file.`;
+        return { kind: 'invalid', problem: problem('invalid-chain', call, message, callee.name) };
+      }
+    }
+    if (
+      callee.type !== 'Identifier' &&
+      callee.type !== 'ConditionalExpression' &&
+      callee.type !== 'LogicalExpression' &&
+      callee.type !== 'SequenceExpression'
+    ) {
+      return null;
+    }
+    const chosen = this.testFunction(callee, context.scopes, (name, scopes) => context.returnsOf(name, scopes));
+    const member = chosen?.links.at(-1);
+    if (!chosen || !member || member.args || member.template) return null;
+    if (!readsItsFunction(chosen.kind, member.name, this.file.version)) return null;
+    const source = snippet(text(this.file, callee));
+    const message = `${source} is called without the test or describe function it reads as this, so Vitest fails the file.`;
+    return { kind: 'invalid', problem: problem('invalid-chain', call, message, source) };
   }
 
   private chainCall(call: CallExpression, context: CallContext): ApiCall | null {

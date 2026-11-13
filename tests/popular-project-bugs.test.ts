@@ -29,21 +29,32 @@ test.describe('order book', () => {
     expect(codes(result)).toEqual([]);
   });
 
-  it.each(['jest', 'vitest'] as const)(
-    'reads a conditional %s each factory before its declaration call',
-    (framework) => {
-      const source = `${framework === 'vitest' ? "import { it } from 'vitest';" : ''}
+  it('reads a conditional Jest each factory before its declaration call', () => {
+    const source = `
 (process.env.MARKET_CLOSED ? it.skip.each : it.each)(['buy', 'sell'])(
   'routes a %s order', () => {}
 );
 it('retains an alert after restart', () => {});`;
-      const result = framework === 'jest' ? scanJest(source) : scanVitest(source);
-      expect(result.tests).toHaveLength(2);
-      expect(result.tests[0]).toMatchObject({ isParameterized: true, caseCount: 2, state: 'active' });
-      expect(result.tests[1]).toMatchObject({ title: 'retains an alert after restart', state: 'active' });
-      expect(codes(result)).toEqual([]);
-    },
-  );
+    const result = scanJest(source);
+    expect(result.tests).toHaveLength(2);
+    expect(result.tests[0]).toMatchObject({ isParameterized: true, caseCount: 2, state: 'active' });
+    expect(result.tests[1]).toMatchObject({ title: 'retains an alert after restart', state: 'active' });
+    expect(codes(result)).toEqual([]);
+  });
+
+  it.each([
+    '(process.env.MARKET_CLOSED ? it.skip.each : it.each)',
+    '(process.env.MARKET_CLOSED && it.skip.each || it.each)',
+    '(0, it.each)',
+    'detachedEach',
+  ])('refuses a Vitest table factory called without its test receiver: %s', (factory) => {
+    const result = scanVitest(`import { it } from 'vitest';
+const detachedEach = it.each;
+${factory}(['buy', 'sell'])('routes a %s order', () => {});
+it('retains the order book', () => {});`);
+    expect(codes(result)).toContain('invalid-chain');
+    expect(result.tests.find(({ title }) => title === 'retains the order book')?.state).toBe('notLoaded');
+  });
 
   it('does not claim duplicate Playwright titles from an unknown iteration count', () => {
     const result = scanPlaywright(`import { test } from '@playwright/test';
