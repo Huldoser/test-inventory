@@ -259,6 +259,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   };
   const snapshotFiles = { framework, list, read: (file: string) => bytesOf(root, file) };
   const notRun: Diagnostic[] = [];
+  // A file a collected test file imports runs in that file: its tests register when it loads.
+  const imported = new Set<string>();
   const results: FileRecords[] = [];
   const globalsFiles: { absolutePath: string; relativeFilePath: string }[] = [];
   for (const { absolutePath, relativeFilePath } of files) {
@@ -305,6 +307,9 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     });
     if (result.usesGlobals) globalsFiles.push({ absolutePath, relativeFilePath });
     // A file without tests that no config runs, such as a source file a broad pattern matches, misses nothing.
+    if (placement.runs) {
+      for (const test of result.tests) for (const file of test.dependencies) imported.add(file);
+    }
     if (placement.runs === false && result.tests.length > 0) {
       const message = `The file has tests, but no config in its folder or above runs it, so the runner doesn't collect them; the nearest config is ${config}.`;
       notRun.push(fileDiagnostic('file-not-run', relativeFilePath, message));
@@ -325,7 +330,8 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     globals = fileDiagnostic('globals-not-enabled', relativeFilePath, message);
     break;
   }
-  projectDiagnostics.push(...configs.diagnostics, ...notRun, ...(globals ? [globals] : []));
+  const neverRun = notRun.filter((diagnostic) => !imported.has(diagnostic.relativeFilePath as string));
+  projectDiagnostics.push(...configs.diagnostics, ...neverRun, ...(globals ? [globals] : []));
   // After the config warnings, which may say why no file was found.
   if (files.length === 0) {
     projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', noFiles(root, patterns, framework, placements)));

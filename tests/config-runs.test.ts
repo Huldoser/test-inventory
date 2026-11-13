@@ -737,3 +737,61 @@ describe('which files a config runs, in the cases a review found', () => {
     expect(diagnostics).toEqual([]);
   });
 });
+
+describe('which files the runner never collects', () => {
+  const VALIDATE_ORDER =
+    "export function validateLimitOrder(order: { quantity: number }): string | null {\n  return order.quantity > 0 ? null : 'quantity must be positive';\n}\n";
+
+  it('leaves out a shared suite that a collected test file imports, as its tests run in that file', async () => {
+    const { diagnostics } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { include: ['tests/**/*.test.ts'] } };\n",
+        'src/orders/limit-order.ts': VALIDATE_ORDER,
+        'tests/shared/order-validation.suite.ts': [
+          "import { describe, expect, it } from 'vitest';",
+          '',
+          'export function describeOrderValidation(validate: (order: { quantity: number }) => string | null) {',
+          "  describe('order validation', () => {",
+          "    it('rejects a zero quantity', () => {",
+          "      expect(validate({ quantity: 0 })).toBe('quantity must be positive');",
+          '    });',
+          '  });',
+          '}',
+          '',
+        ].join('\n'),
+        'tests/orders/limit-order.test.ts': [
+          "import { describeOrderValidation } from '../shared/order-validation.suite.ts';",
+          "import { validateLimitOrder } from '../../src/orders/limit-order.ts';",
+          '',
+          'describeOrderValidation(validateLimitOrder);',
+          '',
+        ].join('\n'),
+        'tests/shared/market-hours.cases.ts': [
+          "import { test } from 'vitest';",
+          '',
+          "test('treats a Saturday as a closed market', () => {});",
+          '',
+        ].join('\n'),
+        'tests/orders/market-order.test.ts': [
+          "import './../shared/market-hours.cases.ts';",
+          "import { test } from 'vitest';",
+          '',
+          "test('fills a market order at the last trade', () => {});",
+          '',
+        ].join('\n'),
+        'tests/strategies/stale-crossover.spec.ts': [
+          "import { test } from 'vitest';",
+          '',
+          "test('holds when the slow average is missing', () => {});",
+          '',
+        ].join('\n'),
+      },
+      'vitest',
+      ['tests/**/*.ts'],
+    );
+    expect(diagnostics).toEqual([
+      'file-not-run tests/strategies/stale-crossover.spec.ts',
+      'test-in-function tests/shared/order-validation.suite.ts',
+    ]);
+  });
+});
