@@ -5,6 +5,69 @@ import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
 
 describe('real-project declaration regressions', () => {
   it.each([
+    "import playwright from '@playwright/test';",
+    "import { test as playwright } from '@playwright/test';",
+    "const playwright = require('@playwright/test');",
+    "const { test: playwright } = require('@playwright/test');",
+    "import { test as original } from '@playwright/test'; const playwright = original;",
+  ])('does not read the Playwright module defineConfig call as an invalid test: %s', (binding) => {
+    const result = scanPlaywright(`${binding}
+const config = playwright.defineConfig({ testDir: './tests' });
+playwright('submits a market order', async () => {});`);
+    expect(result.tests).toHaveLength(1);
+    expect(result.tests[0].state).toBe('active');
+    expect(codes(result)).toEqual([]);
+  });
+
+  it('does not give module exports to an extended Playwright test function', () => {
+    const result = scanPlaywright(`import { test } from '@playwright/test';
+const accountTest = test.extend({});
+accountTest.defineConfig({ testDir: './tests' });
+accountTest('submits an order in the account', async () => {});`);
+    expect(codes(result)).toContain('invalid-chain');
+    expect(result.tests[0].state).toBe('notLoaded');
+  });
+
+  it('keeps tests when a local require factory is called without arguments', () => {
+    const result = scanVitest(`import { it } from 'vitest';
+function require() { return { symbol: 'EXAMPLE' }; }
+const quote = require();
+it('normalizes a market quote', () => { quote.symbol; });`);
+    expect(result.tests).toHaveLength(1);
+    expect(result.tests[0]).toMatchObject({ title: 'normalizes a market quote', state: 'active' });
+    expect(codes(result)).not.toContain('internal-error');
+  });
+
+  it('does not take module members from a parameter that shadows a node:test import', () => {
+    const result = scanNode(`import nodeTest from 'node:test';
+function registerModel(nodeTest) {
+  const { describe: record } = nodeTest;
+  record('order schema', () => {});
+}
+registerModel({ describe() {} });
+nodeTest('routes a limit order', () => {});`);
+    expect(result.tests.map(({ title }) => title)).toEqual(['routes a limit order']);
+    expect(codes(result)).toEqual([]);
+  });
+
+  it.each([
+    "const nodeTest = require('node:test');",
+    "import nodeTest from 'node:test';",
+    "import { test as nodeTest } from 'node:test';",
+  ])('reads members destructured from a bound node:test module: %s', (binding) => {
+    const result = scanNode(`${binding}
+const { describe: orders, it: order, before } = nodeTest;
+before(() => {});
+orders('limit orders', () => {
+  order('fills at the limit price', () => {});
+});`);
+    expect(result.tests).toHaveLength(1);
+    expect(result.tests[0]).toMatchObject({ fullName: 'limit orders > fills at the limit price', state: 'active' });
+    expect(result.tests[0].hooks.beforeAll).toBe(1);
+    expect(codes(result)).toEqual([]);
+  });
+
+  it.each([
     "import { test } from 'node:test';",
     "import { it as test } from 'node:test';",
     "const { test } = require('node:test');",

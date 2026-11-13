@@ -911,7 +911,7 @@ function localRequire(expression: Expression): string | null {
   const node = unwrap(expression);
   if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'require')
     return null;
-  const [argument] = node.arguments;
-  const isLocal = argument.type === 'Literal' && typeof argument.value === 'string' && /^\.\.?\//.test(argument.value);
+  const argument = node.arguments.at(0);
+  const isLocal = argument?.type === 'Literal' && typeof argument.value === 'string' && /^\.\.?\//.test(argument.value);
   return isLocal ? argument.value : null;
 }

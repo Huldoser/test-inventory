@@ -68,6 +68,10 @@ reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../
 It reads file and project selection, run settings, modes and `forbidOnly`. Other settings, such as `workers`
 and config `use`, are not interpreted as test record settings.
 
+The package's original `test` function also carries module exports. A call such as `playwright.defineConfig(...)`
+through a default or CommonJS import is configuration, not an invalid test declaration. Extended test functions
+do not inherit those module exports.
+
 A config chosen with the runner's `--config` is not inferred from the files. A config built by a call the scan
 cannot follow, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`, cannot be worked out.
 

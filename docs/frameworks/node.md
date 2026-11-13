@@ -66,6 +66,8 @@ with `--config-file`. File selection comes from supported `node --test` package 
 Script `--import`, `--require` and `--test-global-setup` files enter dependency hashes. They are not executed.
 Named `test` and `it` imports carry the module's hooks, `describe`, `suite` and test functions, just as the default
 import does. Destructured CommonJS imports have the same members.
+Destructuring those members from an already-bound module, such as `const { describe, it, before } = nodeTest`,
+also keeps their suite, test and hook roles, including when the local names differ.
 The inventory lists tests inside skipped suites; the runner may report only the enclosing skipped entry.
 `isOnly` records the source modifier, while node:test applies it only with `--test-only`.
 

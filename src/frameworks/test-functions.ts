@@ -473,6 +473,14 @@ export abstract class SuiteAdapter implements Adapter {
     }
     // A parameter's declaration is its function: `describe('market orders', (test) => { test(...) })`.
     if (this.suiteParameters.get(declaration) === base.name) return { kind: 'test', index: 0 };
+    const moduleAlias =
+      declaration.type === 'VariableDeclarator' ? this.moduleAlias(declaration, base.name, lookup) : null;
+    if (moduleAlias) {
+      const member = this.member([...links(moduleAlias), ...chainLinks]);
+      return member && member.index >= moduleAlias.length
+        ? { ...member, index: member.index - moduleAlias.length }
+        : null;
+    }
     const followed =
       this.imports.get(base.name)?.node === declaration &&
       this.worthFollowing(base.name, chainLinks, args) &&
@@ -532,6 +540,20 @@ export abstract class SuiteAdapter implements Adapter {
       this.aliases.set(declarator, alias);
     }
     return alias && { kind: alias.kind, links: [...alias.links, ...links(destructured)] };
+  }
+
+  /** Members taken from a bound module retain its exported kinds, rather than becoming test modifiers. */
+  private moduleAlias(declarator: VariableDeclarator, name: string, lookup: Lookup): string[] | null {
+    if (!declarator.init) return null;
+    const init = unwrap(declarator.init);
+    if (!this.bindings.isNamespace(init)) return null;
+    if (init.type === 'Identifier') {
+      const declaration = this.file.values.declarationOf(init.name, lookup.scopes);
+      if (declaration === null || !this.bindings.declarations.has(declaration)) return null;
+    }
+    let members = boundMembers(declarator.id, name);
+    while (members && this.dialect.moduleMembers?.has(members[0])) members = members.slice(1);
+    return members;
   }
 
   private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {
@@ -659,6 +681,12 @@ export abstract class SuiteAdapter implements Adapter {
     }
     if (callee.type !== 'Identifier') return null;
     const declaration = this.file.values.declarationOf(callee.name, context.scopes);
+    const members =
+      declaration?.type === 'VariableDeclarator' ? this.moduleAlias(declaration, callee.name, context) : null;
+    if (members?.length === 1) {
+      const hook = this.dialect.hooks.get(members[0]);
+      if (hook) return this.hook(call, hook, context);
+    }
     const hook =
       declaration === null
         ? this.dialect.hooks.get(callee.name)

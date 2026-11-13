@@ -131,6 +131,8 @@ function isPlaywrightSource(source: string): boolean {
 /** The names a file binds to Playwright's `test`, its namespace and `mergeTests`. */
 class PlaywrightBindings implements TestObjects {
   readonly testNames = new Set<string>();
+  /** The package's original test function also carries exports such as defineConfig; extended tests do not. */
+  readonly moduleTests = new Set<string>();
   readonly namespaces = new Set<string>();
   readonly mergeTestsNames = new Set<string>();
   /** The import specifiers and declarators that bind those names, to tell them from local names that shadow them. */
@@ -161,8 +163,10 @@ class PlaywrightBindings implements TestObjects {
           this.namespaces.add(specifier.local.name);
         } else if (specifier.type === 'ImportDefaultSpecifier') {
           this.testNames.add(specifier.local.name);
+          this.moduleTests.add(specifier.local.name);
         } else if (exportName(specifier.imported) === 'test') {
           this.testNames.add(specifier.local.name);
+          this.moduleTests.add(specifier.local.name);
         } else if (exportName(specifier.imported) === 'mergeTests') {
           this.mergeTestsNames.add(specifier.local.name);
         }
@@ -269,6 +273,8 @@ class PlaywrightBindings implements TestObjects {
       }
       if (this.isTestObject(init, false)) {
         this.testNames.add(id.name);
+        const node = unwrap(init);
+        if (node.type === 'Identifier' && this.moduleTests.has(node.name)) this.moduleTests.add(id.name);
         return true;
       }
       return false;
@@ -277,7 +283,10 @@ class PlaywrightBindings implements TestObjects {
     for (const property of id.properties) {
       if (property.type === 'RestElement' || property.value.type !== 'Identifier') continue;
       const key = propertyKey(property);
-      if (key === 'test') this.testNames.add(property.value.name);
+      if (key === 'test') {
+        this.testNames.add(property.value.name);
+        this.moduleTests.add(property.value.name);
+      }
       if (key === 'mergeTests') this.mergeTestsNames.add(property.value.name);
     }
     return true;
@@ -329,6 +338,14 @@ export class PlaywrightAdapter implements Adapter {
     if (!links) return null;
     const names = links.map((link) => link.name);
     const key = names.join('.');
+    if (
+      key === 'defineConfig' &&
+      chain &&
+      (this.bindings.isModule(chain.base) ||
+        (chain.base.type === 'Identifier' && this.bindings.moduleTests.has(chain.base.name)))
+    ) {
+      return { kind: 'other' };
+    }
     const addedIn = ADDED_IN.get(key);
     if (addedIn && !atLeast(this.file.version, ...addedIn)) {
       return this.invalid(call, names, `needs Playwright ${addedIn.join('.')} or newer`, context);

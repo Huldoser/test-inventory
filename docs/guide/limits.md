@@ -88,6 +88,9 @@ CommonJS is followed the same way: `const { SYMBOLS } = require('../data/symbols
 `const symbols = require('../data/symbols')` of a local file read what it exports with `module.exports = { ... }`,
 `module.exports = function registerSettlement(desk) {...}` or `exports.SYMBOLS = [...]`.
 
+A call named `require` with no module argument is not followed as an import. A local factory using that call shape
+does not cause the file's declarations to be discarded as an `internal-error`.
+
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
 `export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
 function, written there or imported, as in `export const test = defineDeskTest('equities')`. A fixtures file that
