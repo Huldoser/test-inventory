@@ -14,7 +14,7 @@ import {
   unknownText,
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
-import { nodeTestCommands, scriptsRunBy } from './node-scripts.ts';
+import { nodeTestCommands, runnerCommands, scriptsRunBy, type ScriptRunner } from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
@@ -133,6 +133,15 @@ interface BunFiles {
 }
 
 const ASSUMED = 'the scan takes its files to be run';
+
+/** The runners whose config a package.json script may name, which the scan then reads as one more that runs files. */
+const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypress', 'webdriverio']);
+
+/**
+ * A config a package.json script starts the runner with, null for the runner's defaults, and the folder it runs from;
+ * or, as `unknown`, why the scan can't tell what a script runs.
+ */
+type ScriptRoute = { config: ConfigFile | null; root: string } | { manifest: string; unknown: string };
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
 
 function emptySettings(): Setting {
@@ -243,6 +252,10 @@ export class ConfigRuns {
   private bunFiles: BunFiles | null = null;
   /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
   private readonly expanding = new Map<ConfigFile, string>();
+  /** The routes the scripts of a folder's package.json give the runner, by the folder. */
+  private readonly scriptRoutes = new Map<string, ScriptRoute[]>();
+  /** The projects of a route, by its config and the folder it runs from. */
+  private readonly routeProjects = new Map<string, Project[]>();
 
   constructor(configs: Configs, framework: Framework, version: [number, number] | null, findsFiles: boolean) {
     this.configs = configs;
@@ -261,7 +274,19 @@ export class ConfigRuns {
     return { ...placement, tags: this.configTags(placement.config) };
   }
 
+  /**
+   * A file the configs the runner finds by name leave out may still run through a config a package.json script names,
+   * as `vitest --config vitest.integration.config.ts`; when a script's config can't be read, the scan can't tell.
+   */
   private place(file: string): Omit<Placement, 'tags'> {
+    const placement = this.placeByConfigs(file);
+    if (placement.runs !== false || !SCRIPT_RUNNERS.has(this.framework)) return placement;
+    const routed = this.placeByScripts(file);
+    if (routed === 'unknown') return { ...placement, runs: null, projects: null };
+    return routed ?? placement;
+  }
+
+  private placeByConfigs(file: string): Omit<Placement, 'tags'> {
     if (this.framework === 'mocha') return this.placeMocha(file);
     if (this.framework === 'jasmine') return this.placeJasmine(file);
     if (this.framework === 'cypress') return this.placeCypress(file);
@@ -300,6 +325,121 @@ export class ConfigRuns {
       runs: nearest ? false : null,
       projects: nearest ? [] : null,
     };
+  }
+
+  /**
+   * The placement the first route that runs a file gives it, from the package.json scripts in its folder and those above
+   * it, nearest first; `unknown`, reported, when none runs it and one can't be read; null when none runs it.
+   */
+  private placeByScripts(file: string): Omit<Placement, 'tags'> | 'unknown' | null {
+    const unknown: { manifest: string; unknown: string }[] = [];
+    for (let folder = path.dirname(file); ; folder = path.dirname(folder)) {
+      for (const route of this.routesIn(folder)) {
+        if ('unknown' in route) {
+          unknown.push(route);
+          continue;
+        }
+        const projects = this.projectsOfRoute(route);
+        const running = projects.flatMap((project) => {
+          const runs = project.runs?.(file);
+          return runs ? [{ project, runs }] : [];
+        });
+        if (running.length > 0) {
+          const [{ project, runs }] = running;
+          const config = route.config && project.config;
+          return { config, settings: project.settings, runs, projects: running.map((item) => item.project.about) };
+        }
+        const unknownProject = projects.find((project) => project.unknown);
+        if (unknownProject?.unknown) {
+          this.configs.reportUnknown(unknownProject.unknown.setting, unknownProject.unknown.key, ASSUMED);
+          return 'unknown';
+        }
+      }
+      if (folder === this.configs.root) break;
+    }
+    for (const route of unknown) this.configs.reportFile(this.configs.relative(route.manifest), route.unknown);
+    return unknown.length > 0 ? 'unknown' : null;
+  }
+
+  /**
+   * The routes the scripts of the package.json in a folder give the runner: the config each command that starts it
+   * names, else the one the runner finds in the folder it starts in. Vitest and Cypress start in the folder the command
+   * names as their root, else the script's, and read a config path from there; the others read it from the script's.
+   */
+  private routesIn(folder: string): ScriptRoute[] {
+    let routes = this.scriptRoutes.get(folder);
+    if (routes) return routes;
+    routes = [];
+    const manifest = path.join(folder, 'package.json');
+    let scripts: Record<string, unknown> = {};
+    try {
+      scripts = (JSON.parse(readFileSync(manifest, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
+    } catch {
+      // No package.json, or one the runner can't start from either.
+    }
+    const seen = new Set<string>();
+    for (const [name, script] of Object.entries(scripts)) {
+      if (typeof script !== 'string') continue;
+      for (const command of runnerCommands(script, this.framework as ScriptRunner)) {
+        const about = `The script ${name} in ${this.configs.relative(manifest)} starts the runner`;
+        if (command.unreadable) {
+          const unknown = `${about} with a config or root the scan can't read without running it, so it can't tell which files that runs; files the configs it reads leave out aren't reported as not run.`;
+          routes.push({ manifest, unknown });
+          continue;
+        }
+        const root = command.root === null ? folder : path.resolve(folder, command.root);
+        const from = this.framework === 'vitest' || this.framework === 'cypress' ? root : folder;
+        let config: ConfigFile | null;
+        if (command.config === null) config = this.defaultConfigIn(root);
+        else {
+          const target = path.resolve(from, command.config);
+          const stat = statSync(target, { throwIfNoEntry: false });
+          // The runner refuses a config that doesn't exist, so the command runs no file.
+          if (!stat) continue;
+          config = stat.isDirectory() ? this.configs.inFolder(target) : this.configs.at(target);
+          if (config === null) continue;
+        }
+        // Vitest runs with its defaults without a config; the others refuse to start, or always find one.
+        if (config === null && this.framework !== 'vitest') continue;
+        const key = `${config?.file ?? ''}\0${root}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        routes.push({ config, root });
+      }
+    }
+    this.scriptRoutes.set(folder, routes);
+    return routes;
+  }
+
+  /**
+   * The config a runner started in a folder without one named finds: there only, except that Vitest before 5.0 also
+   * looks in the folders above it, and Jest takes the folder's package.json when it finds no config; null for Vitest's
+   * defaults.
+   */
+  private defaultConfigIn(folder: string): ConfigFile | null {
+    const own = this.framework === 'jest' ? this.configs.jestConfigFrom(folder) : this.configs.inFolder(folder);
+    if (own || this.framework !== 'vitest' || atLeast(this.version, 5, 0)) return own;
+    // A config above the project's root is outside what the scan reads.
+    const { root } = this.configs;
+    for (let above = path.dirname(folder); above === root || isInside(root, above); above = path.dirname(above)) {
+      const config = this.configs.inFolder(above);
+      if (config) return config;
+    }
+    return null;
+  }
+
+  /** A route's projects, as the runner started in its folder finds them; Vitest's defaults there without a config. */
+  private projectsOfRoute(route: { config: ConfigFile | null; root: string }): Project[] {
+    const key = `${route.config?.file ?? ''}\0${route.root}`;
+    let projects = this.routeProjects.get(key);
+    if (!projects) {
+      const config = route.config ?? this.noConfig(route.root);
+      if (this.framework === 'vitest') projects = this.vitestProjects(config, null, route.root);
+      else if (this.framework === 'cypress') projects = this.cypressProjects(config, route.root);
+      else projects = this.projectsOf(config);
+      this.routeProjects.set(key, projects);
+    }
+    return projects;
   }
 
   /**
@@ -514,8 +654,7 @@ export class ConfigRuns {
    * dot files included, and those in `node_modules` unless a `specPattern` names it; component testing also leaves out
    * the files e2e's `specPattern` matches. `cypress run` matches each pattern against the whole path, as globby does.
    */
-  private cypressProjects(config: ConfigFile): Project[] {
-    const folder = path.dirname(config.file);
+  private cypressProjects(config: ConfigFile, folder = path.dirname(config.file)): Project[] {
     const types: ['e2e' | 'component', string[], string[]][] = [
       ['e2e', ['cypress/e2e/**/*.cy.{js,jsx,ts,tsx}'], ['*.hot-update.js']],
     ];
@@ -1091,9 +1230,9 @@ export class ConfigRuns {
   }
 
   /** A config for the defaults of a runner started where no config is found. */
-  private noConfig(): ConfigFile {
-    const file = path.join(this.configs.root, 'package.json');
-    return { file, record: { relativeFilePath: 'package.json', extends: [] }, settings: emptySettings() };
+  private noConfig(folder = this.configs.root): ConfigFile {
+    const file = path.join(folder, 'package.json');
+    return { file, record: { relativeFilePath: this.configs.relative(file), extends: [] }, settings: emptySettings() };
   }
 
   /**
@@ -1278,13 +1417,16 @@ export class ConfigRuns {
     return { settings: { ...settings, keys: new Map([...base.keys, ...settings.keys]) }, refusal: null };
   }
 
-  private vitestProjects(config: ConfigFile, container: string | null = null): Project[] {
-    const folder = path.dirname(config.file);
+  private vitestProjects(
+    config: ConfigFile,
+    container: string | null = null,
+    folder = path.dirname(config.file),
+  ): Project[] {
     const list = settingAt(config.settings, ['test', 'projects']);
     const isVitest3 = this.version !== null && this.version[0] < 4;
     const workspace = isVitest3 ? settingAt(config.settings, ['test', 'workspace']) : null;
     if (workspace) return [this.unknownProject(config, unknownAt(workspace), 'test.workspace')];
-    if (isVitest3 && VITEST_WORKSPACES.some((name) => existsSync(path.join(folder, name)))) {
+    if (isVitest3 && VITEST_WORKSPACES.some((name) => existsSync(path.join(path.dirname(config.file), name)))) {
       // Vitest 3 takes its projects from a workspace file, which the scan doesn't read.
       return [this.unknownProject(config, { kind: 'unknown', where: null }, 'test.projects')];
     }

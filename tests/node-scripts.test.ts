@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nodeTestCommands, scriptsRunBy } from '../src/node-scripts.ts';
+import { nodeTestCommands, runnerCommands, scriptsRunBy } from '../src/node-scripts.ts';
 
 describe('the node --test commands of a package.json script', () => {
   it('keeps preload arguments separate from values of other Node options', () => {
@@ -154,5 +154,81 @@ describe('the scripts a package.json script runs', () => {
     expect(scriptsRunBy(scripts, 'broken')).toEqual([]);
     const all = { all: 'npm-run-all --parallel "*:hidden" "!fills:partial"', ...scripts };
     expect(scriptsRunBy(all, 'all')).toEqual([all.all]);
+  });
+});
+
+describe('the test runner commands of a package.json script', () => {
+  const named = (config: string | null, root: string | null = null) => ({ config, root, unreadable: false });
+
+  it('reads the config each runner names, in either form, and none for a command that names none', () => {
+    expect(runnerCommands('vitest run --config vitest.integration.config.ts', 'vitest')).toEqual([
+      named('vitest.integration.config.ts'),
+    ]);
+    expect(runnerCommands('vitest -c=test/node/vitest.config.mjs --root .', 'vitest')).toEqual([
+      named('test/node/vitest.config.mjs', '.'),
+    ]);
+    expect(runnerCommands('jest --ci --config=./test/jest-e2e.json', 'jest')).toEqual([named('./test/jest-e2e.json')]);
+    expect(runnerCommands('playwright test -c e2e/playwright.config.mock.ts --project chromium', 'playwright')).toEqual(
+      [named('e2e/playwright.config.mock.ts')],
+    );
+    expect(runnerCommands('cypress run -C cypress.orders.config.ts --project apps/web', 'cypress')).toEqual([
+      named('cypress.orders.config.ts', 'apps/web'),
+    ]);
+    expect(runnerCommands('wdio run ./wdio.android.conf.ts --spec tests/orders.e2e.ts', 'webdriverio')).toEqual([
+      named('./wdio.android.conf.ts'),
+    ]);
+    expect(runnerCommands('wdio wdio.ios.conf.ts', 'webdriverio')).toEqual([named('wdio.ios.conf.ts')]);
+    expect(runnerCommands('vitest run --coverage', 'vitest')).toEqual([named(null)]);
+    expect(runnerCommands('wdio run', 'webdriverio')).toEqual([named(null)]);
+  });
+
+  it('finds the runner past variables, cross-env, dotenv and the package managers that start it', () => {
+    const scripts = [
+      'TZ=UTC vitest run -c vitest.orders.config.ts',
+      'cross-env NODE_ENV=test FEED=replay npx --yes vitest run -c vitest.orders.config.ts',
+      'dotenv -e .env.test -- pnpm exec vitest -c vitest.orders.config.ts',
+      'pnpm vitest -c vitest.orders.config.ts && yarn exec vitest -c vitest.orders.config.ts',
+      'bunx vitest -c vitest.orders.config.ts; bun x vitest -c vitest.orders.config.ts',
+      'npm exec -- vitest -c vitest.orders.config.ts',
+      'node --max-old-space-size=4096 node_modules/.bin/vitest -c vitest.orders.config.ts',
+      'node -r ./setup/clock.cjs ./node_modules/vitest/vitest.mjs -c vitest.orders.config.ts',
+    ];
+    for (const script of scripts) {
+      expect(runnerCommands(script, 'vitest').map((command) => command.config)).toEqual(
+        Array(script.split(/&&|;/).length).fill('vitest.orders.config.ts'),
+      );
+    }
+    expect(
+      runnerCommands('node --experimental-vm-modules node_modules/jest/bin/jest.js -c jest.config.orders.js', 'jest'),
+    ).toEqual([named('jest.config.orders.js')]);
+  });
+
+  it('takes npm exec without --, and no command dotenv starts without --, as dotenv reads the options after it', () => {
+    expect(runnerCommands('npm exec vitest -c vitest.orders.config.ts;', 'vitest')).toEqual([
+      named('vitest.orders.config.ts'),
+    ]);
+    expect(runnerCommands('dotenv -e .env.test vitest -c vitest.orders.config.ts', 'vitest')).toEqual([]);
+  });
+
+  it('takes no command whose program is another tool, or a script of the same name', () => {
+    expect(runnerCommands('node --version && node node_modules/tsx/dist/cli.mjs --test', 'vitest')).toEqual([]);
+    expect(runnerCommands('eslint . --plugin jest -c .eslintrc.orders.json', 'jest')).toEqual([]);
+    expect(runnerCommands('echo vitest -c vitest.config.ts && tsc -p tsconfig.test.json', 'vitest')).toEqual([]);
+    expect(runnerCommands('pnpm run vitest -c vitest.config.ts && npm run jest', 'vitest')).toEqual([]);
+    expect(runnerCommands('playwright install --with-deps chromium', 'playwright')).toEqual([]);
+    expect(runnerCommands('cypress verify', 'cypress')).toEqual([]);
+    expect(runnerCommands('node scripts/jest/jest-cli.js --config ./scripts/jest/config.source.js', 'jest')).toEqual(
+      [],
+    );
+  });
+
+  it('says so when the scan cannot read the config a command names', () => {
+    const unreadable = (config: string | null, root: string | null = null) => ({ config, root, unreadable: true });
+    expect(runnerCommands('vitest -c $VITEST_CONFIG', 'vitest')).toEqual([unreadable('$VITEST_CONFIG')]);
+    expect(runnerCommands('vitest --root=${PACKAGE_DIR} run', 'vitest')).toEqual([unreadable(null, '${PACKAGE_DIR}')]);
+    expect(runnerCommands('jest --config \'{"testMatch":["**/orders/*.check.ts"]}\'', 'jest')).toEqual([
+      unreadable('{"testMatch":["**/orders/*.check.ts"]}'),
+    ]);
+    expect(runnerCommands('jest --config', 'jest')).toEqual([unreadable(null)]);
   });
 });

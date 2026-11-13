@@ -330,7 +330,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     globals = fileDiagnostic('globals-not-enabled', relativeFilePath, message);
     break;
   }
-  const neverRun = notRun.filter((diagnostic) => !imported.has(diagnostic.relativeFilePath as string));
+  const neverRun = notRun.filter((diagnostic) => !imported.has(diagnostic.relativeFilePath));
   projectDiagnostics.push(...configs.diagnostics, ...neverRun, ...(globals ? [globals] : []));
   // After the config warnings, which may say why no file was found.
   if (files.length === 0) {

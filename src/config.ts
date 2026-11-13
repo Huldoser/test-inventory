@@ -887,10 +887,15 @@ export class Configs {
 
   /** Reports, once, a config the runner reads in a way the scan doesn't follow, or refuses. */
   reportConfig(config: ConfigFile, message: string): void {
-    const id = `${config.record.relativeFilePath}\0${message}`;
+    this.reportFile(config.record.relativeFilePath, message);
+  }
+
+  /** Reports, once, a file the scan reads runner settings from, such as a package.json script, and can't follow. */
+  reportFile(relativeFilePath: string, message: string): void {
+    const id = `${relativeFilePath}\0${message}`;
     if (this.reported.has(id)) return;
     this.reported.add(id);
-    this.diagnostics.push(fileDiagnostic('config-value-unknown', config.record.relativeFilePath, message));
+    this.diagnostics.push(fileDiagnostic('config-value-unknown', relativeFilePath, message));
   }
 
   /**
@@ -956,6 +961,14 @@ export class Configs {
         (!name.endsWith('.cts') || atLeast(this.version, 30, 0)) &&
         (!name.endsWith('.mts') || atLeast(this.version, 30, 4)),
     );
+  }
+
+  /**
+   * The config Jest started in a folder with a package.json reads: as `jestConfigIn`, with the package.json itself,
+   * and so Jest's defaults from that folder, when it has no `jest` key.
+   */
+  jestConfigFrom(folder: string): ConfigFile | null {
+    return this.jestConfigIn(folder, true);
   }
 
   /**
