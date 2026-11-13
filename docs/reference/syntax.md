@@ -375,6 +375,8 @@ written, with `isOnly` on the focused ones.
 - TypeScript wrappers such as `test!.skip(...)` and `(test as any).only(...)` are read through.
 - A test function kept in a variable may be chosen with `?:`, `&&`, `||` or `??`, as in
   `const onCi = process.env.CI && test.skip || test`: only what every choice shares applies.
+  Choices between Jest or Vitest `.each` factories keep the table, as in
+  `(process.env.CI ? it.skip.each : it.each)(symbols)('quotes %s', () => {})`.
 - `.js`, `.mjs` and `.cjs` files may contain JSX.
 
 For Mocha, Cypress and WebdriverIO on Mocha, `isOnly` follows Mocha's filtering: a suite's own focused tests exclude every child suite; otherwise focus inside a suite replaces its outer focus. Standalone Mocha shares a root suite across files.

@@ -81,6 +81,8 @@ export interface Dialect {
   aliases?: ReadonlySet<string>;
   /** What the module is when called, as `node:test`'s default export and `require()` are its `test`. */
   callable?: Start;
+  /** Named exports that are the callable module itself, as node:test's `test` and `it`. */
+  moduleMembers?: ReadonlySet<string>;
   /** The module's other members, which a chain on the callable module may start with and is then no test. */
   others?: ReadonlySet<string>;
   /** Whether the functions must be imported, as the runner sets no globals; `starts` are then exports only. */
@@ -95,7 +97,22 @@ export function shared(a: TestFunction | null, b: TestFunction | null): TestFunc
     return other?.name === link.name && !link.args && !link.template && !other.args && !other.template;
   };
   const differs = a.links.findIndex((link, index) => !same(link, index));
-  return { kind: a.kind, links: differs === -1 ? a.links : a.links.slice(0, differs) };
+  const common = differs === -1 ? a.links : a.links.slice(0, differs);
+  const table = a.links.at(-1);
+  const otherTable = b.links.at(-1);
+  if (
+    table &&
+    (table.name === 'each' || table.name === 'for') &&
+    otherTable?.name === table.name &&
+    !table.args &&
+    !table.template &&
+    !otherTable.args &&
+    !otherTable.template &&
+    !common.includes(table)
+  ) {
+    return { kind: a.kind, links: [...common, table] };
+  }
+  return { kind: a.kind, links: common };
 }
 
 function links(names: readonly string[]): Link[] {
@@ -282,6 +299,10 @@ export class SuiteBindings implements TestObjects {
   }
 
   private bindMember(imported: string, local: string): void {
+    if (this.dialect.moduleMembers?.has(imported)) {
+      this.bindModule(local);
+      return;
+    }
     const start = this.dialect.starts.get(imported);
     const hook = this.dialect.hooks.get(imported);
     if (start) this.starts.set(local, start);
@@ -421,6 +442,17 @@ export abstract class SuiteAdapter implements Adapter {
     // `require('@jest/globals').test(...)`: the module itself, called in place.
     if (base.type === 'CallExpression' && this.dialect.isModule(base)) return this.member(chainLinks);
     if (base.type === 'CallExpression') {
+      const callee = unwrap(base.callee);
+      if (callee.type === 'ConditionalExpression' || callee.type === 'LogicalExpression') {
+        const chosen = this.aliasOf(callee, lookup);
+        const last = chosen?.links.at(-1);
+        if (!chosen || !last || last.args || last.template) return null;
+        return {
+          kind: chosen.kind,
+          index: 0,
+          modifiers: [...chosen.links.slice(0, -1), { ...last, args: base.arguments }],
+        };
+      }
       const returned = this.returned(base, chainLinks, args, lookup);
       return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
     }

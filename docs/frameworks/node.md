@@ -64,6 +64,8 @@ There is no config file the scan reads: `node.config.json` holds no file selecti
 with `--config-file`. File selection comes from supported `node --test` package scripts or explicit globs.
 
 Script `--import`, `--require` and `--test-global-setup` files enter dependency hashes. They are not executed.
+Named `test` and `it` imports carry the module's hooks, `describe`, `suite` and test functions, just as the default
+import does. Destructured CommonJS imports have the same members.
 The inventory lists tests inside skipped suites; the runner may report only the enclosing skipped entry.
 `isOnly` records the source modifier, while node:test applies it only with `--test-only`.
 

@@ -441,6 +441,7 @@ export class PlaywrightAdapter implements Adapter {
   /** Whether a local variable is read as a test object it could be; see `localTestObject`. */
   private assumeLocal(declaration: Node, name: string, links: Link[], args: readonly Argument[]): boolean {
     if (declaration.type !== 'VariableDeclarator' || !mayHoldTestObject(declaration) || !isTestName(name)) return false;
+    if (declaration.id.type !== 'Identifier') return false;
     if (!this.looksLikeTest(links, args)) return false;
     if (!this.assumed.has(declaration)) {
       this.assumed.add(declaration);
@@ -471,6 +472,16 @@ export class PlaywrightAdapter implements Adapter {
   private alias(declarator: VariableDeclarator, name: string, lookup: Lookup): string[] | null {
     const destructured = boundMembers(declarator.id, name);
     if (!destructured) return null;
+    const init = declarator.init ? unwrap(declarator.init) : null;
+    if (destructured.length > 0 && init?.type === 'Identifier') {
+      const imported = this.imports.get(init.name);
+      if (
+        imported?.node === this.file.values.declarationOf(init.name, lookup.scopes) &&
+        !this.follow(init.name, !lookup.inBody)
+      ) {
+        return null;
+      }
+    }
     let members = this.aliases.get(declarator);
     if (members === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
@@ -935,7 +946,7 @@ function titleTags(title: string): string[] {
 function containsAwait(fn: FunctionNode): boolean {
   const visit = (node: Node): boolean => {
     if (node.type === 'AwaitExpression' || (node.type === 'ForOfStatement' && node.await)) return true;
-    if (node !== fn && isFunctionNode(node)) return false;
+    if (node !== fn && (node.type === 'FunctionDeclaration' || isFunctionNode(node))) return false;
     return childNodes(node).some(visit);
   };
   return visit(fn);

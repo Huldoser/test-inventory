@@ -80,7 +80,13 @@ Calls to `testInfo.setTimeout()` and `testInfo.slow()` are not read. Nor are cal
 to a hook by name, such as `test.beforeEach(slowOnCI)`.
 
 A loop that registers the same title path twice gives a `duplicate-title` error and `notLoaded` tests, as
-Playwright refuses the file.
+Playwright refuses the file. A loop whose iteration count is unknown gives a `test-in-loop` warning; a fixed title
+alone does not prove that the loop runs more than once.
+
+Destructuring a member from an imported test object does not make an unresolved wrapper supported. If the scan
+cannot follow the object, it reports `unresolved-test-import` instead of treating its `describe` member as a test.
+An `await` inside a nested helper function does not produce an `async-describe` error; that check concerns the
+describe callback's own execution.
 
 ### States set in helper functions
 
