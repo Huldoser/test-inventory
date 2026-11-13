@@ -62,7 +62,10 @@ Other Vitest examples: [React](/frameworks/vitest-examples#react-with-testing-li
 ## Configuration and limits
 
 The scan finds `vitest.config.*`, or `vite.config.*` when absent, in the test file's folder and its ancestors.
-A config elsewhere that reaches the file is not found from it. It reads file and project selection,
+A config elsewhere that reaches the file counts only when a package.json script in the file's folder or above names
+it, as in `vitest run --config vitest.config.integration.mts`; its globs are then read from the folder the script runs
+in, or its `--root`. A script that starts Vitest in a package without a config runs Vitest's defaults there, and
+before Vitest 5 the config above it. It reads file and project selection,
 `test.globals`, run settings, modes, `allowOnly` and defined tags. A Vitest 3 project list in
 `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
 

@@ -67,7 +67,9 @@ The scan reads the root `wdio.conf.js`, `.ts`, `.mjs`, `.mts`, `.cjs` or `.cts`,
 The config's `framework` selects Mocha (the default) or Jasmine. Their syntax is part of WebdriverIO support;
 use the matching syntax link below. Cucumber feature files are not read and that selection is reported.
 
-Explicit scan globs replace `specs`, less excludes. `suites`, which need the runner's `--suite`, and
+Explicit scan globs replace `specs`, less excludes. A file the root config's `exclude` leaves out also runs when a
+package.json script in its folder or above starts `wdio` with a config whose `specs` take it, as in
+`wdio run ./wdio.android.conf.ts`, read from the config's folder. `suites`, which need the runner's `--suite`, and
 `mochaOpts.grep` or `jasmineOpts.grep` are not read. A spec used by several capabilities or workers is listed
 once. The inventory counts declarations, not browser executions.
 
