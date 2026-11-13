@@ -131,6 +131,8 @@ function isPlaywrightSource(source: string): boolean {
 /** The names a file binds to Playwright's `test`, its namespace and `mergeTests`. */
 class PlaywrightBindings implements TestObjects {
   readonly testNames = new Set<string>();
+  /** The package's original test function also carries exports such as defineConfig; extended tests do not. */
+  readonly moduleTests = new Set<string>();
   readonly namespaces = new Set<string>();
   readonly mergeTestsNames = new Set<string>();
   /** The import specifiers and declarators that bind those names, to tell them from local names that shadow them. */
@@ -161,8 +163,10 @@ class PlaywrightBindings implements TestObjects {
           this.namespaces.add(specifier.local.name);
         } else if (specifier.type === 'ImportDefaultSpecifier') {
           this.testNames.add(specifier.local.name);
+          this.moduleTests.add(specifier.local.name);
         } else if (exportName(specifier.imported) === 'test') {
           this.testNames.add(specifier.local.name);
+          this.moduleTests.add(specifier.local.name);
         } else if (exportName(specifier.imported) === 'mergeTests') {
           this.mergeTestsNames.add(specifier.local.name);
         }
@@ -269,6 +273,8 @@ class PlaywrightBindings implements TestObjects {
       }
       if (this.isTestObject(init, false)) {
         this.testNames.add(id.name);
+        const node = unwrap(init);
+        if (node.type === 'Identifier' && this.moduleTests.has(node.name)) this.moduleTests.add(id.name);
         return true;
       }
       return false;
@@ -277,7 +283,10 @@ class PlaywrightBindings implements TestObjects {
     for (const property of id.properties) {
       if (property.type === 'RestElement' || property.value.type !== 'Identifier') continue;
       const key = propertyKey(property);
-      if (key === 'test') this.testNames.add(property.value.name);
+      if (key === 'test') {
+        this.testNames.add(property.value.name);
+        this.moduleTests.add(property.value.name);
+      }
       if (key === 'mergeTests') this.mergeTestsNames.add(property.value.name);
     }
     return true;
@@ -329,6 +338,14 @@ export class PlaywrightAdapter implements Adapter {
     if (!links) return null;
     const names = links.map((link) => link.name);
     const key = names.join('.');
+    if (
+      key === 'defineConfig' &&
+      chain &&
+      (this.bindings.isModule(chain.base) ||
+        (chain.base.type === 'Identifier' && this.bindings.moduleTests.has(chain.base.name)))
+    ) {
+      return { kind: 'other' };
+    }
     const addedIn = ADDED_IN.get(key);
     if (addedIn && !atLeast(this.file.version, ...addedIn)) {
       return this.invalid(call, names, `needs Playwright ${addedIn.join('.')} or newer`, context);
@@ -441,6 +458,7 @@ export class PlaywrightAdapter implements Adapter {
   /** Whether a local variable is read as a test object it could be; see `localTestObject`. */
   private assumeLocal(declaration: Node, name: string, links: Link[], args: readonly Argument[]): boolean {
     if (declaration.type !== 'VariableDeclarator' || !mayHoldTestObject(declaration) || !isTestName(name)) return false;
+    if (declaration.id.type !== 'Identifier') return false;
     if (!this.looksLikeTest(links, args)) return false;
     if (!this.assumed.has(declaration)) {
       this.assumed.add(declaration);
@@ -471,6 +489,16 @@ export class PlaywrightAdapter implements Adapter {
   private alias(declarator: VariableDeclarator, name: string, lookup: Lookup): string[] | null {
     const destructured = boundMembers(declarator.id, name);
     if (!destructured) return null;
+    const init = declarator.init ? unwrap(declarator.init) : null;
+    if (destructured.length > 0 && TEST_MEMBERS.has(destructured[0]) && init?.type === 'Identifier') {
+      const imported = this.imports.get(init.name);
+      if (
+        imported?.node === this.file.values.declarationOf(init.name, lookup.scopes) &&
+        !this.follow(init.name, !lookup.inBody)
+      ) {
+        return null;
+      }
+    }
     let members = this.aliases.get(declarator);
     if (members === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
@@ -935,7 +963,7 @@ function titleTags(title: string): string[] {
 function containsAwait(fn: FunctionNode): boolean {
   const visit = (node: Node): boolean => {
     if (node.type === 'AwaitExpression' || (node.type === 'ForOfStatement' && node.await)) return true;
-    if (node !== fn && isFunctionNode(node)) return false;
+    if (node !== fn && (node.type === 'FunctionDeclaration' || isFunctionNode(node))) return false;
     return childNodes(node).some(visit);
   };
   return visit(fn);

@@ -81,6 +81,8 @@ export interface Dialect {
   aliases?: ReadonlySet<string>;
   /** What the module is when called, as `node:test`'s default export and `require()` are its `test`. */
   callable?: Start;
+  /** Named exports that are the callable module itself, as node:test's `test` and `it`. */
+  moduleMembers?: ReadonlySet<string>;
   /** The module's other members, which a chain on the callable module may start with and is then no test. */
   others?: ReadonlySet<string>;
   /** Whether the functions must be imported, as the runner sets no globals; `starts` are then exports only. */
@@ -95,7 +97,22 @@ export function shared(a: TestFunction | null, b: TestFunction | null): TestFunc
     return other?.name === link.name && !link.args && !link.template && !other.args && !other.template;
   };
   const differs = a.links.findIndex((link, index) => !same(link, index));
-  return { kind: a.kind, links: differs === -1 ? a.links : a.links.slice(0, differs) };
+  const common = differs === -1 ? a.links : a.links.slice(0, differs);
+  const table = a.links.at(-1);
+  const otherTable = b.links.at(-1);
+  if (
+    table &&
+    (table.name === 'each' || table.name === 'for') &&
+    otherTable?.name === table.name &&
+    !table.args &&
+    !table.template &&
+    !otherTable.args &&
+    !otherTable.template &&
+    !common.includes(table)
+  ) {
+    return { kind: a.kind, links: [...common, table] };
+  }
+  return { kind: a.kind, links: common };
 }
 
 function links(names: readonly string[]): Link[] {
@@ -282,6 +299,10 @@ export class SuiteBindings implements TestObjects {
   }
 
   private bindMember(imported: string, local: string): void {
+    if (this.dialect.moduleMembers?.has(imported)) {
+      this.bindModule(local);
+      return;
+    }
     const start = this.dialect.starts.get(imported);
     const hook = this.dialect.hooks.get(imported);
     if (start) this.starts.set(local, start);
@@ -421,6 +442,17 @@ export abstract class SuiteAdapter implements Adapter {
     // `require('@jest/globals').test(...)`: the module itself, called in place.
     if (base.type === 'CallExpression' && this.dialect.isModule(base)) return this.member(chainLinks);
     if (base.type === 'CallExpression') {
+      const callee = unwrap(base.callee);
+      if (callee.type === 'ConditionalExpression' || callee.type === 'LogicalExpression') {
+        const chosen = this.aliasOf(callee, lookup);
+        const last = chosen?.links.at(-1);
+        if (!chosen || !last || last.args || last.template) return null;
+        return {
+          kind: chosen.kind,
+          index: 0,
+          modifiers: [...chosen.links.slice(0, -1), { ...last, args: base.arguments }],
+        };
+      }
       const returned = this.returned(base, chainLinks, args, lookup);
       return returned && { kind: returned.kind, index: 0, modifiers: returned.links };
     }
@@ -441,6 +473,14 @@ export abstract class SuiteAdapter implements Adapter {
     }
     // A parameter's declaration is its function: `describe('market orders', (test) => { test(...) })`.
     if (this.suiteParameters.get(declaration) === base.name) return { kind: 'test', index: 0 };
+    const moduleAlias =
+      declaration.type === 'VariableDeclarator' ? this.moduleAlias(declaration, base.name, lookup) : null;
+    if (moduleAlias) {
+      const member = this.member([...links(moduleAlias), ...chainLinks]);
+      return member && member.index >= moduleAlias.length
+        ? { ...member, index: member.index - moduleAlias.length }
+        : null;
+    }
     const followed =
       this.imports.get(base.name)?.node === declaration &&
       this.worthFollowing(base.name, chainLinks, args) &&
@@ -500,6 +540,20 @@ export abstract class SuiteAdapter implements Adapter {
       this.aliases.set(declarator, alias);
     }
     return alias && { kind: alias.kind, links: [...alias.links, ...links(destructured)] };
+  }
+
+  /** Members taken from a bound module retain its exported kinds, rather than becoming test modifiers. */
+  private moduleAlias(declarator: VariableDeclarator, name: string, lookup: Lookup): string[] | null {
+    if (!declarator.init) return null;
+    const init = unwrap(declarator.init);
+    if (!this.bindings.isNamespace(init)) return null;
+    if (init.type === 'Identifier') {
+      const declaration = this.file.values.declarationOf(init.name, lookup.scopes);
+      if (declaration === null || !this.bindings.declarations.has(declaration)) return null;
+    }
+    let members = boundMembers(declarator.id, name);
+    while (members && this.dialect.moduleMembers?.has(members[0])) members = members.slice(1);
+    return members;
   }
 
   private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {
@@ -627,6 +681,12 @@ export abstract class SuiteAdapter implements Adapter {
     }
     if (callee.type !== 'Identifier') return null;
     const declaration = this.file.values.declarationOf(callee.name, context.scopes);
+    const members =
+      declaration?.type === 'VariableDeclarator' ? this.moduleAlias(declaration, callee.name, context) : null;
+    if (members?.length === 1) {
+      const hook = this.dialect.hooks.get(members[0]);
+      if (hook) return this.hook(call, hook, context);
+    }
     const hook =
       declaration === null
         ? this.dialect.hooks.get(callee.name)

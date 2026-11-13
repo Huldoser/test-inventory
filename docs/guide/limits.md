@@ -88,6 +88,9 @@ CommonJS is followed the same way: `const { SYMBOLS } = require('../data/symbols
 `const symbols = require('../data/symbols')` of a local file read what it exports with `module.exports = { ... }`,
 `module.exports = function registerSettlement(desk) {...}` or `exports.SYMBOLS = [...]`.
 
+A call named `require` with no module argument is not followed as an import. A local factory using that call shape
+does not cause the file's declarations to be discarded as an `internal-error`.
+
 A custom `test` object is followed through as many files as it takes: a fixtures file may re-export it, as in
 `export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
 function, written there or imported, as in `export const test = defineDeskTest('equities')`. A fixtures file that
@@ -188,6 +191,8 @@ registers the test on every pass, `caseCount` says how many tests the runner reg
 and a `test-in-loop` warning says the count is unknown: for a `while` loop, a loop with `break`, `continue`, `return`
 or `throw` in it, and a test under a condition inside the loop, such as one in a helper after
 `if (!strategy.enabled) return;`.
+For Playwright, a fixed title in a loop is an error only when multiple passes or duplicate declarations are known;
+an unknown pass count alone does not establish that the file fails to load.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
 count its rows. A list written out, its spreads, a constant the file doesn't change, and `Object.keys()`,
 `Object.values()` and `Object.entries()` of an object written out can be counted even when one of their values can't

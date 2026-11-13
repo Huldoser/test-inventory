@@ -873,7 +873,7 @@ class RecordBuilder {
       // In a loop, a title path that never changes is registered again on each pass.
       const repeated =
         playwright &&
-        test.passes.some((passes) => passes === null || passes > 1) &&
+        test.passes.some((passes) => passes !== null && passes > 1) &&
         describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
       if (repeated) {
         const message =

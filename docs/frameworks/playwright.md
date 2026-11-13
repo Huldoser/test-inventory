@@ -68,6 +68,10 @@ reaches the file, such as `apps/web/playwright.config.ts` with `testDir: '../../
 It reads file and project selection, run settings, modes and `forbidOnly`. Other settings, such as `workers`
 and config `use`, are not interpreted as test record settings.
 
+The package's original `test` function also carries module exports. A call such as `playwright.defineConfig(...)`
+through a default or CommonJS import is configuration, not an invalid test declaration. Extended test functions
+do not inherit those module exports.
+
 A config chosen with the runner's `--config` is not inferred from the files. A config built by a call the scan
 cannot follow, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`, cannot be worked out.
 
@@ -80,7 +84,13 @@ Calls to `testInfo.setTimeout()` and `testInfo.slow()` are not read. Nor are cal
 to a hook by name, such as `test.beforeEach(slowOnCI)`.
 
 A loop that registers the same title path twice gives a `duplicate-title` error and `notLoaded` tests, as
-Playwright refuses the file.
+Playwright refuses the file. A loop whose iteration count is unknown gives a `test-in-loop` warning; a fixed title
+alone does not prove that the loop runs more than once.
+
+Destructuring a member from an imported test object does not make an unresolved wrapper supported. If the scan
+cannot follow the object, it reports `unresolved-test-import` instead of treating its `describe` member as a test.
+An `await` inside a nested helper function does not produce an `async-describe` error; that check concerns the
+describe callback's own execution.
 
 ### States set in helper functions
 

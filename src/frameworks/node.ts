@@ -59,6 +59,7 @@ const NODE: Dialect = {
   defaultImport: null,
   required: null,
   callable: TEST,
+  moduleMembers: new Set(['test', 'it']),
   // Every other export of node:test on Node.js 26; the hooks are read as hooks.
   others: new Set([
     'after',
