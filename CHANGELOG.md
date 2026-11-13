@@ -1,5 +1,15 @@
 # test-inventory
 
+## 0.10.3
+
+### Patch Changes
+
+- [#115](https://github.com/Huldoser/test-inventory/pull/115) [`2da89f8`](https://github.com/Huldoser/test-inventory/commit/2da89f84890e2c2ce8a87954263e6ae3f27ce5bc) - Read hooks and suite members on named node:test imports and preserve parameterized declarations chosen between Jest each factories. Avoid false Playwright file-load failures for unknown loop counts, false tests from unresolved destructured wrappers, and async-describe errors caused by awaits inside nested helper declarations. Report Vitest table factories called without their required receiver as file-load failures.
+
+- [#115](https://github.com/Huldoser/test-inventory/pull/115) [`2da89f8`](https://github.com/Huldoser/test-inventory/commit/2da89f84890e2c2ce8a87954263e6ae3f27ce5bc) - Keep declarations when a file or imported helper calls a local function named require without arguments. The value reader no longer turns that call into an internal-error that discards the file's tests. Preserve suite, test and hook roles when members are destructured from an already-bound node:test module.
+
+- [#115](https://github.com/Huldoser/test-inventory/pull/115) [`2da89f8`](https://github.com/Huldoser/test-inventory/commit/2da89f84890e2c2ce8a87954263e6ae3f27ce5bc) - Recognize defineConfig on Playwright's original package export, including default and CommonJS imports, instead of reporting an invalid-chain error that marks the file's tests notLoaded. Keep extended test functions distinct from the package export.
+
 ## 0.10.2
 
 ### Patch Changes
