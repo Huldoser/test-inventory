@@ -473,7 +473,7 @@ export class PlaywrightAdapter implements Adapter {
     const destructured = boundMembers(declarator.id, name);
     if (!destructured) return null;
     const init = declarator.init ? unwrap(declarator.init) : null;
-    if (destructured.length > 0 && init?.type === 'Identifier') {
+    if (destructured.length > 0 && TEST_MEMBERS.has(destructured[0]) && init?.type === 'Identifier') {
       const imported = this.imports.get(init.name);
       if (
         imported?.node === this.file.values.declarationOf(init.name, lookup.scopes) &&

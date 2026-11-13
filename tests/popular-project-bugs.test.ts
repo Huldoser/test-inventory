@@ -76,6 +76,21 @@ it('retains the order book', () => {});`);
     expect(codes(result)).toEqual(['test-without-body']);
   });
 
+  it('does not diagnose destructured generated utilities as unresolved Playwright imports', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { prices } from '../generated/prices';
+const { normalizePrice } = prices;
+const price = normalizePrice('125.00');
+test('submits a limit order', async () => {});`,
+    });
+    const result = await scan({ root, framework: 'playwright', patterns: ['tests/*.spec.ts'] });
+    expect(result.tests).toHaveLength(1);
+    expect(result.tests[0].state).toBe('active');
+    expect(codes(result)).not.toContain('unresolved-test-import');
+  });
+
   it.each(['describe', 'describe: orders', 'beforeAll: orders'])(
     'does not invent a test from an unresolved destructured Playwright member: %s',
     async (member) => {
