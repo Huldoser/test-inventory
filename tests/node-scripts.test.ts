@@ -203,6 +203,12 @@ describe('the test runner commands of a package.json script', () => {
     ).toEqual([named('jest.config.orders.js')]);
   });
 
+  it('finds a runner node starts from a scoped package with Windows separators', () => {
+    expect(
+      runnerCommands('node node_modules\\@playwright\\test\\cli.js test -c e2e\\playwright.ci.config.ts', 'playwright'),
+    ).toEqual([named('e2e\\playwright.ci.config.ts')]);
+  });
+
   it('takes npm exec without --, and no command dotenv starts without --, as dotenv reads the options after it', () => {
     expect(runnerCommands('npm exec vitest -c vitest.orders.config.ts;', 'vitest')).toEqual([
       named('vitest.orders.config.ts'),

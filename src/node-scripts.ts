@@ -261,7 +261,7 @@ function programOf(words: string[]): { program: string; args: string[] } | null 
     const file = /node_modules[/\\](?:\.bin[/\\]([^/\\]+)|(@[^/\\]+[/\\][^/\\]+|[^/\\]+)[/\\])/.exec(
       words.at(index) ?? '',
     );
-    const program = file?.at(1) ?? RUNNER_PACKAGES[file?.at(2)?.replace('\\', '/') ?? ''];
+    const program = file?.at(1) ?? RUNNER_PACKAGES[file?.at(2)?.replaceAll('\\', '/') ?? ''];
     return program ? { program, args: words.slice(index + 1) } : null;
   }
   const name = word.split(/[/\\]/).at(-1) as string;
