@@ -24,7 +24,9 @@ the [configs reference](/reference/output#configs) describes the exact output.
 A setting computed at run time, for example from `process.env`, or imported from an installed package cannot be
 worked out. When needed by the scan, a `config-value-unknown` warning names it. A run setting chosen by a condition,
 such as `retries: process.env.CI ? 2 : 0`, is `null` with source `config`; `retriesConfigText` and the other
-`ConfigText` keys keep its source. A config selected only by runner command-line arguments is not inferred.
+`ConfigText` keys keep its source. A config a package.json script passes on the runner's command line decides which
+scanned files run, but a scan without globs finds no files through it; one that only a CI workflow or a wrapper script
+names is not read.
 
 Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects.
 `expectCount`, `steps` and `fixtures` inspect the test function only: assertions and steps inside page objects or
@@ -241,7 +243,8 @@ something included. Some of what a test runs is out of its reach:
 - Files read at runtime through `fs` or `fetch`, environment variables and the clock.
 - Runtime import paths, patterns such as `import.meta.glob()`, and modules described only by `.d.ts` files.
   These give `hasUnfollowedDependencies` and a `dependency-not-followed` warning.
-- A config selected only by the runner's `--config`. A setup path computed at runtime, such as
+- A config the runner's `--config` selects for a file a config found by name runs too, or that only a CI workflow or
+  a wrapper script names. A setup path computed at runtime, such as
   `setupFiles: process.env.SETUP` or `require.resolve('./global-setup')`, or a nonexistent path gives a
   `dependency-not-followed` warning.
 - Types, which do not run. For `*.test-d.ts` type tests, the hash follows their types instead.

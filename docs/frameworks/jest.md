@@ -61,7 +61,9 @@ Other Jest examples: [Puppeteer on Jest](/frameworks/jest-examples#puppeteer-on-
 
 ## Configuration and limits
 
-The scan reads the root `jest.config.*`, otherwise `package.json`, plus configs named in `projects`.
+The scan reads the root `jest.config.*`, otherwise `package.json`, plus configs named in `projects`. A file they leave
+out also runs when a package.json script in its folder or above starts Jest with a config that takes it: the one the
+script passes with `--config`, else the one Jest finds where the script starts, both read from their own folder.
 From Jest 30, a string-valued `jest` key names a config file. Multiple configs in the same folder produce a
 `config-value-unknown` warning because Jest refuses them. With no root config, Jest's defaults apply.
 `injectGlobals` and supported run settings are read.

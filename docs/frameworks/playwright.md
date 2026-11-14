@@ -72,7 +72,9 @@ The package's original `test` function also carries module exports. A call such 
 through a default or CommonJS import is configuration, not an invalid test declaration. Extended test functions
 do not inherit those module exports.
 
-A config chosen with the runner's `--config` is not inferred from the files. A config built by a call the scan
+A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it:
+a file the configs found by name leave out uses it when it runs the file. A scan without globs finds no files through
+it, and one named only in a CI workflow isn't read. A config built by a call the scan
 cannot follow, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`, cannot be worked out.
 
 For a project's `grep`, the test's text contains its project, file, config `tag`, describe and test titles and tags.

@@ -376,6 +376,16 @@ tests gets a `file-not-run` warning, as the runner doesn't collect them. In each
 `playwright.config.*` for Playwright, and `vitest.config.*` for Vitest, or `vite.config.*` when there is no
 `vitest.config.*`.
 
+A config a package.json script starts the runner with counts too, for Vitest, Jest, Playwright, Cypress and
+WebdriverIO: a script in the file's folder or one above it, with the config the command names, as in
+`vitest run --config vitest.config.integration.mts`, or else the one the runner finds where the script starts. A file
+such a config runs uses it and gets no warning. Vitest and Cypress read the globs from the folder the script runs in,
+or from its `--root` or `--project`; Jest, Playwright and WebdriverIO read them from the config's folder. When a
+script names a config the scan can't read, such as a variable, the scan can't tell which files it runs and reports a
+`config-value-unknown` warning on the package.json in place of `file-not-run`. Scripts that start the runner through
+a wrapper of their own, and configs only a CI workflow names, aren't followed. A file that a collected test file
+imports gets no warning either, as its tests run in that file.
+
 Jest started at the root reads only the config there: `jest.config.*`, else `package.json`,
 which Jest reads also without a `jest` key, and from Jest 30 a `jest` key that is a string is the path to the config.
 Other configs count only through its `projects`. Jest refuses to start with more than one config in a folder, which a

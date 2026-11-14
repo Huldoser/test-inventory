@@ -140,3 +140,130 @@ function calledScripts(words: string[], names: string[]): string[] {
   if (tool === 'pnpm' || tool === 'yarn') return first === 'run' ? [second] : [first];
   return [];
 }
+
+/** The runners a script can start with a config of its own, which the scan then takes as one more that runs files. */
+export type ScriptRunner = 'vitest' | 'jest' | 'playwright' | 'cypress' | 'webdriverio';
+
+/** A command of a script that starts a test runner. */
+export interface RunnerCommand {
+  /** The config it names, as written; null when it names none. */
+  config: string | null;
+  /** The folder it takes as the project's root, as written: Vitest's `--root`, Cypress's `--project`; else null. */
+  root: string | null;
+  /** Whether it names its config or root in a way the scan can't read: a variable, or Jest's inline JSON. */
+  unreadable: boolean;
+}
+
+/** Each runner's program, the subcommands that run tests, and the options that name its config and its root. */
+const RUNNERS: Record<
+  ScriptRunner,
+  { program: string; subcommands: string[] | null; config: string[]; root: string[] }
+> = {
+  vitest: { program: 'vitest', subcommands: null, config: ['--config', '-c'], root: ['--root', '-r'] },
+  jest: { program: 'jest', subcommands: null, config: ['--config', '-c'], root: [] },
+  playwright: { program: 'playwright', subcommands: ['test'], config: ['--config', '-c'], root: [] },
+  cypress: {
+    program: 'cypress',
+    subcommands: ['run', 'open'],
+    config: ['--config-file', '-C'],
+    root: ['--project', '-P'],
+  },
+  // `wdio run <config>` and `wdio <config>` take the config as the first argument.
+  webdriverio: { program: 'wdio', subcommands: null, config: [], root: [] },
+};
+
+/** The program each package's files start when `node` runs them. */
+const RUNNER_PACKAGES: Partial<Record<string, string>> = {
+  vitest: 'vitest',
+  jest: 'jest',
+  'jest-cli': 'jest',
+  '@playwright/test': 'playwright',
+  playwright: 'playwright',
+  cypress: 'cypress',
+  '@wdio/cli': 'wdio',
+};
+
+/**
+ * The commands of a package.json script that start a runner, with the config and root each names. Only a command whose
+ * program is the runner counts, so `eslint --plugin jest -c .eslintrc.json` and `npm run jest` start none.
+ */
+export function runnerCommands(script: string, runner: ScriptRunner): RunnerCommand[] {
+  const { program, subcommands, config, root } = RUNNERS[runner];
+  const found: RunnerCommand[] = [];
+  for (const words of commandsOf(script)) {
+    const started = programOf(words);
+    if (started?.program !== program) continue;
+    let args = started.args;
+    if (subcommands) {
+      if (!subcommands.includes(args[0])) continue;
+      args = args.slice(1);
+    }
+    const command: RunnerCommand = { config: null, root: null, unreadable: false };
+    if (runner === 'webdriverio') {
+      const first = args.at(0) === 'run' ? args.at(1) : args.at(0);
+      if (first !== undefined && !first.startsWith('-')) command.config = first;
+    }
+    for (let index = 0; index < args.length; index++) {
+      const parts = args[index].split(/=(.*)/s);
+      const key = config.includes(parts[0]) ? 'config' : root.includes(parts[0]) ? 'root' : null;
+      if (key === null) continue;
+      const value = parts.at(1) ?? args.at(++index);
+      if (value === undefined) command.unreadable = true;
+      else command[key] = value;
+    }
+    // The shell expands a variable, and Jest reads a config that starts with `{` as the config itself.
+    const values = [command.config, command.root].filter((value) => value !== null);
+    if (values.some((value) => /[$%]/.test(value) || value.startsWith('{'))) command.unreadable = true;
+    found.push(command);
+  }
+  return found;
+}
+
+/**
+ * The program a command starts, with its arguments: past variables set before it, `cross-env`, `dotenv --`, and `npx`,
+ * `bunx`, `pnpm exec`, `yarn exec`, `npm exec` or a package manager given a binary's name; for `node`, the runner whose
+ * package holds the file it runs. Null when there is none.
+ */
+function programOf(words: string[]): { program: string; args: string[] } | null {
+  let index = 0;
+  const skip = (test: (word: string) => boolean) => {
+    while (index < words.length && test(words[index])) index++;
+  };
+  const isAssignment = (word: string) => /^\w+=/.test(word);
+  skip(isAssignment);
+  for (;;) {
+    const [word, next] = [words.at(index), words.at(index + 1)];
+    if (word === 'cross-env' || word === 'env') {
+      index++;
+      skip(isAssignment);
+    } else if (word === 'dotenv' || (word === 'npm' && next === 'exec')) {
+      const end = words.indexOf('--', index);
+      index = end === -1 ? index + 2 : end + 1;
+    } else if (word === 'npx' || word === 'bunx') {
+      index++;
+      skip((item) => item.startsWith('-'));
+    } else if (
+      (word === 'pnpm' && (next === 'exec' || next === 'dlx')) ||
+      (word === 'yarn' && next === 'exec') ||
+      (word === 'bun' && next === 'x')
+    ) {
+      index += 2;
+    } else if ((word === 'pnpm' || word === 'yarn') && next !== 'run') {
+      // `pnpm vitest` starts the binary when no script has its name, which the scan takes to be so.
+      index++;
+    } else break;
+  }
+  const word = words.at(index);
+  if (word === undefined) return null;
+  if (/(^|[/\\])node(\.exe)?$/.test(word)) {
+    index++;
+    while (index < words.length && words[index].startsWith('-')) index += VALUE_OPTIONS.has(words[index]) ? 2 : 1;
+    const file = /node_modules[/\\](?:\.bin[/\\]([^/\\]+)|(@[^/\\]+[/\\][^/\\]+|[^/\\]+)[/\\])/.exec(
+      words.at(index) ?? '',
+    );
+    const program = file?.at(1) ?? RUNNER_PACKAGES[file?.at(2)?.replaceAll('\\', '/') ?? ''];
+    return program ? { program, args: words.slice(index + 1) } : null;
+  }
+  const name = word.split(/[/\\]/).at(-1) as string;
+  return { program: name.replace(/\.(cmd|exe|[cm]?js)$/, ''), args: words.slice(index + 1) };
+}

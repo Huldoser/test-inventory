@@ -65,7 +65,10 @@ See [query recipes](/guide/recipes) for other inventory queries.
 
 The scan reads the first `cypress.config.*` in the root. Its `e2e` and configured `component` testing types
 become projects. Explicit scan globs still need to match the testing type's `specPattern` for the file to count
-as run, as with `cypress run --spec`. Component selection also excludes the e2e `specPattern` matches.
+as run, as with `cypress run --spec`. Component selection also excludes the e2e `specPattern` matches. A file the
+root config leaves out also runs when a package.json script in its folder or above starts Cypress with a config that
+takes it, named with `--config-file` or found where the script starts; its `specPattern` is read from that folder, or
+from `--project`.
 
 The testing type's `retries`, otherwise the config's, applies; an object uses `runMode`. Support files,
 including the default support file, enter dependency hashes but are not executed. Browser-dependent skips

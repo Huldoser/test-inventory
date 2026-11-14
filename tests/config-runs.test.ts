@@ -737,3 +737,294 @@ describe('which files a config runs, in the cases a review found', () => {
     expect(diagnostics).toEqual([]);
   });
 });
+
+describe('which files the runner never collects', () => {
+  const VALIDATE_ORDER =
+    "export function validateLimitOrder(order: { quantity: number }): string | null {\n  return order.quantity > 0 ? null : 'quantity must be positive';\n}\n";
+
+  it('leaves out a shared suite that a collected test file imports, as its tests run in that file', async () => {
+    const { diagnostics } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { include: ['tests/**/*.test.ts'] } };\n",
+        'src/orders/limit-order.ts': VALIDATE_ORDER,
+        'tests/shared/order-validation.suite.ts': [
+          "import { describe, expect, it } from 'vitest';",
+          '',
+          'export function describeOrderValidation(validate: (order: { quantity: number }) => string | null) {',
+          "  describe('order validation', () => {",
+          "    it('rejects a zero quantity', () => {",
+          "      expect(validate({ quantity: 0 })).toBe('quantity must be positive');",
+          '    });',
+          '  });',
+          '}',
+          '',
+        ].join('\n'),
+        'tests/orders/limit-order.test.ts': [
+          "import { describeOrderValidation } from '../shared/order-validation.suite.ts';",
+          "import { validateLimitOrder } from '../../src/orders/limit-order.ts';",
+          '',
+          'describeOrderValidation(validateLimitOrder);',
+          '',
+        ].join('\n'),
+        'tests/shared/market-hours.cases.ts': [
+          "import { test } from 'vitest';",
+          '',
+          "test('treats a Saturday as a closed market', () => {});",
+          '',
+        ].join('\n'),
+        'tests/orders/market-order.test.ts': [
+          "import './../shared/market-hours.cases.ts';",
+          "import { test } from 'vitest';",
+          '',
+          "test('fills a market order at the last trade', () => {});",
+          '',
+        ].join('\n'),
+        'tests/strategies/stale-crossover.spec.ts': [
+          "import { test } from 'vitest';",
+          '',
+          "test('holds when the slow average is missing', () => {});",
+          '',
+        ].join('\n'),
+      },
+      'vitest',
+      ['tests/**/*.ts'],
+    );
+    expect(diagnostics).toEqual([
+      'file-not-run tests/strategies/stale-crossover.spec.ts',
+      'test-in-function tests/shared/order-validation.suite.ts',
+    ]);
+  });
+});
+
+describe('which files a config a package.json script names runs', () => {
+  const manifest = (devDependencies: Record<string, string>, scripts: Record<string, string>) =>
+    JSON.stringify({ devDependencies, scripts });
+  const VITEST = { vitest: '5.0.3' };
+
+  it('runs the files a Vitest config passed with --config takes, and still reports a file no config runs', async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'package.json': manifest(VITEST, {
+          test: 'vitest run',
+          'test:integration': 'cross-env TZ=UTC vitest run --config vitest.config.integration.mts',
+          lint: 'eslint . -c eslint.config.orders.mjs',
+        }),
+        'vitest.config.ts': "export default { test: { include: ['src/**/*.test.ts'] } };\n",
+        'vitest.config.integration.mts': "export default { test: { include: ['integration/**/*.spec.ts'] } };\n",
+        'src/fees.test.ts': UNIT,
+        'integration/broker/place-order.spec.ts': UNIT,
+        'scripts/replay-feed.test.ts': UNIT,
+      },
+      'vitest',
+      ['**/*.{test,spec}.ts'],
+    );
+    expect(configs['integration/broker/place-order.spec.ts']).toBe('vitest.config.integration.mts');
+    expect(diagnostics).toEqual(['file-not-run scripts/replay-feed.test.ts']);
+  });
+
+  it("takes Vitest's root as the folder the script runs in, not the config's folder", async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'package.json': manifest(VITEST, { 'test:node': 'vitest run --config test/node/vitest.config.mjs' }),
+        'test/node/vitest.config.mjs': "export default { test: { include: ['test/node/**/*.test.ts'] } };\n",
+        'test/node/indicators/rsi.test.ts': UNIT,
+      },
+      'vitest',
+      ['test/**/*.test.ts'],
+    );
+    expect(configs).toEqual({ 'test/node/indicators/rsi.test.ts': 'test/node/vitest.config.mjs' });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('reads a config a script names from the root it gives Vitest, and takes that root for its globs', async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'package.json': manifest(VITEST, {
+          'test:feed': 'vitest run --root packages/quotes --config vitest.feed.config.ts',
+        }),
+        'vitest.config.ts': "export default { test: { include: ['src/**/*.test.ts'] } };\n",
+        'packages/quotes/vitest.feed.config.ts': "export default { test: { include: ['feed/**/*.test.ts'] } };\n",
+        'packages/quotes/feed/tick-stream.test.ts': UNIT,
+      },
+      'vitest',
+      ['packages/**/*.test.ts'],
+    );
+    expect(configs).toEqual({ 'packages/quotes/feed/tick-stream.test.ts': 'packages/quotes/vitest.feed.config.ts' });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("runs a package's files with Vitest's defaults when its script starts Vitest in a folder without a config", async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { include: ['src/**/*.test.ts'] } };\n",
+        'examples/backtest/package.json': manifest(VITEST, { test: 'vitest run' }),
+        'examples/backtest/src/crossover.test.ts': UNIT,
+      },
+      'vitest',
+      ['examples/**/*.test.ts'],
+    );
+    expect(configs).toEqual({ 'examples/backtest/src/crossover.test.ts': null });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('runs the files a Jest config passed with -c takes, from its own folder', async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'package.json': manifest({ jest: '30.2.0' }, { 'test:e2e': 'jest --ci -c ./test/jest-e2e.json' }),
+        'jest.config.js': "module.exports = { roots: ['<rootDir>/src'] };\n",
+        'test/jest-e2e.json': JSON.stringify({ rootDir: '.', testRegex: '.e2e-spec.ts$' }),
+        'test/orders.e2e-spec.ts': GLOBAL_UNIT,
+        'test/quotes.smoke.ts': GLOBAL_UNIT,
+      },
+      'jest',
+      ['test/**/*.ts'],
+    );
+    expect(configs['test/orders.e2e-spec.ts']).toBe('test/jest-e2e.json');
+    expect(diagnostics).toEqual(['file-not-run test/quotes.smoke.ts']);
+  });
+
+  it('runs the files a Playwright config passed with --config= takes, from its own folder', async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'package.json': manifest(
+          { '@playwright/test': '1.63.0' },
+          { 'e2e:mock': 'playwright test --config=e2e/playwright.config.mock.ts' },
+        ),
+        'e2e/playwright.config.ts': "export default { testDir: 'specs/', testIgnore: ['**/mock/**'] };\n",
+        'e2e/playwright.config.mock.ts': "export default { testDir: 'specs/mock/' };\n",
+        'e2e/specs/mock/rejected-order.spec.ts': SPEC,
+      },
+      'playwright',
+      ['e2e/specs/**/*.spec.ts'],
+    );
+    expect(configs).toEqual({ 'e2e/specs/mock/rejected-order.spec.ts': 'e2e/playwright.config.mock.ts' });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('runs the files a Cypress or WebdriverIO config a script names takes, where the root config leaves them out', async () => {
+    const cypress = await placed(
+      {
+        'package.json': manifest({ cypress: '15.6.0' }, { 'cy:orders': 'cypress run -C cypress.orders.config.ts' }),
+        'cypress.config.ts': "export default { e2e: { specPattern: 'cypress/e2e/**/*.cy.ts' } };\n",
+        'cypress.orders.config.ts': "export default { e2e: { specPattern: 'cypress/orders/**/*.cy.ts' } };\n",
+        'cypress/orders/limit-order.cy.ts': GLOBAL_UNIT,
+      },
+      'cypress',
+      ['cypress/**/*.cy.ts'],
+    );
+    expect(cypress.configs).toEqual({ 'cypress/orders/limit-order.cy.ts': 'cypress.orders.config.ts' });
+    expect(cypress.diagnostics).toEqual([]);
+    const webdriverio = await placed(
+      {
+        'package.json': manifest({ '@wdio/cli': '9.20.0' }, { 'e2e:android': 'wdio run ./wdio.android.conf.ts' }),
+        'wdio.conf.ts': "export const config = { specs: ['./test/**/*.e2e.ts'], exclude: ['./test/android/**'] };\n",
+        'wdio.android.conf.ts': "export const config = { specs: ['./test/android/**/*.e2e.ts'] };\n",
+        'test/android/watchlist.e2e.ts': GLOBAL_UNIT,
+      },
+      'webdriverio',
+      ['test/**/*.e2e.ts'],
+    );
+    expect(webdriverio.configs).toEqual({ 'test/android/watchlist.e2e.ts': 'wdio.android.conf.ts' });
+    expect(webdriverio.diagnostics).toEqual([]);
+  });
+
+  it('reads the config in a folder a script names, once, and skips a config that is missing or a folder without one', async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'package.json': JSON.stringify({
+          devDependencies: { '@playwright/test': '1.63.0' },
+          scripts: {
+            e2e: 'playwright test -c config/e2e',
+            'e2e:ci': 'npx playwright test --config config/e2e --retries 2',
+            'e2e:staging': 'playwright test -c config/staging/playwright.config.ts',
+            'e2e:reports': 'playwright test -c reports',
+            nightly: 3,
+          },
+        }),
+        'playwright.config.ts': "export default { testDir: 'tests' };\n",
+        'config/e2e/playwright.config.ts': "export default { testDir: '../../e2e' };\n",
+        'reports/README.md': 'Playwright writes its HTML report here.\n',
+        'e2e/place-order.spec.ts': SPEC,
+      },
+      'playwright',
+      ['e2e/**/*.spec.ts'],
+    );
+    expect(configs).toEqual({ 'e2e/place-order.spec.ts': 'config/e2e/playwright.config.ts' });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('takes no route from a Cypress command in a folder without a config, as Cypress refuses to start there', async () => {
+    const { diagnostics } = await placed(
+      {
+        'package.json': JSON.stringify({ devDependencies: { cypress: '15.6.0' } }),
+        'cypress.config.ts': "export default { e2e: { specPattern: 'cypress/e2e/**/*.cy.ts' } };\n",
+        'apps/admin/package.json': JSON.stringify({ scripts: { cy: 'cypress run' } }),
+        'apps/admin/cypress/e2e/approve-account.cy.ts': GLOBAL_UNIT,
+      },
+      'cypress',
+      ['apps/**/*.cy.ts'],
+    );
+    expect(diagnostics).toEqual(['file-not-run apps/admin/cypress/e2e/approve-account.cy.ts']);
+  });
+
+  it('takes the config above a package before Vitest 5, which looks in the folders above it, and its defaults from 5', async () => {
+    const files = {
+      'vitest.config.ts': "export default { test: { include: ['src/**/*.check.ts'] } };\n",
+      'packages/quotes/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+      'packages/quotes/src/feed.check.ts': UNIT,
+    };
+    const vitest4 = await placed(files, 'vitest', ['packages/**/*.ts'], '4.1.2');
+    expect(vitest4.configs).toEqual({ 'packages/quotes/src/feed.check.ts': 'vitest.config.ts' });
+    expect(vitest4.diagnostics).toEqual([]);
+    const vitest5 = await placed(files, 'vitest', ['packages/**/*.ts'], '5.0.3');
+    expect(vitest5.diagnostics).toEqual(['file-not-run packages/quotes/src/feed.check.ts']);
+  });
+
+  it('runs a package with the defaults of Vitest before 5 when no config is in its folder or above it', async () => {
+    const { configs, diagnostics } = await placed(
+      {
+        'packages/quotes/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+        'packages/quotes/src/legacy/vitest.config.ts': "export default { test: { include: ['**/*.spec.ts'] } };\n",
+        'packages/quotes/src/legacy/tick-feed.test.ts': UNIT,
+      },
+      'vitest',
+      ['packages/**/*.test.ts'],
+      '4.1.2',
+    );
+    expect(configs).toEqual({ 'packages/quotes/src/legacy/tick-feed.test.ts': null });
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("can't tell when the files a script's config runs can't be worked out, and reports the setting", async () => {
+    const { diagnostics } = await placed(
+      {
+        'package.json': manifest(VITEST, { 'test:live': 'vitest run -c vitest.live.config.ts' }),
+        'vitest.config.ts': "export default { test: { include: ['src/**/*.test.ts'] } };\n",
+        'vitest.live.config.ts':
+          "import { liveSuites } from './live/suites.ts';\nexport default { test: { include: liveSuites() } };\n",
+        'live/suites.ts':
+          "export function liveSuites() {\n  return process.env.BROKER === 'paper' ? ['live/paper/**/*.test.ts'] : ['live/**/*.test.ts'];\n}\n",
+        'live/broker-fills.test.ts': UNIT,
+      },
+      'vitest',
+      ['live/**/*.test.ts'],
+    );
+    expect(diagnostics).toEqual(['config-value-unknown vitest.live.config.ts']);
+  });
+
+  it("can't tell when a script names a config the scan can't read, and says so on the package.json", async () => {
+    const { diagnostics, inventory } = await placed(
+      {
+        'package.json': manifest(VITEST, { 'test:live': 'vitest run -c $VITEST_LIVE_CONFIG' }),
+        'vitest.config.ts': "export default { test: { include: ['src/**/*.test.ts'] } };\n",
+        'live/broker-fills.test.ts': UNIT,
+      },
+      'vitest',
+      ['live/**/*.test.ts'],
+    );
+    expect(diagnostics).toEqual(['config-value-unknown package.json']);
+    expect(inventory.diagnostics[0].message).toBe(
+      "The script test:live in package.json starts the runner with a config or root the scan can't read without running it, so it can't tell which files that runs; files the configs it reads leave out aren't reported as not run.",
+    );
+  });
+});
