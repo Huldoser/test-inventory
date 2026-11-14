@@ -35,7 +35,7 @@ import { atLeast, problem } from './frameworks/common.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
-import type { ConfigRecord, Diagnostic, Framework, ProjectRecord } from './types.ts';
+import type { ConfigRecord, Diagnostic, DiagnosticLevel, Framework, ProjectRecord } from './types.ts';
 import { isKey, isScopeNode, Values, type Value } from './values.ts';
 import { VITEST_INCLUDE, VITEST_TYPECHECK_INCLUDE, vitestExclude } from './vitest-defaults.ts';
 import { readToml, TomlError } from './toml.ts';
@@ -860,9 +860,9 @@ export class Configs {
   }
 
   /** Reports a setting the scan reads but can't work out, once; `key` names it, and `effect` says what the scan does. */
-  reportUnknown(setting: Unknown, key: string, effect: string): void {
+  reportUnknown(setting: Unknown, key: string, effect: string, level: DiagnosticLevel = 'warning'): void {
     const message = `The config's ${key} could not be worked out without running the config, so ${effect}.`;
-    this.reportAt(setting.where, key, message);
+    this.reportAt(setting.where, key, message, level);
   }
 
   /**
@@ -874,14 +874,14 @@ export class Configs {
     else this.reportConfig(config, message);
   }
 
-  private reportAt(where: Site | null, key: string, message: string): void {
+  private reportAt(where: Site | null, key: string, message: string, level: DiagnosticLevel = 'warning'): void {
     if (where === null) return;
     const { frame, node } = where;
     const id = `${frame.relativeFilePath}\0${node.start}\0${key}`;
     if (this.reported.has(id)) return;
     this.reported.add(id);
     const code = snippet(frame.parsed.source.text.slice(node.start, node.end));
-    const found = problem('config-value-unknown', node, message, code);
+    const found = { ...problem('config-value-unknown', node, message, code), level };
     this.diagnostics.push(toDiagnostic(found, frame.relativeFilePath, frame.parsed.source));
   }
 

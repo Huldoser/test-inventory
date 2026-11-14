@@ -21,6 +21,10 @@ Without globs, runner defaults and the settings the scanner can read from config
 or a custom location may need explicit globs. A bare folder is not a recursive glob. See `no-files-matched`,
 `file-not-run` and `config-value-unknown` in the reference.
 
+For Playwright, an unreadable project list can still yield candidates from readable top-level file settings.
+Their `projects` is `null`, and a `config-value-unknown` error says tests may be missing. Supply explicit globs to
+select additional files; candidate records do not prove that a runner project collects them.
+
 If files were found but have no test records, check for `framework-mismatch`, `parse-error` and
 `unresolved-test-import` before assuming they contain no tests.
 

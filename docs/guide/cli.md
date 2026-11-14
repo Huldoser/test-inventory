@@ -23,6 +23,10 @@ separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it escapes 
 `tests/\[legacy\]/*.spec.ts`. A `/` separates folders on every system.
 This normalization also applies when a node:test pattern names a linked folder explicitly.
 
+For Playwright projects built at runtime, readable top-level file settings select candidates with `projects: null`.
+A `config-value-unknown` error marks the result as incomplete; explicit globs can select additional files.
+See [Playwright configuration limits](/frameworks/playwright#configuration-and-limits).
+
 | Option                        | Meaning                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `--framework <name>`          | `playwright`, `vitest`, `jest`, `mocha`, `jasmine`, `cypress`, `webdriverio`, `node` or `bun`. One run reads one framework. Default: the one the project uses; see [framework](#framework).                                          |
