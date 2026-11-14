@@ -231,7 +231,12 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const configs = new Configs(root, framework, readerFor, rules);
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
-  const files = patterns ? found.files : found.files.filter((file) => placements.get(file.absolutePath)?.runs);
+  const files = patterns
+    ? found.files
+    : found.files.filter((file) => {
+        const placement = placements.get(file.absolutePath) as Placement;
+        return Boolean(placement.runs) || placement.candidate === true;
+      });
   // A setup project's files may be outside the patterns, or ignored for the scan, so they are looked for in its testDir.
   const setupDirs = new Set<string>();
   for (const { config, projects } of placements.values()) {

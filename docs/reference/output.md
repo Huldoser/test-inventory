@@ -386,6 +386,12 @@ script names a config the scan can't read, such as a variable, the scan can't te
 a wrapper of their own, and configs only a CI workflow names, aren't followed. A file that a collected test file
 imports gets no warning either, as its tests run in that file.
 
+Without globs, Playwright also discovers files through a package.json script when no config is above the file.
+If its `projects` is unknown but top-level file settings are readable, discovery keeps the candidates those settings
+select. Their `projects` is `null`; a `config-value-unknown` error warns that project overrides may select other files
+or exclude these candidates. An unknown top-level file setting still needs explicit globs. A known empty project list
+selects no files.
+
 Jest started at the root reads only the config there: `jest.config.*`, else `package.json`,
 which Jest reads also without a `jest` key, and from Jest 30 a `jest` key that is a string is the path to the config.
 Other configs count only through its `projects`. Jest refuses to start with more than one config in a folder, which a
@@ -591,7 +597,8 @@ export default mergeConfig(
 Besides which files it runs, the scan reads Vitest's `test.globals` and Jest's `injectGlobals` from the file's project,
 for the `globals-not-enabled` warning, and Mocha's `ui`, for which names declare tests. A setting it reads but can't
 work out, such as one computed from `process.env` or taken from an installed package, gets a `config-value-unknown`
-warning that names it, and the config is taken to run the file. For Jest's `testPathIgnorePatterns` and
+diagnostic that names it, and an explicitly selected file is taken to run. In Playwright discovery, unknown file
+selection is an error because tests may be missing; candidates retain unknown project membership. For Jest's `testPathIgnorePatterns` and
 `modulePathIgnorePatterns`, which only leave files out, the entries the scan can read still apply, also beside a spread
 it can't work out, and the files the other settings pick are kept.
 

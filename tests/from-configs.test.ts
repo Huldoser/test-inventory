@@ -8,6 +8,88 @@ const SPEC = "import { test } from '@playwright/test';\ntest('places a market or
 const UNIT = "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n";
 
 describe('a scan without patterns', () => {
+  it('retains candidate files from readable Playwright settings when a loop builds the projects', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { '@playwright/test': '1.63.0' },
+        scripts: { test: 'playwright test --config tests/library/playwright.config.ts' },
+      }),
+      'tests/library/playwright.config.ts': [
+        "import path from 'node:path';",
+        "const config = { testDir: path.join(__dirname, '..'), testIgnore: '**/drafts/**', projects: [] };",
+        "for (const browserName of ['chromium', 'webkit']) {",
+        "  config.projects.push({ name: browserName, testDir: path.join(config.testDir, 'page') });",
+        '}',
+        'export default config;',
+      ].join('\n'),
+      'tests/library/orders.spec.ts': SPEC,
+      'tests/page/quotes.spec.ts': SPEC,
+      'tests/page/drafts/quotes.spec.ts': SPEC,
+      'tests/page/orderHelpers.ts': SPEC,
+      'unrelated/positions.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.projects])).toEqual([
+      ['tests/library/orders.spec.ts', null],
+      ['tests/page/quotes.spec.ts', null],
+    ]);
+    expect(inventory.files.map((file) => file.config)).toEqual([
+      'tests/library/playwright.config.ts',
+      'tests/library/playwright.config.ts',
+    ]);
+    expect(inventory.configs[0].projects).toBeNull();
+    expect(inventory.diagnostics).toMatchObject([
+      { code: 'config-value-unknown', level: 'error', relativeFilePath: 'tests/library/playwright.config.ts' },
+    ]);
+    expect(inventory.diagnostics).toHaveLength(1);
+    expect(inventory.diagnostics[0].message).toContain('candidate files');
+    expect(inventory.diagnostics[0].message).toContain('may be missing');
+  });
+
+  it('does not fall back to Playwright candidates when the projects are known to be empty', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': "export default { testDir: 'tests', projects: [] };\n",
+      'tests/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['no-files-matched']);
+  });
+
+  it('discovers Playwright files through a package script whose config is outside their ancestors', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { '@playwright/test': '1.63.0' },
+        scripts: { test: 'playwright test --config configs/browser.ts' },
+      }),
+      'configs/browser.ts': "export default { testDir: '../e2e', testMatch: '**/*.browser.ts' };\n",
+      'e2e/orders.browser.ts': SPEC,
+      'e2e/quotes.spec.ts': SPEC,
+      'tests/orders.browser.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.projects])).toEqual([
+      ['e2e/orders.browser.ts', ['']],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('asks for patterns when top-level Playwright file filters cannot select candidates', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': 'export default { testDir: process.env.E2E_DIR, projects: buildBrowserProjects() };\n',
+      'tests/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics).toMatchObject([
+      { code: 'config-value-unknown', level: 'error' },
+      { code: 'no-files-matched' },
+    ]);
+    expect(inventory.diagnostics[0].message).toContain('give patterns');
+  });
+
   it.each(EXAMPLES)(
     'finds the tests of $name from its configs, as the golden scan with patterns does',
     async ({ name, framework }) => {

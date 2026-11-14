@@ -116,6 +116,8 @@ export interface Placement {
   settings: Setting | null;
   /** False when no config runs the file; null when there is no config, or one can't tell. */
   runs: Run | false | null;
+  /** Readable top-level Playwright file settings select this candidate, but its project membership is unknown. */
+  candidate?: boolean;
   /** The projects of the config that run the file, which a Playwright `grep` may narrow per test; null when unknown. */
   projects: ProjectAbout[] | null;
   /** The tags Playwright's config `tag` gives every test; null when the scan can't work them out. */
@@ -143,6 +145,8 @@ const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypr
  */
 type ScriptRoute = { config: ConfigFile | null; root: string } | { manifest: string; unknown: string };
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
+const CANDIDATES =
+  'the scan lists candidate files from the readable top-level file settings; project membership is unknown and tests may be missing; give patterns to select other files';
 
 function emptySettings(): Setting {
   return { kind: 'object', keys: new Map(), rest: null };
@@ -256,6 +260,7 @@ export class ConfigRuns {
   private readonly scriptRoutes = new Map<string, ScriptRoute[]>();
   /** The projects of a route, by its config and the folder it runs from. */
   private readonly routeProjects = new Map<string, Project[]>();
+  private readonly candidateProjects = new Map<ConfigFile, Project>();
 
   constructor(configs: Configs, framework: Framework, version: [number, number] | null, findsFiles: boolean) {
     this.configs = configs;
@@ -280,7 +285,8 @@ export class ConfigRuns {
    */
   private place(file: string): Omit<Placement, 'tags'> {
     const placement = this.placeByConfigs(file);
-    if (placement.runs !== false || !SCRIPT_RUNNERS.has(this.framework)) return placement;
+    const needsRoute = this.findsFiles && this.framework === 'playwright' && placement.config === null;
+    if ((!needsRoute && placement.runs !== false) || !SCRIPT_RUNNERS.has(this.framework)) return placement;
     const routed = this.placeByScripts(file);
     if (routed === 'unknown') return { ...placement, runs: null, projects: null };
     return routed ?? placement;
@@ -309,8 +315,7 @@ export class ConfigRuns {
     }
     const unknown = around.flatMap((config) => this.projectsOf(config)).find((project) => project.unknown);
     if (unknown?.unknown) {
-      this.configs.reportUnknown(unknown.unknown.setting, unknown.unknown.key, this.findsFiles ? NOT_FOUND : ASSUMED);
-      return { config: unknown.config, settings: unknown.settings, runs: null, projects: null };
+      return this.unknownPlacement(unknown, file);
     }
     const nearest = around.at(-1) ?? null;
     if (nearest === null && this.framework === 'jest') {
@@ -324,6 +329,30 @@ export class ConfigRuns {
       settings: nearest?.settings ?? null,
       runs: nearest ? false : null,
       projects: nearest ? [] : null,
+    };
+  }
+
+  /** Retains candidates without claiming a project runs them when Playwright constructs its projects at runtime. */
+  private unknownPlacement(project: Project, file: string): Omit<Placement, 'tags'> {
+    const { setting, key } = project.unknown as { setting: Unknown; key: string };
+    const { config, settings } = project;
+    let candidates: Project | undefined;
+    if (this.findsFiles && this.framework === 'playwright' && key === 'projects' && config.settings.kind === 'object') {
+      candidates = this.candidateProjects.get(config);
+      if (!candidates) {
+        candidates = this.playwrightProject(config, emptySettings(), true);
+        this.candidateProjects.set(config, candidates);
+      }
+    }
+    const effect = !this.findsFiles ? ASSUMED : candidates?.runs ? CANDIDATES : NOT_FOUND;
+    const level = this.findsFiles && this.framework === 'playwright' ? 'error' : 'warning';
+    this.configs.reportUnknown(setting, key, effect, level);
+    return {
+      config,
+      settings,
+      runs: null,
+      projects: null,
+      ...(candidates?.runs ? { candidate: !!candidates.runs(file) } : {}),
     };
   }
 
@@ -351,6 +380,7 @@ export class ConfigRuns {
         }
         const unknownProject = projects.find((project) => project.unknown);
         if (unknownProject?.unknown) {
+          if (this.findsFiles && this.framework === 'playwright') return this.unknownPlacement(unknownProject, file);
           this.configs.reportUnknown(unknownProject.unknown.setting, unknownProject.unknown.key, ASSUMED);
           return 'unknown';
         }

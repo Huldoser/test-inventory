@@ -72,10 +72,17 @@ The package's original `test` function also carries module exports. A call such 
 through a default or CommonJS import is configuration, not an invalid test declaration. Extended test functions
 do not inherit those module exports.
 
-A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it:
-a file the configs found by name leave out uses it when it runs the file. A scan without globs finds no files through
-it, and one named only in a CI workflow isn't read. A config built by a call the scan
+A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
+including discovery without globs when the file has no config above it. A config named only in a CI workflow isn't
+read. A config built by a call the scan
 cannot follow, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`, cannot be worked out.
+
+When `projects` is built at runtime, for example with `config.projects.push()` in a loop, a scan without globs keeps
+candidate files selected by readable top-level `testDir`, `testMatch`, `testIgnore` and `respectGitIgnore` settings.
+These are candidates, not confirmed project members: `projects` stays `null`, and a `config-value-unknown` error says
+the inventory may be incomplete. Project overrides can select other files or exclude candidates. If those top-level
+file settings are also unknown, no candidates are inferred; use explicit globs. A known empty `projects: []` still
+selects no files.
 
 For a project's `grep`, the test's text contains its project, file, config `tag`, describe and test titles and tags.
 Option tags are placed at the end; Playwright places a describe's tags after its title. Only a pattern depending

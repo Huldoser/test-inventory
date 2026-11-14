@@ -22,11 +22,16 @@ The [framework guides](/frameworks/) explain each runner's config lookup, defaul
 the [configs reference](/reference/output#configs) describes the exact output.
 
 A setting computed at run time, for example from `process.env`, or imported from an installed package cannot be
-worked out. When needed by the scan, a `config-value-unknown` warning names it. A run setting chosen by a condition,
+worked out. When needed by the scan, a `config-value-unknown` diagnostic names it. A run setting chosen by a condition,
 such as `retries: process.env.CI ? 2 : 0`, is `null` with source `config`; `retriesConfigText` and the other
 `ConfigText` keys keep its source. A config a package.json script passes on the runner's command line decides which
-scanned files run, but a scan without globs finds no files through it; one that only a CI workflow or a wrapper script
-names is not read.
+scanned files run. Playwright also discovers files through those scripts when no config is above the file; the other
+runners need explicit globs for such files. A config that only a CI workflow or a wrapper script names is not read.
+
+When Playwright's `projects` cannot be read, discovery keeps candidates from readable top-level file settings and
+leaves their project membership unknown. Project overrides can include other files or exclude those candidates.
+A `config-value-unknown` error says tests may be missing. No candidates are inferred if the top-level file settings
+are also unknown; use explicit globs. See [Playwright](/frameworks/playwright#configuration-and-limits).
 
 Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects.
 `expectCount`, `steps` and `fixtures` inspect the test function only: assertions and steps inside page objects or
