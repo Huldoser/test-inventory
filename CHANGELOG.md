@@ -1,5 +1,13 @@
 # test-inventory
 
+## 0.10.4
+
+### Patch Changes
+
+- [#117](https://github.com/Huldoser/test-inventory/pull/117) [`ac4d95f`](https://github.com/Huldoser/test-inventory/commit/ac4d95f52e2e17571a23cba4467525718a5a7bbf) - Count a config a package.json script starts Vitest, Jest, Playwright, Cypress or WebdriverIO with, as `vitest run --config vitest.config.integration.mts`, when deciding whether a file runs, so its files no longer get `file-not-run`. Vitest and Cypress read its globs from the folder the script runs in, the others from the config's folder. A config the scan can't read, such as a variable, gives a `config-value-unknown` warning on the package.json in place of `file-not-run`.
+
+- [#117](https://github.com/Huldoser/test-inventory/pull/117) [`ac4d95f`](https://github.com/Huldoser/test-inventory/commit/ac4d95f52e2e17571a23cba4467525718a5a7bbf) - Don't report `file-not-run` for a file that a collected test file imports, such as a shared suite, as its tests run in that file.
+
 ## 0.10.3
 
 ### Patch Changes
