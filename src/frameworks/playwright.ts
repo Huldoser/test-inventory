@@ -66,7 +66,7 @@ import {
   wrappedFunction,
 } from './common.ts';
 
-const MISMATCHED_SOURCES = new Set(['vitest', '@jest/globals']);
+const MISMATCHED_SOURCES = new Set(['vitest', '@jest/globals', 'mocha', 'node:test', 'bun:test']);
 
 // Maps rather than object literals, so names such as `constructor` don't match inherited properties.
 const DESCRIBES = new Map<string, { only?: boolean; state?: State; mode?: Mode }>([

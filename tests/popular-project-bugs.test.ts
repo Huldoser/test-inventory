@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scan } from '../src/index.ts';
-import { codes, scanJest, scanNode, scanPlaywright, scanVitest } from './helpers.ts';
+import { codes, scanJasmine, scanJest, scanMocha, scanNode, scanPlaywright, scanVitest } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
 
 describe('real-project declaration regressions', () => {
@@ -190,5 +190,31 @@ test.describe('order history', async () => {
     expect(result.tests).toHaveLength(1);
     expect(result.tests[0].state).toBe('active');
     expect(codes(result)).toEqual([]);
+  });
+});
+
+describe("another runner's built-in test module", () => {
+  it.each([
+    ['node:test', 'bun:test', scanNode],
+    ['Jest', 'node:test', scanJest],
+    ['Jest', 'bun:test', scanJest],
+    ['Jest', 'mocha', scanJest],
+    ['Vitest', 'node:test', scanVitest],
+    ['Vitest', 'bun:test', scanVitest],
+    ['Vitest', 'mocha', scanVitest],
+    ['Mocha', 'node:test', scanMocha],
+    ['Mocha', 'bun:test', scanMocha],
+    ['Jasmine', 'node:test', scanJasmine],
+    ['Jasmine', 'bun:test', scanJasmine],
+    ['Playwright', 'node:test', scanPlaywright],
+    ['Playwright', 'bun:test', scanPlaywright],
+    ['Playwright', 'mocha', scanPlaywright],
+  ])('is a framework mismatch in a %s scan, not a missing test import: %s', (_, source, scanWith) => {
+    const result = scanWith(`import { describe, it } from '${source}';
+describe('order routing', () => {
+  it('routes a limit order to the primary venue', () => {});
+});`);
+    expect(codes(result)).toEqual(['framework-mismatch']);
+    expect(result.diagnostics[0].message).toMatch(new RegExp(`^The file imports '${source}', but the scan is for `));
   });
 });

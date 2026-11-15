@@ -28,7 +28,15 @@ const JASMINE: Dialect = {
   // Jasmine has no module to import its functions from: they are globals, set by the jasmine command, Karma or a
   // browser page.
   source: 'jasmine-core',
-  mismatched: new Set(['@playwright/test', 'playwright/test', 'vitest', '@jest/globals', 'mocha']),
+  mismatched: new Set([
+    '@playwright/test',
+    'playwright/test',
+    'vitest',
+    '@jest/globals',
+    'mocha',
+    'node:test',
+    'bun:test',
+  ]),
   starts: new Map([
     ['describe', { kind: 'describe', links: [] }],
     ['xdescribe', { kind: 'describe', links: ['skip'] }],
