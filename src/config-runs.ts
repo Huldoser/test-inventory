@@ -153,11 +153,15 @@ const ASSUMED = 'the scan takes its files to be run';
 const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypress', 'webdriverio', 'mocha']);
 
 /**
- * A config a package.json script starts the runner with, null for the runner's defaults, and the folder it runs from;
- * or, as `unknown`, why the scan can't tell what a script runs.
+ * A config a package.json script starts the runner with, null for the runner's defaults, the folder it runs from, and
+ * for Mocha its command line.
  */
-/** A runner a script starts: the config it reads, the folder it starts in, and for Mocha its command line. */
-type Route = { config: ConfigFile | null; root: string; mocha?: MochaArguments };
+interface Route {
+  config: ConfigFile | null;
+  root: string;
+  mocha?: MochaArguments;
+}
+/** A route, or, as `unknown`, why the scan can't tell what a script runs. */
 type ScriptRoute = Route | { manifest: string; unknown: string };
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
 const UNNAMED = 'the scan lists the files the config runs, but not which of its browser projects run them';

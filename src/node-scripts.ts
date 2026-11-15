@@ -320,7 +320,7 @@ export interface MochaArguments {
 }
 
 /** Mocha's options that take a value, by name and alias, from its `run-option-metadata`. */
-const MOCHA_VALUES: Record<string, string> = {
+const MOCHA_VALUES: Partial<Record<string, string>> = {
   config: 'config',
   extension: 'extension',
   file: 'file',
@@ -358,7 +358,7 @@ const MOCHA_VALUES: Record<string, string> = {
 };
 
 /** The flags Mocha's options take, aliases resolved, that change which files run. */
-const MOCHA_FLAGS: Record<string, string> = {
+const MOCHA_FLAGS: Partial<Record<string, string>> = {
   recursive: 'recursive',
   'no-config': 'no-config',
   'no-package': 'no-package',
@@ -383,14 +383,14 @@ export function mochaArguments(args: readonly string[]): MochaArguments {
       positional.push(word);
       continue;
     }
-    const [, name, inline] = option;
+    const name = option[1];
     const valued = MOCHA_VALUES[name];
     if (valued === undefined) {
       const flag = MOCHA_FLAGS[name];
       if (flag !== undefined) options.set(flag, []);
       continue;
     }
-    const value = inline ?? args.at(++index);
+    const value = option.at(2) ?? args.at(++index);
     if (value === undefined) break;
     const values = valued === 'spec' || valued === 'ignore' ? [value] : value.split(',');
     options.set(valued, [...(options.get(valued) ?? []), ...values]);

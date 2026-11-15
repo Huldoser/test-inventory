@@ -1135,7 +1135,7 @@ export class Configs {
     const id = `${folder}\0${rcFile}\0${manifestFile}`;
     if (this.mocha.has(id)) return this.mocha.get(id) as ConfigFile | null;
     let rc = rcFile ? this.at(rcFile) : null;
-    let manifest = manifestFile || null;
+    let manifest = typeof manifestFile === 'string' ? manifestFile : null;
     for (const above of rcFile === undefined || manifestFile === undefined ? folders(folder) : []) {
       const name =
         rc || rcFile !== undefined ? undefined : CONFIG_FILES.mocha.find((item) => existsSync(path.join(above, item)));
