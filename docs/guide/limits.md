@@ -91,10 +91,13 @@ Values, a custom `test` object, and a function that declares tests, as described
   `tsconfig.base.json` is used, as in an Nx workspace; a solution-style tsconfig takes them from the projects it
   `references`. When no file of a matching pattern exists, the import goes on to the usual lookup, as in
   TypeScript;
-- an `imports` entry in the nearest `package.json`, as in `#fixtures`;
-- a workspace package whose `exports`, `types` or `main` point to TypeScript source, or to build output with the
-  source next to it, as `dist/esm/index.js` is to `src/index.ts`, or to `index.ts` in a package without a `src`
-  folder; for a package without `exports`, a subpath names a file in it, as `@trading/e2e/fixtures.ts` does. The
+- an `imports` entry in the nearest `package.json`, as in `#fixtures`; a target in build output, as
+  `./dist/*.js`, is taken from the source next to it, as for a workspace package;
+- a workspace package whose `exports`, `types` or `main` point to TypeScript source, to JavaScript outside build
+  folders, as in a package written in JavaScript, or to build output with the source next to it, as
+  `dist/esm/index.js` is to `src/index.ts`, or to `index.ts` in a package without a `src` folder; for a package
+  without `exports`, a subpath names a file in it, as `@trading/e2e/fixtures.ts` does. Built JavaScript with no
+  source next to it is not followed, since a change to its source reaches it only at the next build. The
   package is found through its link in `node_modules`, or before an install, from the `workspaces` of `package.json`
   and from `pnpm-workspace.yaml`. Patterns and links that lead out of
   the workspace folder are not followed.
@@ -254,8 +257,11 @@ something included. Some of what a test runs is out of its reach:
   gives `hasUnfollowedDependencies` and a `dependency-not-followed` warning. Other aliases, such as `@app/pricing`,
   read as installed packages.
 - Files read at runtime through `fs` or `fetch`, environment variables and the clock.
-- Runtime import paths, patterns such as `import.meta.glob()`, and modules described only by `.d.ts` files.
-  These give `hasUnfollowedDependencies` and a `dependency-not-followed` warning.
+- Import paths worked out at runtime from anything but string literals and the module's own folder, patterns such
+  as `import.meta.glob()`, and modules described only by `.d.ts` files. These give `hasUnfollowedDependencies` and a
+  `dependency-not-followed` warning. A path built from literals and `__dirname`, `import.meta.dirname` or
+  `import.meta.url` with `path.join()`, `path.resolve()`, `new URL()`, `fileURLToPath()` or `pathToFileURL()`, as
+  `require(path.join(__dirname, 'venues', 'nasdaq.cjs'))`, is followed.
 - A config the runner's `--config` selects for a file a config found by name runs too, or that only a CI workflow or
   a wrapper script names. A setup path computed at runtime, such as
   `setupFiles: process.env.SETUP` or `require.resolve('./global-setup')`, or a nonexistent path gives a
