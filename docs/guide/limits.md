@@ -267,9 +267,9 @@ something included. Some of what a test runs is out of its reach:
   `import.meta.url` with `path.join()`, `path.resolve()`, `new URL()`, `fileURLToPath()` or `pathToFileURL()`, as
   `require(path.join(__dirname, 'venues', 'nasdaq.cjs'))`, is followed.
 - A config the runner's `--config` selects for a file a config found by name runs too, or that only a CI workflow or
-  a wrapper script names. A setup path computed at runtime, such as
-  `setupFiles: process.env.SETUP` or `require.resolve('./global-setup')`, or a nonexistent path gives a
-  `dependency-not-followed` warning.
+  a wrapper script names. A setup path computed at runtime, such as `setupFiles: process.env.SETUP`, or a
+  nonexistent path gives a `dependency-not-followed` warning. `require.resolve('./global-setup')` and
+  `import.meta.resolve('./global-setup.ts')` of a file that exists are followed, from the config's folder.
 - Types, which do not run. For `*.test-d.ts` type tests, the hash follows their types instead.
 - A Vue component's script loaded with `src`, such as `<script src="./watchlist.ts">`.
 
