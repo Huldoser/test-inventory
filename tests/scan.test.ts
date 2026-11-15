@@ -1045,6 +1045,35 @@ describe('sell orders', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('binds a rest parameter to the arguments left, unless a spread argument hides some', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/settlement.ts': `import { test } from '@playwright/test';
+
+export const settlesIn = (desk: string, ...cycles: string[]) => {
+  cycles.forEach((cycle) => test(\`\${desk} settles \${cycle}\`, async () => {}));
+};
+`,
+      'tests/settlement.spec.ts': `import { settlesIn } from '../helpers/settlement';
+
+const LATER = ['T+3'];
+settlesIn('equities', 'T+1', 'T+2');
+settlesIn('bonds', ...LATER);
+`,
+    });
+    const counted = await scanProject(root);
+    expect(counted.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`${desk} settles ${cycle}`', 2],
+      ['`${desk} settles ${cycle}`', null],
+    ]);
+    const expanded = await scanProject(root, { expandCases: true });
+    expect(expanded.tests.map((test) => test.title)).toEqual([
+      'equities settles T+1',
+      'equities settles T+2',
+      '`${desk} settles ${cycle}`',
+    ]);
+  });
+
   it('leaves alone imports that are not local functions, and calls from test bodies', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

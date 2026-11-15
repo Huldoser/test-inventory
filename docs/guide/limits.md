@@ -187,7 +187,8 @@ test.describe.skip('short sells', () => {
 
 Playwright lists two tests here, and so does the scan: `buy orders > buy rejects a zero quantity`, and
 `short sells > short rejects a zero quantity`, which is skipped. Both have `isInFunction: true` and the line of the
-`test()` call.
+`test()` call. A rest parameter, as `...cycles`, holds the arguments left, unless a spread argument such as `...LATER`
+hides how many there are.
 
 A function imported from another file is followed the same way, through the imports above, also when a shared file
 imports it and exports it again, as an `index.js` of helpers does, and when it is called on the module, as

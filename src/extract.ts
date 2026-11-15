@@ -1176,14 +1176,20 @@ class Walker {
     const scopes = this.scopeChain(fn);
     const saved = this.scopes.splice(0, this.scopes.length, ...scopes);
     this.callStack.push(fn);
-    frame.values.withArguments(fn, args, scopes, () => {
-      this.visitCallback(fn, {
-        ...context,
-        isInFunction: true,
-        declaredIn: null,
-        registeredBy: context.registeredBy ?? call,
-      });
-    });
+    frame.values.withArguments(
+      fn,
+      args,
+      scopes,
+      () => {
+        this.visitCallback(fn, {
+          ...context,
+          isInFunction: true,
+          declaredIn: null,
+          registeredBy: context.registeredBy ?? call,
+        });
+      },
+      spread === -1,
+    );
     this.callStack.pop();
     this.scopes.splice(0, this.scopes.length, ...saved);
     // What the module's own imports couldn't resolve is reported at the call, as it is why tests may be missing. Another
