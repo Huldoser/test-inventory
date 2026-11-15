@@ -68,14 +68,19 @@ From Jest 30, a string-valued `jest` key names a config file. Multiple configs i
 `config-value-unknown` warning because Jest refuses them. With no root config, Jest's defaults apply.
 `injectGlobals` and supported run settings are read.
 
-A config built by Next.js's `createJestConfig(config)` is not worked out. A package `preset` is not read;
+A config built with next/jest, as the [Next.js Jest guide](https://nextjs.org/docs/app/guides/testing/jest) writes
+it, is read: `createJestConfig(config)` or `nextJest(options)(config)` gives the config, or what a function given
+returns, with the mocks next/jest maps styles, images, fonts and `server-only` to, and with `/node_modules/` and
+`/.next/` left out of the test files. A config that changes what `createJestConfig()` returns, or a wrapper from
+another package, is not worked out. A package `preset` is not read;
 if it may select files and neither `testMatch` nor `testRegex` is set explicitly, `config-value-unknown`
 reports that Jest's defaults are used. A local preset path is read.
 
 A config Jest refuses, such as one excluding `js` from `moduleFileExtensions` or naming nonexistent `roots`,
 is read as written. Assigning its properties one by one, such as `module.exports.testMatch = [...]`, is not read.
 `moduleNameMapper`, `modulePaths` and `moduleDirectories` are followed for imports and dependency hashes;
-runtime mappings that cannot be worked out are left out.
+runtime mappings that cannot be worked out are left out. A name `moduleNameMapper` maps to an installed package, such
+as `identity-obj-proxy` for styles, is left out as an imported package is.
 
 `jest.setTimeout()` and `jest.retryTimes()` inside tests, hooks or functions are not read.
 Tests registered by functions that setup files put on `globalThis`, or packages such as `babel-plugin-tester`,

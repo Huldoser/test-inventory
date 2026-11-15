@@ -353,6 +353,9 @@ function workspaceSource(
   return local ? packageEntry(local, subpath) : null;
 }
 
+/** Why a bare name is not followed when it is no local file: it is taken to be an installed package. */
+const NOT_LOCAL = 'is not a local file, a path alias or a workspace package';
+
 /**
  * How a runner's config maps imports, for every module a test imports: aliases, tried first, as Vite's
  * `resolve.alias` and Jest's `moduleNameMapper`, and folders a bare name is looked for in, as Jest's `modulePaths` and
@@ -461,7 +464,7 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
         if (!file && /^[@~]\//.test(specifier)) {
           return { reason: targets ? 'could not be read' : 'is a path alias that no tsconfig paths or config define' };
         }
-        if (!file) return { reason: 'is not a local file, a path alias or a workspace package' };
+        if (!file) return { reason: NOT_LOCAL };
         candidates = [file];
       }
     }
@@ -473,7 +476,8 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
     (fromFile: string, map: ImportMap | null = null): ModuleReader =>
     (specifier) => {
       const directory = path.dirname(fromFile);
-      const aliased = map?.aliases.map((alias) => mapped(specifier, alias)).find((names) => names !== null);
+      const alias = map?.aliases.find((item) => mapped(specifier, item) !== null);
+      const aliased = alias && mapped(specifier, alias);
       if (aliased?.length === 0) return { reason: 'has a config alias whose replacement could not be worked out' };
       // Vite takes `/src/x` from its root first, unless it is already a path inside the root.
       const fromRoot = (name: string) =>
@@ -484,9 +488,14 @@ export function moduleResolver(root: string): (fromFile: string, map?: ImportMap
       const located = (aliased?.flatMap(fromRoot) ?? [specifier]).map((name) => locate(name, directory, map));
       const found = located.find((item) => typeof item === 'string');
       if (found === undefined) {
+        const reasons = located as { reason: string }[];
+        // Jest resolves what moduleNameMapper gives as it does an import, so a package there, as next/jest's mocks or
+        // `identity-obj-proxy`, is left out as an imported package is.
+        const isPackage = alias?.replacesName && reasons.some((item) => item.reason === NOT_LOCAL);
+        if (isPackage) return { reason: NOT_LOCAL };
         return aliased
           ? { reason: `is mapped by the config to ${aliased.map(shown).join(' or ')}, which could not be read` }
-          : (located[0] as { reason: string });
+          : reasons[0];
       }
       let known = modules.get(map);
       if (!known) {
