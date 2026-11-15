@@ -384,3 +384,49 @@ describe('a test file with an expression thousands of levels deep', () => {
     ]);
   });
 });
+
+describe("another runner's module that the config maps to a local file", () => {
+  it('is followed there, as Vitest does with a shim for Bun tests', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { vitest: '5.0.3' } }),
+      'vitest.config.ts': [
+        "import path from 'node:path';",
+        "import { defineConfig } from 'vitest/config';",
+        "export default defineConfig({ resolve: { alias: [{ find: 'bun:test', replacement: path.resolve(__dirname, './test/bun-shim.ts') }] } });",
+      ].join('\n'),
+      'test/bun-shim.ts': "export { describe, expect, test } from 'vitest';\n",
+      'server/quotes.test.ts': `import { describe, test } from 'bun:test';
+describe('quote server', () => {
+  test('streams the last trade price', () => {});
+});`,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['quote server > streams the last trade price', 'active'],
+    ]);
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual([]);
+  });
+});
+
+describe('a config function a workspace package of the runner itself exports', () => {
+  it("is read as the runner's own, as in the Vite repository, where `vite` is a workspace package", async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        private: true,
+        workspaces: ['packages/*'],
+        devDependencies: { vitest: '5.0.3' },
+      }),
+      'packages/vite/package.json': JSON.stringify({ name: 'vite', exports: { '.': './src/index.ts' } }),
+      'packages/vite/src/index.ts': 'export function defineConfig(config) {\n  return config;\n}\n',
+      'vitest.config.ts': [
+        "import { defineConfig } from 'vite';",
+        "export default defineConfig(({ command }) => ({ test: { include: ['specs/**/*.spec.ts'] } }));",
+      ].join('\n'),
+      'specs/orders.spec.ts': "import { test } from 'vitest';\ntest('routes a limit order', () => {});\n",
+      'tests/orders.test.ts': "import { test } from 'vitest';\ntest('routes a market order', () => {});\n",
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['specs/orders.spec.ts']);
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual([]);
+  });
+});

@@ -10,6 +10,7 @@ import {
   exportName,
   followImport,
   followModule,
+  mismatchedFor,
   moduleImports,
   ModuleFunctions,
   ownExport,
@@ -144,18 +145,24 @@ export class SuiteBindings implements TestObjects {
   /** Whether the module is one a scanned file imports from, where no walk reads its globals and chains. */
   private readonly isFollowed: boolean;
 
-  constructor(program: Program, dialect: Dialect, follow: FollowImport, isFollowed = false) {
+  constructor(
+    program: Program,
+    dialect: Dialect,
+    follow: FollowImport,
+    isMismatched: (source: string) => boolean,
+    isFollowed = false,
+  ) {
     this.dialect = dialect;
     this.program = program;
     this.isFollowed = isFollowed;
     this.declared = topLevelNames(program);
-    this.imported = moduleImports(program, (source) => isOwnModule(dialect, source) || dialect.mismatched.has(source));
+    this.imported = moduleImports(program, (source) => isOwnModule(dialect, source) || isMismatched(source));
     this.follow = follow;
     this.functions = new ModuleFunctions(program, this.imported, follow);
     for (const statement of program.body) {
       if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
       const source = statement.source.value;
-      if (dialect.mismatched.has(source)) {
+      if (isMismatched(source)) {
         this.problems.push(
           problem(
             'framework-mismatch',
@@ -365,6 +372,8 @@ export abstract class SuiteAdapter implements Adapter {
   private readonly aliases = new Map<Node, TestFunction | null>();
   /** First members that show a name imported from a local file is used as the framework's `test`. */
   private readonly testMembers: ReadonlySet<string>;
+  /** Whether a module is another runner's, unless the config maps it to a local file. */
+  private readonly isMismatched: (source: string) => boolean;
 
   constructor(
     parsed: ParsedFile,
@@ -377,21 +386,24 @@ export abstract class SuiteAdapter implements Adapter {
     this.readModule = readModule;
     this.dialect = dialect;
     this.testMembers = new Set([...testMembers, ...dialect.starts.keys()]);
+    this.isMismatched = mismatchedFor(dialect.mismatched, readModule);
     // A test object the file builds from an imported one, as in `const it = base.extend({...})`, is followed quietly:
     // a call through the import itself is what reports an import that can't be followed.
     const followed = new Map<string, boolean>();
-    this.bindings = new SuiteBindings(parsed.program, dialect, (source, imported, exported = 'test object') => {
-      const key = `${source}\0${exported}\0${imported}`;
-      if (!followed.has(key)) {
-        followed.set(key, followModule(source, imported, readModule, this.framework(), exported).exported);
-      }
-      return followed.get(key) === true;
-    });
-    this.problems = [...this.bindings.problems];
-    this.imports = moduleImports(
+    this.bindings = new SuiteBindings(
       parsed.program,
-      (source) => isOwnModule(dialect, source) || dialect.mismatched.has(source),
+      dialect,
+      (source, imported, exported = 'test object') => {
+        const key = `${source}\0${exported}\0${imported}`;
+        if (!followed.has(key)) {
+          followed.set(key, followModule(source, imported, readModule, this.framework(), exported).exported);
+        }
+        return followed.get(key) === true;
+      },
+      this.isMismatched,
     );
+    this.problems = [...this.bindings.problems];
+    this.imports = moduleImports(parsed.program, (source) => isOwnModule(dialect, source) || this.isMismatched(source));
   }
 
   abstract classify(call: CallExpression, context: CallContext): ApiCall | null;
@@ -647,8 +659,8 @@ export abstract class SuiteAdapter implements Adapter {
     return {
       name: dialect.name,
       isSource: (source) => isOwnModule(dialect, source),
-      isMismatched: (source) => dialect.mismatched.has(source),
-      testObjects: (program, follow) => new SuiteBindings(program, dialect, follow, true),
+      isMismatched: this.isMismatched,
+      testObjects: (program, follow) => new SuiteBindings(program, dialect, follow, this.isMismatched, true),
     };
   }
 

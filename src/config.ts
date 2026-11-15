@@ -777,13 +777,6 @@ class ConfigCode {
     }
     const custom = this.framework === 'jest' ? this.nextJestCustom(call, frame, scopes) : null;
     if (custom) return withNextJest(custom, site);
-    // A factory, as `createVitestConfig('node')`, gives what it returns, with its parameters bound to the call's
-    // arguments. When none of that can be worked out, the call in the config is the place to point at.
-    const factory = this.factory(unwrap(call.callee), frame, scopes);
-    if (factory) {
-      const returned = this.called(factory, call, frame, scopes);
-      return returned.kind === 'unknown' ? unknown(site) : returned;
-    }
     const origin = this.origin(unwrap(call.callee), frame, scopes);
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
@@ -793,6 +786,14 @@ class ConfigCode {
     }
     const isPackage = origin !== null && (origin.source === '' || !/^[./#]/.test(origin.source));
     const name = isPackage && CONFIG_FUNCTIONS.has(origin.name) ? origin.name : null;
+    // A factory, as `createVitestConfig('node')`, gives what it returns, with its parameters bound to the call's
+    // arguments. The runner's own `defineConfig` is read as such, also from a workspace package, as Vite's own
+    // repository has. When none of the factory can be worked out, the call in the config is the place to point at.
+    const factory = name === null ? this.factory(unwrap(call.callee), frame, scopes) : null;
+    if (factory) {
+      const returned = this.called(factory, call, frame, scopes);
+      return returned.kind === 'unknown' ? unknown(site) : returned;
+    }
     const { arguments: given } = call;
     const needed = name === 'mergeConfig' ? 2 : 1;
     // Jest exports defineConfig() and mergeConfig() from 30.3; neither takes a project.
