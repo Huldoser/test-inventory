@@ -731,6 +731,65 @@ test('shows the fee as a price', async ({ page }) => {
     });
   });
 
+  it("follows a module loaded by a path built from a file's folder and literals, as Node builds it", async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'support/paths.ts':
+        "import path from 'node:path';\n\nexport const VENUES = path.join(import.meta.dirname, 'venues');\n",
+      'support/venues/nasdaq.cjs': "module.exports = { mic: 'XNAS' };\n",
+      'support/venues/nyse.ts': "export const MIC = 'XNYS';\n",
+      'support/feeds.mjs': "export const PRIMARY = 'wss://feed.example.test';\n",
+      'support/fees.cjs': 'module.exports = { equity: 0.005 };\n',
+      'tests/routing.test.ts': `import { join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { VENUES } from '../support/paths';
+
+const SUPPORT = join(import.meta.dirname, '..', 'support');
+
+describe('venue routing', () => {
+  it('routes AAPL to NASDAQ', () => {
+    const nasdaq = require(join(VENUES, 'nasdaq.cjs'));
+    expect(nasdaq.mic).toBe('XNAS');
+  });
+
+  it('routes IBM to NYSE', async () => {
+    const { MIC } = await import(pathToFileURL(resolve(SUPPORT, 'venues/nyse.ts')).href);
+    expect(MIC).toBe('XNYS');
+  });
+
+  it('streams quotes from the primary feed', async () => {
+    const { PRIMARY } = await import(fileURLToPath(new URL('../support/feeds.mjs', import.meta.url)));
+    expect(PRIMARY).toMatch(/^wss:/);
+  });
+
+  it('charges the equity fee', () => {
+    const fees = require(__dirname + '/../support/fees.cjs');
+    expect(fees.equity).toBe(0.005);
+  });
+
+  it('reads the venue from the folder the run starts in', () => {
+    const nasdaq = require(resolve('support/venues/nasdaq.cjs'));
+    expect(nasdaq.mic).toBe('XNAS');
+  });
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests.map((test) => [test.title, test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+      // support/paths.ts runs when the test file loads it, so every test has it.
+      ['routes AAPL to NASDAQ', ['support/paths.ts', 'support/venues/nasdaq.cjs', 'tests/routing.test.ts'], false],
+      ['routes IBM to NYSE', ['support/paths.ts', 'support/venues/nyse.ts', 'tests/routing.test.ts'], false],
+      [
+        'streams quotes from the primary feed',
+        ['support/feeds.mjs', 'support/paths.ts', 'tests/routing.test.ts'],
+        false,
+      ],
+      ['charges the equity fee', ['support/fees.cjs', 'support/paths.ts', 'tests/routing.test.ts'], false],
+      ['reads the venue from the folder the run starts in', ['support/paths.ts', 'tests/routing.test.ts'], true],
+    ]);
+  });
+
   it('marks a test that reaches what it cannot follow, and reports each place once per scan', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

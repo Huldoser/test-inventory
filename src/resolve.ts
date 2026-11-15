@@ -291,7 +291,9 @@ function packageEntry(folder: string, subpath: string): { file: string } | { rea
   ]
     .map((target) => path.resolve(folder, target))
     .find(isFile);
-  return file ? { file } : { reason: "is a workspace package whose exports, types and main don't point to source code" };
+  return file
+    ? { file }
+    : { reason: "is a workspace package whose exports, types and main don't point to source code" };
 }
 
 /**

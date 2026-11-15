@@ -416,6 +416,39 @@ const IN_PROGRESS: Unit[] = [];
 
 const COMPUTED = "The module this loads is worked out at run time, so dependencyHash doesn't cover it.";
 
+/**
+ * Where a module's file is placed while the path it loads is worked out, as `path.join(__dirname, 'fixtures')`: a
+ * folder of its own, so that the path comes out the same on every system and one outside the project stands out.
+ */
+const PROJECT = '/__project__';
+
+/** The path of a file URL; null for any other text. */
+function fileUrlPath(url: string): string | null {
+  const parsed = URL.parse(url);
+  return parsed?.protocol === 'file:' ? decodeURIComponent(parsed.pathname) : null;
+}
+
+/** Node.js path and URL functions a module builds the path it loads with; null when the result depends on the run. */
+const PATH_FUNCTIONS: Record<string, (...parts: string[]) => string | null> = {
+  'path.join': (...parts) => path.posix.join(...parts),
+  // Without an absolute part, the path is resolved from the folder the run starts in.
+  'path.resolve': (...parts) =>
+    parts.some((part) => path.posix.isAbsolute(part)) ? path.posix.resolve(...parts) : null,
+  'path.dirname': (part) => path.posix.dirname(part),
+  'url.fileURLToPath': (url) => fileUrlPath(url),
+  'url.pathToFileURL': (file) => (path.posix.isAbsolute(file) ? new URL(`file://${file}`).href : null),
+};
+
+/** The specifier a built path or file URL stands for from a module; null for one outside the project or a bare name. */
+function specifierFrom(module: Module, built: string): string | null {
+  const file = built.startsWith('file:') ? fileUrlPath(built) : built;
+  if (file === null) return null;
+  if (/^\.\.?\//.test(file)) return file;
+  if (!file.startsWith(`${PROJECT}/`)) return null;
+  const relative = path.posix.relative(path.posix.dirname(path.posix.join(PROJECT, module.relativeFilePath)), file);
+  return /^\.\.?\//.test(relative) ? relative : `./${relative}`;
+}
+
 function isLocalSpecifier(specifier: string): boolean {
   return /^\.\.?(?:\/|$)/.test(specifier) || specifier.startsWith('#');
 }
@@ -1299,6 +1332,82 @@ export class DependencyGraph {
   }
 
   /**
+   * The path or URL an expression builds from literals, its module's folder and Node.js path and URL functions, as
+   * `join(import.meta.dirname, 'fixtures')`, with the module's file placed in `PROJECT`; null for anything else.
+   */
+  private builtPath(module: Module, value: Node, scopes: readonly Node[], types: boolean, depth = 0): string | null {
+    if (depth > MAX_VALUE_DEPTH) return null;
+    const { module: at, node, scopes: where } = this.valueOf(module, value, scopes, types);
+    const of = (part: Node) =>
+      part.type === 'SpreadElement' ? null : this.builtPath(at, part, where, types, depth + 1);
+    const file = path.posix.join(PROJECT, at.relativeFilePath);
+    switch (node.type) {
+      case 'Literal':
+        return typeof node.value === 'string' ? node.value : null;
+      case 'TemplateLiteral': {
+        const parts = node.expressions.map(of);
+        if (parts.includes(null)) return null;
+        return node.quasis.map((quasi, index) => (quasi.value.cooked as string) + (parts[index] ?? '')).join('');
+      }
+      case 'BinaryExpression': {
+        const [left, right] = node.operator === '+' ? [of(node.left), of(node.right)] : [null, null];
+        return left === null || right === null ? null : left + right;
+      }
+      case 'Identifier':
+        // CommonJS gives every module these, and Vitest and Jest give them to ES modules as well.
+        if (at.values.declarationOf(node.name, where) !== null) return null;
+        return node.name === '__dirname' ? path.posix.dirname(file) : node.name === '__filename' ? file : null;
+      case 'MemberExpression': {
+        if (node.computed) return null;
+        const { name } = node.property;
+        if (node.object.type === 'MetaProperty') {
+          if (name === 'dirname') return path.posix.dirname(file);
+          if (name === 'filename') return file;
+          return name === 'url' ? new URL(`file://${file}`).href : null;
+        }
+        const url = of(node.object);
+        if (url === null || !URL.canParse(url)) return null;
+        return name === 'href' ? url : name === 'pathname' ? fileUrlPath(url) : null;
+      }
+      case 'NewExpression': {
+        const isUrl =
+          node.callee.type === 'Identifier' && node.callee.name === 'URL' && !at.values.declarationOf('URL', where);
+        const [input, base] = isUrl ? node.arguments.map(of) : [null];
+        return input === null || input === undefined || base === null ? null : (URL.parse(input, base)?.href ?? null);
+      }
+      case 'CallExpression': {
+        const { callee } = node;
+        // A URL's `toString()`, as `import(url.toString())`.
+        if (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'toString') {
+          const url = node.arguments.length === 0 ? of(callee.object) : null;
+          return url !== null && URL.canParse(url) ? url : null;
+        }
+        const name = this.nodeFunction(at, callee, where);
+        const parts = name === null ? [null] : node.arguments.map(of);
+        if (name === null || parts.includes(null)) return null;
+        return PATH_FUNCTIONS[name]?.(...(parts as string[])) ?? null;
+      }
+    }
+    return null;
+  }
+
+  /** The Node.js path or URL function a callee names, as `path.join` for `join` imported from `node:path`; or null. */
+  private nodeFunction(module: Module, callee: Node, scopes: readonly Node[]): string | null {
+    const target = unwrap(callee as Expression);
+    const isMember = target.type === 'MemberExpression' && !target.computed && target.object.type === 'Identifier';
+    const local =
+      target.type === 'Identifier' ? target.name : isMember ? (target.object as { name: string }).name : null;
+    const library = local === null ? null : module.values.importSource(local, scopes)?.replace(/^node:/, '');
+    if (local === null || (library !== 'path' && library !== 'url')) return null;
+    const imported = module.values.importedName(local, scopes);
+    // `import path from 'node:path'`, `import * as path` and `const path = require('path')` name the whole module.
+    if (!isMember) return imported === null ? null : `${library}.${imported}`;
+    return imported === null || imported === 'default'
+      ? `${library}.${(target.property as { name: string }).name}`
+      : null;
+  }
+
+  /**
    * What an expression holds, followed through constants and imports to the function or value they are bound to; the
    * expression itself when it is something else, with the module and scopes to read it in.
    */
@@ -1343,15 +1452,23 @@ export class DependencyGraph {
       if (declaration === null || (isOwn(declaration) && !IMPORT_BINDINGS.has(declaration.type))) return;
       add(this.toDeclaration(module, declaration, name, member, types));
     };
-    /** A module loaded by the path in `argument`, or a place when the path is worked out at run time. */
-    const loadsByPath = (argument: Node | undefined, at: Span) => {
+    /**
+     * A module loaded by the path in `argument`, also one built from literals and the file's folder, or a place when
+     * the path is worked out at run time.
+     */
+    const loadsByPath = (argument: Node | undefined, scopes: readonly Node[], at: Span) => {
       // `vi.mock(import('./broker'))`: the walk reads the import() itself.
       if (argument?.type === 'ImportExpression') return;
-      if (argument?.type === 'Literal' && typeof argument.value === 'string') {
-        add(this.imported(module, argument.value, '*', types, at));
-      } else {
-        edges.add(this.placeUnit(module, at, COMPUTED));
-      }
+      const built =
+        argument && argument.type !== 'SpreadElement' ? this.builtPath(module, argument, scopes, types) : null;
+      const specifier =
+        argument?.type === 'Literal' && typeof argument.value === 'string'
+          ? argument.value
+          : built === null
+            ? null
+            : specifierFrom(module, built);
+      if (specifier === null) edges.add(this.placeUnit(module, at, COMPUTED));
+      else add(this.imported(module, specifier, '*', types, at));
     };
     /** The fixtures a call's functions ask for, when it registers a hook, a condition, a test or `use()` values. */
     const asks = (call: CallExpression, scopes: readonly Node[]) => {
@@ -1437,12 +1554,13 @@ export class DependencyGraph {
           break;
         }
         case 'ImportExpression':
-          loadsByPath(node.source, node);
+          loadsByPath(node.source, scopes, node);
           break;
         case 'CallExpression': {
           const { callee } = node;
           asks(node, scopes);
-          if (callee.type === 'Identifier' && callee.name === 'require') loadsByPath(node.arguments.at(0), node);
+          if (callee.type === 'Identifier' && callee.name === 'require')
+            loadsByPath(node.arguments.at(0), scopes, node);
           if (callee.type === 'MemberExpression' && !callee.computed) {
             const { object, property } = callee;
             if (SNAPSHOT_MATCHERS.has(property.name)) snapshot(property.name, node, scopes);
@@ -1459,7 +1577,7 @@ export class DependencyGraph {
               unit.snapshots.push({ matcher: target, name: null, isParts: false });
             }
             if (object.type === 'Identifier' && object.name === 'vi' && VI_MODULE_CALLS.has(property.name)) {
-              loadsByPath(node.arguments.at(0), node);
+              loadsByPath(node.arguments.at(0), scopes, node);
             }
             if (object.type === 'MetaProperty' && property.name.startsWith('glob')) {
               edges.add(
