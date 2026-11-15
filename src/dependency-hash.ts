@@ -429,7 +429,7 @@ function fileUrlPath(url: string): string | null {
 }
 
 /** Node.js path and URL functions a module builds the path it loads with; null when the result depends on the run. */
-const PATH_FUNCTIONS: Record<string, (...parts: string[]) => string | null> = {
+const PATH_FUNCTIONS: Partial<Record<string, (...parts: string[]) => string | null>> = {
   'path.join': (...parts) => path.posix.join(...parts),
   // Without an absolute part, the path is resolved from the folder the run starts in.
   'path.resolve': (...parts) =>
