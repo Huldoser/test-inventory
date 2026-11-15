@@ -285,9 +285,12 @@ export class ConfigRuns {
    */
   private place(file: string): Omit<Placement, 'tags'> {
     const placement = this.placeByConfigs(file);
-    const needsRoute = this.findsFiles && this.framework === 'playwright' && placement.config === null;
-    if ((!needsRoute && placement.runs !== false) || !SCRIPT_RUNNERS.has(this.framework)) return placement;
+    // With globs every file they match runs, so only a scan that finds its files asks scripts about an unknown one.
+    const unknown = placement.runs === null;
+    if (placement.runs || (unknown && !this.findsFiles) || !SCRIPT_RUNNERS.has(this.framework)) return placement;
     const routed = this.placeByScripts(file);
+    // Without a config found by name, or with one the scan can't read, only a script's config that runs it says more.
+    if (unknown) return routed !== null && routed !== 'unknown' ? routed : placement;
     if (routed === 'unknown') return { ...placement, runs: null, projects: null };
     return routed ?? placement;
   }

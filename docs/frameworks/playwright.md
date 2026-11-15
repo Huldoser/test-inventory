@@ -73,7 +73,7 @@ through a default or CommonJS import is configuration, not an invalid test decla
 do not inherit those module exports.
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
-including discovery without globs when the file has no config above it. A config named only in a CI workflow isn't
+including discovery without globs when the file has no config above it, or one the scan can't read. A config named only in a CI workflow isn't
 read. A config built by a call the scan
 cannot follow, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`, cannot be worked out.
 
