@@ -240,6 +240,19 @@ describe('a Vitest config whose projects or file settings come from code the sca
     ]);
   });
 
+  it('reads a Vitest 3 config that sets test.workspace to undefined as one without a workspace', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { vitest: '3.2.4' } }),
+      'vitest.config.ts': "export default { test: { include: ['src/**/*.test.ts'], workspace: undefined } };\n",
+      'src/pricing/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.projects])).toEqual([
+      ['src/pricing/fees.test.ts', ['']],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('keeps no candidates for a Vitest 3 test.workspace from mergeConfig, as the error would have no place', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { vitest: '3.2.4' } }),

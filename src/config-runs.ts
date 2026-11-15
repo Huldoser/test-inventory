@@ -1535,7 +1535,7 @@ export class ConfigRuns {
     const list = settingAt(config.settings, ['test', 'projects']);
     const isVitest3 = this.version !== null && this.version[0] < 4;
     const workspace = isVitest3 ? settingAt(config.settings, ['test', 'workspace']) : null;
-    if (workspace) {
+    if (workspace && !isUnset(workspace)) {
       // A list has no place of its own, so the scan, which doesn't read the list either, reports it on `test`; a
       // merged `test` has none either.
       const test = settingAt(config.settings, ['test']) as ObjectSetting;
