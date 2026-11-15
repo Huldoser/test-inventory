@@ -245,6 +245,34 @@ describe('scan follows a custom test object to its fixtures file', () => {
     ]);
   });
 
+  it('follows a test object whose every call takes its title from a constant', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/ticket.spec.ts':
+        "import { test } from '../fixtures';\nimport { TITLES } from '../test-data/titles';\nconst CANCEL = 'cancels a stale quote';\ntest(CANCEL, async ({ page }) => {});\ntest(TITLES.fill, async ({ page }) => {});\n",
+      'test-data/titles.ts': "export const TITLES = { fill: 'fills a limit order' };\n",
+      'fixtures/index.ts': "import { test as base } from '@playwright/test';\nexport const test = base.extend({});\n",
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['cancels a stale quote', 'fills a limit order']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('follows a re-exported Vitest describe and test whatever their first call looks like', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/fees.test.ts':
+        "import { describe, test } from './runner';\nconst DESK = 'equities desk';\nconst OVERRIDE = null;\ndescribe(DESK, () => {\n  test(OVERRIDE ?? 'charges the minimum fee', () => {});\n});\ndescribe('fx desk', () => {\n  test('charges the exchange fee', () => {});\n});\n",
+      'tests/runner.ts': "export { describe, test } from 'vitest';\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests.map((test) => test.fullName)).toEqual([
+      'equities desk > charges the minimum fee',
+      'fx desk > charges the exchange fee',
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a default export', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

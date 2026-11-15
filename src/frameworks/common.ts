@@ -183,11 +183,17 @@ function isTitleShaped(node: Argument | undefined): boolean {
   return isTitleLiteral(node);
 }
 
-/**
- * Whether a call on a name imported from a local file is shaped like a test declaration, `name('title', fn)`, and
- * so worth following to see if the name is a custom test object.
- */
+/** Whether a call is shaped like a test declaration, `name('title', fn)`, with a title written in place. */
 export function looksLikeDeclaration(args: readonly Argument[]): boolean {
+  return isTitleShaped(args.at(0)) && hasDeclarationArguments(args);
+}
+
+/**
+ * Whether a call takes a declaration's arguments, a title of any kind and a body, as `test(TITLES.fill, fn)`. Enough
+ * to follow an imported name to its module, where what it is gets decided, whatever the title of the call that comes
+ * first.
+ */
+export function hasDeclarationArguments(args: readonly Argument[]): boolean {
   const last = args.at(-1);
   // The body is the last argument, a function or a function passed by name, or a function before a timeout, as in
   // Vitest's `test('title', fn, 30_000)`.
@@ -196,7 +202,7 @@ export function looksLikeDeclaration(args: readonly Argument[]): boolean {
     last?.type === 'Identifier' ||
     last?.type === 'MemberExpression' ||
     (args.length === 3 && isFunctionNode(args[1]));
-  return isTitleShaped(args.at(0)) && args.length >= 2 && args.length <= 3 && body;
+  return args.length >= 2 && args.length <= 3 && body;
 }
 
 /**

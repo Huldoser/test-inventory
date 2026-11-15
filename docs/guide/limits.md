@@ -113,7 +113,8 @@ A custom `test` object is followed through as many files as it takes: a fixtures
 `export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
 function, written there or imported, as in `export const test = defineDeskTest('equities')`. A fixtures file that
 builds its test object with a call the scan can't follow gets the error described below, also when it doesn't import
-the framework itself.
+the framework itself. Any call with a title and a body leads the scan to the file, whatever the title is written as:
+`test(TITLES.fill, async ({ page }) => {})` is read even when no call in the file writes its title in place.
 
 Installed packages are not followed. When a call shaped like a test, outside any test or hook body, uses a name from
 an import that can't be followed, an `unresolved-test-import` error names the import and says where the chain of
