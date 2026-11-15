@@ -467,6 +467,17 @@ export interface Framework {
   testObjects: (program: Program, follow: FollowImport) => TestObjects;
 }
 
+/**
+ * Whether a module on a runner's list of other runners' modules is one, as `bun:test` in a Vitest scan: not when the
+ * file's reader finds a local file for it, as for a config that maps it to a shim of its own.
+ */
+export function mismatchedFor(
+  listed: ReadonlySet<string>,
+  readModule: ModuleReader | null,
+): (source: string) => boolean {
+  return (source) => listed.has(source) && (readModule === null || 'reason' in readModule(source));
+}
+
 /** Parsed modules, kept while their source is, so that a fixtures file many tests import is parsed once. */
 const parsedModules = new WeakMap<ModuleSource, ParsedFile>();
 

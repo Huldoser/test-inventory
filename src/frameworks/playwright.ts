@@ -21,6 +21,7 @@ import {
   exportName,
   followImport,
   followModule,
+  mismatchedFor,
   moduleImports,
   ModuleFunctions,
   requiredModule,
@@ -164,14 +165,14 @@ class PlaywrightBindings implements TestObjects {
   /** The module's functions and the variables they may build test objects in; see `ModuleFunctions`. */
   private readonly functions: ModuleFunctions;
 
-  constructor(program: Program, follow: FollowImport) {
-    this.imported = moduleImports(program, (source) => isPlaywrightSource(source) || MISMATCHED_SOURCES.has(source));
+  constructor(program: Program, follow: FollowImport, isMismatched: (source: string) => boolean) {
+    this.imported = moduleImports(program, (source) => isPlaywrightSource(source) || isMismatched(source));
     this.follow = follow;
     this.functions = new ModuleFunctions(program, this.imported, follow);
     for (const statement of program.body) {
       if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue;
       const source = statement.source.value;
-      if (MISMATCHED_SOURCES.has(source)) {
+      if (isMismatched(source)) {
         this.mismatches.push(
           problem('framework-mismatch', statement, `The file imports '${source}', but the scan is for Playwright.`),
         );
@@ -313,13 +314,6 @@ class PlaywrightBindings implements TestObjects {
   }
 }
 
-const PLAYWRIGHT: Framework = {
-  name: 'Playwright',
-  isSource: isPlaywrightSource,
-  isMismatched: (source) => MISMATCHED_SOURCES.has(source),
-  testObjects: (program, follow) => new PlaywrightBindings(program, follow),
-};
-
 export class PlaywrightAdapter implements Adapter {
   readonly problems: Problem[];
   readonly fileTags: string[] = [];
@@ -335,22 +329,35 @@ export class PlaywrightAdapter implements Adapter {
   /** Variables and names of functions read as test objects on trust, each reported once. */
   private readonly assumed = new Set<Node | string>();
   private readonly aliases = new Map<Node, string[] | null>();
+  /** Playwright as followed modules are read, with the modules that are another runner's for this file's reader. */
+  private readonly framework: Framework;
 
   constructor(program: Program, file: FileContext, readModule: ModuleReader | null) {
     this.file = file;
     this.readModule = readModule;
+    const isMismatched = mismatchedFor(MISMATCHED_SOURCES, readModule);
+    this.framework = {
+      name: 'Playwright',
+      isSource: isPlaywrightSource,
+      isMismatched,
+      testObjects: (followedProgram, follow) => new PlaywrightBindings(followedProgram, follow, isMismatched),
+    };
     // A test object the file builds from an imported one, as in `const test = base.extend({...})`, is followed
     // quietly: a call through the import itself is what reports an import that can't be followed.
     const followed = new Map<string, boolean>();
-    this.bindings = new PlaywrightBindings(program, (source, imported, exported = 'test object') => {
-      const key = `${source}\0${exported}\0${imported}`;
-      if (!followed.has(key)) {
-        followed.set(key, followModule(source, imported, readModule, PLAYWRIGHT, exported).exported);
-      }
-      return followed.get(key) === true;
-    });
+    this.bindings = new PlaywrightBindings(
+      program,
+      (source, imported, exported = 'test object') => {
+        const key = `${source}\0${exported}\0${imported}`;
+        if (!followed.has(key)) {
+          followed.set(key, followModule(source, imported, readModule, this.framework, exported).exported);
+        }
+        return followed.get(key) === true;
+      },
+      isMismatched,
+    );
     this.problems = [...this.bindings.mismatches];
-    this.imports = moduleImports(program, (source) => isPlaywrightSource(source) || MISMATCHED_SOURCES.has(source));
+    this.imports = moduleImports(program, (source) => isPlaywrightSource(source) || isMismatched(source));
   }
 
   classify(call: CallExpression, context: CallContext): ApiCall | null {
@@ -569,7 +576,7 @@ export class PlaywrightAdapter implements Adapter {
     const imported = this.imports.get(name) as ModuleImport;
     let result = this.followed.get(name);
     if (!result) {
-      result = followImport(name, imported, this.readModule, this.file, PLAYWRIGHT);
+      result = followImport(name, imported, this.readModule, this.file, this.framework);
       this.followed.set(name, result);
       if (result.exported) {
         this.bindings.testNames.add(name);
