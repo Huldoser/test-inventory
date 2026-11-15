@@ -376,14 +376,15 @@ tests gets a `file-not-run` warning, as the runner doesn't collect them. In each
 `playwright.config.*` for Playwright, and `vitest.config.*` for Vitest, or `vite.config.*` when there is no
 `vitest.config.*`.
 
-A config a package.json script starts the runner with counts too, for Vitest, Jest, Playwright, Cypress and
-WebdriverIO: a script in the file's folder or one above it, with the config the command names, as in
+A config a package.json script starts the runner with counts too, for Vitest, Jest, Playwright, Cypress, WebdriverIO
+and Mocha: a script in the file's folder or one above it, with the config the command names, as in
 `vitest run --config vitest.config.integration.mts`, or else the one the runner finds where the script starts. A file
 such a config runs uses it and gets no warning. Vitest and Cypress read the globs from the folder the script runs in,
 or from its `--root` or `--project`; Jest, Playwright and WebdriverIO read them from the config's folder. When a
 script names a config the scan can't read, such as a variable, the scan can't tell which files it runs and reports a
 `config-value-unknown` warning on the package.json in place of `file-not-run`. The runner is found past variables
-set before it, `cross-env`, `dotenv --`, `xvfb-run`, `xvfb-maybe` and the package managers that start a binary.
+set before it, `cross-env`, `dotenv --`, `xvfb-run`, `xvfb-maybe`, the coverage tools `nyc`, `c8` and `mcr`, and the
+package managers that start a binary.
 Currents' `pwc` and `pwc-p` count as Playwright, with the `--config` they pass on, and its `cypress-cloud` as Cypress,
 with `--config-file` and `--project`. Scripts that start the runner through a wrapper of their own, and configs only a
 CI workflow names, aren't followed. A file that a collected test file
@@ -471,8 +472,13 @@ one of the `extension`s, `js`, `cjs` and `mjs` by default, are taken, those in f
 without those `ignore` matches as written, so that a pattern starting with `./` matches nothing; and the `file` entries,
 which Mocha loads first, and to which `ignore` doesn't apply. An extension may have several parts, as `spec.js`. The
 default `spec` is `./test`. Scanned with globs, every file they match counts as run, without those `ignore` matches, as
-a project's scripts often give Mocha the spec on its command line, which no config shows. The config's `timeout`, which
-may be a string such as `'5s'`, and `retries` apply to every test.
+a project's scripts often give Mocha the spec on its command line, which no config shows. Without globs, a script that
+starts `mocha`, `_mocha` or `ts-mocha` in a folder runs the files its command line and config give, read from that
+folder: the `.mocharc` file `--config` names or that Mocha finds from there up, with the nearest package.json's `mocha`
+key, unless `--no-config` or `--no-package` leave them out; the specs it gives as arguments, along with the `spec`
+that remains; and its `--spec`, `--extension`, `--ignore`, `--file`, `--recursive` and `--ui` over the config's. Globs
+on the command line are read as Mocha reads quoted ones, also when a shell would expand them first. The config's
+`timeout`, which may be a string such as `'5s'`, and `retries` apply to every test.
 
 <!-- #endregion files-mocha -->
 

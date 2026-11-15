@@ -14,7 +14,14 @@ import {
   unknownText,
 } from './config.ts';
 import { atLeast } from './frameworks/common.ts';
-import { nodeTestCommands, runnerCommands, scriptsRunBy, type ScriptRunner } from './node-scripts.ts';
+import {
+  mochaArguments,
+  nodeTestCommands,
+  runnerCommands,
+  scriptsRunBy,
+  type MochaArguments,
+  type ScriptRunner,
+} from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
@@ -137,13 +144,15 @@ interface BunFiles {
 const ASSUMED = 'the scan takes its files to be run';
 
 /** The runners whose config a package.json script may name, which the scan then reads as one more that runs files. */
-const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypress', 'webdriverio']);
+const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypress', 'webdriverio', 'mocha']);
 
 /**
  * A config a package.json script starts the runner with, null for the runner's defaults, and the folder it runs from;
  * or, as `unknown`, why the scan can't tell what a script runs.
  */
-type ScriptRoute = { config: ConfigFile | null; root: string } | { manifest: string; unknown: string };
+/** A runner a script starts: the config it reads, the folder it starts in, and for Mocha its command line. */
+type Route = { config: ConfigFile | null; root: string; mocha?: MochaArguments };
+type ScriptRoute = Route | { manifest: string; unknown: string };
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
 const CANDIDATES =
   'the scan lists candidate files from the readable top-level file settings; project membership is unknown and tests may be missing; give patterns to select other files';
@@ -420,6 +429,15 @@ export class ConfigRuns {
           routes.push({ manifest, unknown });
           continue;
         }
+        if (this.framework === 'mocha') {
+          const route = this.mochaRoute(folder, command.config, command.args as string[]);
+          if (route === null) continue;
+          const key = `${route.config?.file ?? ''}\0${JSON.stringify([...route.args.options, route.args.positional])}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          routes.push({ config: route.config, root: folder, mocha: route.args });
+          continue;
+        }
         const root = command.root === null ? folder : path.resolve(folder, command.root);
         const from = this.framework === 'vitest' || this.framework === 'cypress' ? root : folder;
         let config: ConfigFile | null;
@@ -461,13 +479,36 @@ export class ConfigRuns {
     return null;
   }
 
+  /**
+   * What Mocha started by a script reads: the config `--config` names, or the `.mocharc` file it finds from the folder
+   * up, with the nearest package.json's `mocha` key, and its command line. Null when it names a config that isn't
+   * there, which Mocha refuses.
+   */
+  private mochaRoute(
+    folder: string,
+    named: string | null,
+    words: string[],
+  ): { config: ConfigFile | null; args: MochaArguments } | null {
+    const args = mochaArguments(words);
+    const rc = args.options.has('no-config') ? false : named === null ? undefined : path.resolve(folder, named);
+    if (rc && !isFileAt(rc)) return null;
+    const manifest = args.options.has('no-package') ? false : args.options.get('package')?.at(-1);
+    const config = this.configs.mochaConfig(
+      folder,
+      rc,
+      manifest === undefined ? undefined : manifest && path.resolve(folder, manifest),
+    );
+    return { config, args };
+  }
+
   /** A route's projects, as the runner started in its folder finds them; Vitest's defaults there without a config. */
-  private projectsOfRoute(route: { config: ConfigFile | null; root: string }): Project[] {
-    const key = `${route.config?.file ?? ''}\0${route.root}`;
+  private projectsOfRoute(route: Route): Project[] {
+    const key = `${route.config?.file ?? ''}\0${route.root}\0${JSON.stringify(route.mocha ? [...route.mocha.options, route.mocha.positional] : null)}`;
     let projects = this.routeProjects.get(key);
     if (!projects) {
       const config = route.config ?? this.noConfig(route.root);
-      if (this.framework === 'vitest') projects = this.vitestProjects(config, null, route.root);
+      if (route.mocha) projects = [this.mochaProject(config, mochaSettings(config.settings, route.mocha), route.root)];
+      else if (this.framework === 'vitest') projects = this.vitestProjects(config, null, route.root);
       else if (this.framework === 'cypress') projects = this.cypressProjects(config, route.root);
       else projects = this.projectsOf(config);
       this.routeProjects.set(key, projects);
@@ -538,8 +579,7 @@ export class ConfigRuns {
    * takes, also in folders below with `recursive`, less those `ignore` matches; and the `file` entries, loaded first.
    * With globs, every file they match, less `ignore`. A timeout may be written as `'2s'`.
    */
-  private mochaProject(config: ConfigFile, settings: Setting): Project {
-    const folder = this.configs.root;
+  private mochaProject(config: ConfigFile, settings: Setting, folder = this.configs.root): Project {
     const lists: Record<string, string[]> = {};
     for (const [key, fallback] of [
       ['spec', ['./test']],
@@ -2137,6 +2177,29 @@ function jestGlobs(globs: string[]): (file: string) => boolean {
   };
 }
 
+/**
+ * A config's settings with a Mocha command line's over them: an option given there replaces the config's, and the
+ * specs it gives as positional arguments run along with the `spec` that remains, as Mocha joins them.
+ */
+function mochaSettings(settings: Setting, args: MochaArguments): Setting {
+  if (settings.kind !== 'object') return settings;
+  const list = (values: string[]): Setting[] => values.map((value) => ({ kind: 'value', value }));
+  const keys = new Map(settings.keys);
+  for (const name of ['spec', 'extension', 'ignore', 'file']) {
+    const values = args.options.get(name);
+    if (values) keys.set(name, { kind: 'list', items: list(values) });
+  }
+  const ui = args.options.get('ui')?.at(-1);
+  if (ui !== undefined) keys.set('ui', { kind: 'value', value: ui });
+  if (args.options.has('recursive')) keys.set('recursive', { kind: 'value', value: true });
+  const merged: ObjectSetting = { ...settings, keys };
+  if (args.positional.length === 0) return merged;
+  const spec = settingAt(merged, ['spec']);
+  const rest = spec === null || isUnset(spec) ? [] : spec.kind === 'list' ? spec.items : [spec];
+  keys.set('spec', { kind: 'list', items: [...list(args.positional), ...rest] });
+  return merged;
+}
+
 /** Whether a Jest setting is given: `null` and `undefined` leave Jest's default, as a `testMatch: null` beside `testRegex`. */
 function isJestSet(setting: Setting | null): setting is Setting {
   return setting !== null && !isUnset(setting) && !(setting.kind === 'value' && setting.value === null);
@@ -2156,8 +2219,9 @@ function isFileAt(file: string): boolean {
  * declares tests in a way the scan doesn't read, which is reported on the config, and the file is read as BDD.
  */
 export function mochaInterface(placement: Placement, configs: Configs): MochaInterface {
-  const { config } = placement;
-  const ui = config ? settingAt(config.settings, ['ui']) : null;
+  const { config, settings } = placement;
+  // A script's command line sets `ui` in the placement's settings, over its config's.
+  const ui = settings ? settingAt(settings, ['ui']) : null;
   if (ui === null || isUnset(ui)) return 'bdd';
   if (ui.kind !== 'value') {
     configs.reportUnknown(unknownAt(ui), 'ui', "the scan reads the tests as Mocha's default, BDD");
@@ -2165,7 +2229,8 @@ export function mochaInterface(placement: Placement, configs: Configs): MochaInt
   }
   if (ui.value === 'bdd' || ui.value === 'tdd') return ui.value;
   const message = `The config's ui '${String(ui.value)}' is an interface the scan doesn't read, so it reads the tests as Mocha's default, BDD.`;
-  configs.reportConfig(config as ConfigFile, message);
+  // A command line without a config file has no config to report it on.
+  if (config) configs.reportConfig(config, message);
   return 'bdd';
 }
 
@@ -2182,9 +2247,9 @@ function isSuiteName(settings: Setting, item: string): boolean {
 /** The interface WebdriverIO's `mochaOpts.ui` gives a file's tests, read as Mocha's `ui`. */
 export function webdriverioInterface(placement: Placement, configs: Configs): MochaInterface | undefined {
   if (placement.config === null || webdriverioFramework(placement, null) === 'jasmine') return 'bdd';
-  const options = settingAt(placement.config.settings, ['mochaOpts']);
+  const options = settingAt(placement.config.settings, ['mochaOpts']) ?? emptySettings();
   return mochaInterface(
-    { ...placement, config: { ...placement.config, settings: options ?? emptySettings() } },
+    { ...placement, settings: options, config: { ...placement.config, settings: options } },
     configs,
   );
 }
