@@ -84,7 +84,7 @@ const TEST_MEMBERS = [...MODIFIERS.test, ...MODIFIERS.describe, ...TABLES, ...CO
 const VITEST: Dialect = {
   name: 'Vitest',
   source: 'vitest',
-  mismatched: new Set(['@playwright/test', 'playwright/test', '@jest/globals']),
+  mismatched: new Set(['@playwright/test', 'playwright/test', '@jest/globals', 'mocha', 'node:test', 'bun:test']),
   starts: new Map([
     ['test', { kind: 'test', links: [] }],
     ['it', { kind: 'test', links: [] }],

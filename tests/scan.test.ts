@@ -1777,12 +1777,6 @@ describe('scan checks that Vitest globals are turned on', () => {
       'brokerDefaults',
     ],
     [
-      'a defineConfig declared in the file',
-      'function defineConfig(config) {\n  return config;\n}\nexport default defineConfig({ test: { globals: true } });\n',
-      'test.projects',
-      'defineConfig({ test: { globals: true } })',
-    ],
-    [
       'a function with more than one return',
       "export default defineConfig(({ mode }) => {\n  if (mode === 'ci') return { test: { globals: true } };\n  return {};\n});\n",
       'test.projects',
@@ -1862,6 +1856,18 @@ describe('scan checks that Vitest globals are turned on', () => {
         diagnostic.source,
       ]),
     ).toEqual([['config-value-unknown', `The config's ${key}`, source]]);
+  });
+
+  it('reads globals from a config that a defineConfig declared in the file returns', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts':
+        'function defineConfig(config) {\n  return config;\n}\nexport default defineConfig({ test: { globals: true } });\n',
+      'tests/a.test.ts': GLOBAL_TEST,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
   });
 
   it('reads no setting of the config when no file uses globals', async () => {

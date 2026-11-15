@@ -203,6 +203,32 @@ describe('the test runner commands of a package.json script', () => {
     ).toEqual([named('jest.config.orders.js')]);
   });
 
+  it('finds the runner past xvfb-run and xvfb-maybe, which start browser tests on Linux', () => {
+    const scripts = [
+      'xvfb-run -a playwright test -c e2e/playwright.ci.config.ts',
+      'xvfb-run -s "-screen 0 1280x1024x24" npx playwright test -c e2e/playwright.ci.config.ts',
+      'xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" playwright test -c e2e/playwright.ci.config.ts',
+      'xvfb-run --server-num 99 playwright test -c e2e/playwright.ci.config.ts',
+      'yarn xvfb-maybe -- playwright test --config=e2e/playwright.ci.config.ts',
+      'xvfb-maybe playwright test -c e2e/playwright.ci.config.ts',
+    ];
+    for (const script of scripts) {
+      expect(runnerCommands(script, 'playwright')).toEqual([named('e2e/playwright.ci.config.ts')]);
+    }
+  });
+
+  it("reads Currents' pwc and pwc-p as Playwright and cypress-cloud as Cypress, with the options they pass on", () => {
+    expect(runnerCommands('pwc --config ./e2e/playwright.ci.config.ts -- --workers 2', 'playwright')).toEqual([
+      named('./e2e/playwright.ci.config.ts'),
+    ]);
+    expect(runnerCommands('npx pwc-p run --ci-build-id $GITHUB_RUN_ID -j 2', 'playwright')).toEqual([named(null)]);
+    expect(runnerCommands('yarn xvfb-maybe -- pwc-p', 'playwright')).toEqual([named(null)]);
+    expect(
+      runnerCommands('npx cypress-cloud run --parallel --record -C cypress.orders.config.ts -P apps/web', 'cypress'),
+    ).toEqual([named('cypress.orders.config.ts', 'apps/web')]);
+    expect(runnerCommands('pwc --config ./e2e/playwright.ci.config.ts', 'cypress')).toEqual([]);
+  });
+
   it('finds a runner node starts from a scoped package with Windows separators', () => {
     expect(
       runnerCommands('node node_modules\\@playwright\\test\\cli.js test -c e2e\\playwright.ci.config.ts', 'playwright'),

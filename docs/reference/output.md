@@ -382,8 +382,11 @@ WebdriverIO: a script in the file's folder or one above it, with the config the 
 such a config runs uses it and gets no warning. Vitest and Cypress read the globs from the folder the script runs in,
 or from its `--root` or `--project`; Jest, Playwright and WebdriverIO read them from the config's folder. When a
 script names a config the scan can't read, such as a variable, the scan can't tell which files it runs and reports a
-`config-value-unknown` warning on the package.json in place of `file-not-run`. Scripts that start the runner through
-a wrapper of their own, and configs only a CI workflow names, aren't followed. A file that a collected test file
+`config-value-unknown` warning on the package.json in place of `file-not-run`. The runner is found past variables
+set before it, `cross-env`, `dotenv --`, `xvfb-run`, `xvfb-maybe` and the package managers that start a binary.
+Currents' `pwc` and `pwc-p` count as Playwright, with the `--config` they pass on, and its `cypress-cloud` as Cypress,
+with `--config-file` and `--project`. Scripts that start the runner through a wrapper of their own, and configs only a
+CI workflow names, aren't followed. A file that a collected test file
 imports gets no warning either, as its tests run in that file.
 
 Without globs, the scan also discovers files through a package.json script when no config above the file runs it, or
@@ -553,9 +556,11 @@ config. Scanned with globs, every file they match counts as run, as for the file
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
 `use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
-config, a call of a function the config declares or imports by name from a local file, as `createVitestConfig('node')`,
-which gives what that function returns with its parameters unknown, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
-`fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
+config, a call of a function the config declares or that a local file or workspace package exports, as
+`createVitestConfig('node')`, which gives what that function returns with its parameters set from the call's
+arguments, defaults written with `??`, `||` or `&&` whose left side is known, regular expressions, and paths built with
+`path.join()`, `path.resolve()`, `path.dirname()`, `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or
+`import.meta`. A Jest config may also be JSON, or
 a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`, or
 next/jest's `createJestConfig()`. A Mocha
 config may also be JSON, JSON with comments, or YAML with keys, lists and nested keys; YAML it doesn't read, such as an

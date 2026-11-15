@@ -30,7 +30,7 @@ import {
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
 const SOURCE = 'mocha';
-const MISMATCHED = new Set(['@playwright/test', 'playwright/test', 'vitest', '@jest/globals']);
+const MISMATCHED = new Set(['@playwright/test', 'playwright/test', 'vitest', '@jest/globals', 'node:test', 'bun:test']);
 const MODIFIERS = new Set(['only', 'skip']);
 
 /** Which of `test` and `describe` each global is, and the modifier it carries, by interface. */

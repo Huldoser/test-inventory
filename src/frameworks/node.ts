@@ -35,7 +35,7 @@ const TEST: Start = { kind: 'test', links: [] };
 const NODE: Dialect = {
   name: 'node:test',
   source: 'node:test',
-  mismatched: new Set(['@playwright/test', 'playwright/test', 'vitest', '@jest/globals', 'mocha']),
+  mismatched: new Set(['@playwright/test', 'playwright/test', 'vitest', '@jest/globals', 'mocha', 'bun:test']),
   starts: new Map<string, Start>([
     ['test', TEST],
     ['it', TEST],

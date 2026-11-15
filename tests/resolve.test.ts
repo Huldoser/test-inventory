@@ -321,8 +321,21 @@ describe('a custom test object from a workspace package', () => {
       '@trading/test-utils',
     ],
     ['a built main, to the source next to it', { main: './lib/fixtures.cjs' }, '@trading/test-utils'],
+    ['a file it has no exports for', { main: './src/index.ts' }, '@trading/test-utils/src/fixtures.ts'],
+    ['a file it has no exports for, without its extension', {}, '@trading/test-utils/src/fixtures'],
+    ['a built file it has no exports for, to the source next to it', {}, '@trading/test-utils/dist/fixtures.js'],
   ])('is followed to its source through %s', async (_, manifest, from) => {
     const root = workspace(manifest, { 'tests/portfolio.spec.ts': spec(from) });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('is followed from build output to the source in the package folder when there is no src folder', async () => {
+    const root = workspace(
+      { exports: { './node': { import: './dist/node.js', types: './dist/node.d.ts' } } },
+      { 'packages/test-utils/node.ts': FIXTURES, 'tests/portfolio.spec.ts': spec('@trading/test-utils/node') },
+    );
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
     expect(inventory.summary.testCount).toBe(1);
     expect(inventory.diagnostics).toEqual([]);
@@ -349,6 +362,7 @@ describe('a custom test object from a workspace package', () => {
     ],
     ['a subpath it does not export', { exports: { '.': './src/index.ts' } }, '@trading/test-utils/fixtures'],
     ['a subpath without exports', { main: './src/index.ts' }, '@trading/test-utils/fixtures'],
+    ['a file its exports leave out', { exports: './src/index.ts' }, '@trading/test-utils/src/fixtures.ts'],
   ])('is reported when it points to %s', async (_, manifest, from) => {
     const root = workspace(manifest, { 'tests/portfolio.spec.ts': spec(from) });
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });

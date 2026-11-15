@@ -150,3 +150,288 @@ describe('a scan without patterns', () => {
     },
   );
 });
+
+describe('a runner that reads its config only in the root', () => {
+  const E2E = "describe('orders', () => {\n  it('places a market order', () => {});\n});\n";
+  it.each([
+    [
+      'cypress',
+      'Cypress',
+      { cypress: '14.5.0' },
+      { 'apps/web/cypress.config.js': 'module.exports = { e2e: {} };\n', 'apps/web/cypress/e2e/orders.cy.js': E2E },
+    ],
+    [
+      'webdriverio',
+      'WebdriverIO',
+      { '@wdio/cli': '9.20.0' },
+      {
+        'apps/web/wdio.conf.js': "exports.config = { specs: ['./test/**/*.e2e.js'] };\n",
+        'apps/web/test/orders.e2e.js': E2E,
+      },
+    ],
+    [
+      'jasmine',
+      'Jasmine',
+      { jasmine: '5.13.0' },
+      {
+        'apps/web/spec/support/jasmine.json': JSON.stringify({ spec_dir: 'spec', spec_files: ['**/*[sS]pec.js'] }),
+        'apps/web/spec/orders.spec.js': E2E,
+      },
+    ],
+  ] as const)('names the folder below the root that has a %s config', async (framework, name, dependencies, files) => {
+    const root = project({ 'package.json': JSON.stringify({ devDependencies: dependencies }), ...files });
+    const inventory = await scan({ root, framework });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      `No patterns were given, and no ${name} config is in the root, the only place the scan reads it from, so there are no test files to find. There is one in apps/web: scan that folder, or give patterns.`,
+    ]);
+  });
+
+  it('names the nearest folder, and of those as near, the first by name', async () => {
+    const config = 'module.exports = { e2e: {} };\n';
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { cypress: '14.5.0' } }),
+      'apps/web/cypress.config.js': config,
+      'apps/admin/cypress.config.js': config,
+      'e2e/cypress.config.js': config,
+      'tools/e2e/legacy/cypress.config.js': config,
+    });
+    const inventory = await scan({ root, framework: 'cypress' });
+    expect(inventory.diagnostics[0].message).toMatch(/ There is one in e2e: scan that folder, or give patterns\.$/);
+  });
+
+  it('says there is none when no folder below the root has one either', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { cypress: '14.5.0' } }),
+      'cypress/e2e/orders.cy.js': "it('places a market order', () => {});\n",
+    });
+    const inventory = await scan({ root, framework: 'cypress' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'No patterns were given, and no Cypress config is in the root, the only place the scan reads it from, so there are no test files to find.',
+    ]);
+  });
+});
+
+describe('a config built by a function the project writes', () => {
+  it('reads a Playwright config a workspace package builds from the options it is given', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        private: true,
+        workspaces: ['e2e/*'],
+        devDependencies: { '@playwright/test': '1.63.0' },
+      }),
+      'e2e/shared/package.json': JSON.stringify({
+        name: '@trading/e2e-shared',
+        exports: { './playwright': './playwright.base.ts' },
+      }),
+      'e2e/shared/playwright.base.ts': [
+        "import { defineConfig } from '@playwright/test';",
+        'type Options = { port: number; specs?: string };',
+        "export function configureE2e({ port, specs = './specs' }: Options) {",
+        '  const baseURL = `http://localhost:${port}`;',
+        "  return defineConfig({ testDir: specs, use: { baseURL }, projects: [{ name: 'chromium' }] });",
+        '}',
+      ].join('\n'),
+      'e2e/web/playwright.config.ts': [
+        "import { configureE2e } from '@trading/e2e-shared/playwright';",
+        'export default configureE2e({ port: 3002 });',
+      ].join('\n'),
+      'e2e/web/specs/orders.spec.ts': SPEC,
+      'e2e/web/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['e2e/web/specs/orders.spec.ts', 'e2e/web/playwright.config.ts'],
+    ]);
+    expect(inventory.tests.map((test) => test.projects)).toEqual([['chromium']]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('works out each call of a local function with its own arguments', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': [
+        "import { defineConfig } from '@playwright/test';",
+        'function browserProject(name: string, folder = name) {',
+        '  const testDir = `./specs/${folder}`;',
+        '  const use = { headless: true };',
+        '  use.headless = !process.env.HEADED;',
+        '  return { name, testDir, use };',
+        '}',
+        'export default defineConfig({',
+        "  projects: [browserProject('desktop'), browserProject('mobile', 'mobile')],",
+        '});',
+      ].join('\n'),
+      'specs/desktop/orders.spec.ts': SPEC,
+      'specs/mobile/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.projects])).toEqual([
+      ['specs/desktop/orders.spec.ts', ['desktop']],
+      ['specs/mobile/orders.spec.ts', ['mobile']],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads a Vitest config a local function builds from an argument', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': [
+        "import { defineConfig } from 'vitest/config';",
+        'const suite = (folder: string) => defineConfig({ test: { include: [`${folder}/**/*.test.ts`] } });',
+        "export default suite('pricing');",
+      ].join('\n'),
+      'pricing/fees.test.ts': UNIT,
+      'settlement/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['pricing/fees.test.ts']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads a Jest config a shared CommonJS module builds over its defaults', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.2.0' } }),
+      'config/jest.base.config.js': [
+        'module.exports = function buildConfig(packageDirectory, overrides, environment = "node") {',
+        "  return { testEnvironment: environment, testRegex: '__tests__/.*\\\\.test\\\\.js$', ...overrides };",
+        '};',
+      ].join('\n'),
+      'jest.config.js': [
+        "const buildConfig = require('./config/jest.base.config');",
+        "module.exports = buildConfig(__dirname, { testRegex: 'specs/.*\\\\.test\\\\.js$' });",
+      ].join('\n'),
+      'specs/fill.test.js': "test('fills a limit order at the limit price', () => {});\n",
+      '__tests__/legacy.test.js': "test('fills a legacy order', () => {});\n",
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['specs/fill.test.js']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    ['a function declaration', 'export function e2eConfig(folder) { return { testDir: folder }; }', '{ e2eConfig }'],
+    ['an arrow function constant', 'export const e2eConfig = (folder) => ({ testDir: folder });', '{ e2eConfig }'],
+    ['the default function', 'export default function (folder) { return { testDir: folder }; }', 'e2eConfig'],
+    [
+      'a default export by name',
+      'function build(folder) { return { testDir: folder }; }\nexport default build;',
+      'e2eConfig',
+    ],
+    [
+      'an export under another name',
+      'function build(folder) { return { testDir: folder }; }\nexport { build as e2eConfig };',
+      '{ e2eConfig }',
+    ],
+    ['an export passed on from another module', "export { e2eConfig } from './factory.ts';", '{ e2eConfig }'],
+    ['module.exports', 'module.exports = function (folder) { return { testDir: folder }; };', 'e2eConfig'],
+    [
+      'a function in module.exports',
+      'function e2eConfig(folder) { return { testDir: folder }; }\nmodule.exports = { e2eConfig };',
+      '{ e2eConfig }',
+    ],
+  ])('reads a config built by a function a local module exports as %s', async (_, base, imported) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'e2e/base.ts': base,
+      'e2e/factory.ts': 'export function e2eConfig(folder) { return { testDir: folder }; }',
+      'playwright.config.ts': `import ${imported} from './e2e/base.ts';\nexport default e2eConfig('./specs');\n`,
+      'specs/orders.spec.ts': SPEC,
+      'tests/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['specs/orders.spec.ts']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    ['?? with no argument', 'folder ?? "./specs"', ''],
+    ['?? with an argument', 'folder ?? "./tests"', '"./specs"'],
+    ['|| with an empty argument', 'folder || "./specs"', '""'],
+    ['|| with an argument', 'folder || "./tests"', '"./specs"'],
+    ['&& with a true argument', 'folder && "./specs"', 'true'],
+    ['&& with an empty argument', '(folder && "./tests") || "./specs"', '""'],
+  ])('reads a default a config function writes with %s', async (_, testDir, argument) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': `function e2eConfig(folder) {\n  return { testDir: ${testDir} };\n}\nexport default e2eConfig(${argument});\n`,
+      'specs/orders.spec.ts': SPEC,
+      'tests/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['specs/orders.spec.ts']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads a config a function merges with an optional argument, as a shared Vitest config does', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'shared/vitest.ts': [
+        "import { defineConfig, mergeConfig } from 'vitest/config';",
+        'export default function createConfig(options?: object) {',
+        "  return defineConfig(mergeConfig({ test: { include: ['src/**/*.spec.ts'] } }, options ?? {}));",
+        '}',
+      ].join('\n'),
+      'vitest.config.ts': "import createConfig from './shared/vitest.ts';\nexport default createConfig();\n",
+      'src/fees.spec.ts': UNIT,
+      'src/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['src/fees.spec.ts']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
+    ['an installed package', "import { createConfig } from '@trading/e2e-config';", 'createConfig({ port: 3002 })'],
+    ['no declaration', '', 'createConfig()'],
+    ['a constant that is not a function', 'const createConfig = presets.e2e;', 'createConfig()'],
+    ['a function the module does not export', "import { createConfig } from './e2e/base.ts';", 'createConfig()'],
+    ['a default export that is not a function', "import createConfig from './e2e/settings.ts';", 'createConfig()'],
+    ['two modules that pass it on to each other', "import { createConfig } from './e2e/loop.ts';", 'createConfig()'],
+    ['an async function', 'async function createConfig() { return {}; }', 'createConfig()'],
+    [
+      'a function with two returns',
+      "function createConfig(ci) { if (ci) return {}; return { testDir: './e2e' }; }",
+      'createConfig(true)',
+    ],
+    [
+      'a function that calls itself',
+      'function createConfig(depth) { return createConfig(depth + 1); }',
+      'createConfig(0)',
+    ],
+    [
+      'a spread argument',
+      "function createConfig(folder) { return { testDir: folder }; }\nconst folders = ['./e2e'];",
+      'createConfig(...folders)',
+    ],
+    [
+      'a function that changes its parameter',
+      "function createConfig(folder) { folder += '/e2e'; return { testDir: folder }; }",
+      "createConfig('.')",
+    ],
+    [
+      'a rest parameter',
+      'function createConfig({ ...options }) { return { testDir: options.folder }; }',
+      "createConfig({ folder: './e2e' })",
+    ],
+    ['a list parameter', 'function createConfig([folder]) { return { testDir: folder }; }', "createConfig(['./e2e'])"],
+    ['a method', 'const presets = { e2e: () => ({}) };', 'presets.e2e()'],
+    [
+      'a default the environment can replace',
+      'function createConfig() { return { testDir: process.env.SPECS ?? "./e2e" }; }',
+      'createConfig()',
+    ],
+  ])('leaves a config built by %s unknown', async (_, declaration, call) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'e2e/base.ts': 'export const port = 3002;',
+      'e2e/settings.ts': "export default { testDir: './e2e' };",
+      'e2e/loop.ts': "export { createConfig } from './cycle.ts';",
+      'e2e/cycle.ts': "export { createConfig } from './loop.ts';",
+      'playwright.config.ts': `${declaration}\nexport default ${call};\n`,
+      'tests/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toContain('config-value-unknown');
+    expect(inventory.files).toEqual([]);
+  });
+});

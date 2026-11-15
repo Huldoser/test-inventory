@@ -484,12 +484,12 @@ describe('the config reader', () => {
     });
   });
 
-  it('reads what a function the config declares returns, with its parameters unknown', () => {
+  it("reads what a function the config declares returns, with its parameters bound to the call's arguments", () => {
     const arrow = settingsOf(`import { defineConfig } from 'vitest/config';
 const createConfig = (environment) => defineConfig({ test: { environment, include: ['src/**/*.test.ts'] } });
 export default createConfig('node');
 `);
-    expect(plain(settingAt(arrow, ['test']))).toEqual({ environment: '<unknown>', include: ['src/**/*.test.ts'] });
+    expect(plain(settingAt(arrow, ['test']))).toEqual({ environment: 'node', include: ['src/**/*.test.ts'] });
     const declared = settingsOf(`const shared = { retry: 2 };
 export default makeConfig();
 function makeConfig() {
@@ -507,7 +507,7 @@ function makeConfig() {
     expect(plain(settingAt(single, ['test', 'retry']))).toBe(2);
   });
 
-  it('follows a factory a local module exports by name, but not one it passes on from another module', () => {
+  it('follows a factory a local module exports by name or passes on from another module', () => {
     const config = "import { createConfig } from './configs.ts';\nexport default createConfig('node');\n";
     const factory =
       "function createConfig(environment) {\n  return { test: { environment, include: ['src/**/*.test.ts'] } };\n}\n";
@@ -521,7 +521,7 @@ function makeConfig() {
       'configs.ts': "export { createConfig } from './settlement.ts';\n",
       'settlement.ts': `export ${factory}`,
     });
-    expect(plain(passedOn)).toBe('<unknown>');
+    expect(plain(settingAt(passedOn, ['test', 'include']))).toEqual(['src/**/*.test.ts']);
   });
 
   it('stops at a config function that calls itself', () => {

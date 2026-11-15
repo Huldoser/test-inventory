@@ -291,6 +291,35 @@ function isConfig(root: string, file: string, framework: Framework): boolean {
   return framework !== 'bun' || /^\s*\[test\]/m.test(String(readText(path.join(root, file))));
 }
 
+/** The configs of the runners the scan reads a config of only in the root, below it, and the folder each is run from. */
+const ROOT_CONFIGS: Partial<Record<Framework, { glob: string; folder: (file: string) => string }>> = {
+  cypress: { glob: '*/**/cypress.config.*', folder: (file) => path.dirname(file) },
+  webdriverio: { glob: '*/**/wdio.conf.*', folder: (file) => path.dirname(file) },
+  // Jasmine is run from the folder that holds `spec/support/jasmine.json`.
+  jasmine: { glob: '*/**/spec/support/jasmine.*', folder: (file) => path.dirname(path.dirname(path.dirname(file))) },
+};
+
+/**
+ * For a runner whose config the scan reads only in the root, the folder below the root nearest it with one, outside
+ * `ignore`, to run the scan from, or null when there is none; undefined for a runner whose configs below the root are
+ * read too.
+ */
+export function configFolderBelow(
+  root: string,
+  framework: Framework,
+  ignore: readonly string[],
+): string | null | undefined {
+  const configs = ROOT_CONFIGS[framework];
+  if (!configs) return undefined;
+  const depth = (file: string) => file.split('/').length;
+  // The nearest, and of those as near the first by name, whatever order the file system lists them in.
+  const nearest = globSync(configs.glob, { cwd: root, ignore: ['**/node_modules/**', '**/.git/**', ...ignore] })
+    .filter((file) => isConfig(root, file, framework))
+    .sort()
+    .reduce<string | null>((best, file) => (best === null || depth(file) < depth(best) ? file : best), null);
+  return nearest === null ? null : configs.folder(nearest);
+}
+
 /**
  * Whether a package.json lists a runner, or for Jest or Mocha has a `jest` or `mocha` key, its config, or for
  * `node:test` has a script that runs `node --test`.

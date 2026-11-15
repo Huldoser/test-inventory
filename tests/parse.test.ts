@@ -1,6 +1,6 @@
 import type { OxcError } from 'oxc-parser';
 import { describe, expect, it } from 'vitest';
-import { firstError, parseFile, tooDeeplyNested } from '../src/parse.ts';
+import { firstError, parseFile, tooDeeplyNested, tooDeepTree } from '../src/parse.ts';
 
 describe('parseFile', () => {
   it.each([
@@ -46,6 +46,32 @@ describe('parseFile', () => {
     });
     expect(parsed.program.body).toEqual([]);
     expect(parsed.comments).toEqual([]);
+  });
+});
+
+describe('a syntax tree nested too deep for the scan to walk', () => {
+  const fees = (count: number) =>
+    `const total = ${Array.from({ length: count }, (_, index) => `fee${index}`).join(' + ')};`;
+
+  it('is read up to 1,000 levels deep', () => {
+    expect(parseFile('fees.spec.ts', fees(998)).error).toBeNull();
+  });
+
+  it('is refused past 1,000 levels, at the first node that deep, without crashing the walks that follow', () => {
+    const parsed = parseFile('fees.spec.ts', fees(999));
+    expect(parsed.error).toEqual({
+      message: 'Expressions are nested more than 1000 deep, too deep to read safely',
+      start: 14,
+      end: 18,
+    });
+    expect(parsed.program.body).toEqual([]);
+    expect(parsed.comments).toEqual([]);
+  });
+
+  it('gives the first node nested deeper than the limit, the statements being 1 deep', () => {
+    const { program } = parseFile('fees.spec.ts', 'const total = fee + spread;');
+    expect(tooDeepTree(program, 4)).toBeNull();
+    expect(tooDeepTree(program, 3)).toMatchObject({ type: 'Identifier', start: 14 });
   });
 });
 

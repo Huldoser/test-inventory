@@ -30,7 +30,7 @@ const SOURCE = '@jest/globals';
 const JEST: Dialect = {
   name: 'Jest',
   source: SOURCE,
-  mismatched: new Set(['@playwright/test', 'playwright/test', 'vitest']),
+  mismatched: new Set(['@playwright/test', 'playwright/test', 'vitest', 'mocha', 'node:test', 'bun:test']),
   starts: new Map([
     ['test', { kind: 'test', links: [] }],
     ['it', { kind: 'test', links: [] }],

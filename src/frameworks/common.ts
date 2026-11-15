@@ -36,6 +36,9 @@ export interface FileContext {
   version: [number, number] | null;
 }
 
+/** The methods every function has, which no runner's API adds to its test functions. */
+const FUNCTION_METHODS = new Set(['bind', 'call', 'apply']);
+
 export function readChain(callee: Expression): Chain | null {
   const node = unwrap(callee);
   switch (node.type) {
@@ -48,7 +51,8 @@ export function readChain(callee: Expression): Chain | null {
     case 'MemberExpression': {
       const chain = readChain(node.object);
       const name = propertyName(node);
-      if (!chain || name === null) return null;
+      // `it.only.bind(it)` makes a function from a test function, and calls nothing of the runner's API.
+      if (!chain || name === null || FUNCTION_METHODS.has(name)) return null;
       chain.links.push({ name, args: null, template: null });
       return chain;
     }

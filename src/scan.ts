@@ -18,7 +18,13 @@ import { DependencyGraph } from './dependency-hash.ts';
 import { ExportedValues } from './imported-values.ts';
 import { fileDiagnostic } from './diagnostics.ts';
 import { findFiles, normalizePattern, readFailure } from './files.ts';
-import { detectFramework, detectFrameworkVersion, FRAMEWORK_NAMES, OLDEST } from './framework-version.ts';
+import {
+  configFolderBelow,
+  detectFramework,
+  detectFrameworkVersion,
+  FRAMEWORK_NAMES,
+  OLDEST,
+} from './framework-version.ts';
 import { createInventory } from './inventory.ts';
 import {
   checkComments,
@@ -169,6 +175,7 @@ function noFiles(
   patterns: string[] | null,
   framework: Framework,
   placements: Map<string, Placement>,
+  ignore: readonly string[],
 ): string {
   if (patterns) {
     const list = patterns.map((pattern) => `"${pattern}"`).join(', ');
@@ -181,7 +188,12 @@ function noFiles(
     return "No patterns were given, and no file in the root matches what node --test runs: Node.js's default patterns, or the files a package.json script gives it.";
   }
   const name = FRAMEWORK_NAMES[framework];
-  return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
+  const below = configFolderBelow(root, framework, ignore);
+  if (below === undefined) {
+    return `No patterns were given, and no ${name} config is in the root or a folder below it, so there are no test files to find.`;
+  }
+  const none = `No patterns were given, and no ${name} config is in the root, the only place the scan reads it from, so there are no test files to find.`;
+  return below === null ? none : `${none} There is one in ${below}: scan that folder, or give patterns.`;
 }
 
 /**
@@ -339,7 +351,9 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   projectDiagnostics.push(...configs.diagnostics, ...neverRun, ...(globals ? [globals] : []));
   // After the config warnings, which may say why no file was found.
   if (files.length === 0) {
-    projectDiagnostics.push(fileDiagnostic('no-files-matched', '.', noFiles(root, patterns, framework, placements)));
+    projectDiagnostics.push(
+      fileDiagnostic('no-files-matched', '.', noFiles(root, patterns, framework, placements, ignore)),
+    );
   }
   const fileCount = files.length;
   const records = configs.records((config) => runs.projectsIn(config));

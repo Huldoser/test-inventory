@@ -647,6 +647,7 @@ export abstract class SuiteAdapter implements Adapter {
     return {
       name: dialect.name,
       isSource: (source) => isOwnModule(dialect, source),
+      isMismatched: (source) => dialect.mismatched.has(source),
       testObjects: (program, follow) => new SuiteBindings(program, dialect, follow, true),
     };
   }

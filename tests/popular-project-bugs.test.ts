@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scan } from '../src/index.ts';
-import { codes, scanJest, scanNode, scanPlaywright, scanVitest } from './helpers.ts';
+import { codes, scanJasmine, scanJest, scanMocha, scanNode, scanPlaywright, scanVitest } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
 
 describe('real-project declaration regressions', () => {
@@ -19,10 +19,28 @@ playwright('submits a market order', async () => {});`);
     expect(codes(result)).toEqual([]);
   });
 
+  it.each([
+    "const playwright = require('@playwright/test');",
+    "import playwright from '@playwright/test';",
+    "import { test as playwright } from '@playwright/test';",
+  ])('reads the Playwright module browser and request exports as library calls: %s', (binding) => {
+    const result = scanPlaywright(`${binding}
+async function openBrokerApi() {
+  const browser = await playwright.chromium.launch({ headless: true });
+  const api = await playwright.request.newContext({ baseURL: 'https://broker.example' });
+  return { browser, api };
+}
+playwright('submits a market order', async () => {});`);
+    expect(result.tests).toHaveLength(1);
+    expect(result.tests[0].state).toBe('active');
+    expect(codes(result)).toEqual([]);
+  });
+
   it('does not give module exports to an extended Playwright test function', () => {
     const result = scanPlaywright(`import { test } from '@playwright/test';
 const accountTest = test.extend({});
 accountTest.defineConfig({ testDir: './tests' });
+accountTest.chromium.launch();
 accountTest('submits an order in the account', async () => {});`);
     expect(codes(result)).toContain('invalid-chain');
     expect(result.tests[0].state).toBe('notLoaded');
@@ -190,5 +208,179 @@ test.describe('order history', async () => {
     expect(result.tests).toHaveLength(1);
     expect(result.tests[0].state).toBe('active');
     expect(codes(result)).toEqual([]);
+  });
+});
+
+describe("another runner's built-in test module", () => {
+  it.each([
+    ['node:test', 'bun:test', scanNode],
+    ['Jest', 'node:test', scanJest],
+    ['Jest', 'bun:test', scanJest],
+    ['Jest', 'mocha', scanJest],
+    ['Vitest', 'node:test', scanVitest],
+    ['Vitest', 'bun:test', scanVitest],
+    ['Vitest', 'mocha', scanVitest],
+    ['Mocha', 'node:test', scanMocha],
+    ['Mocha', 'bun:test', scanMocha],
+    ['Jasmine', 'node:test', scanJasmine],
+    ['Jasmine', 'bun:test', scanJasmine],
+    ['Playwright', 'node:test', scanPlaywright],
+    ['Playwright', 'bun:test', scanPlaywright],
+    ['Playwright', 'mocha', scanPlaywright],
+  ])('is a framework mismatch in a %s scan, not a missing test import: %s', (_, source, scanWith) => {
+    const result = scanWith(`import { describe, it } from '${source}';
+describe('order routing', () => {
+  it('routes a limit order to the primary venue', () => {});
+});`);
+    expect(codes(result)).toEqual(['framework-mismatch']);
+    expect(result.diagnostics[0].message).toMatch(new RegExp(`^The file imports '${source}', but the scan is for `));
+  });
+});
+
+describe("a test object another runner's module builds, reached through local files", () => {
+  it.each([
+    [
+      'jest',
+      'Jest',
+      'builds',
+      "import { test as base } from '@playwright/test';\nexport const test = base.extend({ account: async ({}, use) => use('EXAMPLE') });\n",
+      '@playwright/test',
+    ],
+    ['vitest', 'Vitest', 're-exports', "export { test } from 'node:test';\n", 'node:test'],
+    ['playwright', 'Playwright', 're-exports', "export { test } from 'vitest';\n", 'vitest'],
+  ] as const)('is a framework mismatch in a %s scan', async (framework, name, how, base, source) => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { jest: '30.2.0', vitest: '5.0.3', '@playwright/test': '1.63.0' },
+      }),
+      'tests/support/base.ts': base,
+      'tests/support/fixtures.ts': "export { test } from './base';\n",
+      'tests/orders.spec.ts':
+        "import { test } from './support/fixtures';\ntest('places a market order', async () => {});\n",
+    });
+    const inventory = await scan({ root, framework, patterns: ['tests/orders.spec.ts'] });
+    expect(inventory.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      [
+        'framework-mismatch',
+        `'test' is imported from './support/fixtures', which re-exports it from './base', which ${how} it from '${source}', another runner's module, but the scan is for ${name}.`,
+      ],
+    ]);
+    expect(inventory.tests).toEqual([]);
+  });
+});
+
+describe("a helper from a module that imports another runner's module", () => {
+  const helpers = [
+    "import { expect, test } from '@playwright/test';",
+    "export function seedOrder(symbol) { return { symbol, side: 'buy', quantity: 100 }; }",
+    "export function describeOrderPage(title) { test.describe(title, () => { test('opens the order page', async () => {}); }); }",
+    "export const expectFilled = (order) => expect(order.status).toBe('filled');",
+  ].join('\n');
+
+  it("is no mismatch when the helper the file calls doesn't use that import", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: { test: 'bun test' } }),
+      'support/orders.ts': helpers,
+      'orders.test.ts': `import { describe, test } from 'bun:test';
+import { seedOrder } from './support/orders';
+describe('order book', () => {
+  seedOrder('AAPL');
+  test('fills a limit order at the limit price', () => {});
+});`,
+    });
+    const inventory = await scan({ root, framework: 'bun', patterns: ['orders.test.ts'] });
+    expect(inventory.tests.map((test) => test.title)).toEqual(['fills a limit order at the limit price']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('is a mismatch at the call when the helper uses it', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: { test: 'bun test' } }),
+      'support/orders.ts': helpers,
+      'orders.test.ts': `import { test } from 'bun:test';
+import { describeOrderPage } from './support/orders';
+describeOrderPage('order page');
+test('fills a limit order at the limit price', () => {});`,
+    });
+    const inventory = await scan({ root, framework: 'bun', patterns: ['orders.test.ts'] });
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart])).toEqual([['framework-mismatch', 3]]);
+  });
+});
+
+describe('a var declared in a nested block, which belongs to the whole function', () => {
+  it.each([
+    [
+      'a switch case',
+      `function quoteImage(image) {
+  switch (image.kind) {
+    case 'canvas':
+      var context = image.canvas.getContext('2d');
+      context.drawImage(image.bitmap, 0, 0);
+      return context.getImageData(0, 0, image.width, image.height);
+    default:
+      return null;
+  }
+}`,
+    ],
+    [
+      'an if block, read after it',
+      `function quoteImage(image) {
+  if (image.canvas) {
+    var context = image.canvas.getContext('2d');
+  }
+  return context.getImageData(0, 0, image.width, image.height);
+}`,
+    ],
+    [
+      'an if block that gives a parameter a default',
+      `function quoteImage(image, context) {
+  if (!context) {
+    var context = image.canvas.getContext('2d');
+  }
+  return context.getImageData(0, 0, image.width, image.height);
+}`,
+    ],
+  ])('hides the Mocha global it is named after, in %s', (_, helper) => {
+    const result = scanMocha(`${helper}
+describe('quote images', () => {
+  it('renders the last trade price', () => {});
+});`);
+    expect(result.tests.map((test) => [test.title, test.state])).toEqual([['renders the last trade price', 'active']]);
+    expect(codes(result)).toEqual([]);
+  });
+});
+
+describe("a test function's own Function methods", () => {
+  it.each([
+    ['Mocha', scanMocha, "const focused = it.only.bind(it);\nit('fills a limit order', () => {});"],
+    [
+      'Vitest',
+      scanVitest,
+      "import { it } from 'vitest';\nconst focused = it.only.bind(it);\nit('fills a limit order', () => {});",
+    ],
+    [
+      'Playwright',
+      scanPlaywright,
+      "import { test } from '@playwright/test';\nconst focused = test.only.bind(test);\ntest('fills a limit order', async () => {});",
+    ],
+  ])('are no invalid chain in %s, as `it.only.bind(it)` only makes a function', (_, scanWith, code) => {
+    const result = scanWith(code);
+    expect(result.tests.map((test) => [test.title, test.state])).toEqual([['fills a limit order', 'active']]);
+    expect(codes(result)).toEqual([]);
+  });
+});
+
+describe('a test file with an expression thousands of levels deep', () => {
+  it('is a parse error, not an internal error from a walk that overflows the stack', () => {
+    const terms = Array.from({ length: 7000 }, (_, index) => `leg${index}`).join(' + ');
+    const result = scanVitest(
+      `import { test } from 'vitest';\ntest('prices a 7,000-leg basket', () => { const price = ${terms}; });`,
+    );
+    expect(result.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      [
+        'parse-error',
+        'The file could not be parsed: Expressions are nested more than 1000 deep, too deep to read safely',
+      ],
+    ]);
   });
 });

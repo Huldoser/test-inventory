@@ -66,7 +66,26 @@ import {
   wrappedFunction,
 } from './common.ts';
 
-const MISMATCHED_SOURCES = new Set(['vitest', '@jest/globals']);
+/**
+ * What `@playwright/test` exports besides `test` and `expect`, which its `test.js` assigns onto the original `test`
+ * function: library calls such as `playwright.chromium.launch()`, not tests.
+ */
+const MODULE_EXPORTS = new Set([
+  'defineConfig',
+  'mergeTests',
+  'mergeExpects',
+  'chromium',
+  'firefox',
+  'webkit',
+  'selectors',
+  'devices',
+  'errors',
+  'request',
+  '_electron',
+  '_android',
+]);
+
+const MISMATCHED_SOURCES = new Set(['vitest', '@jest/globals', 'mocha', 'node:test', 'bun:test']);
 
 // Maps rather than object literals, so names such as `constructor` don't match inherited properties.
 const DESCRIBES = new Map<string, { only?: boolean; state?: State; mode?: Mode }>([
@@ -297,6 +316,7 @@ class PlaywrightBindings implements TestObjects {
 const PLAYWRIGHT: Framework = {
   name: 'Playwright',
   isSource: isPlaywrightSource,
+  isMismatched: (source) => MISMATCHED_SOURCES.has(source),
   testObjects: (program, follow) => new PlaywrightBindings(program, follow),
 };
 
@@ -340,7 +360,7 @@ export class PlaywrightAdapter implements Adapter {
     const names = links.map((link) => link.name);
     const key = names.join('.');
     if (
-      key === 'defineConfig' &&
+      MODULE_EXPORTS.has(names[0]) &&
       chain &&
       (this.bindings.isModule(chain.base) ||
         (chain.base.type === 'Identifier' && this.bindings.moduleTests.has(chain.base.name)))

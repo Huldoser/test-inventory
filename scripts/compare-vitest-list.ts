@@ -57,6 +57,7 @@ const CAUSES = {
   conditional: 'A condition decides the state at run time; Vitest reads `skipIf` and `runIf` as skip',
   dynamicTitle: 'The title is worked out at run time',
   missingTests: 'The scan reports an `unresolved-test-import` error: tests that use the import are missing',
+  otherRunner: "The scan reports a `framework-mismatch` error: the file imports another runner's test functions",
 };
 
 /** The state a record has, as Vitest's modes name it. */
@@ -199,6 +200,7 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
         .map((diagnostic) => place(diagnostic.relativeFilePath, diagnostic.lineStart)),
     );
   const unresolvedImports = where(['unresolved-test-import'], (file) => file);
+  const otherRunners = where(['framework-mismatch'], (file) => file);
   // The calls that make the runner refuse the file, by line.
   const refusedCalls = where(['invalid-chain', 'removed-api'], (file, line) => `${file}:${line}`);
   const differences: Difference[] = [];
@@ -350,6 +352,7 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
     const records = inventory.tests.filter((test) => test.relativeFilePath === file);
     if (records.some((test) => entry.line > test.lineStart && entry.line <= test.lineEnd)) return CAUSES.inTestBody;
     if (unresolvedImports.has(file)) return CAUSES.missingTests;
+    if (otherRunners.has(file)) return CAUSES.otherRunner;
     if (refusedCalls.has(`${file}:${entry.line}`)) return CAUSES.refusedFile;
     const calls = codeOf(file).listedAt(entry.line, entry.column);
     return calls.length > 0 && !calls.some(passesTitleAndFunction) ? CAUSES.notATest : null;

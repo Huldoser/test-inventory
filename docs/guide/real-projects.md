@@ -58,9 +58,9 @@ errors and the larger warning counts have these causes:
   fixture. The framework version is unknown because the repository is Playwright itself.
 - **Nuxt, 24 `unresolved-test-import` errors.** Playwright tests that the Vitest pattern also matches import `test`
   from a helper that builds it from `@nuxt/test-utils/playwright`.
-- **Sentry unit, 24 `unresolved-test-import` errors.** 7 files are Bun tests that import `test`, `it` and
-  `describe` from `bun:test`, and 5 import them from `@effect/vitest`, an installed package that wraps Vitest. Each
-  name is reported once per file.
+- **Sentry unit, 7 `framework-mismatch` and 10 `unresolved-test-import` errors.** 7 files are Bun tests that import
+  `test`, `it` and `describe` from `bun:test`, one mismatch each, and 5 import them from `@effect/vitest`, an
+  installed package that wraps Vitest, where each name is reported once per file.
 - **Vue core, 217 tests in helper functions.** `render.spec.ts` declares its tests in `testRender()`, which it calls
   three times, once for each way to render, and `Teleport.spec.ts` calls `runSharedTests()` in an eager and a defer
   describe. The scan records those tests at each call, in the describe around it, as Vitest registers them. Other
