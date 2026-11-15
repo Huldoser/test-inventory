@@ -76,6 +76,8 @@ const LOCATION = new Set([
   'suiteId',
   'parentTestId',
   'fileName',
+  // Where code the scan can't follow is; whether there is any shows in hasUnfollowedDependencies.
+  'unfollowedDependencies',
 ]);
 const CLASSIFIED = new Set([
   'relativeFilePath',

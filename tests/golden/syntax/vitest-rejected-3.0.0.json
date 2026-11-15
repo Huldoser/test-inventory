@@ -314,6 +314,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "9b8c9c751a192001",
       "parentTestId": null,
       "suitePath": [
@@ -396,6 +397,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "9b8c9c751a192001",
       "parentTestId": null,
       "suitePath": [
@@ -478,6 +480,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "4839062f18bbcd42",
       "parentTestId": null,
       "suitePath": [
@@ -560,6 +563,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "d891c3b51b58f2d6",
       "parentTestId": null,
       "suitePath": [
@@ -642,6 +646,9 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest-rejected.test.ts:24"
+      ],
       "suiteId": "d3035adf5dc6630c",
       "parentTestId": null,
       "suitePath": [

@@ -790,6 +790,13 @@
           "type": "boolean",
           "description": "Something the test reaches couldn't be followed, so a change there doesn't change `dependencyHash`."
         },
+        "unfollowedDependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Where the test reaches what couldn't be followed: the file and line of each place, as `support/venues.ts:2`, sorted; empty when `hasUnfollowedDependencies` is false. A `dependency-not-followed` warning at the place says what it is."
+        },
         "suiteId": {
           "anyOf": [
             {
@@ -1224,6 +1231,7 @@
         "dependencyHash",
         "dependencies",
         "hasUnfollowedDependencies",
+        "unfollowedDependencies",
         "suiteId",
         "parentTestId",
         "suitePath",

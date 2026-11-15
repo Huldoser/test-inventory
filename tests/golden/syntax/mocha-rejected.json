@@ -110,6 +110,7 @@
         "tests/mocha-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "c339498f3be0b5a6",
       "parentTestId": null,
       "suitePath": [
@@ -192,6 +193,7 @@
         "tests/mocha-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "c339498f3be0b5a6",
       "parentTestId": null,
       "suitePath": [

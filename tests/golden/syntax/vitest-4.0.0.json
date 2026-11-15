@@ -469,6 +469,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4f49c0f8d0ad93da",
       "parentTestId": null,
       "suitePath": [
@@ -551,6 +554,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4f49c0f8d0ad93da",
       "parentTestId": null,
       "suitePath": [
@@ -633,6 +639,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4f49c0f8d0ad93da",
       "parentTestId": null,
       "suitePath": [
@@ -715,6 +724,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4f49c0f8d0ad93da",
       "parentTestId": null,
       "suitePath": [
@@ -797,6 +809,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "13c10df8c2dff1c2",
       "parentTestId": null,
       "suitePath": [
@@ -879,6 +894,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "13c10df8c2dff1c2",
       "parentTestId": null,
       "suitePath": [
@@ -961,6 +979,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "c1450b4c7d0ff1f6",
       "parentTestId": null,
       "suitePath": [
@@ -1043,6 +1064,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1125,6 +1149,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1207,6 +1234,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1289,6 +1319,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1371,6 +1404,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1453,6 +1489,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1535,6 +1574,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f71c78f2c3125258",
       "parentTestId": null,
       "suitePath": [
@@ -1617,6 +1659,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "f9e119f384a4d367",
       "parentTestId": null,
       "suitePath": [
@@ -1699,6 +1744,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4a24edbf4de44bc1",
       "parentTestId": null,
       "suitePath": [
@@ -1781,6 +1829,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4a24edbf4de44bc1",
       "parentTestId": null,
       "suitePath": [
@@ -1863,6 +1914,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4e0db0d8e503f68f",
       "parentTestId": null,
       "suitePath": [
@@ -1945,6 +1999,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4e0db0d8e503f68f",
       "parentTestId": null,
       "suitePath": [
@@ -2027,6 +2084,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4e0db0d8e503f68f",
       "parentTestId": null,
       "suitePath": [
@@ -2109,6 +2169,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4b60e20bca9c32ef",
       "parentTestId": null,
       "suitePath": [
@@ -2197,6 +2260,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4b60e20bca9c32ef",
       "parentTestId": null,
       "suitePath": [
@@ -2281,6 +2347,9 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/vitest.test.ts:4"
+      ],
       "suiteId": "4b60e20bca9c32ef",
       "parentTestId": null,
       "suitePath": [

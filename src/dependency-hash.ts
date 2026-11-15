@@ -175,7 +175,8 @@ export interface FixtureNeeds {
 export interface Dependencies {
   hash: string;
   files: string[];
-  isComplete: boolean;
+  /** The file and line of each place the test reaches that can't be followed, sorted. */
+  unfollowed: string[];
 }
 
 /** Statements that only declare something, unless code in them runs while they are evaluated. */
@@ -714,7 +715,9 @@ export class DependencyGraph {
       const own = added.get(file);
       return own ? part(file, [...(shared.byFile.get(file) ?? []), ...own]) : (shared.parts.get(file) as string);
     });
-    return { hash: shortHash(`[${parts.join(',')}]`), files, isComplete: places.length === 0 };
+    // Places on one line, as two imports a statement makes, are one entry.
+    const unfollowed = places.map((place) => `${place.relativeFilePath}:${place.source.position(start(place)).line}`);
+    return { hash: shortHash(`[${parts.join(',')}]`), files, unfollowed: [...new Set(unfollowed)] };
   }
 
   private newModule(

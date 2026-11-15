@@ -245,6 +245,7 @@
         "src/spread.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
       "suitePath": [],
@@ -326,6 +327,7 @@
         "src/spread.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
       "suitePath": [],
@@ -407,6 +409,7 @@
         "test/fx/cross-rates.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
       "suitePath": [],
@@ -488,6 +491,7 @@
         "test/fx/cross-rates.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
       "suitePath": [],
@@ -568,6 +572,7 @@
         "test/fx/cross-rates.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
       "suitePath": [],
@@ -649,6 +654,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "d4e8ad4192b6252c",
       "parentTestId": null,
       "suitePath": [
@@ -731,6 +737,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "d4e8ad4192b6252c",
       "parentTestId": null,
       "suitePath": [
@@ -813,6 +820,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "d4e8ad4192b6252c",
       "parentTestId": null,
       "suitePath": [
@@ -896,6 +904,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "0c3d22e90e7595c6",
       "parentTestId": null,
       "suitePath": [
@@ -979,6 +988,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "c7474286196d7c2f",
       "parentTestId": null,
       "suitePath": [
@@ -1063,6 +1073,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
       "suitePath": [],
@@ -1144,6 +1155,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "76080f80b7409d6f",
       "suitePath": [
@@ -1226,6 +1238,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "76080f80b7409d6f",
       "suitePath": [

@@ -968,6 +968,13 @@ test('quotes AAPL', async ({ page }) => {
       ['routes to NYSE', true],
       ['quotes AAPL', false],
     ]);
+    expect(inventory.tests.map((test) => [test.title, test.unfollowedDependencies])).toEqual([
+      // The missing module loads with the file, so both of its tests reach it.
+      ['routes to NASDAQ', ['support/venues.ts:2', 'tests/nasdaq.spec.ts:3']],
+      ['routes through the broker', ['tests/nasdaq.spec.ts:3']],
+      ['routes to NYSE', ['support/venues.ts:2']],
+      ['quotes AAPL', []],
+    ]);
     expect(
       inventory.diagnostics.map(({ code, level, relativeFilePath, lineStart, message }) => [
         code,
@@ -1087,7 +1094,9 @@ test('places a market order', async ({ page }) => {
 });
 `);
     expect(accounts.tests[0].hasUnfollowedDependencies).toBe(true);
+    expect(accounts.tests[0].unfollowedDependencies).toEqual([`${accounts.tests[0].relativeFilePath}:2`]);
     expect(packages.tests[0].hasUnfollowedDependencies).toBe(false);
+    expect(packages.tests[0].unfollowedDependencies).toEqual([]);
     expect([...accounts.diagnostics, ...packages.diagnostics]).toEqual([]);
   });
 

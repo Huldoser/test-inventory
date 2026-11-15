@@ -60,8 +60,9 @@ and [runner comparisons](/guide/runners).
 
 ## A related-files query returns too many tests
 
-Inspect `hasUnfollowedDependencies` and `dependency-not-followed`. Tests with gaps are kept because the changed code
-may affect them through an unseen dependency. Shared setup, barrel exports and snapshots can also connect many
+Inspect `unfollowedDependencies` and the `dependency-not-followed` warnings at those places. Tests with gaps are kept
+because the changed code may affect them through an unseen dependency; one place in a shared setup file or config can
+mark a whole suite. Shared setup, barrel exports and snapshots can also connect many
 tests to one file. Pass changed paths relative to the CLI's current folder; MCP `related` paths are relative to the
 server's project root. See [dependency limits](/guide/limits#what-dependencyhash-leaves-out).
 
