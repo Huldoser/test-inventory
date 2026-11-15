@@ -349,3 +349,23 @@ describe('quote images', () => {
     expect(codes(result)).toEqual([]);
   });
 });
+
+describe("a test function's own Function methods", () => {
+  it.each([
+    ['Mocha', scanMocha, "const focused = it.only.bind(it);\nit('fills a limit order', () => {});"],
+    [
+      'Vitest',
+      scanVitest,
+      "import { it } from 'vitest';\nconst focused = it.only.bind(it);\nit('fills a limit order', () => {});",
+    ],
+    [
+      'Playwright',
+      scanPlaywright,
+      "import { test } from '@playwright/test';\nconst focused = test.only.bind(test);\ntest('fills a limit order', async () => {});",
+    ],
+  ])('are no invalid chain in %s, as `it.only.bind(it)` only makes a function', (_, scanWith, code) => {
+    const result = scanWith(code);
+    expect(result.tests.map((test) => [test.title, test.state])).toEqual([['fills a limit order', 'active']]);
+    expect(codes(result)).toEqual([]);
+  });
+});
