@@ -173,6 +173,176 @@ describe('a Vitest browser config whose browser comes from the environment', () 
       ],
     ]);
   });
+
+  it('lists the files the config runs when the environment turns browser mode on', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts':
+        "export default { test: { include: ['spec/**/*.spec.ts'], browser: { enabled: process.env.CHART_BROWSER === '1', instances: [{ browser: 'chromium' }] } } };\n",
+      'spec/candles.spec.ts': UNIT,
+      'src/candles.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['spec/candles.spec.ts']);
+    expect(inventory.tests.map((test) => test.projects)).toEqual([null]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      [
+        'config-value-unknown',
+        'warning',
+        "The config's test.browser.enabled could not be worked out without running the config, so the scan lists the files the config runs, but not which of its browser projects run them.",
+      ],
+    ]);
+  });
+});
+
+describe('a Vitest config whose projects or file settings come from code the scan does not run', () => {
+  const CANDIDATES =
+    "The config's test.projects could not be worked out without running the config, so the scan lists candidate files from the readable top-level file settings; project membership is unknown and tests may be missing; give patterns to select other files.";
+
+  it.each([
+    [
+      'a list built from the folders',
+      VITEST_PACKAGE,
+      [
+        "import { readdirSync } from 'node:fs';",
+        "const lanes = readdirSync('src').map((lane) => ({ extends: true, test: { name: lane, include: [`src/${lane}/**/*.test.ts`] } }));",
+        "export default { test: { exclude: ['src/legacy/**'], projects: lanes } };",
+      ].join('\n'),
+    ],
+    [
+      'an entry that is a function',
+      VITEST_PACKAGE,
+      "export default { test: { exclude: ['src/legacy/**'], projects: [() => ({ test: { name: 'settlement' } })] } };\n",
+    ],
+    [
+      'Vitest 3 test.workspace',
+      JSON.stringify({ devDependencies: { vitest: '3.2.4' } }),
+      "export default { test: { exclude: ['src/legacy/**'], workspace: process.env.CI ? ['packages/*'] : ['src'] } };\n",
+    ],
+  ])('keeps the files its own settings select as candidates, with %s', async (_, manifest, config) => {
+    const root = project({
+      'package.json': manifest,
+      'vitest.config.ts': config,
+      'src/pricing/fees.test.ts': UNIT,
+      'src/settlement/netting.test.ts': UNIT,
+      'src/legacy/ledger.test.ts': UNIT,
+      'src/pricing/fees.ts': 'export const fee = 1;\n',
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['src/pricing/fees.test.ts', 'vitest.config.ts'],
+      ['src/settlement/netting.test.ts', 'vitest.config.ts'],
+    ]);
+    expect(inventory.tests.map((test) => test.projects)).toEqual([null, null]);
+    const key = manifest === VITEST_PACKAGE ? 'test.projects' : 'test.workspace';
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      ['config-value-unknown', 'error', CANDIDATES.replace('test.projects', key)],
+    ]);
+  });
+
+  it('keeps no candidates for a Vitest 3 test.workspace from mergeConfig, as the error would have no place', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { vitest: '3.2.4' } }),
+      'vitest.config.ts': [
+        "import { defineConfig, mergeConfig } from 'vitest/config';",
+        'const shared = { test: { globals: true } };',
+        "export default mergeConfig(shared, defineConfig({ test: { workspace: ['packages/*'] } }));",
+      ].join('\n'),
+      'packages/pricing/src/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual(['no-files-matched']);
+  });
+
+  it('places a file in the project it can read before taking it as a candidate', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': [
+        'export default {',
+        '  test: {',
+        "    projects: [{ test: { name: 'pricing', include: ['src/pricing/**/*.test.ts'] } }, () => ({ test: { name: 'settlement' } })],",
+        '  },',
+        '};',
+      ].join('\n'),
+      'src/pricing/fees.test.ts': UNIT,
+      'src/settlement/netting.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.projects])).toEqual([
+      ['src/pricing/fees.test.ts', ['pricing']],
+      ['src/settlement/netting.test.ts', null],
+    ]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level])).toEqual([['config-value-unknown', 'error']]);
+  });
+
+  it('keeps the candidates of a config a package.json script names', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { vitest: '5.0.3' },
+        scripts: { 'test:settlement': 'vitest run --config configs/settlement.ts' },
+      }),
+      'configs/settlement.ts':
+        "export default { test: { include: ['src/**/*.check.ts'], projects: await settlementLanes() } };\n",
+      'src/netting.check.ts': UNIT,
+      'src/netting.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['src/netting.check.ts', 'configs/settlement.ts'],
+    ]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      ['config-value-unknown', 'error', CANDIDATES],
+    ]);
+  });
+
+  it('asks for patterns, as an error, when the include itself comes from code', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts':
+        "import { selectSuites } from './vitest.suites';\nexport default { test: { include: selectSuites(__dirname) } };\n",
+      'vitest.suites.ts':
+        "import { readdirSync } from 'node:fs';\nexport const selectSuites = (root) => readdirSync(root);\n",
+      'src/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.tests).toEqual([]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      [
+        'config-value-unknown',
+        'error',
+        "The config's test.include could not be worked out without running the config, so the scan can't tell which files it runs; give patterns to scan them.",
+      ],
+      ['no-files-matched', 'warning', 'No test files were found from the configs in the root.'],
+    ]);
+  });
+
+  it('leaves out the files the exclude entries it can read name, beside a spread it cannot', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': [
+        "import { generatedSuites } from './scripts/generated-suites.mjs';",
+        "export default { test: { include: ['tests/**/*.test.ts'], exclude: ['tests/fixtures/**', ...generatedSuites] } };",
+      ].join('\n'),
+      'scripts/generated-suites.mjs':
+        "import { readdirSync } from 'node:fs';\nexport const generatedSuites = readdirSync('tests/generated').map((name) => `tests/generated/${name}`);\n",
+      'tests/orders.test.ts': UNIT,
+      'tests/fixtures/stale.test.ts': UNIT,
+      'tests/generated/quotes.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual([
+      'tests/generated/quotes.test.ts',
+      'tests/orders.test.ts',
+    ]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      [
+        'config-value-unknown',
+        'warning',
+        "The config's test.exclude could not be worked out without running the config, so the scan may list test files that Vitest leaves out.",
+      ],
+    ]);
+  });
 });
 
 describe('a runner that reads its config only in the root', () => {
