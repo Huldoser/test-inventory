@@ -1,0 +1,22 @@
+name: Test changes comment
+
+# Posts the report the scan uploaded. It checks out no code and reads the report as data, so pull requests from forks
+# get the comment without their code running with this token.
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: [Test changes]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: Huldoser/test-inventory-action@b1a31bbf853f1033d151c86d05dd761653e04918 # v0.1.0
+        with:
+          mode: comment
