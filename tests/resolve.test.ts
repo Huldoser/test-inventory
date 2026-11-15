@@ -236,6 +236,7 @@ describe('a custom test object imported through package.json imports', () => {
       '#fixtures',
     ],
     ['a list of targets', { '#fixtures': ['./fixtures/index.ts'] }, '#fixtures'],
+    ['build output, to the source next to it', { '#app/*.js': './build/*.js' }, '#app/fixtures/index.js'],
   ])('is followed through %s', async (_, imports, from) => {
     const inventory = await scanSpec({
       'package.json': JSON.stringify({ devDependencies: { '@playwright/test': '1.63.0' }, imports }),
@@ -355,6 +356,33 @@ describe('a custom test object from a workspace package', () => {
   });
 
   it.each([
+    ['a JavaScript main', { main: './index.js' }, '@trading/test-utils', 'packages/test-utils/index.js'],
+    ['JavaScript exports', { exports: { '.': './index.mjs' } }, '@trading/test-utils', 'packages/test-utils/index.mjs'],
+    [
+      'a JavaScript file it has no exports for',
+      {},
+      '@trading/test-utils/src/presets.js',
+      'packages/test-utils/src/presets.js',
+    ],
+  ])('is followed to its JavaScript source through %s, as Node loads it', async (_, manifest, from, file) => {
+    const root = workspace(manifest, { [file]: FIXTURES, 'tests/portfolio.spec.ts': spec(from) });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('is reported when it points to built JavaScript with no source next to it, even once built', async () => {
+    const root = workspace(
+      { main: './dist/bundle.js' },
+      { 'packages/test-utils/dist/bundle.js': FIXTURES, 'tests/portfolio.spec.ts': spec('@trading/test-utils') },
+    );
+    const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
+    expect(messages(inventory)).toEqual([
+      "'test' is imported from '@trading/test-utils', which is a workspace package whose exports, types and main don't point to source code; tests that use it are missing.",
+    ]);
+  });
+
+  it.each([
     [
       'only built JavaScript with no source next to it',
       { exports: './dist/bundle.js', types: './build', main: 'index.js' },
@@ -367,7 +395,7 @@ describe('a custom test object from a workspace package', () => {
     const root = workspace(manifest, { 'tests/portfolio.spec.ts': spec(from) });
     const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
     expect(messages(inventory)).toEqual([
-      `'test' is imported from '${from}', which is a workspace package whose exports, types and main don't point to TypeScript source; tests that use it are missing.`,
+      `'test' is imported from '${from}', which is a workspace package whose exports, types and main don't point to source code; tests that use it are missing.`,
     ]);
   });
 

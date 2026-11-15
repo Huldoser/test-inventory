@@ -6,6 +6,7 @@ import type { ModuleReader, ModuleSource } from './model.ts';
 
 const EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const TYPESCRIPT_SOURCE = /(?<!\.d)\.[cm]?tsx?$/;
+const JAVASCRIPT = /\.[cm]?jsx?$/;
 
 function isFile(file: string): boolean {
   return existsSync(file) && statSync(file).isFile();
@@ -218,7 +219,10 @@ function aliasFiles(specifier: string, options: PathOptions): string[] | null {
   );
 }
 
-/** Files a `#name` import may stand for, from `imports` in the nearest package.json. */
+/**
+ * Files a `#name` import may stand for, from `imports` in the nearest package.json. A target in build output is taken
+ * from the source next to it first, as for a workspace package.
+ */
 function subpathImportFiles(specifier: string, directory: string): string[] {
   for (let folder = directory; ; folder = path.dirname(folder)) {
     const manifest = readJson(path.join(folder, 'package.json'));
@@ -226,9 +230,10 @@ function subpathImportFiles(specifier: string, directory: string): string[] {
     if (manifest) {
       const match = imports ? matchPattern(Object.keys(imports), specifier) : null;
       if (!match || !imports) return [];
-      return targetStrings(imports[match.key]).map((target) =>
-        path.resolve(folder, target.replaceAll('*', match.star)),
-      );
+      return targetStrings(imports[match.key]).flatMap((target) => {
+        const filled = target.replaceAll('*', match.star);
+        return [...sourceOf(filled), filled].map((file) => path.resolve(folder, file));
+      });
     }
     if (path.dirname(folder) === folder) return [];
   }
@@ -250,9 +255,17 @@ function sourceOf(target: string): string[] {
   return [`src/${base}.ts`, `src/${base}.tsx`, `${base}.ts`, `${base}.tsx`];
 }
 
+/** Whether a path in a package is in a folder builds write to, as `dist/index.js` and `esm/index.js` are. */
+function isBuilt(target: string): boolean {
+  const first = target.replace(/^\.[\\/]/, '').split(/[\\/]/)[0];
+  return BUILD_FOLDERS.has(first) || FORMAT_FOLDERS.has(first);
+}
+
 /**
- * The TypeScript source a package's exports, types or main point to for a subpath such as `.` or `./fixtures`. When they
- * point to build output, the source next to it is used, as in a workspace package that hasn't been built.
+ * The source a package's exports, types or main point to for a subpath such as `.` or `./fixtures`: TypeScript first,
+ * then JavaScript outside build folders, which a package written in JavaScript runs as it is. When they point to build
+ * output, the source next to it is used, as in a workspace package that hasn't been built; built JavaScript itself is
+ * not followed, as a change to its source would not reach it until the next build.
  */
 function packageEntry(folder: string, subpath: string): { file: string } | { reason: string } {
   const manifest = readJson(path.join(folder, 'package.json'));
@@ -271,12 +284,14 @@ function packageEntry(folder: string, subpath: string): { file: string } | { rea
     targets = subpath === '.' ? targetStrings(exports) : [];
   }
   if (subpath === '.') targets.push(...targetStrings(manifest?.types), ...targetStrings(manifest?.main));
-  const file = [...targets.filter((target) => TYPESCRIPT_SOURCE.test(target)), ...targets.flatMap(sourceOf)]
+  const file = [
+    ...targets.filter((target) => TYPESCRIPT_SOURCE.test(target)),
+    ...targets.flatMap(sourceOf),
+    ...targets.filter((target) => JAVASCRIPT.test(target) && !isBuilt(target)),
+  ]
     .map((target) => path.resolve(folder, target))
     .find(isFile);
-  return file
-    ? { file }
-    : { reason: "is a workspace package whose exports, types and main don't point to TypeScript source" };
+  return file ? { file } : { reason: "is a workspace package whose exports, types and main don't point to source code" };
 }
 
 /**
@@ -334,7 +349,7 @@ function workspaceAt(folder: string): Map<string, string> | null {
 }
 
 /**
- * A workspace package followed to its TypeScript source: through its link in node_modules, or, before an install, from
+ * A workspace package followed to its source: through its link in node_modules, or, before an install, from
  * the packages the workspace lists. A package installed from a registry is not followed.
  */
 function workspaceSource(
@@ -409,7 +424,7 @@ function mapped(specifier: string, alias: ImportMap['aliases'][number]): string[
 /**
  * Returns a reader for the modules a test file imports. It follows the import map of the config the file runs with,
  * relative paths, tsconfig `paths` and `baseUrl` from the tsconfig nearest the importing file, package.json `imports`
- * (`#name`), and workspace packages whose entry is TypeScript source. Each module it reads carries a reader for the
+ * (`#name`), and workspace packages to their source. Each module it reads carries a reader for the
  * modules that module imports in turn, with the same import map.
  */
 export function moduleResolver(root: string): (fromFile: string, map?: ImportMap | null) => ModuleReader {
