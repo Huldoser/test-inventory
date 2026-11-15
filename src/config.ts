@@ -743,6 +743,13 @@ class ConfigCode {
     }
     const custom = this.framework === 'jest' ? this.nextJestCustom(call, frame, scopes) : null;
     if (custom) return withNextJest(custom, site);
+    // A factory, as `createVitestConfig('node')`, gives what it returns; its parameters are unknown inside it. When
+    // none of that can be worked out, the call in the config is the place to point at.
+    const factory = this.localFunction(unwrap(call.callee), frame, scopes);
+    if (factory) {
+      const returned = this.once(factory.fn, site, () => this.returned(factory.fn, factory.frame, factory.scopes));
+      return returned.kind === 'unknown' ? unknown(site) : returned;
+    }
     const origin = this.origin(unwrap(call.callee), frame, scopes);
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
@@ -853,6 +860,29 @@ class ConfigCode {
     return frame.values.importedName(node.name, scopes) === 'default'
       ? frame.values.importSource(node.name, scopes)
       : null;
+  }
+
+  /**
+   * A function the config calls that it declares, or imports by name from a local module that exports it as a function,
+   * with the frame and scopes it is written in; null for any other callee, such as a package's function.
+   */
+  private localFunction(
+    callee: Expression,
+    frame: ConfigFrame,
+    scopes: readonly Node[],
+  ): { fn: FunctionNode; frame: ConfigFrame; scopes: readonly Node[] } | null {
+    if (callee.type !== 'Identifier') return null;
+    const own = frame.values.functionWithScopes(callee.name, scopes);
+    if (own) return { ...own, frame };
+    const source = frame.values.importSource(callee.name, scopes);
+    const name = frame.values.importedName(callee.name, scopes);
+    const module = source !== null && name !== null && /^\.\.?\//.test(source) ? this.open(frame, source) : null;
+    const exported = module && ownExport(module.parsed.program, name as string);
+    // `export { createConfig }` names the local function; one re-exported from elsewhere is not followed.
+    const local = exported?.kind === 'specifier' ? exported.local : name;
+    const isLocal = exported && !(exported.kind === 'specifier' && exported.source !== null);
+    const found = isLocal ? module.values.functionWithScopes(local as string, [module.parsed.program]) : null;
+    return found && { ...found, frame: module as ConfigFrame };
   }
 
   /** What a config function returns, when it has a single `return` the scan can follow. */

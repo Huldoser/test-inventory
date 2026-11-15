@@ -340,12 +340,18 @@ export class Values {
    * A parameter is not its function, though the function declares it.
    */
   functionOf(name: string, scopes: readonly Node[]): FunctionNode | null {
-    const binding = this.lookup(name, scopes)?.binding;
-    const declaration = binding?.declaration;
+    return this.functionWithScopes(name, scopes)?.fn ?? null;
+  }
+
+  /** `functionOf()`, with the scopes around the function's declaration, in which its body is read. */
+  functionWithScopes(name: string, scopes: readonly Node[]): { fn: FunctionNode; scopes: readonly Node[] } | null {
+    const found = this.lookup(name, scopes);
+    const declaration = found?.binding.declaration;
     // A class is bound like a function, but has no body to walk.
-    if (binding?.kind === 'function' && declaration?.type === 'FunctionDeclaration') return declaration;
+    const declared = found?.binding.kind === 'function' && declaration?.type === 'FunctionDeclaration';
     const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
-    return isFunctionNode(init) ? init : null;
+    const fn = declared ? declaration : isFunctionNode(init) ? init : null;
+    return fn && found ? { fn, scopes: found.scopes } : null;
   }
 
   /** The value a `const` name is declared with, and the scopes around that declaration; null for any other name. */
@@ -582,10 +588,12 @@ export class Values {
     return members;
   }
 
-  private lookup(name: string, scopes: readonly Node[]): { binding: Binding } | null {
+  /** A name's binding, and the scopes from the outermost to the one that declares it. */
+  private lookup(name: string, scopes: readonly Node[]): { binding: Binding; scopes: readonly Node[] } | null {
     for (let index = scopes.length - 1; index >= 0; index--) {
-      const binding = this.bindings(scopes[index], scopes.slice(0, index + 1)).get(name);
-      if (binding) return { binding };
+      const declaredIn = scopes.slice(0, index + 1);
+      const binding = this.bindings(scopes[index], declaredIn).get(name);
+      if (binding) return { binding, scopes: declaredIn };
     }
     return null;
   }
