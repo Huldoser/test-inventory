@@ -1,4 +1,4 @@
-import type { CallExpression, Expression, Node, TSEnumDeclaration } from 'oxc-parser';
+import type { CallExpression, Expression, Node, TSEnumDeclaration, VariableDeclarator } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from './ast.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
@@ -51,6 +51,7 @@ export function isScopeNode(node: Node): boolean {
     case 'ForInStatement':
     case 'ForOfStatement':
     case 'CatchClause':
+    case 'SwitchStatement':
       return true;
     default:
       return false;
@@ -875,17 +876,32 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
         break;
     }
   };
+  // A `var` in a nested block belongs to the whole function or module, as in `case 'x': var context = ...`.
+  const hoist = (body: Node) => {
+    for (const declarator of nestedVars(body)) {
+      for (const name of bindingNames(declarator.id))
+        if (!bindings.has(name)) bindings.set(name, { kind: 'other', declaration: declarator });
+    }
+  };
   switch (scope.type) {
     case 'Program':
+      for (const statement of scope.body) declare(statement);
+      hoist(scope);
+      break;
     case 'BlockStatement':
     case 'StaticBlock':
     case 'TSModuleBlock':
       for (const statement of scope.body) declare(statement);
       break;
+    case 'SwitchStatement':
+      for (const item of scope.cases) for (const statement of item.consequent) declare(statement);
+      break;
     case 'FunctionDeclaration':
     case 'FunctionExpression':
     case 'ArrowFunctionExpression':
       for (const parameter of scope.params) other(bindingNames(parameter), scope);
+      // Only a TypeScript overload has no body, and no walk goes into one.
+      hoist(scope.body as Node);
       break;
     case 'ForStatement':
       declare(scope.init);
@@ -899,6 +915,22 @@ function collectBindings(scope: Node, scopes: Node[]): Map<string, Binding> {
       break;
   }
   return bindings;
+}
+
+/** The `var` declarators in the blocks below a scope, outside the functions, classes and namespaces in it. */
+function nestedVars(scope: Node): VariableDeclarator[] {
+  const found: VariableDeclarator[] = [];
+  // Only statements hold declarations, so expressions, however deep, are not walked.
+  const visit = (node: Node) => {
+    if (node.type === 'VariableDeclaration') {
+      if (node.kind === 'var') found.push(...node.declarations);
+      return;
+    }
+    if (!/Statement$|^(SwitchCase|CatchClause|ExportNamedDeclaration)$/.test(node.type)) return;
+    for (const child of childNodes(node)) visit(child);
+  };
+  for (const child of childNodes(scope)) if (child.type !== 'VariableDeclaration') visit(child);
+  return found;
 }
 
 /** `Object.keys(x)`, `Object.values(x)` or `Object.entries(x)`, which list as many items as `x` has keys. */

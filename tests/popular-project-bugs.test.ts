@@ -306,3 +306,46 @@ test('fills a limit order at the limit price', () => {});`,
     expect(inventory.diagnostics.map((item) => [item.code, item.lineStart])).toEqual([['framework-mismatch', 3]]);
   });
 });
+
+describe('a var declared in a nested block, which belongs to the whole function', () => {
+  it.each([
+    [
+      'a switch case',
+      `function quoteImage(image) {
+  switch (image.kind) {
+    case 'canvas':
+      var context = image.canvas.getContext('2d');
+      context.drawImage(image.bitmap, 0, 0);
+      return context.getImageData(0, 0, image.width, image.height);
+    default:
+      return null;
+  }
+}`,
+    ],
+    [
+      'an if block, read after it',
+      `function quoteImage(image) {
+  if (image.canvas) {
+    var context = image.canvas.getContext('2d');
+  }
+  return context.getImageData(0, 0, image.width, image.height);
+}`,
+    ],
+    [
+      'an if block that gives a parameter a default',
+      `function quoteImage(image, context) {
+  if (!context) {
+    var context = image.canvas.getContext('2d');
+  }
+  return context.getImageData(0, 0, image.width, image.height);
+}`,
+    ],
+  ])('hides the Mocha global it is named after, in %s', (_, helper) => {
+    const result = scanMocha(`${helper}
+describe('quote images', () => {
+  it('renders the last trade price', () => {});
+});`);
+    expect(result.tests.map((test) => [test.title, test.state])).toEqual([['renders the last trade price', 'active']]);
+    expect(codes(result)).toEqual([]);
+  });
+});
