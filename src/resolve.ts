@@ -262,6 +262,10 @@ function packageEntry(folder: string, subpath: string): { file: string } | { rea
   if (isSubpathMap) {
     const match = matchPattern(Object.keys(map), subpath);
     targets = match ? targetStrings(map[match.key]).map((target) => target.replaceAll('*', match.star)) : [];
+  } else if (exports === undefined && subpath !== '.') {
+    // Without exports, a subpath is a file in the package, as `@trading/test-utils/src/fixtures.ts` is.
+    const file = findFile(path.resolve(folder, subpath));
+    targets = [file ? path.relative(folder, file) : subpath];
   } else {
     targets = subpath === '.' ? targetStrings(exports) : [];
   }

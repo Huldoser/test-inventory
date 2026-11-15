@@ -92,8 +92,9 @@ Values, a custom `test` object, and a function that declares tests, as described
   TypeScript;
 - an `imports` entry in the nearest `package.json`, as in `#fixtures`;
 - a workspace package whose `exports`, `types` or `main` point to TypeScript source, or to build output with the
-  source next to it, as `dist/esm/index.js` is to `src/index.ts`: through its link in `node_modules`, or before an
-  install, from the `workspaces` of `package.json` and from `pnpm-workspace.yaml`. Patterns and links that lead out of
+  source next to it, as `dist/esm/index.js` is to `src/index.ts`; for a package without `exports`, a subpath names a
+  file in it, as `@trading/e2e/fixtures.ts` does. The package is found through its link in `node_modules`, or before
+  an install, from the `workspaces` of `package.json` and from `pnpm-workspace.yaml`. Patterns and links that lead out of
   the workspace folder are not followed.
 
 CommonJS is followed the same way: `const { SYMBOLS } = require('../data/symbols')` and
