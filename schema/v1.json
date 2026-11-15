@@ -772,7 +772,7 @@
               "type": "null"
             }
           ],
-          "description": "Hash of the test body, ignoring whitespace and comments; null when the test has no body."
+          "description": "Hash of the test body, ignoring whitespace and comments: the test function, one passed by name, or the one a wrapper call receives; null when the test has none of these."
         },
         "dependencyHash": {
           "type": "string",

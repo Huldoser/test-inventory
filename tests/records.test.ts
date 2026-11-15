@@ -895,6 +895,26 @@ test('fills a market order', fillsOrder);
     });
   });
 
+  it('reads the function a wrapper receives for the body, but not for fixtures', () => {
+    const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
+const withBroker = (fn) => async ({ orderTicket }) => fn({ broker: orderTicket });
+test('fills a market order', withBroker(async ({ broker }) => {
+  await test.step('submit', async () => {});
+  expect(broker.status()).toBe('filled');
+}));
+`);
+    expect(onlyTest(inventory)).toMatchObject({
+      fixtures: [],
+      expectCount: 1,
+      hasEmptyBody: false,
+      steps: [{ title: 'submit', depth: 0 }],
+    });
+    expect(onlyTest(inventory).bodyHash).not.toBeNull();
+    // A call that receives no function, as a factory of test functions, leaves the body unread.
+    const factory = scanPlaywright(`${PLAYWRIGHT_IMPORT}\ntest('fills a stop order', checkFor('AAPL'));\n`);
+    expect(onlyTest(factory)).toMatchObject({ bodyHash: null, expectCount: 0 });
+  });
+
   it('reads a hook function passed by name like one written in place', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 async function openTicket({ orderTicket }) {

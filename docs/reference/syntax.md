@@ -11,7 +11,7 @@ Choose your runner below for imports, common declarations and version-specific f
 the scanner recognizes; they do not execute these calls. Start with the [examples](/guide/examples) for complete
 setups and [key concepts](/guide/concepts) for the meaning of states, cases and projects.
 
-Across runners, a describe callback may be a function or arrow declared in the file and passed by name. Its tests inherit the calling suite's state and metadata, and its closed-over values come from where the function is declared. Vitest, Jest and Bun describe tables bind each expanded case's arguments to the named callback. Imported describe callbacks are not followed.
+Across runners, a test or describe callback may be a function written inside a wrapper call, as in `test('fills an order', withBroker(async () => {}))`: when the call receives exactly one function, that function is read as the body, its parameters being the wrapper's and not fixtures. A describe callback may also be a function or arrow declared in the file and passed by name. Its tests inherit the calling suite's state and metadata, and its closed-over values come from where the function is declared. Vitest, Jest and Bun describe tables bind each expanded case's arguments to the named callback. Imported describe callbacks are not followed.
 
 ## Playwright
 
@@ -38,7 +38,7 @@ Playwright 1.42 and newer.
 
 | Call                                                                                                                                          | Read as                                                                                                                                                   |
 | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test(title, body)`, `test(title, details, body)`                                                                                             | A test. The body may be a function passed by name.                                                                                                        |
+| `test(title, body)`, `test(title, details, body)`                                                                                             | A test. The body may be a function passed by name or one a wrapper call receives.                                                                         |
 | `test.only`, `test.skip`, `test.fixme`, `test.fail` with a title and body                                                                     | A test with that state.                                                                                                                                   |
 | `test.fail.only`                                                                                                                              | Expected to fail, with `isOnly`. Playwright 1.49 and newer.                                                                                               |
 | `test.skip()`, `test.skip(condition, description)`, `test.skip(({ browserName }) => condition, description)`; the same for `fixme` and `fail` | At file or describe level, a state for every test in the scope. In a test body or hook, a state for that test or the tests the hook runs for.             |

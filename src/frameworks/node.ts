@@ -22,6 +22,7 @@ import {
   type FileContext,
   type Link,
   type OptionValue,
+  wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind, type Start } from './test-functions.ts';
 
@@ -146,11 +147,14 @@ export class NodeAdapter extends SuiteAdapter {
   }
 
   private declaration(call: CallExpression, kind: Kind, links: Link[], context: CallContext): ApiCall {
-    const named = (node: Argument) => namedFunction(this.file, context.scopes, node) !== null;
+    const last = call.arguments.at(-1);
+    // A wrapper call is the function only last, where node:test takes it; before that, a call gives the options.
+    const named = (node: Argument) =>
+      namedFunction(this.file, context.scopes, node) !== null || (node === last && wrappedFunction(node) !== null);
     const { name, options, body } = splitArguments(call.arguments, named);
     const problems: Problem[] = [];
     const fn = isFunctionNode(body) ? body : null;
-    const hashed = fn ?? namedFunction(this.file, context.scopes, body);
+    const hashed = fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body);
     let title = { text: '<anonymous>', withoutTags: '<anonymous>', isDynamic: false };
     // Without a name, Node.js names the test after its function, which takes the name of the variable that holds it.
     const fnName = fn?.id?.name ?? (body?.type === 'Identifier' ? body.name : null);

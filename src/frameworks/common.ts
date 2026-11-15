@@ -232,6 +232,17 @@ export function namedFunction(
   return node?.type === 'Identifier' ? file.values.functionOf(node.name, scopes) : null;
 }
 
+/**
+ * The function a test or describe passes through a wrapper, as in `test('fills an order', withBroker(async () => {}))`:
+ * the only function written among the wrapper call's arguments; null otherwise. The runner calls what the wrapper
+ * returns, so this function's parameters are the wrapper's to fill, not fixtures.
+ */
+export function wrappedFunction(node: Argument | undefined): FunctionNode | null {
+  if (node?.type !== 'CallExpression') return null;
+  const functions = node.arguments.filter((arg) => isFunctionNode(arg));
+  return functions.length === 1 ? functions[0] : null;
+}
+
 export function findFunction(args: readonly Argument[], from = 0): FunctionNode | null {
   for (const arg of args.slice(from)) {
     if (isFunctionNode(arg)) return arg;

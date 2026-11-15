@@ -50,6 +50,7 @@ import {
   type FileContext,
   type Link,
   type OptionValue,
+  wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
@@ -503,7 +504,7 @@ export class VitestAdapter extends SuiteAdapter {
       ...(skips ? { skipPassedDown: passed.line } : {}),
       details: read.details,
       fn,
-      hashed: fn ?? namedFunction(this.file, context.scopes, body),
+      hashed: fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(call, table, context, problems) : null,
       cases: table ? this.tableCases(table, title, context) : null,
