@@ -109,3 +109,23 @@ describe('orders', ordersBlock);`,
   expect(differences).toHaveLength(1);
   expect(differences.filter(({ cause }) => cause === null)).toEqual([]);
 });
+
+it("explains a test Vitest lists in a file that imports another runner's test functions", () => {
+  const file = 'quotes.test.ts';
+  const code = `import { describe, it } from 'bun:test';
+describe('quote feed', () => {
+  it('streams the last trade price', () => {});
+});`;
+  const root = project({ [file]: code });
+  const inventory = scanSource({ code, relativeFilePath: file, framework: 'vitest' });
+  const modules: ListedModule[] = [
+    {
+      file,
+      errors: [],
+      tests: [{ name: 'quote feed > streams the last trade price', line: 3, column: 3, mode: 'run' }],
+    },
+  ];
+  expect(compareWithVitest(root, inventory, modules).map(({ cause }) => cause)).toEqual([
+    "The scan reports a `framework-mismatch` error: the file imports another runner's test functions",
+  ]);
+});
