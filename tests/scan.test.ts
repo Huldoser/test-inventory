@@ -1005,6 +1005,46 @@ export function venueTests() {
     ]);
   });
 
+  it('follows a helper called as a member of the module, through a namespace import or require', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { mocha: '12.0.3' } }),
+      'helpers/checks.mjs': `export function validatesQuantity(side) {
+  it(\`\${side} rejects a zero quantity\`, () => {});
+  it.skip(\`\${side} rejects a negative quantity\`, () => {});
+}
+`,
+      'helpers/checks.cjs': `function validatesQuantity(side) {
+  it(\`\${side} rejects a zero quantity\`, () => {});
+}
+
+module.exports = { validatesQuantity };
+`,
+      'test/orders.spec.mjs': `import * as checks from '../helpers/checks.mjs';
+
+describe('buy orders', () => {
+  checks.validatesQuantity('buy');
+});
+checks['validatesQuantity']('short');
+`,
+      'test/settlement.spec.js': `const checks = require('../helpers/checks.cjs');
+
+describe('sell orders', () => {
+  checks.validatesQuantity('sell');
+  checks.missingHelper('sell');
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['test/*.spec.*'], framework: 'mocha' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isInFunction])).toEqual([
+      ['buy orders > buy rejects a zero quantity', 'active', true],
+      ['buy orders > buy rejects a negative quantity', 'skip', true],
+      ['short rejects a zero quantity', 'active', true],
+      ['short rejects a negative quantity', 'skip', true],
+      ['sell orders > sell rejects a zero quantity', 'active', true],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('leaves alone imports that are not local functions, and calls from test bodies', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
