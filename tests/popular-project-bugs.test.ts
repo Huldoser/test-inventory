@@ -369,3 +369,18 @@ describe("a test function's own Function methods", () => {
     expect(codes(result)).toEqual([]);
   });
 });
+
+describe('a test file with an expression thousands of levels deep', () => {
+  it('is a parse error, not an internal error from a walk that overflows the stack', () => {
+    const terms = Array.from({ length: 7000 }, (_, index) => `leg${index}`).join(' + ');
+    const result = scanVitest(
+      `import { test } from 'vitest';\ntest('prices a 7,000-leg basket', () => { const price = ${terms}; });`,
+    );
+    expect(result.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      [
+        'parse-error',
+        'The file could not be parsed: Expressions are nested more than 1000 deep, too deep to read safely',
+      ],
+    ]);
+  });
+});

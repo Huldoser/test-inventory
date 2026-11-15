@@ -1,4 +1,6 @@
-import { parseSync, type OxcError, type ParserOptions, type Program } from 'oxc-parser';
+import { parseSync, type Node, type OxcError, type ParserOptions, type Program } from 'oxc-parser';
+import { childNodes } from './ast.ts';
+import type { Span } from './model.ts';
 import { SourceText } from './source.ts';
 
 export interface ParsedFile {
@@ -22,6 +24,12 @@ function parserOptions(fileName: string): ParserOptions {
  * development dependencies, minified bundles included, the deepest nests 34.
  */
 const MAX_NESTING = 500;
+
+/**
+ * How deep the syntax tree may nest. The scan walks it recursively: a chain of 1,000 calls, 2,000 levels deep, overflows
+ * Node.js's default stack. Of 447,597 test files in 2,500 popular projects, the deepest nests 270.
+ */
+const MAX_DEPTH = 1000;
 
 /** Words after which a `/` starts a regular expression rather than a division. */
 const BEFORE_REGEX = new Set([
@@ -203,6 +211,19 @@ export function firstError(errors: readonly OxcError[]): ParsedFile['error'] {
   return { message: first.message, start: label?.start ?? 0, end: label?.end ?? 0 };
 }
 
+/** The first node nested more than `limit` deep, the program's statements being 1 deep; null when there is none. */
+export function tooDeepTree(program: Program, limit: number): Span | null {
+  // A stack of its own, as the walk that measures how deep the tree goes can't recurse that deep either.
+  const stack: [Node, number][] = [[program, 0]];
+  for (let item = stack.pop(); item; item = stack.pop()) {
+    const [node, depth] = item;
+    if (depth > limit) return node;
+    // Pushed last to first, so the first node too deep is the first in the code.
+    for (const child of childNodes(node).reverse()) stack.push([child, depth + 1]);
+  }
+  return null;
+}
+
 export function parseFile(fileName: string, code: string): ParsedFile {
   // A byte order mark is not part of the code, and editors don't count it as a column.
   const text = code.charCodeAt(0) === 0xfeff ? code.slice(1) : code;
@@ -229,6 +250,19 @@ export function parseFile(fileName: string, code: string): ParsedFile {
       program: parseSync(fileName, '', parserOptions(fileName)).program,
       comments: [],
       error: { message: (error as Error).message, start: 0, end: 0 },
+    };
+  }
+  const deep = tooDeepTree(program, MAX_DEPTH);
+  if (deep) {
+    return {
+      source: new SourceText(text),
+      program: parseSync(fileName, '', parserOptions(fileName)).program,
+      comments: [],
+      error: {
+        message: `Expressions are nested more than ${MAX_DEPTH} deep, too deep to read safely`,
+        start: deep.start,
+        end: deep.end,
+      },
     };
   }
   return {
