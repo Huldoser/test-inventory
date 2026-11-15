@@ -151,6 +151,66 @@ describe('a scan without patterns', () => {
   );
 });
 
+describe('a runner that reads its config only in the root', () => {
+  const E2E = "describe('orders', () => {\n  it('places a market order', () => {});\n});\n";
+  it.each([
+    [
+      'cypress',
+      'Cypress',
+      { cypress: '14.5.0' },
+      { 'apps/web/cypress.config.js': 'module.exports = { e2e: {} };\n', 'apps/web/cypress/e2e/orders.cy.js': E2E },
+    ],
+    [
+      'webdriverio',
+      'WebdriverIO',
+      { '@wdio/cli': '9.20.0' },
+      {
+        'apps/web/wdio.conf.js': "exports.config = { specs: ['./test/**/*.e2e.js'] };\n",
+        'apps/web/test/orders.e2e.js': E2E,
+      },
+    ],
+    [
+      'jasmine',
+      'Jasmine',
+      { jasmine: '5.13.0' },
+      {
+        'apps/web/spec/support/jasmine.json': JSON.stringify({ spec_dir: 'spec', spec_files: ['**/*[sS]pec.js'] }),
+        'apps/web/spec/orders.spec.js': E2E,
+      },
+    ],
+  ] as const)('names the folder below the root that has a %s config', async (framework, name, dependencies, files) => {
+    const root = project({ 'package.json': JSON.stringify({ devDependencies: dependencies }), ...files });
+    const inventory = await scan({ root, framework });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      `No patterns were given, and no ${name} config is in the root, the only place the scan reads it from, so there are no test files to find. There is one in apps/web: scan that folder, or give patterns.`,
+    ]);
+  });
+
+  it('names the nearest folder, and of those as near, the first by name', async () => {
+    const config = 'module.exports = { e2e: {} };\n';
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { cypress: '14.5.0' } }),
+      'apps/web/cypress.config.js': config,
+      'apps/admin/cypress.config.js': config,
+      'e2e/cypress.config.js': config,
+      'tools/e2e/legacy/cypress.config.js': config,
+    });
+    const inventory = await scan({ root, framework: 'cypress' });
+    expect(inventory.diagnostics[0].message).toMatch(/ There is one in e2e: scan that folder, or give patterns\.$/);
+  });
+
+  it('says there is none when no folder below the root has one either', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { cypress: '14.5.0' } }),
+      'cypress/e2e/orders.cy.js': "it('places a market order', () => {});\n",
+    });
+    const inventory = await scan({ root, framework: 'cypress' });
+    expect(inventory.diagnostics.map((diagnostic) => diagnostic.message)).toEqual([
+      'No patterns were given, and no Cypress config is in the root, the only place the scan reads it from, so there are no test files to find.',
+    ]);
+  });
+});
+
 describe('a config built by a function the project writes', () => {
   it('reads a Playwright config a workspace package builds from the options it is given', async () => {
     const root = project({
