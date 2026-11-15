@@ -389,7 +389,8 @@ with `--config-file` and `--project`. Scripts that start the runner through a wr
 CI workflow names, aren't followed. A file that a collected test file
 imports gets no warning either, as its tests run in that file.
 
-Without globs, Playwright also discovers files through a package.json script when no config is above the file.
+Without globs, the scan also discovers files through a package.json script when no config above the file runs it, or
+the one there can't be read.
 If its `projects` is unknown but top-level file settings are readable, discovery keeps the candidates those settings
 select. Their `projects` is `null`; a `config-value-unknown` error warns that project overrides may select other files
 or exclude these candidates. An unknown top-level file setting still needs explicit globs. A known empty project list
@@ -555,8 +556,11 @@ config. Scanned with globs, every file they match counts as run, as for the file
 A config is read as code and never run, with the settings it imports from other files: `defineConfig()`,
 `defineProject()`, `mergeConfig()`, Playwright's `defineConfig(base, config)`, which merges `projects` by name and
 `use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
-config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
-`fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
+config, a call of a function the config declares or that a local file or workspace package exports, as
+`createVitestConfig('node')`, which gives what that function returns with its parameters set from the call's
+arguments, defaults written with `??`, `||` or `&&` whose left side is known, regular expressions, and paths built with
+`path.join()`, `path.resolve()`, `path.dirname()`, `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or
+`import.meta`. A Jest config may also be JSON, or
 a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`, or
 next/jest's `createJestConfig()`. A Mocha
 config may also be JSON, JSON with comments, or YAML with keys, lists and nested keys; YAML it doesn't read, such as an

@@ -289,6 +289,38 @@ describe('configs', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('reads a config a package script passes that calls a factory from a local module', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'trading-desk', private: true, workspaces: ['packages/*'] }),
+      'packages/broker/package.json': JSON.stringify({
+        name: 'broker',
+        scripts: { test: 'vitest --config vitest.node.config.js --run' },
+        devDependencies: { vitest: '4.1.0' },
+      }),
+      'packages/broker/vitest.config.js': `import { defineConfig } from 'vitest/config';
+
+export function createVitestConfig(environment) {
+  return defineConfig({
+    test: { environment, include: ['**/*.test.ts{,x}'], exclude: ['**/*.ui.test.ts{,x}', '**/node_modules/**'] },
+  });
+}
+`,
+      'packages/broker/vitest.node.config.js':
+        "import { createVitestConfig } from './vitest.config.js';\n\nexport default createVitestConfig('node');\n",
+      'packages/broker/src/routing.test.ts': UNIT,
+      'packages/broker/src/blotter.ui.test.tsx': UNIT,
+      'packages/broker/src/fills.spec.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['packages/broker/src/routing.test.ts', 'packages/broker/vitest.node.config.js'],
+    ]);
+    // Vitest started in the package without --config would fail on it, so the warning stays.
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.relativeFilePath, diagnostic.code])).toEqual([
+      ['packages/broker/vitest.config.js', 'config-value-unknown'],
+    ]);
+  });
+
   it("finds no default export in a config that only has export *, which doesn't pass the default on", async () => {
     const root = project({
       'package.json': VITEST_PACKAGE,
@@ -450,6 +482,51 @@ describe('the config reader', () => {
       shared: '<unknown>',
       reporters: '<unknown>',
     });
+  });
+
+  it("reads what a function the config declares returns, with its parameters bound to the call's arguments", () => {
+    const arrow = settingsOf(`import { defineConfig } from 'vitest/config';
+const createConfig = (environment) => defineConfig({ test: { environment, include: ['src/**/*.test.ts'] } });
+export default createConfig('node');
+`);
+    expect(plain(settingAt(arrow, ['test']))).toEqual({ environment: 'node', include: ['src/**/*.test.ts'] });
+    const declared = settingsOf(`const shared = { retry: 2 };
+export default makeConfig();
+function makeConfig() {
+  if (process.env.CI) return { test: { ...shared, bail: 1 } };
+  return { test: shared };
+}
+`);
+    expect(plain(declared)).toBe('<unknown>');
+    const single = settingsOf(`const shared = { retry: 2 };
+export default makeConfig();
+function makeConfig() {
+  return { test: shared };
+}
+`);
+    expect(plain(settingAt(single, ['test', 'retry']))).toBe(2);
+  });
+
+  it('follows a factory a local module exports by name or passes on from another module', () => {
+    const config = "import { createConfig } from './configs.ts';\nexport default createConfig('node');\n";
+    const factory =
+      "function createConfig(environment) {\n  return { test: { environment, include: ['src/**/*.test.ts'] } };\n}\n";
+    const settingsIn = (files: Record<string, string>) => {
+      const root = project({ 'vitest.config.ts': config, ...files });
+      return (new Configs(root, 'vitest', moduleResolver(root), null).inFolder(root) as { settings: Setting }).settings;
+    };
+    const named = settingsIn({ 'configs.ts': `${factory}export { createConfig };\n` });
+    expect(plain(settingAt(named, ['test', 'include']))).toEqual(['src/**/*.test.ts']);
+    const passedOn = settingsIn({
+      'configs.ts': "export { createConfig } from './settlement.ts';\n",
+      'settlement.ts': `export ${factory}`,
+    });
+    expect(plain(settingAt(passedOn, ['test', 'include']))).toEqual(['src/**/*.test.ts']);
+  });
+
+  it('stops at a config function that calls itself', () => {
+    const settings = settingsOf('function makeConfig() {\n  return makeConfig();\n}\nexport default makeConfig();\n');
+    expect(plain(settings)).toBe('<unknown>');
   });
 
   it('finds no key under a value', () => {

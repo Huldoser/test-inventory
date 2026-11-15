@@ -777,6 +777,13 @@ class ConfigCode {
     }
     const custom = this.framework === 'jest' ? this.nextJestCustom(call, frame, scopes) : null;
     if (custom) return withNextJest(custom, site);
+    // A factory, as `createVitestConfig('node')`, gives what it returns, with its parameters bound to the call's
+    // arguments. When none of that can be worked out, the call in the config is the place to point at.
+    const factory = this.factory(unwrap(call.callee), frame, scopes);
+    if (factory) {
+      const returned = this.called(factory, call, frame, scopes);
+      return returned.kind === 'unknown' ? unknown(site) : returned;
+    }
     const origin = this.origin(unwrap(call.callee), frame, scopes);
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
@@ -786,8 +793,6 @@ class ConfigCode {
     }
     const isPackage = origin !== null && (origin.source === '' || !/^[./#]/.test(origin.source));
     const name = isPackage && CONFIG_FUNCTIONS.has(origin.name) ? origin.name : null;
-    const factory = name === null ? this.factory(unwrap(call.callee), frame, scopes) : null;
-    if (factory) return this.called(factory, call, frame, scopes);
     const { arguments: given } = call;
     const needed = name === 'mergeConfig' ? 2 : 1;
     // Jest exports defineConfig() and mergeConfig() from 30.3; neither takes a project.
@@ -899,7 +904,7 @@ class ConfigCode {
     if (callee.type !== 'Identifier') return null;
     const imported = frame.values.importedName(callee.name, scopes);
     if (imported === null) {
-      const declared = frame.values.declaredFunction(callee.name, scopes);
+      const declared = frame.values.functionWithScopes(callee.name, scopes);
       return declared && { ...declared, frame };
     }
     const module = this.open(frame, frame.values.importSource(callee.name, scopes) as string);
@@ -929,7 +934,7 @@ class ConfigCode {
           : node?.type === 'Identifier'
             ? node.name
             : null;
-    const declared = local === null ? null : frame.values.declaredFunction(local, [program]);
+    const declared = local === null ? null : frame.values.functionWithScopes(local, [program]);
     return declared && { ...declared, frame };
   }
 

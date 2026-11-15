@@ -797,6 +797,44 @@ describe('which files the runner never collects', () => {
 });
 
 describe('which files a config a package.json script names runs', () => {
+  it("finds without globs the files a script's config runs when the config found by name can't be read", async () => {
+    const cases: { framework: Framework; files: Record<string, string>; found: [string, string] }[] = [
+      {
+        framework: 'jest',
+        files: {
+          'package.json': JSON.stringify({
+            scripts: { test: 'jest --config jest.unit.config.js' },
+            devDependencies: { jest: '30.5.2' },
+          }),
+          'jest.config.js': 'module.exports = globalThis.ledgerJest;\n',
+          'jest.unit.config.js': "module.exports = { testMatch: ['**/src/**/*.test.js'] };\n",
+          'src/booking.test.js': "test('books the cash leg', () => {});\n",
+        },
+        found: ['src/booking.test.js', 'jest.unit.config.js'],
+      },
+      {
+        framework: 'cypress',
+        files: {
+          'package.json': JSON.stringify({
+            scripts: { e2e: 'cypress run --config-file cypress.ci.config.js' },
+            devDependencies: { cypress: '15.0.0' },
+          }),
+          'cypress.config.js':
+            "const { defineConfig } = require('cypress');\nmodule.exports = defineConfig(globalThis.blotterCypress);\n",
+          'cypress.ci.config.js':
+            "const { defineConfig } = require('cypress');\nmodule.exports = defineConfig({ e2e: { specPattern: 'cypress/e2e/**/*.cy.js' } });\n",
+          'cypress/e2e/fills.cy.js': "it('shows a filled order', () => {});\n",
+        },
+        found: ['cypress/e2e/fills.cy.js', 'cypress.ci.config.js'],
+      },
+    ];
+    for (const { framework, files, found } of cases) {
+      const inventory = await scan({ root: project(files), framework });
+      expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([found]);
+      expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['config-value-unknown']);
+    }
+  });
+
   const manifest = (devDependencies: Record<string, string>, scripts: Record<string, string>) =>
     JSON.stringify({ devDependencies, scripts });
   const VITEST = { vitest: '5.0.3' };
@@ -1009,7 +1047,7 @@ describe('which files a config a package.json script names runs', () => {
       'vitest',
       ['live/**/*.test.ts'],
     );
-    expect(diagnostics).toEqual(['config-value-unknown live/suites.ts']);
+    expect(diagnostics).toEqual(['config-value-unknown vitest.live.config.ts']);
   });
 
   it("can't tell when a script names a config the scan can't read, and says so on the package.json", async () => {

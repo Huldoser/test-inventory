@@ -2,4 +2,4 @@
 'test-inventory': patch
 ---
 
-Read a config built by a function the project writes, as `export default configureE2e({ port: 3002 })` or `module.exports = buildConfig(__dirname, { testRegex })`: one declared in the config or exported by a local file or workspace package is read from its single `return`, with its parameters, their defaults and destructuring set from the call's arguments, and a default written with `??`, `||` or `&&`, as `options ?? {}`, read when its left side is known. Without patterns, such a config found no test files before.
+Read a config factory with its parameters set from the call's arguments, their defaults and destructuring included, as `configureE2e({ port: 3002 })` or `module.exports = buildConfig(__dirname, { testRegex })`, and follow one a workspace package exports, a default or CommonJS export, or one passed on from another module. A default written with `??`, `||` or `&&`, as `options ?? {}`, is read when its left side is known.
