@@ -289,7 +289,7 @@ Some dependencies are broader than one test's use, so unrelated changes can also
 - Other text files, such as JSON, are taken as text, and binary files, such as images, as bytes.
 
 When one file's code is scanned with `scanSource()`, no import is read, so a test that uses a local module has
-`hasUnfollowedDependencies` without a warning.
+`hasUnfollowedDependencies` without a warning, and `unfollowedDependencies` names the line of the import.
 
 ## Variables assigned again
 

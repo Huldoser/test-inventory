@@ -89,6 +89,18 @@ test('routes a limit order', { annotation: { type: 'issue', description: 'EXAMPL
     const result = diffInventories(before, after);
     expect(result.summary).toMatchObject({ newlySkipped: 0, reEnabled: 0, stateChanged: 1, metadataChanged: 1 });
   });
+  it('ignores a line move of code the scan cannot follow, which changes only unfollowedDependencies', () => {
+    const source = `import { test } from 'vitest';
+test('loads the venue the desk trades on', async () => {
+  await import(process.env.VENUE_MODULE);
+});`;
+    const before = inventory(source);
+    const after = inventory(`// Each desk sets its venue module.\n${source}`);
+    expect(before.tests[0].unfollowedDependencies).toEqual(['tests/quotes.test.ts:3']);
+    expect(after.tests[0].unfollowedDependencies).toEqual(['tests/quotes.test.ts:4']);
+    expect(diffInventories(before, after).changes).toEqual([]);
+  });
+
   it('ignores line moves and object-key order without changing either input', () => {
     const before = inventory();
     const after = inventory(`\n\n${code}`);

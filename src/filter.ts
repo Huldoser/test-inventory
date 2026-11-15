@@ -45,6 +45,7 @@ const TEST_KEYS = Object.keys({
   dependencyHash: true,
   dependencies: true,
   hasUnfollowedDependencies: true,
+  unfollowedDependencies: true,
   suiteId: true,
   parentTestId: true,
   suitePath: true,

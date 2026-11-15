@@ -58,8 +58,9 @@ The list sorts by the current file, full name and id, using the previous record 
 
 One test can have several kinds, so category counts overlap. `summary.changed` counts matched tests with changes;
 `summary.unchanged` counts matches without changes. Moving only to another line does not count as a change. Location
-keys, registration ids, `declaredAt` and `stateLine` are excluded from `changedFields`, including the line numbers
-inside annotations and steps. Annotation content and step titles, depth and skip state are still compared.
+keys, registration ids, `declaredAt`, `stateLine` and `unfollowedDependencies` are excluded from `changedFields`,
+including the line numbers inside annotations and steps; `hasUnfollowedDependencies` still shows when a test starts or
+stops reaching code the scan can't follow. Annotation content and step titles, depth and skip state are still compared.
 
 `clones.before` and `clones.after` group tests sharing an exact `bodyHash`, with their sorted `testIds`. Trivial bodies
 such as empty callbacks share a hash too. These groups are candidates to inspect, not proof of redundant tests.

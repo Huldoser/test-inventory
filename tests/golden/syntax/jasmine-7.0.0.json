@@ -264,6 +264,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -346,6 +349,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -428,6 +434,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -510,6 +519,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -592,6 +604,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -674,6 +689,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -756,6 +774,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -838,6 +859,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -920,6 +944,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -1002,6 +1029,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "ebd6155e28a26141",
       "parentTestId": null,
       "suitePath": [
@@ -1084,6 +1114,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "76264723aed80b3e",
       "parentTestId": null,
       "suitePath": [
@@ -1167,6 +1200,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "9c959991c60bec14",
       "parentTestId": null,
       "suitePath": [
@@ -1249,6 +1285,9 @@
         "tests/jasmine.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "unfollowedDependencies": [
+        "tests/jasmine.test.ts:2"
+      ],
       "suiteId": "6ca94b41e4f0ad97",
       "parentTestId": null,
       "suitePath": [

@@ -44,7 +44,7 @@ fixme tests/price-stream.spec.ts:14 live price stream > shows a stale badge when
 ## Tests a change can affect
 
 The tests whose code, fixtures, test data, config or snapshots include a changed file, and those that reach code the
-scan can't follow. The CLI's `--related` gives the same tests; this shows them by file.
+scan can't follow, with where. The CLI's `--related` gives the same tests; this shows them by file.
 
 <!-- recipe: trading-web -->
 
@@ -55,7 +55,7 @@ const changed = new Set(['pages/orders-blotter.ts', 'test-data/tags.ts']);
 const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
 for (const test of tests) {
   const reasons = test.dependencies.filter((file) => changed.has(file));
-  if (test.hasUnfollowedDependencies) reasons.push('code the scan cannot follow');
+  reasons.push(...test.unfollowedDependencies.map((place) => `code the scan cannot follow at ${place}`));
   if (reasons.length > 0)
     console.log(`${test.relativeFilePath}:${test.lineStart} ${test.fullName} (${reasons.join(', ')})`);
 }

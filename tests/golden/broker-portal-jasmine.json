@@ -123,6 +123,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "6b95a4cc19a41c2b",
       "parentTestId": null,
       "suitePath": [
@@ -208,6 +209,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "6b95a4cc19a41c2b",
       "parentTestId": null,
       "suitePath": [
@@ -293,6 +295,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "unfollowedDependencies": [],
       "suiteId": "6b95a4cc19a41c2b",
       "parentTestId": null,
       "suitePath": [
