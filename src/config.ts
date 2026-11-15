@@ -118,6 +118,23 @@ function changesIn(parsed: ParsedFile, values: Values): Map<Node, Change[]> {
 /** The functions configs are written with, which return the config they are given or merge the ones they are given. */
 const CONFIG_FUNCTIONS = new Set(['defineConfig', 'defineProject', 'mergeConfig']);
 
+/** The modules whose default export is next/jest's `nextJest()`. */
+const NEXT_JEST = new Set(['next/jest', 'next/jest.js']);
+
+/**
+ * The mocks next/jest maps imports to before the custom config's `moduleNameMapper`: files of the `next` package, which
+ * dependencies leave out as they do any installed package.
+ */
+const NEXT_JEST_MOCKS = {
+  '^.+\\.module\\.(css|sass|scss)$': 'next/dist/build/jest/object-proxy.js',
+  '^.+\\.(css|sass|scss)$': 'next/dist/build/jest/__mocks__/styleMock.js',
+  '^.+\\.(png|jpg|jpeg|gif|webp|avif|ico|bmp)$': 'next/dist/build/jest/__mocks__/fileMock.js',
+  '^.+\\.(svg)$': 'next/dist/build/jest/__mocks__/fileMock.js',
+  '@next/font/(.*)': 'next/dist/build/jest/__mocks__/nextFontMock.js',
+  'next/font/(.*)': 'next/dist/build/jest/__mocks__/nextFontMock.js',
+  '^server-only$': 'next/dist/build/jest/__mocks__/empty.js',
+};
+
 /** A file a config is read from: the config itself, or a module it imports settings from, at `file`. */
 interface ConfigFrame {
   parsed: ParsedFile;
@@ -233,6 +250,32 @@ function spread(base: ObjectSetting, over: Setting, at: Site): ObjectSetting {
   if (over.kind !== 'object') return { kind: 'object', keys: new Map(), rest: unknown(at) };
   if (over.rest) return { kind: 'object', keys: new Map(over.keys), rest: over.rest };
   return { kind: 'object', keys: new Map([...base.keys, ...over.keys]), rest: base.rest };
+}
+
+/**
+ * The config next/jest's `createJestConfig()` gives Jest for a custom one: the custom config, with next/jest's mocks
+ * before its `moduleNameMapper`, which can replace them, and `/node_modules/` and `/.next/` before its
+ * `testPathIgnorePatterns`. `at` is the call.
+ */
+function withNextJest(custom: Setting, at: Site): ObjectSetting {
+  const config = spread(emptyObject(), custom, at);
+  const keys = new Map(config.keys);
+  const mocks = fromValue(NEXT_JEST_MOCKS) as ObjectSetting;
+  const mapper = child(config, 'moduleNameMapper');
+  // A spread in the custom mapper the scan can't work out stays its unknown rest, as in any mapper, and the mocks stay
+  // too: it replaces one only by setting the same pattern. A whole mapper it can't work out may map any import.
+  const merged: Setting =
+    mapper?.kind === 'object'
+      ? { kind: 'object', keys: new Map([...mocks.keys, ...mapper.keys]), rest: mapper.rest }
+      : unknown(at);
+  keys.set('moduleNameMapper', mapper === null ? mocks : merged);
+  const ignored = child(config, 'testPathIgnorePatterns');
+  const own = ignored === null ? [] : ignored.kind === 'list' ? ignored.items : [unknown(at)];
+  keys.set('testPathIgnorePatterns', {
+    kind: 'list',
+    items: [fromValue('/node_modules/'), fromValue('/.next/'), ...own],
+  });
+  return { ...config, keys };
 }
 
 /** `{ ...a, ...b }` of two objects either of which may be unset, as Playwright merges `use` and `expect`. */
@@ -698,6 +741,8 @@ class ConfigCode {
     if (required !== null && isGlobal && /^\.\.?\//.test(required)) {
       return this.fromModule(frame, required, 'default', site) ?? unknown(site);
     }
+    const custom = this.framework === 'jest' ? this.nextJestCustom(call, frame, scopes) : null;
+    if (custom) return withNextJest(custom, site);
     const origin = this.origin(unwrap(call.callee), frame, scopes);
     const pathFunction = origin && PATH_FUNCTIONS[`${origin.source.replace(/^node:/, '')}.${origin.name}`];
     if (pathFunction) {
@@ -771,6 +816,43 @@ class ConfigCode {
       if (key !== null) return { source, name: key };
     }
     return null;
+  }
+
+  /**
+   * The custom config of next/jest's `createJestConfig(config)`, where `createJestConfig` is what `nextJest(options)`
+   * returns, or of `nextJest(options)(config)`; a function given is called, as next/jest calls it. Null for any other
+   * call.
+   */
+  private nextJestCustom(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting | null {
+    let callee = unwrap(call.callee);
+    let around = scopes;
+    if (callee.type === 'Identifier') {
+      const constant = frame.values.constantOf(callee.name, scopes);
+      if (!constant) return null;
+      [callee, around] = [unwrap(constant.init), constant.scopes];
+    }
+    if (
+      callee.type !== 'CallExpression' ||
+      !NEXT_JEST.has(this.wholeModule(unwrap(callee.callee), frame, around) ?? '')
+    ) {
+      return null;
+    }
+    const given = call.arguments.at(0);
+    if (given === undefined) return emptyObject();
+    return given.type === 'SpreadElement' ? unknown({ frame, node: given }) : this.config(given, frame, scopes);
+  }
+
+  /**
+   * The package whose default export an expression is: `require('x')`, or a name declared with `require('x')` or
+   * imported with `import name from 'x'`; null for any other.
+   */
+  private wholeModule(node: Expression, frame: ConfigFrame, scopes: readonly Node[]): string | null {
+    if (node.type !== 'Identifier') return requiredModule(node);
+    const constant = frame.values.constantOf(node.name, scopes);
+    if (constant) return requiredModule(constant.init);
+    return frame.values.importedName(node.name, scopes) === 'default'
+      ? frame.values.importSource(node.name, scopes)
+      : null;
   }
 
   /** What a config function returns, when it has a single `return` the scan can follow. */

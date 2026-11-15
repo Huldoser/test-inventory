@@ -762,3 +762,140 @@ describe('Jest configs checked against jest --listTests 29.7 and 30.5', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 });
+
+describe("next/jest's createJestConfig()", () => {
+  const NEXT_PACKAGE = JSON.stringify({ name: 'order-dashboard', devDependencies: { jest: '30.5.2', next: '16.0.3' } });
+  const BLOTTER_TEST = `import { fillPrice } from '@/orders/fill-price';
+import { withinLimit } from '../src/orders/limits';
+import styles from './blotter.module.css';
+import logo from '../public/broker-logo.svg';
+
+test('fills a limit order at the limit price', () => {
+  expect([fillPrice({ limit: 101.5 }), withinLimit(101.5), styles, logo]).toHaveLength(4);
+});
+`;
+  const dashboard = (config: Record<string, string>) =>
+    project({
+      'package.json': NEXT_PACKAGE,
+      ...config,
+      '__tests__/blotter.test.jsx': BLOTTER_TEST,
+      '__tests__/blotter.module.css': '.row { color: green; }\n',
+      'public/broker-logo.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
+      'src/orders/fill-price.js': 'export const fillPrice = (order) => order.limit ?? order.market;\n',
+      'src/orders/limits.js': 'export const withinLimit = (price) => price <= 102;\n',
+      '.next/server/app/orders/page.test.js': TEST,
+      'e2e/orders.test.js': TEST,
+    });
+
+  it('reads the config the Next.js guide gives, with the folders it ignores and the mocks it maps', async () => {
+    const custom = `{
+  testEnvironment: 'jsdom',
+  moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
+  testPathIgnorePatterns: ['<rootDir>/e2e/'],
+}`;
+    const configs = {
+      'jest.config.js': `const nextJest = require('next/jest');
+
+const createJestConfig = nextJest({ dir: './' });
+
+const config = ${custom};
+
+module.exports = createJestConfig(config);
+`,
+      'jest.config.ts': `import type { Config } from 'jest';
+import nextJest from 'next/jest.js';
+
+const createJestConfig = nextJest({ dir: './' });
+
+const config: Config = ${custom};
+
+export default createJestConfig(config);
+`,
+      'jest.config.mjs': `import nextJest from 'next/jest.js';
+
+export default nextJest({ dir: './' })(async () => (${custom}));
+`,
+      'jest.config.cjs': `module.exports = require('next/jest')({ dir: './' })(${custom});\n`,
+    };
+    for (const [file, config] of Object.entries(configs)) {
+      const inventory = await scan({ root: dashboard({ [file]: config }), framework: 'jest' });
+      expect(files(inventory)).toEqual(['__tests__/blotter.test.jsx']);
+      expect(inventory.tests[0]).toMatchObject({
+        dependencies: ['__tests__/blotter.test.jsx', file, 'src/orders/fill-price.js', 'src/orders/limits.js'],
+        hasUnfollowedDependencies: false,
+      });
+      expect(inventory.diagnostics).toEqual([]);
+    }
+  });
+
+  it("lets the custom config's moduleNameMapper replace a mock next/jest maps", async () => {
+    const root = dashboard({
+      'jest.config.js': `const nextJest = require('next/jest');
+
+module.exports = nextJest()({
+  moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1', '^.+\\\\.(svg)$': '<rootDir>/__mocks__/svg.js' },
+});
+`,
+      '__mocks__/svg.js': "module.exports = 'broker-logo';\n",
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(files(inventory)).toEqual(['__tests__/blotter.test.jsx', 'e2e/orders.test.js']);
+    expect(inventory.tests[0].dependencies).toEqual([
+      '__mocks__/svg.js',
+      '__tests__/blotter.test.jsx',
+      'jest.config.js',
+      'src/orders/fill-price.js',
+      'src/orders/limits.js',
+    ]);
+  });
+
+  it("keeps next/jest's mocks when the custom moduleNameMapper spreads aliases the scan cannot work out", async () => {
+    const root = dashboard({
+      'jest.config.js': `const nextJest = require('next/jest');
+const { brokerAliases } = require('@dashboard/jest-aliases');
+
+module.exports = nextJest()({
+  moduleNameMapper: { ...brokerAliases(), '^@/(.*)$': '<rootDir>/src/$1' },
+});
+`,
+    });
+    const inventory = await scan({ root, framework: 'jest', patterns: ['__tests__/*.jsx'] });
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: [
+        '__tests__/blotter.test.jsx',
+        'jest.config.js',
+        'src/orders/fill-price.js',
+        'src/orders/limits.js',
+      ],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('runs the default test files, without the ones in .next, when createJestConfig() is given no config', async () => {
+    const root = dashboard({ 'jest.config.js': "module.exports = require('next/jest')()();\n" });
+    expect(files(await scan({ root, framework: 'jest' }))).toEqual([
+      '__tests__/blotter.test.jsx',
+      'e2e/orders.test.js',
+    ]);
+  });
+
+  it('reports a config it cannot work out, and reads calls next/jest does not make by the other rules', async () => {
+    const unknownConfigs = [
+      "const nextJest = require('next/jest');\nmodule.exports = nextJest()(globalThis.dashboardJestConfig);\n",
+      "const nextJest = require('next/jest');\nmodule.exports = nextJest()(...[{ testEnvironment: 'jsdom' }]);\n",
+      "const nextJest = require('@blitzjs/next/jest');\nmodule.exports = nextJest()({ testEnvironment: 'jsdom' });\n",
+      "const { createJestConfig } = require('./jest.next.js');\nmodule.exports = createJestConfig({ testEnvironment: 'jsdom' });\n",
+      "const withDashboard = (config) => config;\nmodule.exports = withDashboard({ testEnvironment: 'jsdom' });\n",
+      "const createJestConfig = createDashboardJest({ dir: './' });\nmodule.exports = createJestConfig({ testEnvironment: 'jsdom' });\n",
+    ];
+    for (const config of unknownConfigs) {
+      const root = dashboard({
+        'jest.config.js': config,
+        'jest.next.js': "exports.createJestConfig = require('next/jest')();\n",
+      });
+      const inventory = await scan({ root, framework: 'jest' });
+      expect(inventory.diagnostics.map((item) => item.code)).toEqual(['config-value-unknown', 'no-files-matched']);
+    }
+  });
+});

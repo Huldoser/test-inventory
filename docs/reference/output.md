@@ -554,7 +554,8 @@ A config is read as code and never run, with the settings it imports from other 
 `use`, `expect` and `build` key by key, spreads, also those a condition picks, constants, a function that returns the
 config, regular expressions, and paths built with `path.join()`, `path.resolve()`, `path.dirname()`,
 `fileURLToPath()` and `new URL()` from `__dirname`, `__filename` or `import.meta`. A Jest config may also be JSON, or
-a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`. A Mocha
+a function, which Jest calls and awaits, and from Jest 30.3 use Jest's `defineConfig()` and `mergeConfig()`, or
+next/jest's `createJestConfig()`. A Mocha
 config may also be JSON, JSON with comments, or YAML with keys, lists and nested keys; YAML it doesn't read, such as an
 anchor or a multi-line string, or that js-yaml, Mocha's reader, refuses, such as a key set twice, is reported, and the
 scan reads none of that config's settings. A

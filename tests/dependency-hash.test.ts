@@ -581,6 +581,32 @@ test('shows the spread on the blotter', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it("leaves out a package Jest's moduleNameMapper maps to, as it leaves out an imported package", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
+      'jest.config.js': `module.exports = {
+  moduleNameMapper: {
+    '\\\\.(css|less)$': 'identity-obj-proxy',
+    '^@desk/theme$': ['<rootDir>/src/missing-theme', 'desk-theme'],
+  },
+};
+`,
+      'tests/blotter.test.js': `const styles = require('./styles/blotter.css');
+const theme = require('@desk/theme');
+
+test('colours a filled order on the blotter', () => {
+  expect([styles.filled, theme.green]).toHaveLength(2);
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests[0]).toMatchObject({
+      dependencies: ['jest.config.js', 'tests/blotter.test.js'],
+      hasUnfollowedDependencies: false,
+    });
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it("takes a <rootDir> entry of Jest's moduleDirectories as a folder to look in", async () => {
     const root = project({
       'package.json': JSON.stringify({ name: 'settlement-service', devDependencies: { jest: '30.5.2' } }),
