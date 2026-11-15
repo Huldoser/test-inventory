@@ -90,11 +90,12 @@ export function nodeTestCommands(script: string, setups = false): string[][] {
 
 /** The commands of a script, each as its words, without quotes. */
 function commandsOf(script: string): string[][] {
+  // A word is quoted in whole or in part, as `--server-args="-screen 0 1280x1024x24"`, and the shell drops the quotes.
   return script
     .split(/&&|\|\||[;|]/)
     .map((command) =>
-      [...command.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map(
-        (match) => (match[1] as string | undefined) ?? (match[2] as string | undefined) ?? match[3],
+      [...command.matchAll(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g)].map(([word]) =>
+        word.replaceAll(/'([^']*)'|"([^"]*)"/g, '$1$2'),
       ),
     );
 }
@@ -154,23 +155,39 @@ export interface RunnerCommand {
   unreadable: boolean;
 }
 
-/** Each runner's program, the subcommands that run tests, and the options that name its config and its root. */
-const RUNNERS: Record<
-  ScriptRunner,
-  { program: string; subcommands: string[] | null; config: string[]; root: string[] }
-> = {
-  vitest: { program: 'vitest', subcommands: null, config: ['--config', '-c'], root: ['--root', '-r'] },
-  jest: { program: 'jest', subcommands: null, config: ['--config', '-c'], root: [] },
-  playwright: { program: 'playwright', subcommands: ['test'], config: ['--config', '-c'], root: [] },
+/**
+ * Each runner's programs, with the subcommands that run tests (null for none), and the options that name its config and
+ * its root. Currents' `pwc` and `pwc-p` start Playwright with the options they are given, and its `cypress-cloud` runs
+ * Cypress with Cypress's own options.
+ */
+const RUNNERS: Record<ScriptRunner, { programs: Record<string, string[] | null>; config: string[]; root: string[] }> = {
+  vitest: { programs: { vitest: null }, config: ['--config', '-c'], root: ['--root', '-r'] },
+  jest: { programs: { jest: null }, config: ['--config', '-c'], root: [] },
+  playwright: { programs: { playwright: ['test'], pwc: null, 'pwc-p': null }, config: ['--config', '-c'], root: [] },
   cypress: {
-    program: 'cypress',
-    subcommands: ['run', 'open'],
+    programs: { cypress: ['run', 'open'], 'cypress-cloud': null },
     config: ['--config-file', '-C'],
     root: ['--project', '-P'],
   },
   // `wdio run <config>` and `wdio <config>` take the config as the first argument.
-  webdriverio: { program: 'wdio', subcommands: null, config: [], root: [] },
+  webdriverio: { programs: { wdio: null }, config: [], root: [] },
 };
+
+/** The options of `xvfb-run` written with their value as the next word. */
+const XVFB_VALUE_OPTIONS = new Set([
+  '-n',
+  '-s',
+  '-e',
+  '-f',
+  '-p',
+  '-w',
+  '--server-num',
+  '--server-args',
+  '--error-file',
+  '--auth-file',
+  '--xauth-protocol',
+  '--wait',
+]);
 
 /** The program each package's files start when `node` runs them. */
 const RUNNER_PACKAGES: Partial<Record<string, string>> = {
@@ -188,11 +205,12 @@ const RUNNER_PACKAGES: Partial<Record<string, string>> = {
  * program is the runner counts, so `eslint --plugin jest -c .eslintrc.json` and `npm run jest` start none.
  */
 export function runnerCommands(script: string, runner: ScriptRunner): RunnerCommand[] {
-  const { program, subcommands, config, root } = RUNNERS[runner];
+  const { programs, config, root } = RUNNERS[runner];
   const found: RunnerCommand[] = [];
   for (const words of commandsOf(script)) {
     const started = programOf(words);
-    if (started?.program !== program) continue;
+    if (!started || !Object.hasOwn(programs, started.program)) continue;
+    const subcommands = programs[started.program];
     let args = started.args;
     if (subcommands) {
       if (!subcommands.includes(args[0])) continue;
@@ -220,9 +238,9 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
 }
 
 /**
- * The program a command starts, with its arguments: past variables set before it, `cross-env`, `dotenv --`, and `npx`,
- * `bunx`, `pnpm exec`, `yarn exec`, `npm exec` or a package manager given a binary's name; for `node`, the runner whose
- * package holds the file it runs. Null when there is none.
+ * The program a command starts, with its arguments: past variables set before it, `cross-env`, `dotenv --`,
+ * `xvfb-run` and `xvfb-maybe`, and `npx`, `bunx`, `pnpm exec`, `yarn exec`, `npm exec` or a package manager given a
+ * binary's name; for `node`, the runner whose package holds the file it runs. Null when there is none.
  */
 function programOf(words: string[]): { program: string; args: string[] } | null {
   let index = 0;
@@ -239,6 +257,12 @@ function programOf(words: string[]): { program: string; args: string[] } | null 
     } else if (word === 'dotenv' || (word === 'npm' && next === 'exec')) {
       const end = words.indexOf('--', index);
       index = end === -1 ? index + 2 : end + 1;
+    } else if (word === 'xvfb-run') {
+      // Its options before the command, some of which take the next word as their value.
+      index++;
+      while (words.at(index)?.startsWith('-')) index += XVFB_VALUE_OPTIONS.has(words[index]) ? 2 : 1;
+    } else if (word === 'xvfb-maybe') {
+      index += next === '--' ? 2 : 1;
     } else if (word === 'npx' || word === 'bunx') {
       index++;
       skip((item) => item.startsWith('-'));
