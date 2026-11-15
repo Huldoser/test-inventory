@@ -518,6 +518,15 @@ class ConfigCode {
         }
         break;
       }
+      case 'LogicalExpression': {
+        // As a config function writes an optional argument, `options ?? {}` or `folder || './e2e'`.
+        const left = this.evaluate(expression.left, frame, scopes);
+        if (left.kind === 'unknown') break;
+        const isFalsy = left.kind === 'value' && !left.value;
+        const { operator } = expression;
+        const takesRight = operator === '??' ? isNullish(left) : operator === '||' ? isFalsy : !isFalsy;
+        return takesRight ? this.evaluate(expression.right, frame, scopes) : left;
+      }
       case 'TemplateLiteral': {
         const values = expression.expressions.map((item) => this.evaluate(item, frame, scopes));
         if (values.every((item) => item.kind === 'value')) {

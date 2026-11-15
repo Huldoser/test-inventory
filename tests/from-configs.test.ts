@@ -284,6 +284,43 @@ describe('a config built by a function the project writes', () => {
   });
 
   it.each([
+    ['?? with no argument', 'folder ?? "./specs"', ''],
+    ['?? with an argument', 'folder ?? "./tests"', '"./specs"'],
+    ['|| with an empty argument', 'folder || "./specs"', '""'],
+    ['|| with an argument', 'folder || "./tests"', '"./specs"'],
+    ['&& with a true argument', 'folder && "./specs"', 'true'],
+    ['&& with an empty argument', '(folder && "./tests") || "./specs"', '""'],
+  ])('reads a default a config function writes with %s', async (_, testDir, argument) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'playwright.config.ts': `function e2eConfig(folder) {\n  return { testDir: ${testDir} };\n}\nexport default e2eConfig(${argument});\n`,
+      'specs/orders.spec.ts': SPEC,
+      'tests/orders.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['specs/orders.spec.ts']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads a config a function merges with an optional argument, as a shared Vitest config does', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'shared/vitest.ts': [
+        "import { defineConfig, mergeConfig } from 'vitest/config';",
+        'export default function createConfig(options?: object) {',
+        "  return defineConfig(mergeConfig({ test: { include: ['src/**/*.spec.ts'] } }, options ?? {}));",
+        '}',
+      ].join('\n'),
+      'vitest.config.ts': "import createConfig from './shared/vitest.ts';\nexport default createConfig();\n",
+      'src/fees.spec.ts': UNIT,
+      'src/fees.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['src/fees.spec.ts']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it.each([
     ['an installed package', "import { createConfig } from '@trading/e2e-config';", 'createConfig({ port: 3002 })'],
     ['no declaration', '', 'createConfig()'],
     ['a constant that is not a function', 'const createConfig = presets.e2e;', 'createConfig()'],
@@ -318,6 +355,11 @@ describe('a config built by a function the project writes', () => {
     ],
     ['a list parameter', 'function createConfig([folder]) { return { testDir: folder }; }', "createConfig(['./e2e'])"],
     ['a method', 'const presets = { e2e: () => ({}) };', 'presets.e2e()'],
+    [
+      'a default the environment can replace',
+      'function createConfig() { return { testDir: process.env.SPECS ?? "./e2e" }; }',
+      'createConfig()',
+    ],
   ])('leaves a config built by %s unknown', async (_, declaration, call) => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
