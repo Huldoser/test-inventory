@@ -69,8 +69,9 @@ It reads file and project selection, run settings, modes and `forbidOnly`. Other
 and config `use`, are not interpreted as test record settings.
 
 The package's original `test` function also carries module exports. A call such as `playwright.defineConfig(...)`
-through a default or CommonJS import is configuration, not an invalid test declaration. Extended test functions
-do not inherit those module exports.
+or `playwright.chromium.launch()` through a default or CommonJS import is configuration or a library call, not an
+invalid test declaration; so are `firefox`, `webkit`, `request`, `devices`, `selectors`, `errors`, `mergeTests` and
+`mergeExpects`. Extended test functions do not inherit those module exports.
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it. A config named only in a CI workflow isn't

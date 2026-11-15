@@ -19,10 +19,28 @@ playwright('submits a market order', async () => {});`);
     expect(codes(result)).toEqual([]);
   });
 
+  it.each([
+    "const playwright = require('@playwright/test');",
+    "import playwright from '@playwright/test';",
+    "import { test as playwright } from '@playwright/test';",
+  ])('reads the Playwright module browser and request exports as library calls: %s', (binding) => {
+    const result = scanPlaywright(`${binding}
+async function openBrokerApi() {
+  const browser = await playwright.chromium.launch({ headless: true });
+  const api = await playwright.request.newContext({ baseURL: 'https://broker.example' });
+  return { browser, api };
+}
+playwright('submits a market order', async () => {});`);
+    expect(result.tests).toHaveLength(1);
+    expect(result.tests[0].state).toBe('active');
+    expect(codes(result)).toEqual([]);
+  });
+
   it('does not give module exports to an extended Playwright test function', () => {
     const result = scanPlaywright(`import { test } from '@playwright/test';
 const accountTest = test.extend({});
 accountTest.defineConfig({ testDir: './tests' });
+accountTest.chromium.launch();
 accountTest('submits an order in the account', async () => {});`);
     expect(codes(result)).toContain('invalid-chain');
     expect(result.tests[0].state).toBe('notLoaded');
