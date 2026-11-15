@@ -331,6 +331,16 @@ describe('a custom test object from a workspace package', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('is followed from build output to the source in the package folder when there is no src folder', async () => {
+    const root = workspace(
+      { exports: { './node': { import: './dist/node.js', types: './dist/node.d.ts' } } },
+      { 'packages/test-utils/node.ts': FIXTURES, 'tests/portfolio.spec.ts': spec('@trading/test-utils/node') },
+    );
+    const inventory = await scan({ root, patterns: ['tests/*.spec.ts'], framework: 'playwright' });
+    expect(inventory.summary.testCount).toBe(1);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('is followed through a subpath pattern whose target repeats the star, as Node fills in each one', async () => {
     const root = workspace(
       { exports: { './*': './src/*/*-fixtures.ts' } },

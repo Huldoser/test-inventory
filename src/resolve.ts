@@ -239,14 +239,15 @@ const FORMAT_FOLDERS = new Set(['esm', 'cjs', 'es', 'mjs', 'umd', 'types']);
 
 /**
  * Where the TypeScript source of a built file usually is, for a workspace package that hasn't been built: both
- * `dist/esm/index.js` and `dist/types/index.d.ts` come from `src/index.ts`.
+ * `dist/esm/index.js` and `dist/types/index.d.ts` come from `src/index.ts`, or from `index.ts` in a package without a
+ * `src` folder.
  */
 function sourceOf(target: string): string[] {
   const parts = target.replace(/^\.\//, '').split('/');
   if (parts.length < 2 || !BUILD_FOLDERS.has(parts[0])) return [];
   const rest = parts.length > 2 && FORMAT_FOLDERS.has(parts[1]) ? parts.slice(2) : parts.slice(1);
-  const base = ['src', ...rest].join('/').replace(/(\.d)?\.[cm]?[jt]sx?$/, '');
-  return [`${base}.ts`, `${base}.tsx`];
+  const base = rest.join('/').replace(/(\.d)?\.[cm]?[jt]sx?$/, '');
+  return [`src/${base}.ts`, `src/${base}.tsx`, `${base}.ts`, `${base}.tsx`];
 }
 
 /**
