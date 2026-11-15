@@ -151,6 +151,30 @@ describe('a scan without patterns', () => {
   );
 });
 
+describe('a Vitest browser config whose browser comes from the environment', () => {
+  it('lists the files the config runs, without saying which browser project runs them', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'vitest.config.ts': [
+        "const browser = process.env.CHART_BROWSER || 'chromium';",
+        "export default { test: { include: ['spec/**/*.spec.ts'], browser: { enabled: true, instances: [{ browser }] } } };",
+      ].join('\n'),
+      'spec/candles.spec.ts': UNIT,
+      'src/candles.test.ts': UNIT,
+    });
+    const inventory = await scan({ root, framework: 'vitest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual(['spec/candles.spec.ts']);
+    expect(inventory.tests.map((test) => test.projects)).toEqual([null]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.level, item.message])).toEqual([
+      [
+        'config-value-unknown',
+        'warning',
+        "The config's test.browser.instances could not be worked out without running the config, so the scan lists the files the config runs, but not which of its browser projects run them.",
+      ],
+    ]);
+  });
+});
+
 describe('a runner that reads its config only in the root', () => {
   const E2E = "describe('orders', () => {\n  it('places a market order', () => {});\n});\n";
   it.each([

@@ -69,7 +69,13 @@ type Run = 'test' | 'benchmark';
  * may run any file.
  */
 type Project = { config: ConfigFile; settings: Setting; about: ProjectAbout } & (
-  { runs: (file: string) => Run | false; unknown: null } | { runs: null; unknown: { setting: Unknown; key: string } }
+  | { runs: (file: string) => Run | false; unknown: null }
+  | {
+      runs: null;
+      unknown: { setting: Unknown; key: string };
+      /** The files it runs whatever the unknown setting is, as Vitest's browser instances only name its projects. */
+      known?: (file: string) => Run | false;
+    }
 );
 
 /**
@@ -154,6 +160,7 @@ const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypr
 type Route = { config: ConfigFile | null; root: string; mocha?: MochaArguments };
 type ScriptRoute = Route | { manifest: string; unknown: string };
 const NOT_FOUND = "the scan can't tell which files it runs; give patterns to scan them";
+const UNNAMED = 'the scan lists the files the config runs, but not which of its browser projects run them';
 const CANDIDATES =
   'the scan lists candidate files from the readable top-level file settings; project membership is unknown and tests may be missing; give patterns to select other files';
 
@@ -348,6 +355,12 @@ export class ConfigRuns {
   private unknownPlacement(project: Project, file: string): Omit<Placement, 'tags'> {
     const { setting, key } = project.unknown as { setting: Unknown; key: string };
     const { config, settings } = project;
+    // Without globs, a setting that only names the projects leaves the files known; with them, every file runs anyway.
+    const known = this.findsFiles && 'known' in project ? project.known : undefined;
+    if (known) {
+      this.configs.reportUnknown(setting, key, UNNAMED);
+      return { config, settings, runs: known(file), projects: null };
+    }
     let candidates: Project | undefined;
     if (this.findsFiles && this.framework === 'playwright' && key === 'projects' && config.settings.kind === 'object') {
       candidates = this.candidateProjects.get(config);
@@ -1066,7 +1079,12 @@ export class ConfigRuns {
   }
 
   /** A project whose files can't be worked out, because of `setting` under `key`: it may run any file. */
-  private unknownProject(config: ConfigFile, setting: Unknown, key: string): Project {
+  private unknownProject(
+    config: ConfigFile,
+    setting: Unknown,
+    key: string,
+    known?: (file: string) => Run | false,
+  ): Project {
     const about = {
       name: '',
       testDir: path.dirname(config.file),
@@ -1080,7 +1098,7 @@ export class ConfigRuns {
       runsByDefault: true,
       defaults: NO_DEFAULTS,
     };
-    return { config, settings: setting, about, runs: null, unknown: { setting, key } };
+    return { config, settings: setting, about, runs: null, unknown: { setting, key }, known };
   }
 
   private playwrightProjects(config: ConfigFile): Project[] {
@@ -1628,7 +1646,7 @@ export class ConfigRuns {
     const unknown =
       browsers.flat().find((setting) => setting?.kind === 'unknown') ??
       (instances?.kind === 'unknown' ? instances : null);
-    if (unknown) return [this.unknownProject(config, unknownAt(unknown), 'test.browser.instances')];
+    if (unknown) return [this.unknownProject(config, unknownAt(unknown), 'test.browser.instances', project.runs)];
     return browsers.map(([browser, name]) => {
       const kind = browser?.kind === 'value' ? String(browser.value) : '';
       const own = name?.kind === 'value' && typeof name.value === 'string' ? name.value : null;

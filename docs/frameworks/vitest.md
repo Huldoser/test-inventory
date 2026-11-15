@@ -73,6 +73,9 @@ before Vitest 5 the config above it. It reads file and project selection,
 A tag whose definition cannot be worked out produces a `config-may-change-state` warning on files using tags:
 the tag may skip a test or change its settings. `vi.setConfig()` and `annotate()` in hooks are not read.
 
+A browser instance whose `browser` or `name` the scan can't work out, as one `process.env` picks, leaves the config's
+files listed, with a warning, and their tests' `projects` `null`.
+
 `resolve.alias` and `test.alias` are followed for imports and dependency hashes. `mergeConfig` puts overriding
 list aliases first, converting object aliases to lists when either side is a list; two objects keep overriding
 values. Config paths built with string `+` or a template over `__dirname` or `import.meta.dirname` are read.
