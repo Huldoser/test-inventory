@@ -17,6 +17,7 @@ import {
   text,
   type FileContext,
   type Link,
+  wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
@@ -149,7 +150,7 @@ export class JasmineAdapter extends SuiteAdapter {
       mode: null,
       details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
       fn,
-      hashed: callback,
+      hashed: callback ?? wrappedFunction(body ?? undefined),
       isParameterized: false,
       caseCount: null,
       cases: null,

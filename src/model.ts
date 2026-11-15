@@ -87,7 +87,10 @@ interface Declaration {
   skipPassedDown?: number;
   details: Details;
   fn: FunctionNode | null;
-  /** The function whose code is hashed: `fn`, or a function declared in the file and passed by name. */
+  /**
+   * The function whose code is hashed: `fn`, a function declared in the file and passed by name, or the one function a
+   * wrapper call receives, as in `test('fills an order', withBroker(async () => {}))`.
+   */
   hashed: FunctionNode | null;
   isParameterized: boolean;
   /** Number of cases of `.each` or `.for` when the table is written out; null otherwise. */

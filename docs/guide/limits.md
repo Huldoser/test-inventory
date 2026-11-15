@@ -35,7 +35,8 @@ are also unknown; use explicit globs. See [Playwright](/frameworks/playwright#co
 
 Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects.
 `expectCount`, `steps` and `fixtures` inspect the test function only: assertions and steps inside page objects or
-helpers, and fixtures established by other or automatic fixtures, are not in them. A test, describe or hook callback
+helpers, and fixtures established by other or automatic fixtures, are not in them. A test function a wrapper call
+receives is read for its body, not for fixtures, which the runner passes to the wrapper. A test, describe or hook callback
 passed by name is read when declared in the file, not when imported. See your framework guide for runtime setting
 calls that are not read.
 

@@ -44,6 +44,29 @@ const runners: { framework: Framework; prefix: string; test: string; suite: stri
   },
 ];
 
+describe.each(runners)('$framework wrapped callbacks', ({ framework, prefix, test, suite }) => {
+  it('reads tests and describes whose function a wrapper call receives', () => {
+    const result = scanSource({
+      framework,
+      relativeFilePath: 'tests/orders.test.ts',
+      code: `${prefix}
+const withVenue = (fn) => () => fn('paper');
+${suite}('paper venue', withVenue(() => {
+  ${test}('quotes the bid', withVenue((venue) => { quote(venue, 'bid'); }));
+  ${test}('quotes the ask', withVenue((venue) => { quote(venue, 'ask'); }));
+}));`,
+    });
+    expect(result.tests.map(({ fullName, hasEmptyBody }) => [fullName, hasEmptyBody])).toEqual([
+      ['paper venue > quotes the bid', false],
+      ['paper venue > quotes the ask', false],
+    ]);
+    const [bid, ask] = result.tests.map(({ bodyHash }) => bodyHash);
+    expect(bid).not.toBeNull();
+    expect(bid).not.toBe(ask);
+    expect(result.diagnostics).toEqual([]);
+  });
+});
+
 describe.each(runners)('$framework named describe callbacks', ({ framework, prefix, test, suite, skip }) => {
   it('registers a function declaration in the calling suite', () => {
     const result = scanSource({

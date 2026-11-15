@@ -63,6 +63,7 @@ import {
   type FileContext,
   type Link,
   type OptionValue,
+  wrappedFunction,
 } from './common.ts';
 
 const MISMATCHED_SOURCES = new Set(['vitest', '@jest/globals']);
@@ -618,8 +619,8 @@ export class PlaywrightAdapter implements Adapter {
     if (titleProblem) problems.push(titleProblem);
     const line = this.file.source.line(call.start);
     const fn = isFunctionNode(last) ? last : null;
-    const hashed = fn ?? namedFunction(this.file, context.scopes, last);
-    this.checkFixtureArguments(hashed);
+    const callback = fn ?? namedFunction(this.file, context.scopes, last);
+    this.checkFixtureArguments(callback);
     return {
       kind: 'test',
       title,
@@ -628,13 +629,13 @@ export class PlaywrightAdapter implements Adapter {
       mode: null,
       details: this.details(args.length === 3 ? args[1] : undefined, context, problems, title.text),
       fn,
-      hashed,
+      hashed: callback ?? wrappedFunction(last),
       isParameterized: false,
       caseCount: null,
       cases: null,
       testContext: null,
-      fixtures: destructuredNames(hashed, 0),
-      takesAllFixtures: takesWhole(hashed, 0),
+      fixtures: destructuredNames(callback, 0),
+      takesAllFixtures: takesWhole(callback, 0),
       usesBench: false,
       problems,
     };
@@ -795,7 +796,7 @@ export class PlaywrightAdapter implements Adapter {
         title?.text ?? '',
       ),
       fn,
-      hashed: callback,
+      hashed: callback ?? wrappedFunction(args.at(-1)),
       isParameterized: false,
       caseCount: null,
       cases: null,

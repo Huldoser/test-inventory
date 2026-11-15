@@ -25,6 +25,7 @@ import {
   text,
   type FileContext,
   type Link,
+  wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
@@ -271,7 +272,7 @@ export class MochaAdapter extends SuiteAdapter {
     if (titleProblem) problems.push(titleProblem);
     const { body, options } = this.splitArguments(args);
     const fn = isFunctionNode(body) ? body : null;
-    const hashed = fn ?? namedFunction(this.file, context.scopes, body);
+    const hashed = fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body);
     const line = this.file.source.line(call.start);
     // A test without a function is pending, which Mocha reports as skipped.
     const isSkipped = flags.has('skip') || (kind === 'test' && body === undefined);

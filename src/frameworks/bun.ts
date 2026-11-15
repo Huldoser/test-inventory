@@ -31,6 +31,7 @@ import {
   unresolvedOptions,
   type FileContext,
   type Link,
+  wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
@@ -175,7 +176,7 @@ export class BunAdapter extends SuiteAdapter {
       mode: this.mode(links, context),
       details: { tags: [], annotations: [], locks: [], meta: null, run },
       fn,
-      hashed: fn ?? namedFunction(this.file, context.scopes, body),
+      hashed: fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(table, problems, context) : null,
       cases: table ? this.tableCases(table, title, context) : null,

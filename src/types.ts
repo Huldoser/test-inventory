@@ -317,7 +317,10 @@ export interface SuiteRecord {
 export interface TestRecord {
   /** Derived from the file path, the describe titles, the title and its position among tests with the same title. */
   id: Hash;
-  /** Hash of the test body, ignoring whitespace and comments; null when the test has no body. */
+  /**
+   * Hash of the test body, ignoring whitespace and comments: the test function, one passed by name, or the one a wrapper
+   * call receives; null when the test has none of these.
+   */
   bodyHash: Hash | null;
   /**
    * Hash of everything the test runs in the project: its call, the hooks, options and code of the file and of every

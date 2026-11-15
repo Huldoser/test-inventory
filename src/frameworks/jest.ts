@@ -21,6 +21,7 @@ import {
   text,
   type FileContext,
   type Link,
+  wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 
@@ -191,7 +192,7 @@ export class JestAdapter extends SuiteAdapter {
         mode: flags.has('concurrent') && !flags.has('skip') ? ('parallel' as const) : null,
         details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
         fn: given,
-        hashed: given ?? callback,
+        hashed: given ?? callback ?? wrappedFunction(body),
         isParameterized: table !== null,
         caseCount: table ? this.caseCount(table, context, problems) : null,
         cases: table ? this.tableCases(table, title, context) : null,
