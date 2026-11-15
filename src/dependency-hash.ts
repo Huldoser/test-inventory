@@ -441,8 +441,7 @@ const PATH_FUNCTIONS: Record<string, (...parts: string[]) => string | null> = {
 
 /** The specifier a built path or file URL stands for from a module; null for one outside the project or a bare name. */
 function specifierFrom(module: Module, built: string): string | null {
-  const file = built.startsWith('file:') ? fileUrlPath(built) : built;
-  if (file === null) return null;
+  const file = built.startsWith('file:') ? decodeURIComponent(new URL(built).pathname) : built;
   if (/^\.\.?\//.test(file)) return file;
   if (!file.startsWith(`${PROJECT}/`)) return null;
   const relative = path.posix.relative(path.posix.dirname(path.posix.join(PROJECT, module.relativeFilePath)), file);
@@ -1365,27 +1364,21 @@ export class DependencyGraph {
           if (name === 'filename') return file;
           return name === 'url' ? new URL(`file://${file}`).href : null;
         }
+        // A URL's `href`, and the path of a file URL's `pathname`.
         const url = of(node.object);
-        if (url === null || !URL.canParse(url)) return null;
+        if (url === null) return null;
         return name === 'href' ? url : name === 'pathname' ? fileUrlPath(url) : null;
       }
       case 'NewExpression': {
         const isUrl =
           node.callee.type === 'Identifier' && node.callee.name === 'URL' && !at.values.declarationOf('URL', where);
-        const [input, base] = isUrl ? node.arguments.map(of) : [null];
-        return input === null || input === undefined || base === null ? null : (URL.parse(input, base)?.href ?? null);
+        const parts = isUrl ? node.arguments.map(of) : [null];
+        return parts.includes(null) ? null : (URL.parse(...(parts as [string, string?]))?.href ?? null);
       }
       case 'CallExpression': {
-        const { callee } = node;
-        // A URL's `toString()`, as `import(url.toString())`.
-        if (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'toString') {
-          const url = node.arguments.length === 0 ? of(callee.object) : null;
-          return url !== null && URL.canParse(url) ? url : null;
-        }
-        const name = this.nodeFunction(at, callee, where);
+        const name = this.nodeFunction(at, node.callee, where);
         const parts = name === null ? [null] : node.arguments.map(of);
-        if (name === null || parts.includes(null)) return null;
-        return PATH_FUNCTIONS[name]?.(...(parts as string[])) ?? null;
+        return parts.includes(null) ? null : (PATH_FUNCTIONS[name as string]?.(...(parts as string[])) ?? null);
       }
     }
     return null;
@@ -1401,10 +1394,9 @@ export class DependencyGraph {
     if (local === null || (library !== 'path' && library !== 'url')) return null;
     const imported = module.values.importedName(local, scopes);
     // `import path from 'node:path'`, `import * as path` and `const path = require('path')` name the whole module.
-    if (!isMember) return imported === null ? null : `${library}.${imported}`;
-    return imported === null || imported === 'default'
-      ? `${library}.${(target.property as { name: string }).name}`
-      : null;
+    const isModule = imported === null || imported === 'default';
+    const name = !isMember ? imported : isModule ? (target.property as { name: string }).name : null;
+    return name === null ? null : `${library}.${name}`;
   }
 
   /**

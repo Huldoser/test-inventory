@@ -790,6 +790,144 @@ describe('venue routing', () => {
     ]);
   });
 
+  it('follows such a path from __filename, import.meta.filename, a URL and a constant, through any import of path', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/fixtures/quotes.cjs': 'module.exports = { AAPL: 187.5 };\n',
+      'tests/fixtures/depth.mjs': 'export const LEVELS = 10;\n',
+      'tests/fixtures/halts.cjs': "module.exports = ['GME'];\n",
+      'tests/fixtures/sessions.cjs': "module.exports = { open: '09:30' };\n",
+      'tests/market-data.test.ts': `import * as path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const FIXTURES = \`./fixtures\`;
+
+describe('market data', () => {
+  it('quotes AAPL', () => {
+    const quotes = require(path.join(path.dirname(__filename), 'fixtures', 'quotes.cjs'));
+    expect(quotes.AAPL).toBe(187.5);
+  });
+
+  it('shows ten levels of depth', async () => {
+    const { LEVELS } = await import(new URL('./fixtures/depth.mjs', import.meta.url).pathname);
+    expect(LEVELS).toBe(10);
+  });
+
+  it('lists halted symbols', () => {
+    const halts = require(\`\${FIXTURES}/halts.cjs\`);
+    expect(halts).toContain('GME');
+  });
+
+  it('opens the session at 09:30', () => {
+    const sessions = require(path.resolve(path.dirname(import.meta.filename), 'fixtures/sessions.cjs'));
+    expect(sessions.open).toBe('09:30');
+  });
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests.map((test) => [test.title, test.dependencies, test.hasUnfollowedDependencies])).toEqual([
+      ['quotes AAPL', ['tests/fixtures/quotes.cjs', 'tests/market-data.test.ts'], false],
+      ['shows ten levels of depth', ['tests/fixtures/depth.mjs', 'tests/market-data.test.ts'], false],
+      ['lists halted symbols', ['tests/fixtures/halts.cjs', 'tests/market-data.test.ts'], false],
+      ['opens the session at 09:30', ['tests/fixtures/sessions.cjs', 'tests/market-data.test.ts'], false],
+    ]);
+  });
+
+  it('keeps a test unfollowed when the path it loads depends on the run or leaves the project', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'support/venue-loader.ts': `export class VenueLoader {
+  readonly path = './venues/nasdaq.cjs';
+
+  resolve(venue: string) {
+    return \`./venues/\${venue}.cjs\`;
+  }
+}
+
+export function venueFile(venue: string) {
+  return \`./venues/\${venue}.cjs\`;
+}
+`,
+      'tests/venues.test.ts': `import { basename, join, posix } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { expect, it } from 'vitest';
+import { VenueLoader, venueFile } from '../support/venue-loader';
+
+const LOT_SIZE = 100;
+const VENUE_PARTS = ['venues', 'nasdaq.cjs'];
+const VENUE_FILES = { nasdaq: './venues/nasdaq.cjs' };
+// Each is built from the other, so neither has a value.
+const PRIMARY = BACKUP + '/primary.cjs';
+const BACKUP = PRIMARY + '/..';
+
+it('loads the venue for the region', () => {
+  expect(require(join(__dirname, process.env.REGION, 'venue.cjs'))).toBeDefined();
+});
+
+it('loads the venue the environment names, or NASDAQ', () => {
+  expect(require(process.env.VENUE_FILE ?? './venues/nasdaq.cjs')).toBeDefined();
+});
+
+it('loads the lot table for a round lot', () => {
+  expect(require(\`./lots/\${LOT_SIZE}.cjs\`)).toBeDefined();
+});
+
+it('loads the lot table for a double lot', () => {
+  expect(require(\`./lots/\${LOT_SIZE * 2}.cjs\`)).toBeDefined();
+});
+
+it('loads the venue from its parts', () => {
+  expect(require(join(__dirname, ...VENUE_PARTS))).toBeDefined();
+});
+
+it('loads the venue by its key', () => {
+  expect(require(VENUE_FILES[process.env.VENUE])).toBeDefined();
+});
+
+it('loads the venue the build picks', async () => {
+  expect(await import(import.meta.env.VENUE_MODULE)).toBeDefined();
+});
+
+it('loads the venue list shared by the desks', () => {
+  expect(require(join(__dirname, '..', '..', 'shared', 'venues.cjs'))).toBeDefined();
+});
+
+it('loads the venue named after the file', () => {
+  expect(require(basename(__filename))).toBeDefined();
+});
+
+it('loads the venues through the POSIX helpers', () => {
+  expect(require(posix.join(__dirname, 'venues.cjs'))).toBeDefined();
+});
+
+it('loads the venue a loader resolves', () => {
+  expect(require(new VenueLoader().resolve('nasdaq'))).toBeDefined();
+  expect(require(new VenueLoader().path)).toBeDefined();
+  expect(require(venueFile('nasdaq'))).toBeDefined();
+});
+
+it('loads the venue list from the exchange', async () => {
+  expect(await import(new URL('https://venues.example.test/list.mjs').pathname)).toBeDefined();
+  expect(await import(\`\${new URL('https://venues.example.test').origin}/list.mjs\`)).toBeDefined();
+});
+
+it('loads a venue by a URL the environment gives', async () => {
+  expect(await import(new URL(process.env.VENUE_URL).href)).toBeDefined();
+  expect(await import(new URL('nasdaq.mjs').href)).toBeDefined();
+  expect(await import(pathToFileURL('venues.mjs').href)).toBeDefined();
+});
+
+it('loads the primary venue', () => {
+  expect(require(PRIMARY)).toBeDefined();
+});
+`,
+    });
+    const inventory = await scanProject(root, 'vitest');
+    expect(inventory.tests.filter((test) => !test.hasUnfollowedDependencies)).toEqual([]);
+    expect(inventory.diagnostics.filter((item) => item.code === 'dependency-not-followed')).toHaveLength(19);
+  });
+
   it('marks a test that reaches what it cannot follow, and reports each place once per scan', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
