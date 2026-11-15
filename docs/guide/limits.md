@@ -113,7 +113,8 @@ A custom `test` object is followed through as many files as it takes: a fixtures
 `export * from './base'`, build it with `extend` on a test object it imports from another file, or build it with a
 function, written there or imported, as in `export const test = defineDeskTest('equities')`. A fixtures file that
 builds its test object with a call the scan can't follow gets the error described below, also when it doesn't import
-the framework itself.
+the framework itself. Any call with a title and a body leads the scan to the file, whatever the title is written as:
+`test(TITLES.fill, async ({ page }) => {})` is read even when no call in the file writes its title in place.
 
 Installed packages are not followed. When a call shaped like a test, outside any test or hook body, uses a name from
 an import that can't be followed, an `unresolved-test-import` error names the import and says where the chain of
@@ -186,10 +187,13 @@ test.describe.skip('short sells', () => {
 
 Playwright lists two tests here, and so does the scan: `buy orders > buy rejects a zero quantity`, and
 `short sells > short rejects a zero quantity`, which is skipped. Both have `isInFunction: true` and the line of the
-`test()` call.
+`test()` call. A rest parameter, as `...cycles`, holds the arguments left, unless a spread argument such as `...LATER`
+hides how many there are.
 
 A function imported from another file is followed the same way, through the imports above, also when a shared file
-imports it and exports it again, as an `index.js` of helpers does. Its records give the call
+imports it and exports it again, as an `index.js` of helpers does, and when it is called on the module, as
+`checks.validatesQuantity('buy')` after `import * as checks from './checks'` or `const checks = require('./checks')`.
+Its records give the call
 in the scanned file as their location, since that is the line that registers the tests, and `declaredAt` gives the
 file and line where the helper writes the test.
 

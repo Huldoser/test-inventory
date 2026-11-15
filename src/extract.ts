@@ -990,12 +990,20 @@ class Walker {
    */
   private helperCall(call: CallExpression, context: Context): Callee | null {
     const callee = unwrap(call.callee);
+    const runsHere = !context.test && !context.hookScope && !context.helper && this.callStack.length < MAX_DEPTH;
+    if (callee.type === 'MemberExpression') {
+      const object = unwrap(callee.object);
+      const member = propertyName(callee);
+      const imported =
+        runsHere && object.type === 'Identifier' && member !== null
+          ? this.importedFunction(object.name, this.scopes, this.frame, member)
+          : null;
+      return imported && !this.callStack.includes(imported.fn) ? this.withinLimit(imported, call) : null;
+    }
     if (callee.type !== 'Identifier') return null;
     const fn = this.functionNamed(callee.name, this.scopes);
     if (!fn) {
-      const runsHere = !context.test && !context.hookScope && !context.helper;
-      const imported =
-        runsHere && this.callStack.length < MAX_DEPTH ? this.importedFunction(callee.name, this.scopes) : null;
+      const imported = runsHere ? this.importedFunction(callee.name, this.scopes) : null;
       return imported && !this.callStack.includes(imported.fn) ? this.withinLimit(imported, call) : null;
     }
     const sites = this.callSites.get(fn) ?? new Map<Node, Placement>();
@@ -1064,13 +1072,24 @@ class Walker {
     };
   }
 
-  /** The function a name imported from a local module stands for, in the file that writes it; null otherwise. */
-  private importedFunction(name: string, scopes: readonly Node[], from = this.frame): Callee | null {
+  /**
+   * The function a name imported from a local module stands for, in the file that writes it; null otherwise. With a
+   * `member`, the function is that export of a module the name holds whole, as `checks.validatesQuantity` after
+   * `import * as checks` or `const checks = require('./checks')`.
+   */
+  private importedFunction(
+    name: string,
+    scopes: readonly Node[],
+    from = this.frame,
+    member: string | null = null,
+  ): Callee | null {
     const source = from.values.importSource(name, scopes);
     if (source === null) return null;
-    const imported = from.values.importedName(name, scopes) as string;
-    const frame = this.openFrom(from, source);
-    return frame ? this.exportedFunction(frame, imported, new Set(), 0) : null;
+    const imported = from.values.importedName(name, scopes);
+    const whole = imported === null || from.values.declarationOf(name, scopes)?.type === 'VariableDeclarator';
+    const exported = member === null ? imported : whole ? member : null;
+    const frame = exported === null ? null : this.openFrom(from, source);
+    return frame ? this.exportedFunction(frame, exported as string, new Set(), 0) : null;
   }
 
   /** A module a file imports, read as a frame once; null when it can't be read or parsed. */
@@ -1157,14 +1176,20 @@ class Walker {
     const scopes = this.scopeChain(fn);
     const saved = this.scopes.splice(0, this.scopes.length, ...scopes);
     this.callStack.push(fn);
-    frame.values.withArguments(fn, args, scopes, () => {
-      this.visitCallback(fn, {
-        ...context,
-        isInFunction: true,
-        declaredIn: null,
-        registeredBy: context.registeredBy ?? call,
-      });
-    });
+    frame.values.withArguments(
+      fn,
+      args,
+      scopes,
+      () => {
+        this.visitCallback(fn, {
+          ...context,
+          isInFunction: true,
+          declaredIn: null,
+          registeredBy: context.registeredBy ?? call,
+        });
+      },
+      spread === -1,
+    );
     this.callStack.pop();
     this.scopes.splice(0, this.scopes.length, ...saved);
     // What the module's own imports couldn't resolve is reported at the call, as it is why tests may be missing. Another

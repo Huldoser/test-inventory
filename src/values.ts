@@ -103,13 +103,27 @@ export class Values {
   /**
    * Runs `read` with a function's parameters bound to the arguments of one call, worked out where the call is, so that
    * titles and values built from them resolve, as in `test(\`${side} rejects a zero quantity\`)` inside
-   * `validatesQuantity('buy')`. `args` stop at a spread argument, after which no position is known. A missing argument
-   * takes the parameter's default value, worked out in `scopes`, the scopes around the function.
+   * `validatesQuantity('buy')`. `args` stop at a spread argument, after which no position is known, and `complete` is
+   * false then. A missing argument takes the parameter's default value, worked out in `scopes`, the scopes around the
+   * function. A rest parameter, as `...cycles`, holds the arguments left.
    */
-  withArguments<T>(fn: FunctionNode, args: readonly Resolved[], scopes: readonly Node[], read: () => T): T {
+  withArguments<T>(
+    fn: FunctionNode,
+    args: readonly Resolved[],
+    scopes: readonly Node[],
+    read: () => T,
+    complete = true,
+  ): T {
     const parameters = new Map<string, () => Resolved>();
     for (const [index, parameter] of fn.params.entries()) {
-      this.bind(parameter, args.at(index), parameters, [...scopes, fn]);
+      if (parameter.type === 'RestElement') {
+        const rest = args.slice(index);
+        const unknown = complete ? rest.find((item) => !item.ok) : UNRESOLVED;
+        const value = unknown ?? { ok: true, value: rest.map((item) => (item as { value: Value }).value) };
+        this.bind(parameter.argument, value, parameters, [...scopes, fn]);
+      } else {
+        this.bind(parameter, args.at(index), parameters, [...scopes, fn]);
+      }
     }
     // A parameter the function assigns to may hold another value by the time it is read.
     for (const name of this.assignedIn(fn.body as Node)) parameters.delete(name);

@@ -245,6 +245,34 @@ describe('scan follows a custom test object to its fixtures file', () => {
     ]);
   });
 
+  it('follows a test object whose every call takes its title from a constant', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/ticket.spec.ts':
+        "import { test } from '../fixtures';\nimport { TITLES } from '../test-data/titles';\nconst CANCEL = 'cancels a stale quote';\ntest(CANCEL, async ({ page }) => {});\ntest(TITLES.fill, async ({ page }) => {});\n",
+      'test-data/titles.ts': "export const TITLES = { fill: 'fills a limit order' };\n",
+      'fixtures/index.ts': "import { test as base } from '@playwright/test';\nexport const test = base.extend({});\n",
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['cancels a stale quote', 'fills a limit order']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('follows a re-exported Vitest describe and test whatever their first call looks like', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'tests/fees.test.ts':
+        "import { describe, test } from './runner';\nconst DESK = 'equities desk';\nconst OVERRIDE = null;\ndescribe(DESK, () => {\n  test(OVERRIDE ?? 'charges the minimum fee', () => {});\n});\ndescribe('fx desk', () => {\n  test('charges the exchange fee', () => {});\n});\n",
+      'tests/runner.ts': "export { describe, test } from 'vitest';\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
+    expect(inventory.tests.map((test) => test.fullName)).toEqual([
+      'equities desk > charges the minimum fee',
+      'fx desk > charges the exchange fee',
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a default export', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -974,6 +1002,75 @@ export function venueTests() {
       // Where the helper's own imports can't be followed: in its file, not at the call.
       ['dependency-not-followed', 1],
       ['dependency-not-followed', 3],
+    ]);
+  });
+
+  it('follows a helper called as a member of the module, through a namespace import or require', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { mocha: '12.0.3' } }),
+      'helpers/checks.mjs': `export function validatesQuantity(side) {
+  it(\`\${side} rejects a zero quantity\`, () => {});
+  it.skip(\`\${side} rejects a negative quantity\`, () => {});
+}
+`,
+      'helpers/checks.cjs': `function validatesQuantity(side) {
+  it(\`\${side} rejects a zero quantity\`, () => {});
+}
+
+module.exports = { validatesQuantity };
+`,
+      'test/orders.spec.mjs': `import * as checks from '../helpers/checks.mjs';
+
+describe('buy orders', () => {
+  checks.validatesQuantity('buy');
+});
+checks['validatesQuantity']('short');
+`,
+      'test/settlement.spec.js': `const checks = require('../helpers/checks.cjs');
+
+describe('sell orders', () => {
+  checks.validatesQuantity('sell');
+  checks.missingHelper('sell');
+});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['test/*.spec.*'], framework: 'mocha' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.isInFunction])).toEqual([
+      ['buy orders > buy rejects a zero quantity', 'active', true],
+      ['buy orders > buy rejects a negative quantity', 'skip', true],
+      ['short rejects a zero quantity', 'active', true],
+      ['short rejects a negative quantity', 'skip', true],
+      ['sell orders > sell rejects a zero quantity', 'active', true],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('binds a rest parameter to the arguments left, unless a spread argument hides some', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/settlement.ts': `import { test } from '@playwright/test';
+
+export const settlesIn = (desk: string, ...cycles: string[]) => {
+  cycles.forEach((cycle) => test(\`\${desk} settles \${cycle}\`, async () => {}));
+};
+`,
+      'tests/settlement.spec.ts': `import { settlesIn } from '../helpers/settlement';
+
+const LATER = ['T+3'];
+settlesIn('equities', 'T+1', 'T+2');
+settlesIn('bonds', ...LATER);
+`,
+    });
+    const counted = await scanProject(root);
+    expect(counted.tests.map((test) => [test.title, test.caseCount])).toEqual([
+      ['`${desk} settles ${cycle}`', 2],
+      ['`${desk} settles ${cycle}`', null],
+    ]);
+    const expanded = await scanProject(root, { expandCases: true });
+    expect(expanded.tests.map((test) => test.title)).toEqual([
+      'equities settles T+1',
+      'equities settles T+2',
+      '`${desk} settles ${cycle}`',
     ]);
   });
 

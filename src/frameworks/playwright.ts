@@ -39,6 +39,7 @@ import {
   isTestName,
   isTitleLiteral,
   localTestObject,
+  hasDeclarationArguments,
   looksLikeDeclaration,
   mayDeclareTests,
   mayHoldTestObject,
@@ -500,12 +501,15 @@ export class PlaywrightAdapter implements Adapter {
   }
 
   /**
-   * Whether a call through an imported name is worth following to the module: shaped like a test, or any call with a
-   * title and a body through a name that reads like a test function, as `it.effect('title', fn)` on a test object that
-   * a package extends.
+   * Whether a call through an imported name is worth following to the module: shaped like a test, a direct call with a
+   * title of any kind and a body, as `test(TITLES.fill, fn)`, or such a call through any member of a name that reads
+   * like a test function, as `it.effect('title', fn)` on a test object that a package extends. What the name is gets
+   * decided there, so it doesn't depend on which call comes first.
    */
   private worthFollowing(name: string, links: Link[], args: readonly Argument[]): boolean {
-    return this.looksLikeTest(links, args) || (isTestName(name) && looksLikeDeclaration(args));
+    return (
+      this.looksLikeTest(links, args) || ((links.length === 0 || isTestName(name)) && hasDeclarationArguments(args))
+    );
   }
 
   /**
@@ -622,8 +626,11 @@ export class PlaywrightAdapter implements Adapter {
       declares = true;
     } else {
       // skip, fixme and fail: (title, body) declares a test, (condition, description) changes the state of others.
+      // Playwright tells them apart by whether the last argument is a function, passed by name or not.
       declares =
-        isFunctionNode(last) || (this.isTitle(args[0], context) && !this.isTitle(args[args.length - 1], context));
+        isFunctionNode(last) ||
+        namedFunction(this.file, context.scopes, last) !== null ||
+        (this.isTitle(args[0], context) && !this.isTitle(args[args.length - 1], context));
     }
     if (!declares && declarationOnly) {
       const callee = snippet(text(this.file, call.callee));

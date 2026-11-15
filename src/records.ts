@@ -869,12 +869,12 @@ class RecordBuilder {
     for (const [index, test] of pending.entries()) {
       if (test.declaration.title.isDynamic) continue;
       const describes = outward(test.scope).filter((scope) => scope.kind === 'describe');
+      // A describe title the scan can't work out keeps its source text, the same on every pass of a loop, while the
+      // runner's titles differ.
+      if (playwright && describes.some((scope) => suiteOf(scope).declaration.title?.isDynamic)) continue;
       const titles = describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []).reverse();
       // In a loop, a title path that never changes is registered again on each pass.
-      const repeated =
-        playwright &&
-        test.passes.some((passes) => passes !== null && passes > 1) &&
-        describes.every((scope) => !suiteOf(scope).declaration.title?.isDynamic);
+      const repeated = playwright && test.passes.some((passes) => passes !== null && passes > 1);
       if (repeated) {
         const message =
           'The test is declared in a loop with the same title on each pass, so Playwright fails to load the file and runs no tests at all.';

@@ -613,6 +613,22 @@ for (side of SIDES) test(\`cancels a \${side} order\`, async () => {});
     ]);
     expect(codes(inventory)).toEqual(['duplicate-title', 'test-in-loop', 'dynamic-title', 'dynamic-title']);
   });
+
+  it('does not take describes whose expanded titles it cannot work out for duplicates', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+for (const desk of ['equities', 'fx']) {
+  test.describe(\`\${process.env.TRADING_REGION} \${desk} desk\`, () => {
+    test('books the commission', async () => {});
+  });
+}
+test('rounds the fee down', async () => {});
+`,
+      expand,
+    );
+    expect(inventory.tests.map((test) => test.state)).toEqual(['active', 'active', 'active']);
+    expect(codes(inventory)).toEqual(['dynamic-title']);
+  });
 });
 
 describe("expanded Vitest titles with the config's truncate", () => {
