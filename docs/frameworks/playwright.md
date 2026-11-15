@@ -74,8 +74,9 @@ do not inherit those module exports.
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it. A config named only in a CI workflow isn't
-read. A config built by a call the scan
-cannot follow, such as `getPlaywrightConfig({ startCommand: 'pnpm start' })`, cannot be worked out.
+read. A config built by a function the project writes, such as `configureE2e({ port: 3002 })` imported from a
+local file or a workspace package, is read from what the function returns, with its parameters set from the call's
+arguments. One from an installed package, an async one, or one with more than one `return` cannot be worked out.
 
 When `projects` is built at runtime, for example with `config.projects.push()` in a loop, a scan without globs keeps
 candidate files selected by readable top-level `testDir`, `testMatch`, `testIgnore` and `respectGitIgnore` settings.

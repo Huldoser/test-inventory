@@ -1009,7 +1009,7 @@ describe('which files a config a package.json script names runs', () => {
       'vitest',
       ['live/**/*.test.ts'],
     );
-    expect(diagnostics).toEqual(['config-value-unknown vitest.live.config.ts']);
+    expect(diagnostics).toEqual(['config-value-unknown live/suites.ts']);
   });
 
   it("can't tell when a script names a config the scan can't read, and says so on the package.json", async () => {

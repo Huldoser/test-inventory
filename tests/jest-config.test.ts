@@ -880,13 +880,27 @@ module.exports = nextJest()({
     ]);
   });
 
+  it('reads a config a local wrapper returns, as it reads other config functions', async () => {
+    const root = dashboard({
+      'jest.config.js':
+        "const withDashboard = (config) => config;\nmodule.exports = withDashboard({ testEnvironment: 'jsdom' });\n",
+    });
+    const inventory = await scan({ root, framework: 'jest' });
+    expect(inventory.files.map((file) => file.relativeFilePath)).toEqual([
+      '.next/server/app/orders/page.test.js',
+      '__tests__/blotter.test.jsx',
+      'e2e/orders.test.js',
+    ]);
+    // Without next/jest, nothing maps the `@/` alias the blotter test imports.
+    expect(inventory.diagnostics.map((item) => item.code)).toEqual(['dependency-not-followed']);
+  });
+
   it('reports a config it cannot work out, and reads calls next/jest does not make by the other rules', async () => {
     const unknownConfigs = [
       "const nextJest = require('next/jest');\nmodule.exports = nextJest()(globalThis.dashboardJestConfig);\n",
       "const nextJest = require('next/jest');\nmodule.exports = nextJest()(...[{ testEnvironment: 'jsdom' }]);\n",
       "const nextJest = require('@blitzjs/next/jest');\nmodule.exports = nextJest()({ testEnvironment: 'jsdom' });\n",
       "const { createJestConfig } = require('./jest.next.js');\nmodule.exports = createJestConfig({ testEnvironment: 'jsdom' });\n",
-      "const withDashboard = (config) => config;\nmodule.exports = withDashboard({ testEnvironment: 'jsdom' });\n",
       "const createJestConfig = createDashboardJest({ dir: './' });\nmodule.exports = createJestConfig({ testEnvironment: 'jsdom' });\n",
     ];
     for (const config of unknownConfigs) {

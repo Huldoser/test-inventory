@@ -348,6 +348,13 @@ export class Values {
     return isFunctionNode(init) ? init : null;
   }
 
+  /** The function a name is declared as, as `functionOf()` finds it, and the scopes around its declaration. */
+  declaredFunction(name: string, scopes: readonly Node[]): { fn: FunctionNode; scopes: readonly Node[] } | null {
+    const found = this.lookup(name, scopes);
+    const fn = this.functionOf(name, scopes);
+    return found && fn && { fn, scopes: scopes.slice(0, found.index + 1) };
+  }
+
   /** The value a `const` name is declared with, and the scopes around that declaration; null for any other name. */
   constantOf(name: string, scopes: readonly Node[]): { init: Expression; scopes: readonly Node[] } | null {
     const binding = this.lookup(name, scopes)?.binding;
@@ -582,10 +589,11 @@ export class Values {
     return members;
   }
 
-  private lookup(name: string, scopes: readonly Node[]): { binding: Binding } | null {
+  /** A name's binding, and the index in `scopes` of the scope that declares it. */
+  private lookup(name: string, scopes: readonly Node[]): { binding: Binding; index: number } | null {
     for (let index = scopes.length - 1; index >= 0; index--) {
       const binding = this.bindings(scopes[index], scopes.slice(0, index + 1)).get(name);
-      if (binding) return { binding };
+      if (binding) return { binding, index };
     }
     return null;
   }
@@ -666,7 +674,7 @@ function rootName(node: Node): string | null {
  * Names assigned to or changed anywhere in `body`, its functions included: `x = ...`, `x++`, `[x] = ...`,
  * `for (x of ...)`, `x.push(...)`.
  */
-function assignedNames(body: Node): Set<string> {
+export function assignedNames(body: Node): Set<string> {
   const names = new Set<string>();
   const targets = (target: Node | null): void => {
     switch (target?.type) {

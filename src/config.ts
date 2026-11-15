@@ -36,7 +36,7 @@ import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
 import { snippet } from './source.ts';
 import type { ConfigRecord, Diagnostic, DiagnosticLevel, Framework, ProjectRecord } from './types.ts';
-import { isKey, isScopeNode, Values, type Value } from './values.ts';
+import { assignedNames, bindingNames, isKey, isScopeNode, Values, type Value } from './values.ts';
 import { VITEST_INCLUDE, VITEST_TYPECHECK_INCLUDE, vitestExclude } from './vitest-defaults.ts';
 import { readToml, TomlError } from './toml.ts';
 import { readYaml, YamlError } from './yaml.ts';
@@ -144,6 +144,22 @@ interface ConfigFrame {
   readModule: ModuleReader;
 }
 
+/** A function a config calls to build its settings, the module that declares it and the scopes around it there. */
+interface Factory {
+  fn: FunctionNode;
+  frame: ConfigFrame;
+  scopes: readonly Node[];
+}
+
+/** A config function being read at one of its calls. */
+interface FactoryCall {
+  fn: FunctionNode;
+  /** Each name its parameters declare, bound to the setting of the argument it takes. */
+  parameters: Map<string, Setting>;
+  /** The constants worked out inside it, which another call can give other values. */
+  done: Map<unknown, Setting | null>;
+}
+
 /** Where a function a config calls comes from: the module, or `''` for a global, and the name it exports it under. */
 interface Origin {
   source: string;
@@ -204,6 +220,8 @@ function attempt(read: () => string): string | null {
 function unknown(where: Site): Unknown {
   return { kind: 'unknown', where };
 }
+
+const UNDEFINED: Setting = { kind: 'value', value: undefined };
 
 function emptyObject(): ObjectSetting {
   return { kind: 'object', keys: new Map(), rest: null };
@@ -423,6 +441,8 @@ class ConfigCode {
   private readonly done = new Map<unknown, Setting | null>();
   /** Constants and exports being worked out, to stop at one that refers back to itself. */
   private readonly pending = new Set<unknown>();
+  /** The config functions being read at a call, innermost last. */
+  private readonly calls: FactoryCall[] = [];
 
   constructor(main: ConfigFrame, framework: Framework, root: string, version: [number, number] | null) {
     this.main = main;
@@ -546,8 +566,13 @@ class ConfigCode {
   private named(name: string, frame: ConfigFrame, scopes: readonly Node[], site: Site): Setting | null {
     const constant = frame.values.constantOf(name, scopes);
     const declaration = frame.values.declarationOf(name, scopes);
+    // A function declares its own parameters.
+    const parameter = this.calls.find((call) => call.fn === declaration)?.parameters.get(name);
+    if (parameter) return parameter;
     if (constant) {
-      const setting = this.once(constant.init, site, () => this.evaluate(constant.init, frame, constant.scopes));
+      const call = this.calls.findLast((item) => constant.scopes.includes(item.fn));
+      const read = () => this.evaluate(constant.init, frame, constant.scopes);
+      const setting = this.once(constant.init, site, read, call?.done);
       return this.changed(setting, frame, declaration as Node);
     }
     // An import, or a local file loaded with `require()`, which reads as one.
@@ -614,13 +639,13 @@ class ConfigCode {
     return this.once(`${module.relativeFilePath}\0${name}`, site, () => this.exported(module, name, site));
   }
 
-  private once<T extends Setting | null>(key: unknown, site: Site, read: () => T): T | Unknown {
-    if (this.done.has(key)) return this.done.get(key) as T;
+  private once<T extends Setting | null>(key: unknown, site: Site, read: () => T, done = this.done): T | Unknown {
+    if (done.has(key)) return done.get(key) as T;
     if (this.pending.has(key)) return unknown(site);
     this.pending.add(key);
     const result = read();
     this.pending.delete(key);
-    this.done.set(key, result);
+    done.set(key, result);
     return result;
   }
 
@@ -752,6 +777,8 @@ class ConfigCode {
     }
     const isPackage = origin !== null && (origin.source === '' || !/^[./#]/.test(origin.source));
     const name = isPackage && CONFIG_FUNCTIONS.has(origin.name) ? origin.name : null;
+    const factory = name === null ? this.factory(unwrap(call.callee), frame, scopes) : null;
+    if (factory) return this.called(factory, call, frame, scopes);
     const { arguments: given } = call;
     const needed = name === 'mergeConfig' ? 2 : 1;
     // Jest exports defineConfig() and mergeConfig() from 30.3; neither takes a project.
@@ -853,6 +880,110 @@ class ConfigCode {
     return frame.values.importedName(node.name, scopes) === 'default'
       ? frame.values.importSource(node.name, scopes)
       : null;
+  }
+
+  /**
+   * The function a config calls to build its settings: one it declares, or one a local file or a workspace package
+   * exports; null for any other, such as one from an installed package.
+   */
+  private factory(callee: Expression, frame: ConfigFrame, scopes: readonly Node[]): Factory | null {
+    if (callee.type !== 'Identifier') return null;
+    const imported = frame.values.importedName(callee.name, scopes);
+    if (imported === null) {
+      const declared = frame.values.declaredFunction(callee.name, scopes);
+      return declared && { ...declared, frame };
+    }
+    const module = this.open(frame, frame.values.importSource(callee.name, scopes) as string);
+    return module && this.exportedFunction(module, imported, new Set([frame, module]));
+  }
+
+  /**
+   * The function a module exports under a name, written in the module or passed on from another; null for anything
+   * else. `seen` holds the modules followed so far, to stop at two that pass the name on to each other.
+   */
+  private exportedFunction(frame: ConfigFrame, name: string, seen: Set<ConfigFrame>): Factory | null {
+    const { program } = frame.parsed;
+    const own = ownExport(program, name);
+    if (own?.kind === 'specifier' && own.source !== null) {
+      const module = this.open(frame, own.source);
+      if (!module || seen.has(module)) return null;
+      return this.exportedFunction(module, own.local, new Set([...seen, module]));
+    }
+    const written = own === null ? commonJsExport(program, name) : own.kind === 'default' ? own.value : null;
+    const node = written && unwrap(written);
+    if (node?.type === 'FunctionDeclaration' || isFunctionNode(node)) return { fn: node, frame, scopes: [program] };
+    const local =
+      own?.kind === 'variable' || own?.kind === 'function'
+        ? name
+        : own?.kind === 'specifier'
+          ? own.local
+          : node?.type === 'Identifier'
+            ? node.name
+            : null;
+    const declared = local === null ? null : frame.values.declaredFunction(local, [program]);
+    return declared && { ...declared, frame };
+  }
+
+  /**
+   * What a call of a config function returns, with its parameters bound to the call's arguments. Unknown for an async
+   * function, which returns a promise, one that calls itself, or a call with a spread argument.
+   */
+  private called(factory: Factory, call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting {
+    const { fn } = factory;
+    const isSpread = call.arguments.some((arg) => arg.type === 'SpreadElement');
+    if (fn.async || isSpread || this.calls.some((item) => item.fn === fn)) return unknown({ frame, node: call });
+    const args = (call.arguments as Expression[]).map((arg) => this.evaluate(arg, frame, scopes));
+    const parameters = new Map<string, Setting>();
+    // The call is read from here on, as the defaults of parameters can use the ones before them.
+    this.calls.push({ fn, parameters, done: new Map() });
+    const inside = [...factory.scopes, fn];
+    for (const [index, parameter] of fn.params.entries()) {
+      this.bind(parameter, args.at(index) ?? UNDEFINED, parameters, factory.frame, inside);
+    }
+    // A parameter the function assigns to may hold another value by the time it is read.
+    for (const name of assignedNames(fn.body as Node)) {
+      if (parameters.has(name)) parameters.set(name, unknown({ frame: factory.frame, node: fn }));
+    }
+    const setting = this.returned(fn, factory.frame, factory.scopes);
+    this.calls.pop();
+    return setting;
+  }
+
+  /** Binds the names of a parameter to the parts of the setting it takes, as destructuring does. */
+  private bind(
+    pattern: Node,
+    value: Setting,
+    names: Map<string, Setting>,
+    frame: ConfigFrame,
+    scopes: readonly Node[],
+  ): void {
+    switch (pattern.type) {
+      case 'Identifier':
+        names.set(pattern.name, value);
+        return;
+      case 'AssignmentPattern': {
+        // A default takes the place of `undefined` only, so a value the scan can't work out stays unknown.
+        const isUndefined = value.kind === 'value' && value.value === undefined;
+        this.bind(
+          pattern.left,
+          isUndefined ? this.evaluate(pattern.right, frame, scopes) : value,
+          names,
+          frame,
+          scopes,
+        );
+        return;
+      }
+      case 'ObjectPattern':
+        for (const property of pattern.properties) {
+          // The scan doesn't work out what a rest element or a computed key takes.
+          const key = property.type === 'Property' ? propertyKey(property) : null;
+          const part = key === null ? unknown({ frame, node: property }) : (child(value, key) ?? UNDEFINED);
+          this.bind(property.type === 'Property' ? property.value : property.argument, part, names, frame, scopes);
+        }
+        return;
+      default:
+        for (const name of bindingNames(pattern)) names.set(name, unknown({ frame, node: pattern }));
+    }
   }
 
   /** What a config function returns, when it has a single `return` the scan can follow. */

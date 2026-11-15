@@ -22,7 +22,11 @@ The [framework guides](/frameworks/) explain each runner's config lookup, defaul
 the [configs reference](/reference/output#configs) describes the exact output.
 
 A setting computed at run time, for example from `process.env`, or imported from an installed package cannot be
-worked out. When needed by the scan, a `config-value-unknown` diagnostic names it. A run setting chosen by a condition,
+worked out. When needed by the scan, a `config-value-unknown` diagnostic names it. A config built by a function the
+project writes, declared in the config or exported by a local file or workspace package, as
+`export default configureE2e({ port: 3002 })`, is read from the function's single `return`, with its parameters set
+from the call's arguments. An async function, a function from an installed package and a call with a spread argument
+cannot be worked out. A run setting chosen by a condition,
 such as `retries: process.env.CI ? 2 : 0`, is `null` with source `config`; `retriesConfigText` and the other
 `ConfigText` keys keep its source. A config a package.json script passes on the runner's command line decides which
 scanned files run. Playwright also discovers files through those scripts when no config is above the file; the other

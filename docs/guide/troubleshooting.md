@@ -44,8 +44,8 @@ The scanner does not evaluate wrappers from installed packages. `scanSource()` f
 
 ## A config value or framework version is unknown
 
-Configs are read, not executed. A value derived from environment variables, an installed package or an unsupported
-factory can produce `config-value-unknown`. Explicit globs help select files but do not resolve unknown settings.
+Configs are read, not executed. A value derived from environment variables, an installed package or a config
+function the scan can't follow, such as an async one, can produce `config-value-unknown`. Explicit globs help select files but do not resolve unknown settings.
 Fix a supported literal setting only if it represents how your runner should behave; otherwise retain the diagnostic.
 
 For version detection, inspect `frameworkVersion` and its diagnostic. Pass `--framework-version` when you know the
