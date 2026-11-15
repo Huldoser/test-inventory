@@ -461,6 +461,8 @@ export type FollowImport = (source: string, imported: string, exported?: Exporte
 export interface Framework {
   name: string;
   isSource: (source: string) => boolean;
+  /** Whether a module is another runner's, which makes a file whose test object comes from it that runner's. */
+  isMismatched: (source: string) => boolean;
   /** The test objects of a followed module, which uses `follow` for the names it imports from other modules. */
   testObjects: (program: Program, follow: FollowImport) => TestObjects;
 }
@@ -496,6 +498,7 @@ export function followModule(
   path: readonly string[] = [],
   followed = new Map<string, Followed>(),
 ): Followed {
+  if (framework.isMismatched(source)) return { exported: false, reason: null, mismatch: source };
   // Without a reader, as in scanSource, nothing can be read.
   const module = readModule ? readModule(source) : { reason: 'could not be read' };
   if ('reason' in module) return { exported: false, reason: module.reason };
@@ -518,6 +521,8 @@ interface Followed {
   start?: unknown;
   /** The module writes a function under the name, a helper that registers tests itself, which the walk follows. */
   isHelper?: boolean;
+  /** Another runner's module the chain ends at, as `@playwright/test` in a Jest scan. */
+  mismatch?: string;
 }
 
 /**
@@ -554,8 +559,13 @@ function followExports(
     const followed = followFrom(origin.source, origin.imported, origin.exported);
     // A helper function re-exported, as `import helper from './a'; export { helper }`, is no broken test object.
     if (followed.isHelper && origin.how === 're-exports') return followed;
+    const from = `${origin.how} it from '${origin.source}'`;
+    if (followed.mismatch) {
+      const via = followed.reason ? `${from}, which ${followed.reason}` : from;
+      return { exported: false, reason: via, mismatch: followed.mismatch };
+    }
     const end = followed.reason ?? unrecognized(origin.exported);
-    return { exported: false, reason: `${origin.how} it from '${origin.source}', which ${end}` };
+    return { exported: false, reason: `${from}, which ${end}` };
   }
   if (importsFrom(program, framework.isSource)) return { exported: false, reason: unrecognized(exported) };
   // A module that doesn't import the framework may still build the test object with a function, as in
@@ -607,14 +617,22 @@ export function followImport(
   file: FileContext,
   framework: Framework,
 ): { exported: boolean; problem: Problem | null; start: unknown } {
-  const { exported, reason, start } = followModule(imported.source, imported.imported, readModule, framework);
-  const problemFound = reason
-    ? problem(
-        'unresolved-test-import',
-        imported.node,
-        `'${name}' is imported from '${imported.source}', which ${reason}; tests that use it are missing.`,
-        snippet(text(file, imported.node)),
-      )
-    : null;
+  const { exported, reason, start, mismatch } = followModule(imported.source, imported.imported, readModule, framework);
+  // An import straight from another runner's module is reported where the file imports it.
+  const message =
+    reason === null
+      ? null
+      : mismatch
+        ? `'${name}' is imported from '${imported.source}', which ${reason}, another runner's module, but the scan is for ${framework.name}.`
+        : `'${name}' is imported from '${imported.source}', which ${reason}; tests that use it are missing.`;
+  const problemFound =
+    message === null
+      ? null
+      : problem(
+          mismatch ? 'framework-mismatch' : 'unresolved-test-import',
+          imported.node,
+          message,
+          snippet(text(file, imported.node)),
+        );
   return { exported, problem: problemFound, start };
 }

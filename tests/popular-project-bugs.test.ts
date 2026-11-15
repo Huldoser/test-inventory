@@ -236,3 +236,35 @@ describe('order routing', () => {
     expect(result.diagnostics[0].message).toMatch(new RegExp(`^The file imports '${source}', but the scan is for `));
   });
 });
+
+describe("a test object another runner's module builds, reached through local files", () => {
+  it.each([
+    [
+      'jest',
+      'Jest',
+      'builds',
+      "import { test as base } from '@playwright/test';\nexport const test = base.extend({ account: async ({}, use) => use('EXAMPLE') });\n",
+      '@playwright/test',
+    ],
+    ['vitest', 'Vitest', 're-exports', "export { test } from 'node:test';\n", 'node:test'],
+    ['playwright', 'Playwright', 're-exports', "export { test } from 'vitest';\n", 'vitest'],
+  ] as const)('is a framework mismatch in a %s scan', async (framework, name, how, base, source) => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { jest: '30.2.0', vitest: '5.0.3', '@playwright/test': '1.63.0' },
+      }),
+      'tests/support/base.ts': base,
+      'tests/support/fixtures.ts': "export { test } from './base';\n",
+      'tests/orders.spec.ts':
+        "import { test } from './support/fixtures';\ntest('places a market order', async () => {});\n",
+    });
+    const inventory = await scan({ root, framework, patterns: ['tests/orders.spec.ts'] });
+    expect(inventory.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      [
+        'framework-mismatch',
+        `'test' is imported from './support/fixtures', which re-exports it from './base', which ${how} it from '${source}', another runner's module, but the scan is for ${name}.`,
+      ],
+    ]);
+    expect(inventory.tests).toEqual([]);
+  });
+});

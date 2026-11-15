@@ -316,6 +316,7 @@ class PlaywrightBindings implements TestObjects {
 const PLAYWRIGHT: Framework = {
   name: 'Playwright',
   isSource: isPlaywrightSource,
+  isMismatched: (source) => MISMATCHED_SOURCES.has(source),
   testObjects: (program, follow) => new PlaywrightBindings(program, follow),
 };
 
