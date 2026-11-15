@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nodeTestCommands, runnerCommands, scriptsRunBy } from '../src/node-scripts.ts';
+import { mochaArguments, nodeTestCommands, runnerCommands, scriptsRunBy } from '../src/node-scripts.ts';
 
 describe('the node --test commands of a package.json script', () => {
   it('keeps preload arguments separate from values of other Node options', () => {
@@ -262,5 +262,51 @@ describe('the test runner commands of a package.json script', () => {
       unreadable('{"testMatch":["**/orders/*.check.ts"]}'),
     ]);
     expect(runnerCommands('jest --config', 'jest')).toEqual([unreadable(null)]);
+  });
+});
+
+describe('the Mocha commands of a package.json script', () => {
+  it('finds Mocha past the coverage tools nyc, c8 and mcr, whose options may take values, and keeps its words', () => {
+    expect(runnerCommands('nyc -r text-summary -r lcov mocha -r tsx specs/unit', 'mocha')).toEqual([
+      { config: null, root: null, unreadable: false, args: ['-r', 'tsx', 'specs/unit'] },
+    ]);
+    expect(runnerCommands('c8 --reporter=text npx mocha --config .mocharc.unit.json', 'mocha')).toEqual([
+      { config: '.mocharc.unit.json', root: null, unreadable: false, args: ['--config', '.mocharc.unit.json'] },
+    ]);
+    expect(runnerCommands('mcr --import tsx _mocha build/specs', 'mocha').map((command) => command.args)).toEqual([
+      ['build/specs'],
+    ]);
+    expect(runnerCommands('nyc --reporter=lcov npm run build', 'mocha')).toEqual([]);
+  });
+
+  it("reads the specs and the options that choose Mocha's files, as Mocha's own reader does", () => {
+    const { positional, options } = mochaArguments([
+      '--recursive',
+      '-r',
+      'ts-node/register',
+      '--extension',
+      'ts,tsx',
+      '--spec',
+      'specs/{orders,fees}/**',
+      'specs/unit',
+      '--timeout=5000',
+      '-u',
+      'tdd',
+      '--no-config',
+      '--expose-gc',
+      '--',
+      '--fills.spec.js',
+    ]);
+    expect(positional).toEqual(['specs/unit', '--fills.spec.js']);
+    expect(Object.fromEntries(options)).toEqual({
+      recursive: [],
+      require: ['ts-node/register'],
+      extension: ['ts', 'tsx'],
+      spec: ['specs/{orders,fees}/**'],
+      timeout: ['5000'],
+      ui: ['tdd'],
+      'no-config': [],
+    });
+    expect(mochaArguments(['specs/unit', '--ui'])).toEqual({ positional: ['specs/unit'], options: new Map() });
   });
 });

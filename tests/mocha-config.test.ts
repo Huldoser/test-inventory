@@ -312,3 +312,130 @@ describe('Mocha config files', () => {
     );
   });
 });
+
+describe('Mocha started by a package.json script', () => {
+  const manifest = (scripts: Record<string, string>, extra: object = {}) =>
+    JSON.stringify({ name: 'order-service', devDependencies: { mocha: '12.0.3' }, scripts, ...extra });
+
+  it('runs the files a glob on the command line names, without patterns', async () => {
+    const root = project({
+      'package.json': manifest({ test: "mocha 'src/**/*.spec.js'" }),
+      'src/orders/fill.spec.js': TEST,
+      'src/orders/fill.js': TEST,
+      'scripts/seed.spec.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(files(inventory)).toEqual(['src/orders/fill.spec.js']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads Mocha behind nyc, with --recursive, --extension and a folder as the spec', async () => {
+    const root = project({
+      'package.json': manifest({
+        'test:unit': 'nyc --reporter=lcov -r text mocha --recursive --extension ts -r ts-node/register specs/unit',
+      }),
+      'specs/unit/fees.spec.ts': TEST,
+      'specs/unit/venues/routing.spec.ts': TEST,
+      'specs/unit/legacy.js': TEST,
+      'specs/integration/broker.spec.ts': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(files(inventory)).toEqual(['specs/unit/fees.spec.ts', 'specs/unit/venues/routing.spec.ts']);
+  });
+
+  it('runs a package with the .mocharc in its own folder, found from where its script starts', async () => {
+    const root = project({
+      'package.json': manifest({}),
+      'packages/settlement/package.json': JSON.stringify({
+        name: 'settlement',
+        scripts: { test: 'mocha', 'test:watch': 'mocha --watch' },
+      }),
+      'packages/settlement/.mocharc.json': JSON.stringify({ spec: 'test/**/*.test.js' }),
+      'packages/settlement/test/netting/cash.test.js': TEST,
+      'packages/settlement/lib/netting.test.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['packages/settlement/test/netting/cash.test.js', 'packages/settlement/.mocharc.json'],
+    ]);
+  });
+
+  it.each([
+    ['a YAML string', '.mocharc.yml', "spec: 'test/unit/**/*.spec.js'\n"],
+    ['a JSON list', '.mocharc.json', JSON.stringify({ spec: ['test/unit/**/*.spec.js'] })],
+  ])(
+    "joins the files on the command line with the config's spec, written as %s, as Mocha does",
+    async (_, name, rc) => {
+      const root = project({
+        'package.json': JSON.stringify({ name: 'quotes', private: true }),
+        'services/quotes/package.json': manifest({ test: 'mocha --no-package test/smoke/feed.js' }),
+        [`services/quotes/${name}`]: rc,
+        'services/quotes/test/unit/spread.spec.js': TEST,
+        'services/quotes/test/smoke/feed.js': TEST,
+        'services/quotes/test/smoke/latency.js': TEST,
+      });
+      const inventory = await scan({ root, framework: 'mocha' });
+      expect(files(inventory)).toEqual([
+        'services/quotes/test/smoke/feed.js',
+        'services/quotes/test/unit/spread.spec.js',
+      ]);
+    },
+  );
+
+  it("can't tell which files a script's Mocha runs when its .mocharc can't be read", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ name: 'quotes', private: true }),
+      'services/quotes/package.json': manifest({ test: 'mocha test/smoke/feed.js' }),
+      'services/quotes/.mocharc.json': '{ "spec": ',
+      'services/quotes/test/smoke/feed.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(files(inventory)).toEqual([]);
+    expect(inventory.diagnostics.map((item) => [item.code, item.relativeFilePath])).toEqual([
+      ['config-value-unknown', 'services/quotes/.mocharc.json'],
+      ['no-files-matched', '.'],
+    ]);
+  });
+
+  it('leaves out the .mocharc with --no-config, reads the mocha key --package names, and skips a missing --config', async () => {
+    const root = project({
+      'package.json': manifest({
+        test: 'mocha --no-config --package config/package.json "specs/**/*.spec.js"',
+        'test:legacy': 'mocha --config config/missing.json "legacy/**/*.js"',
+      }),
+      '.mocharc.yml': "spec: 'unused/**/*.js'\ntimeout: 1000\n",
+      'config/package.json': JSON.stringify({ mocha: { timeout: 3000 } }),
+      'specs/orders.spec.js': TEST,
+      'legacy/orders.js': TEST,
+      'unused/orders.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.timeout])).toEqual([
+      ['specs/orders.spec.js', 3000],
+      ['unused/orders.js', 1000],
+    ]);
+  });
+
+  it('reads the tests as BDD for an interface the command line gives that the scan does not read', async () => {
+    const root = project({
+      'package.json': manifest({ test: 'mocha --ui exports "specs/**/*.js"' }),
+      'specs/orders.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(['orders > places a market order']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('reads --ui, --config and --spec on the command line over the config', async () => {
+    const root = project({
+      'package.json': manifest({ test: 'mocha --config config/mocha.json --ui tdd --spec "suites/**/*.js"' }),
+      'config/mocha.json': JSON.stringify({ spec: 'unused/**/*.js', timeout: 5000 }),
+      'suites/orders.js': "suite('orders', () => {\n  test('places a market order', () => {});\n});\n",
+      'unused/orders.js': TEST,
+    });
+    const inventory = await scan({ root, framework: 'mocha' });
+    expect(inventory.tests.map((test) => [test.relativeFilePath, test.fullName, test.timeout])).toEqual([
+      ['suites/orders.js', 'orders > places a market order', 5000],
+    ]);
+  });
+});

@@ -143,7 +143,7 @@ function calledScripts(words: string[], names: string[]): string[] {
 }
 
 /** The runners a script can start with a config of its own, which the scan then takes as one more that runs files. */
-export type ScriptRunner = 'vitest' | 'jest' | 'playwright' | 'cypress' | 'webdriverio';
+export type ScriptRunner = 'vitest' | 'jest' | 'playwright' | 'cypress' | 'webdriverio' | 'mocha';
 
 /** A command of a script that starts a test runner. */
 export interface RunnerCommand {
@@ -153,6 +153,8 @@ export interface RunnerCommand {
   root: string | null;
   /** Whether it names its config or root in a way the scan can't read: a variable, or Jest's inline JSON. */
   unreadable: boolean;
+  /** For Mocha, which takes its files and settings from them, the words after the program. */
+  args?: string[];
 }
 
 /**
@@ -171,7 +173,18 @@ const RUNNERS: Record<ScriptRunner, { programs: Record<string, string[] | null>;
   },
   // `wdio run <config>` and `wdio <config>` take the config as the first argument.
   webdriverio: { programs: { wdio: null }, config: [], root: [] },
+  mocha: { programs: { mocha: null, _mocha: null, 'ts-mocha': null }, config: ['--config'], root: [] },
 };
+
+/** The programs a coverage tool starts the command after it with: the runners', and those that start one in turn. */
+const STARTERS = new Set([
+  ...Object.values(RUNNERS).flatMap((runner) => Object.keys(runner.programs)),
+  'node',
+  'npx',
+  'pnpm',
+  'yarn',
+  'bunx',
+]);
 
 /** The options of `xvfb-run` written with their value as the next word. */
 const XVFB_VALUE_OPTIONS = new Set([
@@ -198,6 +211,7 @@ const RUNNER_PACKAGES: Partial<Record<string, string>> = {
   playwright: 'playwright',
   cypress: 'cypress',
   '@wdio/cli': 'wdio',
+  mocha: 'mocha',
 };
 
 /**
@@ -217,6 +231,7 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
       args = args.slice(1);
     }
     const command: RunnerCommand = { config: null, root: null, unreadable: false };
+    if (runner === 'mocha') command.args = args;
     if (runner === 'webdriverio') {
       const first = args.at(0) === 'run' ? args.at(1) : args.at(0);
       if (first !== undefined && !first.startsWith('-')) command.config = first;
@@ -239,7 +254,7 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
 
 /**
  * The program a command starts, with its arguments: past variables set before it, `cross-env`, `dotenv --`,
- * `xvfb-run` and `xvfb-maybe`, and `npx`, `bunx`, `pnpm exec`, `yarn exec`, `npm exec` or a package manager given a
+ * `xvfb-run` and `xvfb-maybe`, the coverage tools `nyc`, `c8` and `mcr`, and `npx`, `bunx`, `pnpm exec`, `yarn exec`, `npm exec` or a package manager given a
  * binary's name; for `node`, the runner whose package holds the file it runs. Null when there is none.
  */
 function programOf(words: string[]): { program: string; args: string[] } | null {
@@ -263,6 +278,11 @@ function programOf(words: string[]): { program: string; args: string[] } | null 
       while (words.at(index)?.startsWith('-')) index += XVFB_VALUE_OPTIONS.has(words[index]) ? 2 : 1;
     } else if (word === 'xvfb-maybe') {
       index += next === '--' ? 2 : 1;
+    } else if (word === 'nyc' || word === 'c8' || word === 'mcr') {
+      // A coverage tool's options can take values, so its command starts at the first program that starts one.
+      const start = words.findIndex((item, at) => at > index && STARTERS.has(item.split(/[/\\]/).at(-1) as string));
+      if (start === -1) return null;
+      index = start;
     } else if (word === 'npx' || word === 'bunx') {
       index++;
       skip((item) => item.startsWith('-'));
@@ -290,4 +310,90 @@ function programOf(words: string[]): { program: string; args: string[] } | null 
   }
   const name = word.split(/[/\\]/).at(-1) as string;
   return { program: name.replace(/\.(cmd|exe|[cm]?js)$/, ''), args: words.slice(index + 1) };
+}
+
+/** What a Mocha command line gives: the specs, positional or `--spec`, and each option's values, aliases resolved. */
+export interface MochaArguments {
+  positional: string[];
+  /** Values by option name, in order; a flag has none. */
+  options: Map<string, string[]>;
+}
+
+/** Mocha's options that take a value, by name and alias, from its `run-option-metadata`. */
+const MOCHA_VALUES: Partial<Record<string, string>> = {
+  config: 'config',
+  extension: 'extension',
+  file: 'file',
+  global: 'global',
+  globals: 'global',
+  ignore: 'ignore',
+  exclude: 'ignore',
+  'node-option': 'node-option',
+  n: 'node-option',
+  'reporter-option': 'reporter-option',
+  'reporter-options': 'reporter-option',
+  O: 'reporter-option',
+  require: 'require',
+  r: 'require',
+  spec: 'spec',
+  'watch-files': 'watch-files',
+  'watch-ignore': 'watch-ignore',
+  fgrep: 'fgrep',
+  f: 'fgrep',
+  grep: 'grep',
+  g: 'grep',
+  package: 'package',
+  reporter: 'reporter',
+  R: 'reporter',
+  ui: 'ui',
+  u: 'ui',
+  slow: 'slow',
+  s: 'slow',
+  timeout: 'timeout',
+  timeouts: 'timeout',
+  t: 'timeout',
+  retries: 'retries',
+  jobs: 'jobs',
+  j: 'jobs',
+};
+
+/** The flags Mocha's options take, aliases resolved, that change which files run. */
+const MOCHA_FLAGS: Partial<Record<string, string>> = {
+  recursive: 'recursive',
+  'no-config': 'no-config',
+  'no-package': 'no-package',
+};
+
+/**
+ * Reads a Mocha command line as Mocha does: an option written `--name value` or `--name=value`, a list option given
+ * more than once or, but for `spec` and `ignore`, split at commas; any other word is a spec. A flag it doesn't know
+ * takes no value.
+ */
+export function mochaArguments(args: readonly string[]): MochaArguments {
+  const positional: string[] = [];
+  const options = new Map<string, string[]>();
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index];
+    if (word === '--') {
+      positional.push(...args.slice(index + 1));
+      break;
+    }
+    const option = /^--?([^=]+)(?:=(.*))?$/s.exec(word);
+    if (!option || word === '-') {
+      positional.push(word);
+      continue;
+    }
+    const name = option[1];
+    const valued = MOCHA_VALUES[name];
+    if (valued === undefined) {
+      const flag = MOCHA_FLAGS[name];
+      if (flag !== undefined) options.set(flag, []);
+      continue;
+    }
+    const value = option.at(2) ?? args.at(++index);
+    if (value === undefined) break;
+    const values = valued === 'spec' || valued === 'ignore' ? [value] : value.split(',');
+    options.set(valued, [...(options.get(valued) ?? []), ...values]);
+  }
+  return { positional, options };
 }

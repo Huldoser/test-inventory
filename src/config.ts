@@ -1027,7 +1027,7 @@ export class Configs {
   private readonly readerFor: (fromFile: string) => ModuleReader;
   private readonly inFolders = new Map<string, ConfigFile | null>();
   private readonly files = new Map<string, ConfigFile>();
-  private mocha: ConfigFile | null | undefined;
+  private readonly mocha = new Map<string, ConfigFile | null>();
   private readonly used = new Set<ConfigFile>();
   private readonly reported = new Set<string>();
   private readonly version: [number, number] | null;
@@ -1127,23 +1127,28 @@ export class Configs {
   }
 
   /**
-   * The config Mocha runs with, started in the root: the first `.mocharc` file from the root up, joined with the `mocha`
-   * key of the nearest package.json. Null without either.
+   * The config Mocha runs with, started in a folder, the root by default: the first `.mocharc` file from there up, or
+   * the file `--config` names, joined with the `mocha` key of the nearest package.json, or of the one `--package`
+   * names. `false` stands for `--no-config` or `--no-package`, which leave that part out. Null without either.
    */
-  mochaConfig(): ConfigFile | null {
-    if (this.mocha !== undefined) return this.mocha;
-    let rc: ConfigFile | null = null;
-    let manifest: string | null = null;
-    for (const folder of folders(this.root)) {
-      const name = rc ? undefined : CONFIG_FILES.mocha.find((item) => existsSync(path.join(folder, item)));
-      if (name) rc = this.at(path.join(folder, name));
-      if (manifest === null && existsSync(path.join(folder, 'package.json')))
-        manifest = path.join(folder, 'package.json');
-      if (rc && manifest) break;
+  mochaConfig(folder = this.root, rcFile?: string | false, manifestFile?: string | false): ConfigFile | null {
+    const id = `${folder}\0${rcFile}\0${manifestFile}`;
+    if (this.mocha.has(id)) return this.mocha.get(id) as ConfigFile | null;
+    let rc = rcFile ? this.at(rcFile) : null;
+    let manifest = typeof manifestFile === 'string' ? manifestFile : null;
+    for (const above of rcFile === undefined || manifestFile === undefined ? folders(folder) : []) {
+      const name =
+        rc || rcFile !== undefined ? undefined : CONFIG_FILES.mocha.find((item) => existsSync(path.join(above, item)));
+      if (name) rc = this.at(path.join(above, name));
+      if (manifest === null && manifestFile === undefined && existsSync(path.join(above, 'package.json'))) {
+        manifest = path.join(above, 'package.json');
+      }
+      if ((rc || rcFile !== undefined) && (manifest || manifestFile !== undefined)) break;
     }
     const key = manifest && manifestKey(manifest, 'mocha') !== undefined ? this.at(manifest) : null;
-    this.mocha = rc && key ? joinMochaConfigs(rc, key) : (rc ?? key);
-    return this.mocha;
+    const config = rc && key ? joinMochaConfigs(rc, key) : (rc ?? key);
+    this.mocha.set(id, config);
+    return config;
   }
 
   /**
