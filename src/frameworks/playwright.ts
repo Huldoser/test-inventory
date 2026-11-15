@@ -626,8 +626,11 @@ export class PlaywrightAdapter implements Adapter {
       declares = true;
     } else {
       // skip, fixme and fail: (title, body) declares a test, (condition, description) changes the state of others.
+      // Playwright tells them apart by whether the last argument is a function, passed by name or not.
       declares =
-        isFunctionNode(last) || (this.isTitle(args[0], context) && !this.isTitle(args[args.length - 1], context));
+        isFunctionNode(last) ||
+        namedFunction(this.file, context.scopes, last) !== null ||
+        (this.isTitle(args[0], context) && !this.isTitle(args[args.length - 1], context));
     }
     if (!declares && declarationOnly) {
       const callee = snippet(text(this.file, call.callee));

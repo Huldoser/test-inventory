@@ -258,6 +258,43 @@ test.only();
     ]);
   });
 
+  it('reads test.skip and fixme with a body passed by name as tests, whatever their title', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test.describe('short sells', () => {
+  test.skip(\`applies the short-sale rule on \${process.env.TRADING_VENUE}\`, checkShortSale);
+  test.fixme('locates shares to borrow on ' + process.env.TRADING_VENUE, checkShortSale);
+  test('books the commission', async () => {});
+});
+async function checkShortSale({ page }) {}
+`,
+    );
+    expect(inventory.tests.map((test) => [test.title, test.state, test.isConditional])).toEqual([
+      ['`applies the short-sale rule on ${process.env.TRADING_VENUE}`', 'skip', false],
+      ["'locates shares to borrow on ' + process.env.TRADING_VENUE", 'fixme', false],
+      ['books the commission', 'active', false],
+    ]);
+  });
+
+  it('reads test.fixme with a title and an imported body as a test, and with two strings as a condition', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+import { checkShortSale } from './checks';
+test.describe('short sells', () => {
+  test.fixme('locates shares to borrow', checkShortSale);
+});
+test.describe('margin', () => {
+  test.fixme('margin calls', 'the margin engine is being rewritten');
+  test('raises a margin call', async () => {});
+});
+`,
+    );
+    expect(inventory.tests.map((test) => [test.fullName, test.state, test.reason])).toEqual([
+      ['short sells > locates shares to borrow', 'fixme', null],
+      ['margin > raises a margin call', 'fixme', 'the margin engine is being rewritten'],
+    ]);
+  });
+
   it('reads test.skip with only a title as a condition that skips the whole scope before Playwright 1.65', () => {
     const inventory = scanPlaywright(
       `${PLAYWRIGHT_IMPORT}
