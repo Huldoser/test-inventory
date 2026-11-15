@@ -1,5 +1,5 @@
 ---
-description: Save an inventory in CI, block focused tests, and review newly declared skip states in pull requests.
+description: Comment on pull requests with their test changes, save an inventory in CI, block focused tests, and review newly declared skip states.
 ---
 
 # CI recipes
@@ -10,6 +10,15 @@ and commit the lockfile first, so `npm ci` uses a reproducible version.
 
 The examples scan a Playwright suite. For Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test or Bun, change
 the globs and `--framework`.
+
+## Comment on pull requests
+
+[Test changes by test-inventory](https://github.com/marketplace/actions/test-changes-by-test-inventory) is a GitHub
+Action that runs these scans on each pull request and comments with what the change does to the tests: test files no
+runner config collects, tests turned off, removed or left without assertions, and the rest collapsed, each linked to
+its line. It needs no install of your project, works on pull requests from forks, and never fails a check. Its
+[README](https://github.com/Huldoser/test-inventory-action#usage) has the two workflows to copy; this repository uses
+them. The recipes below do the same scans by hand, for other CI systems or a policy of your own.
 
 ## GitHub Actions
 
