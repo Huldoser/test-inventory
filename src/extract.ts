@@ -1,4 +1,4 @@
-import type { CallExpression, CatchClause, Expression, Node, Program } from 'oxc-parser';
+import type { CallExpression, CatchClause, Expression, ImportDeclaration, Node, Program } from 'oxc-parser';
 import {
   childNodes,
   isFunctionNode,
@@ -1167,9 +1167,11 @@ class Walker {
     });
     this.callStack.pop();
     this.scopes.splice(0, this.scopes.length, ...saved);
-    // What the module's own imports couldn't resolve is reported at the call, as it is why tests may be missing.
+    // What the module's own imports couldn't resolve is reported at the call, as it is why tests may be missing. Another
+    // runner's module it imports matters only to a function that uses it: a module of shared helpers may import one.
     if (frame !== caller) {
       for (const item of frame.adapter.problems.filter((found) => !this.moduleProblems.has(found))) {
+        if (item.code === 'framework-mismatch' && !usesImport(fn, frame.parsed.program, item.node as Span)) continue;
         this.moduleProblems.add(item);
         this.report(item);
       }
@@ -1751,4 +1753,14 @@ function isConfigured(expression: Expression): boolean {
   if (callee?.type !== 'MemberExpression' || propertyName(callee) !== 'configure') return false;
   const object = unwrap(callee.object);
   return object.type === 'Identifier' && object.name === 'expect';
+}
+
+/** Whether a function uses a name that the import declaration at `at` in the program binds. */
+function usesImport(fn: FunctionNode, program: Program, at: Span): boolean {
+  // A framework-mismatch problem is always on an import declaration.
+  const statement = program.body.find((item) => item.start === at.start) as ImportDeclaration;
+  const names = new Set(statement.specifiers.map((specifier) => specifier.local.name));
+  const uses = (node: Node): boolean =>
+    (node.type === 'Identifier' && names.has(node.name)) || childNodes(node).some(uses);
+  return uses(fn.body as Node);
 }

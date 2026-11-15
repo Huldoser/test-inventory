@@ -268,3 +268,41 @@ describe("a test object another runner's module builds, reached through local fi
     expect(inventory.tests).toEqual([]);
   });
 });
+
+describe("a helper from a module that imports another runner's module", () => {
+  const helpers = [
+    "import { expect, test } from '@playwright/test';",
+    "export function seedOrder(symbol) { return { symbol, side: 'buy', quantity: 100 }; }",
+    "export function describeOrderPage(title) { test.describe(title, () => { test('opens the order page', async () => {}); }); }",
+    "export const expectFilled = (order) => expect(order.status).toBe('filled');",
+  ].join('\n');
+
+  it("is no mismatch when the helper the file calls doesn't use that import", async () => {
+    const root = project({
+      'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: { test: 'bun test' } }),
+      'support/orders.ts': helpers,
+      'orders.test.ts': `import { describe, test } from 'bun:test';
+import { seedOrder } from './support/orders';
+describe('order book', () => {
+  seedOrder('AAPL');
+  test('fills a limit order at the limit price', () => {});
+});`,
+    });
+    const inventory = await scan({ root, framework: 'bun', patterns: ['orders.test.ts'] });
+    expect(inventory.tests.map((test) => test.title)).toEqual(['fills a limit order at the limit price']);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('is a mismatch at the call when the helper uses it', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: { test: 'bun test' } }),
+      'support/orders.ts': helpers,
+      'orders.test.ts': `import { test } from 'bun:test';
+import { describeOrderPage } from './support/orders';
+describeOrderPage('order page');
+test('fills a limit order at the limit price', () => {});`,
+    });
+    const inventory = await scan({ root, framework: 'bun', patterns: ['orders.test.ts'] });
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart])).toEqual([['framework-mismatch', 3]]);
+  });
+});
