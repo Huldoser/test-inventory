@@ -541,7 +541,9 @@ files, which the scan doesn't read, and is reported. `mochaOpts.grep` and `jasmi
 For node:test: the files the `node --test` commands of the `test` script give, with those of the scripts it runs through
 `npm run`, `pnpm`, `yarn`, `bun run`, `npm-run-all`, `run-s` or `run-p`, or when it runs none, of the first script that
 runs `node --test`, each a glob or a path, and from Node.js 26.8 a folder, for the default patterns inside it; without
-any, Node.js's default patterns,
+any, Node.js's default patterns. This holds for the `package.json` in the root, and for each one below it whose scripts
+run `node --test`, from its folder, as a monorepo's packages run their own; the root runs the default patterns also
+without such a script. The default patterns are
 `**/*.test.*`, `**/*-test.*`, `**/*_test.*`, `**/test-*.*`, `**/test.*` and `**/test/**/*.*`, with the extensions `js`,
 `mjs` and `cjs`, and from Node.js 22.18, which strips types by default, `ts`, `mts` and `cts`. Dot folders and
 `node_modules` are left out. Scanned with globs, every file they match counts as run, as for the files given to

@@ -95,6 +95,36 @@ describe('node:test files', () => {
     );
   });
 
+  it('runs the files the node --test scripts of the packages below the root give, from their folders', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        name: 'trading-platform',
+        private: true,
+        scripts: { 'check:routing': 'node --test scripts/routing-guard.test.mjs' },
+      }),
+      'scripts/routing-guard.test.mjs': SPEC,
+      'scripts/release.test.mjs': SPEC,
+      'packages/settlement/package.json': JSON.stringify({
+        name: '@trading/settlement',
+        scripts: { test: 'tsc -p . && node --test test/*.test.js' },
+      }),
+      'packages/settlement/test/netting.test.js': SPEC,
+      'packages/settlement/src/netting.test.js': SPEC,
+      'packages/quotes/package.json': JSON.stringify({ name: '@trading/quotes', scripts: { test: 'node --test' } }),
+      'packages/quotes/src/spread.test.js': SPEC,
+      'packages/quotes/fx/rates/package.json': JSON.stringify({ name: '@trading/fx-rates' }),
+      'packages/quotes/fx/rates/cross.test.js': SPEC,
+      'packages/ledger/package.json': JSON.stringify({ name: '@trading/ledger', scripts: { test: 'vitest run' } }),
+      'packages/ledger/src/balance.test.js': SPEC,
+    });
+    expect(files(await scan({ root, framework: 'node', frameworkVersion: '24.11.0' }))).toEqual([
+      'packages/quotes/fx/rates/cross.test.js',
+      'packages/quotes/src/spread.test.js',
+      'packages/settlement/test/netting.test.js',
+      'scripts/routing-guard.test.mjs',
+    ]);
+  });
+
   it('runs the files of every script the test script runs, through npm, pnpm, yarn, bun run or npm-run-all', async () => {
     const root = project({
       'package.json': JSON.stringify({
