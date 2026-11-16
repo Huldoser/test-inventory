@@ -235,7 +235,7 @@ jobs:
           - framework: cypress
             version: 13.17.0
           - framework: cypress
-            version: 16.2.1
+            version: 16.3.0
           - framework: webdriverio
             version: 9.33.1
           - framework: webdriverio

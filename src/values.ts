@@ -323,6 +323,8 @@ export class Values {
       case 'MemberExpression': {
         const namespace = this.namespaceMember(expression, scopes);
         if (namespace) return namespace;
+        const own = this.ownProperty(expression, scopes);
+        if (own) return own;
         const object = this.resolve(expression.object, scopes);
         if (!object.ok) return object;
         const key = expression.computed
@@ -472,12 +474,47 @@ export class Values {
     const object = unwrap(expression.object);
     if (object.type !== 'Identifier') return null;
     const binding = this.lookup(object.name, scopes)?.binding;
-    if (binding?.kind !== 'import' || binding.imported !== null) return null;
+    if (binding?.kind !== 'import') return null;
+    // `const fees = require('./fees')` holds the module's exports, as `import * as fees` does.
+    const required = binding.imported === 'default' && binding.declaration.type === 'VariableDeclarator';
+    if (binding.imported !== null && !required) return null;
+    if (required && this.changedAtLoad(scopes[0]).has(object.name)) return { ok: false, importedFrom: binding.source };
     const key = expression.computed
       ? this.resolve(expression.property, scopes)
       : { ok: true as const, value: propertyName(expression) };
     if (!key.ok || !isKey(key.value)) return { ok: false, importedFrom: binding.source };
     return this.imported(binding.source, String(key.value));
+  }
+
+  /**
+   * A property of an object written out in a constant the module keeps, worked out alone, as `TITLES.fill` in
+   * `const TITLES = { fill: 'fills a limit order', format: (venue) => venue }`, whatever its other values are. Null when
+   * a spread, a key the scan can't work out, or a getter or method of that name may hold it.
+   */
+  private ownProperty(
+    expression: Extract<Expression, { type: 'MemberExpression' }>,
+    scopes: readonly Node[],
+  ): Resolved | null {
+    const object = unwrap(expression.object);
+    if (object.type !== 'Identifier') return null;
+    const binding = this.lookup(object.name, scopes)?.binding;
+    if (binding?.kind !== 'const' || this.changedAtLoad(binding.scopes[0]).has(object.name)) return null;
+    const init = unwrap(binding.init);
+    if (init.type !== 'ObjectExpression') return null;
+    const key = expression.computed
+      ? this.resolve(expression.property, scopes)
+      : { ok: true as const, value: propertyName(expression) };
+    if (!key.ok || !isKey(key.value)) return null;
+    let found: Expression | null = null;
+    for (const property of init.properties) {
+      if (property.type === 'SpreadElement') return null;
+      const name = this.propertyKey(property.key, property.computed, binding.scopes);
+      if (!name.ok || !isKey(name.value)) return null;
+      if (String(name.value) !== String(key.value)) continue;
+      if (property.kind !== 'init' || property.method) return null;
+      found = property.value;
+    }
+    return found && this.resolve(found, binding.scopes);
   }
 
   private imported(source: string, name: string | null): Resolved {

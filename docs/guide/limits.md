@@ -33,6 +33,12 @@ runner's command line decides which scanned files run. Without globs, files are 
 when no config above the file runs it, or the scan can't read the one there. A config that only a CI workflow or a
 wrapper script names is not read.
 
+A glob a script passes is read as the runner reads it, with `**` at any depth. npm, pnpm and Yarn run scripts with
+`sh` on Linux and macOS, which expands an unquoted glob before the runner sees it, and there `**` matches one folder
+only: `node --test test/**/*.test.js` runs `test/orders/fill.test.js` but not `test/orders/limits/cap.test.js`, while
+the scan lists both. Quoted, as in `node --test 'test/**/*.test.js'`, the glob reaches the runner, which matches it as
+the scan does.
+
 When Playwright's `projects` or Vitest's project list cannot be read, discovery keeps candidates from readable
 top-level file settings and leaves their project membership unknown. Project overrides can include other files or exclude those candidates.
 A `config-value-unknown` error says tests may be missing. No candidates are inferred if the top-level file settings
@@ -57,8 +63,9 @@ can read: string and number literals, constants, enums, arrays and objects built
 concatenation, template strings, arithmetic, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
 `Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
 array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
-included. A function or class written in place as a title, as in `describe(function OrderBook() {}, ...)`, gives its
-name, as the runners read it:
+included. A property is worked out on its own, as `TITLES.fill` in an object that also holds a function, or
+`fees.MINIMUM` on a module that `const fees = require('./fees')` loads. A function or class written in place as a
+title, as in `describe(function OrderBook() {}, ...)`, gives its name, as the runners read it:
 
 ```ts
 import { TAGS } from '../../test-data/tags';
