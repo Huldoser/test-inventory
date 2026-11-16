@@ -277,6 +277,8 @@ export class ConfigRuns {
   private jestDefaults: Project | null = null;
   private mochaDefaults: Project | null = null;
   private nodeRuns: ((file: string) => boolean) | null = null;
+  /** What the `node --test` scripts of a folder's package.json run, by the folder; null for none. */
+  private readonly nodeFolders = new Map<string, ((relative: string) => boolean) | null>();
   private bunFiles: BunFiles | null = null;
   /** The Vitest configs whose projects are being found, with their names, to stop at one whose projects name itself. */
   private readonly expanding = new Map<ConfigFile, string>();
@@ -917,30 +919,55 @@ export class ConfigRuns {
   }
 
   /**
-   * The files `node --test` runs from the root, outside dot folders and `node_modules`: those the arguments of the
-   * `test` script and the scripts it runs give, or the first script that runs it, each a glob or a path, and from
-   * Node.js 26.8 a folder for the default patterns inside it; without arguments, the default patterns. They take
-   * TypeScript files too from Node.js 22.18, which strips types by default.
+   * The files `node --test` runs, outside dot folders and `node_modules`: from the root, and from each package below it
+   * whose scripts run it, as a monorepo's packages run their own. In each folder, those the arguments of the `test`
+   * script and the scripts it runs give, or the first script that runs it, each a glob or a path, and from Node.js 26.8
+   * a folder for the default patterns inside it; without arguments, the default patterns. The root runs the default
+   * patterns also without such a script. They take TypeScript files too from Node.js 22.18, which strips types by
+   * default.
    */
   private nodeFiles(): (relative: string) => boolean {
+    const { root } = this.configs;
+    const fromRoot = this.nodeFolderFiles(root) ?? this.nodeGlobs(root, [[]]);
+    return (relative) => {
+      const file = path.join(root, relative);
+      let runs = fromRoot(relative);
+      for (let folder = path.dirname(file); !runs && folder !== root; folder = path.dirname(folder)) {
+        runs = this.nodeFolderFiles(folder)?.(posix(path.relative(folder, file))) ?? false;
+      }
+      return runs && !relative.split('/').includes('node_modules');
+    };
+  }
+
+  /** The files the `node --test` commands of a folder's package.json scripts run from it; null without such a command. */
+  private nodeFolderFiles(folder: string): ((relative: string) => boolean) | null {
+    let runs = this.nodeFolders.get(folder);
+    if (runs === undefined) {
+      const commands = nodeTestArguments(path.join(folder, 'package.json'));
+      runs = commands.length > 0 ? this.nodeGlobs(folder, commands) : null;
+      this.nodeFolders.set(folder, runs);
+    }
+    return runs;
+  }
+
+  /** The files node:test commands started in a folder run, each command as the files it gives, from the folder. */
+  private nodeGlobs(folder: string, commands: string[][]): (relative: string) => boolean {
     const extensions = stripsTypes(this.version) ? 'cjs,mjs,js,cts,mts,ts' : 'cjs,mjs,js';
     const defaults = ['**/*.test', '**/*-test', '**/*_test', '**/test-*', '**/test', '**/test/**/*'].map(
       (glob) => `${glob}.{${extensions}}`,
     );
     const searchesFolders = atLeast(this.version, 26, 8);
-    const commands = nodeTestArguments(path.join(this.configs.root, 'package.json'));
     // Each command runs the files it gives, or without any, those the default patterns match.
-    const globs = (commands.length > 0 ? commands : [[]]).flatMap((files) =>
+    const globs = commands.flatMap((files) =>
       files.length === 0
         ? defaults
         : files.flatMap((argument) => {
-            const folder = path.resolve(this.configs.root, argument);
-            if (!searchesFolders || !existsSync(folder) || !statSync(folder).isDirectory()) return [argument];
+            const target = path.resolve(folder, argument);
+            if (!searchesFolders || !existsSync(target) || !statSync(target).isDirectory()) return [argument];
             return defaults.map((glob) => `${argument.replace(/\/+$/, '')}/${glob}`);
           }),
     );
-    const isMatch = picomatch(globs.map((glob) => path.posix.normalize(posix(glob))));
-    return (relative) => isMatch(relative) && !relative.split('/').includes('node_modules');
+    return picomatch(globs.map((glob) => path.posix.normalize(posix(glob))));
   }
 
   /** WebdriverIO runs the files of the config in the root; without one, it runs nothing, unless it is given files. */
