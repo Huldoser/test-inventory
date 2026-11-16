@@ -324,6 +324,22 @@ test('books the commission', () => {});
     ]);
   });
 
+  it('follows a test function a local module exports again when its first test passes the body by name and a timeout', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/runner.js': "const { test } = require('@jest/globals');\n\nmodule.exports = { test };\n",
+      'tests/margin.test.js': `const { test } = require('./runner');
+
+const TITLES = { call: 'raises a margin call' };
+const checkMargin = () => {};
+test(TITLES.call, checkMargin, 10_000);
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([['raises a margin call', 'active']]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a test function a local module exports again when a condition or a function chooses it', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),

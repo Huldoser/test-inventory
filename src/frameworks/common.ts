@@ -194,15 +194,14 @@ export function looksLikeDeclaration(args: readonly Argument[]): boolean {
  * first.
  */
 export function hasDeclarationArguments(args: readonly Argument[]): boolean {
-  const last = args.at(-1);
-  // The body is the last argument, a function or a function passed by name, or a function before a timeout, as in
-  // Vitest's `test('title', fn, 30_000)`.
-  const body =
-    isFunctionNode(last) ||
-    last?.type === 'Identifier' ||
-    last?.type === 'MemberExpression' ||
-    (args.length === 3 && isFunctionNode(args[1]));
+  // The body is the last argument, a function or a function passed by name, or such a function before a timeout, as in
+  // `test('title', fn, 30_000)` or `test('title', checkFill, 10_000)`.
+  const body = isBody(args.at(-1)) || (args.length === 3 && isBody(args[1]));
   return args.length >= 2 && args.length <= 3 && body;
+}
+
+function isBody(arg: Argument | undefined): boolean {
+  return isFunctionNode(arg) || arg?.type === 'Identifier' || arg?.type === 'MemberExpression';
 }
 
 /**
