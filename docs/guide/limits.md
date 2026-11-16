@@ -33,10 +33,11 @@ runner's command line decides which scanned files run. Without globs, files are 
 when no config above the file runs it, or the scan can't read the one there. A config that only a CI workflow or a
 wrapper script names is not read.
 
-When Playwright's `projects` cannot be read, discovery keeps candidates from readable top-level file settings and
-leaves their project membership unknown. Project overrides can include other files or exclude those candidates.
+When Playwright's `projects` or Vitest's project list cannot be read, discovery keeps candidates from readable
+top-level file settings and leaves their project membership unknown. Project overrides can include other files or exclude those candidates.
 A `config-value-unknown` error says tests may be missing. No candidates are inferred if the top-level file settings
-are also unknown; use explicit globs. See [Playwright](/frameworks/playwright#configuration-and-limits).
+are also unknown; use explicit globs. See [Playwright](/frameworks/playwright#configuration-and-limits) and
+[Vitest](/frameworks/vitest#configuration-and-limits).
 
 Setup files are tracked for dependencies and hashes, not executed to discover arbitrary runtime effects.
 `expectCount`, `steps` and `fixtures` inspect the test function only: assertions and steps inside page objects or

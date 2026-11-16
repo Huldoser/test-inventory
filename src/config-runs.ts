@@ -75,6 +75,8 @@ type Project = { config: ConfigFile; settings: Setting; about: ProjectAbout } & 
       unknown: { setting: Unknown; key: string };
       /** The files it runs whatever the unknown setting is, as Vitest's browser instances only name its projects. */
       known?: (file: string) => Run | false;
+      /** For Vitest projects the scan can't list, the files the config's own file settings select, which may run. */
+      candidates?: (file: string) => Run | false;
     }
 );
 
@@ -167,6 +169,8 @@ const NOT_FOUND = "the scan can't tell which files it runs; give patterns to sca
 const UNNAMED = 'the scan lists the files the config runs, but not which of its browser projects run them';
 const CANDIDATES =
   'the scan lists candidate files from the readable top-level file settings; project membership is unknown and tests may be missing; give patterns to select other files';
+/** The runners whose unknown file selection is an error in discovery, as tests may be missing; candidates may remain. */
+const CANDIDATE_RUNNERS = new Set<Framework>(['playwright', 'vitest']);
 
 function emptySettings(): Setting {
   return { kind: 'object', keys: new Map(), rest: null };
@@ -355,7 +359,7 @@ export class ConfigRuns {
     };
   }
 
-  /** Retains candidates without claiming a project runs them when Playwright constructs its projects at runtime. */
+  /** Retains candidates without claiming a project runs them when the runner constructs its projects at runtime. */
   private unknownPlacement(project: Project, file: string): Omit<Placement, 'tags'> {
     const { setting, key } = project.unknown as { setting: Unknown; key: string };
     const { config, settings } = project;
@@ -365,24 +369,33 @@ export class ConfigRuns {
       this.configs.reportUnknown(setting, key, UNNAMED);
       return { config, settings, runs: known(file), projects: null };
     }
-    let candidates: Project | undefined;
-    if (this.findsFiles && this.framework === 'playwright' && key === 'projects' && config.settings.kind === 'object') {
-      candidates = this.candidateProjects.get(config);
-      if (!candidates) {
-        candidates = this.playwrightProject(config, emptySettings(), true);
-        this.candidateProjects.set(config, candidates);
-      }
-    }
-    const effect = !this.findsFiles ? ASSUMED : candidates?.runs ? CANDIDATES : NOT_FOUND;
-    const level = this.findsFiles && this.framework === 'playwright' ? 'error' : 'warning';
+    // Candidates come only with the error that says tests may be missing, which needs the place the setting is written.
+    const candidates = this.findsFiles && setting.where ? this.candidatesOf(project) : undefined;
+    const effect = !this.findsFiles ? ASSUMED : candidates ? CANDIDATES : NOT_FOUND;
+    const level = this.findsFiles && CANDIDATE_RUNNERS.has(this.framework) ? 'error' : 'warning';
     this.configs.reportUnknown(setting, key, effect, level);
     return {
       config,
       settings,
       runs: null,
       projects: null,
-      ...(candidates?.runs ? { candidate: !!candidates.runs(file) } : {}),
+      ...(candidates ? { candidate: candidates(file) === 'test' } : {}),
     };
+  }
+
+  /** The files readable top-level file settings select for a project the scan can't work out; undefined for none. */
+  private candidatesOf(project: Project): ((file: string) => Run | false) | undefined {
+    if ('candidates' in project) return project.candidates;
+    const { config } = project;
+    if (this.framework !== 'playwright' || project.unknown?.key !== 'projects' || config.settings.kind !== 'object') {
+      return undefined;
+    }
+    let candidates = this.candidateProjects.get(config);
+    if (!candidates) {
+      candidates = this.playwrightProject(config, emptySettings(), true);
+      this.candidateProjects.set(config, candidates);
+    }
+    return candidates.runs ?? undefined;
   }
 
   /**
@@ -409,7 +422,9 @@ export class ConfigRuns {
         }
         const unknownProject = projects.find((project) => project.unknown);
         if (unknownProject?.unknown) {
-          if (this.findsFiles && this.framework === 'playwright') return this.unknownPlacement(unknownProject, file);
+          if (this.findsFiles && CANDIDATE_RUNNERS.has(this.framework)) {
+            return this.unknownPlacement(unknownProject, file);
+          }
           this.configs.reportUnknown(unknownProject.unknown.setting, unknownProject.unknown.key, ASSUMED);
           return 'unknown';
         }
@@ -1087,7 +1102,7 @@ export class ConfigRuns {
     config: ConfigFile,
     setting: Unknown,
     key: string,
-    known?: (file: string) => Run | false,
+    files: { known?: (file: string) => Run | false; candidates?: (file: string) => Run | false } = {},
   ): Project {
     const about = {
       name: '',
@@ -1102,7 +1117,7 @@ export class ConfigRuns {
       runsByDefault: true,
       defaults: NO_DEFAULTS,
     };
-    return { config, settings: setting, about, runs: null, unknown: { setting, key }, known };
+    return { config, settings: setting, about, runs: null, unknown: { setting, key }, ...files };
   }
 
   private playwrightProjects(config: ConfigFile): Project[] {
@@ -1520,14 +1535,23 @@ export class ConfigRuns {
     const list = settingAt(config.settings, ['test', 'projects']);
     const isVitest3 = this.version !== null && this.version[0] < 4;
     const workspace = isVitest3 ? settingAt(config.settings, ['test', 'workspace']) : null;
-    if (workspace) return [this.unknownProject(config, unknownAt(workspace), 'test.workspace')];
+    if (workspace && !isUnset(workspace)) {
+      // A list has no place of its own, so the scan, which doesn't read the list either, reports it on `test`; a
+      // merged `test` has none either.
+      const test = settingAt(config.settings, ['test']) as ObjectSetting;
+      const unknown: Unknown =
+        workspace.kind === 'unknown' ? workspace : { kind: 'unknown', where: test.where ?? null };
+      return [this.unknownProject(config, unknown, 'test.workspace', this.vitestCandidates(config, folder))];
+    }
     if (isVitest3 && VITEST_WORKSPACES.some((name) => existsSync(path.join(path.dirname(config.file), name)))) {
       // Vitest 3 takes its projects from a workspace file, which the scan doesn't read.
       return [this.unknownProject(config, { kind: 'unknown', where: null }, 'test.projects')];
     }
     const name = container ?? vitestName(config.settings, '', null);
     if (list === null) return this.vitestProject(config, config.settings, folder, null, name);
-    if (list.kind !== 'list') return [this.unknownProject(config, unknownAt(list), 'test.projects')];
+    if (list.kind !== 'list') {
+      return [this.unknownProject(config, unknownAt(list), 'test.projects', this.vitestCandidates(config, folder))];
+    }
     this.expanding.set(config, name);
     const globs: string[] = [];
     // Vitest names an inline project without a name after its place among the entries that aren't paths.
@@ -1559,6 +1583,15 @@ export class ConfigRuns {
   }
 
   /**
+   * The files a config's own file settings select, as candidates for projects the scan can't list, which mostly narrow
+   * them; none when those settings can't be read either.
+   */
+  private vitestCandidates(config: ConfigFile, folder: string): { candidates?: (file: string) => Run | false } {
+    const own = this.vitestFiles(config, config.settings, folder, null, '', false);
+    return own.runs ? { candidates: own.runs } : {};
+  }
+
+  /**
    * A project written in `test.projects`, which inherits the root config as each version of Vitest decides, named
    * after `index` when it has no name of its own.
    */
@@ -1571,7 +1604,7 @@ export class ConfigRuns {
   ): Project[] {
     if (entry.kind !== 'object') {
       // A function or a promise, read by running the config, or a setting of the wrong type.
-      return [this.unknownProject(config, unknownAt(entry), 'test.projects')];
+      return [this.unknownProject(config, unknownAt(entry), 'test.projects', this.vitestCandidates(config, folder))];
     }
     const extended = settingAt(entry, ['extends']);
     let base = emptySettings();
@@ -1642,7 +1675,9 @@ export class ConfigRuns {
     const project = this.vitestFiles(config, settings, folder, ownTags, name, isRoot);
     if (project.unknown) return [project];
     const enabled = settingAt(settings, ['test', 'browser', 'enabled']);
-    if (enabled?.kind === 'unknown') return [this.unknownProject(config, enabled, 'test.browser.enabled')];
+    if (enabled?.kind === 'unknown') {
+      return [this.unknownProject(config, enabled, 'test.browser.enabled', { known: project.runs })];
+    }
     if (!(enabled?.kind === 'value' && enabled.value === true)) return [project];
     const instances = settingAt(settings, ['test', 'browser', 'instances']);
     const items = instances?.kind === 'list' ? instances.items : [];
@@ -1650,7 +1685,9 @@ export class ConfigRuns {
     const unknown =
       browsers.flat().find((setting) => setting?.kind === 'unknown') ??
       (instances?.kind === 'unknown' ? instances : null);
-    if (unknown) return [this.unknownProject(config, unknownAt(unknown), 'test.browser.instances', project.runs)];
+    if (unknown) {
+      return [this.unknownProject(config, unknownAt(unknown), 'test.browser.instances', { known: project.runs })];
+    }
     return browsers.map(([browser, name]) => {
       const kind = browser?.kind === 'value' ? String(browser.value) : '';
       const own = name?.kind === 'value' && typeof name.value === 'string' ? name.value : null;
@@ -1697,7 +1734,12 @@ export class ConfigRuns {
     const matchers: ((file: string) => boolean)[] = [];
     for (const [key, fallback, isExclude] of lists) {
       const setting = settingAt(settings, key.split('.'));
-      const found = setting === null || isUnset(setting) ? fallback : patterns(setting, false);
+      let found = setting === null || isUnset(setting) ? fallback : patterns(setting, false);
+      // A list of paths left out only takes files away, so the entries the scan can read are still a good guess.
+      if (!Array.isArray(found) && isExclude) {
+        this.configs.reportUnknown(found, key, 'the scan may list test files that Vitest leaves out');
+        found = strings(setting);
+      }
       if (!Array.isArray(found)) return this.unknownProject(config, found, key);
       // tinyglobby, which Vitest finds files with, takes an absolute pattern as one in the folder it searches.
       const relative = (found as string[]).map((glob) =>

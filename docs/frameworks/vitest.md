@@ -70,11 +70,17 @@ before Vitest 5 the config above it. It reads file and project selection,
 `test.globals`, run settings, modes, `allowOnly` and defined tags. A Vitest 3 project list in
 `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
 
+Without globs, a project list the scan can't read, as one built from the folders, a function in `test.projects`, or
+`test.workspace`, leaves candidates: the files the config's own `include` and `exclude` select, as projects mostly
+narrow those. Their tests' `projects` is `null`, and a `config-value-unknown` error says tests may be missing. With a
+`test.include` it can't read there are no candidates; give globs. An `exclude` it can't read in full still leaves out
+the files its readable entries name, with a warning that the scan may list files Vitest leaves out.
+
 A tag whose definition cannot be worked out produces a `config-may-change-state` warning on files using tags:
 the tag may skip a test or change its settings. `vi.setConfig()` and `annotate()` in hooks are not read.
 
-A browser instance whose `browser` or `name` the scan can't work out, as one `process.env` picks, leaves the config's
-files listed, with a warning, and their tests' `projects` `null`.
+A browser instance whose `browser` or `name` the scan can't work out, as one `process.env` picks, or a
+`browser.enabled` it can't, leaves the config's files listed, with a warning, and their tests' `projects` `null`.
 
 `resolve.alias` and `test.alias` are followed for imports and dependency hashes. `mergeConfig` puts overriding
 list aliases first, converting object aliases to lists when either side is a list; two objects keep overriding

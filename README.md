@@ -112,7 +112,7 @@ in Claude Code, Cursor, VS Code and other MCP clients ask it which tests a proje
 
 - Config files are read as code, never run, and only in part: settings computed at run time, as from `process.env`,
   can't be worked out. Settings such as `workers` and config `use` are not interpreted as test record settings.
-  For Playwright project lists built at runtime, discovery keeps candidates from readable top-level file settings,
+  For Playwright and Vitest project lists built at runtime, discovery keeps candidates from readable top-level file settings,
   with `projects: null` and an error that says tests may be missing. Project overrides can include or exclude files.
 - Values from installed packages are not worked out; values from the project's own files are. A tag or title that
   comes from a package gets a diagnostic that names the module. A custom `test` object is followed through as many files as it takes, through relative

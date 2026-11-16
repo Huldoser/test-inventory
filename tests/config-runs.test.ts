@@ -663,7 +663,7 @@ describe('which files a config runs, in the cases a review found', () => {
     ]);
   });
 
-  it('takes a Vitest 3 config with a workspace file, or test.workspace, to run the file it cannot tell about', async () => {
+  it('takes a Vitest 3 config with a workspace file, or test.workspace, which it names, to run the file it cannot tell about', async () => {
     const files = { 'tests/fees.test.ts': UNIT, 'e2e/orders.e2e.ts': UNIT };
     const workspaceFile = await placed(
       { ...files, 'vitest.config.ts': 'export default {};\n', 'vitest.workspace.ts': "export default ['e2e'];\n" },
@@ -681,7 +681,12 @@ describe('which files a config runs, in the cases a review found', () => {
       ['tests/*.ts', 'e2e/*.ts'],
       '3.0.0',
     );
-    expect(option.diagnostics).toEqual([]);
+    expect(option.inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.message])).toEqual([
+      [
+        'config-value-unknown',
+        "The config's test.workspace could not be worked out without running the config, so the scan takes its files to be run.",
+      ],
+    ]);
   });
 
   it("takes test.root over Vite root also when it is the config's folder", async () => {
