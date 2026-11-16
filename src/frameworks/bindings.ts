@@ -286,6 +286,8 @@ export function exportsTestObject(
       return own.source === null ? local(own.local) : objects.reexports(own.source, own.local, exported);
   }
   const commonJs = exported === 'test object' && name !== 'default' ? commonJsExport(program, name) : null;
+  // `module.exports = { describe }` passes a describe function on, as `export { describe }` does.
+  if (commonJs?.type === 'Identifier') return local(commonJs.name);
   if (commonJs) return objects.isTestObject(commonJs);
   return program.body.some((statement) => {
     const source = starReexport(statement);

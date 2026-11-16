@@ -7,6 +7,7 @@ import { bindingNames } from '../values.ts';
 import {
   allDeclarators,
   bindAll,
+  commonJsExport,
   exportName,
   followImport,
   followModule,
@@ -281,6 +282,9 @@ export class SuiteBindings implements TestObjects {
   exportedStart(name: string): Start | null {
     const own = ownExport(this.program, name);
     if (own?.kind === 'default') return this.startOf(own.value);
+    // `module.exports = { suite: describe }` or `module.exports.suite = describe` holds what it is set to.
+    const commonJs = own ? null : commonJsExport(this.program, name);
+    if (commonJs) return this.startOf(commonJs);
     const local = own?.kind === 'specifier' ? own.local : name;
     return this.starts.get(local) ?? null;
   }

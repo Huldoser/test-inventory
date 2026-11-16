@@ -273,6 +273,23 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('follows a Jest describe a local CommonJS module takes from @jest/globals and exports again', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/runner.js':
+        "const { describe, it } = require('@jest/globals');\n\nmodule.exports = { describe, it };\nmodule.exports.suite = describe;\n",
+      'tests/fees.test.js':
+        "const { describe, it, suite } = require('./runner');\n\ndescribe('fees desk', () => {\n  it('charges the minimum fee', () => {});\n});\ndescribe.skip('fx desk', () => {\n  it('books the forward points', () => {});\n});\nsuite('rates desk', () => {\n  it('accrues the coupon', () => {});\n});\n",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['fees desk > charges the minimum fee', 'active'],
+      ['fx desk > books the forward points', 'skip'],
+      ['rates desk > accrues the coupon', 'active'],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a default export', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
