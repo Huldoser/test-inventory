@@ -5,5 +5,11 @@
     "state": "skip",
     "stateSource": "suite",
     "reason": "node:test reports a skipped describe, or a test skipped where it is declared, as one entry, without the tests inside it"
+  },
+  {
+    "framework": "jest",
+    "kind": "missing-in-runner",
+    "state": "notLoaded",
+    "reason": "A test the scan marks notLoaded never runs: the fixture's test.failing, which Jest before 28 doesn't have, throws while the file loads, so Jest 27 runs none of that file's tests"
   }
 ]

@@ -52,8 +52,9 @@ const JEST: Dialect = {
 };
 
 /**
- * The chains Jest's `test` and `describe` have, read from `jest-circus` 29.0, 29.7 and 30.5, where they are the same.
- * Each is a fixed path: `test.concurrent.only` exists, `test.only.concurrent` doesn't.
+ * The chains Jest's `test` and `describe` have, read from `jest-circus` 27.5, 28.0, 29.0, 29.7 and 30.5, where they are
+ * the same but for `failing`, which 28.1 added. Each is a fixed path: `test.concurrent.only` exists,
+ * `test.only.concurrent` doesn't.
  */
 const CHAINS: Record<Kind, ReadonlySet<string>> = {
   test: new Set(
@@ -154,13 +155,17 @@ export class JestAdapter extends SuiteAdapter {
     const isTable = (link: Link, index: number) => link.name === 'each' && index === links.length - 1;
     const called = (link: Link) => link.args !== null || link.template !== null;
     const path = links.map((link) => link.name).join('.');
-    const valid = CHAINS[kind].has(path) && links.every((link, index) => called(link) === isTable(link, index));
+    // jest-circus 28.1 added `failing`; 28.0 asks for circus `^28.0.3`, which installs it too.
+    const isTooNew = links.some((link) => link.name === 'failing') && !atLeast(this.file.version, 28, 0);
+    const valid =
+      CHAINS[kind].has(path) && !isTooNew && links.every((link, index) => called(link) === isTable(link, index));
     if (valid) return this.declaration(call, kind, links, context);
     const callee = snippet(text(this.file, call.callee));
+    const reason = isTooNew && CHAINS[kind].has(path) ? 'needs Jest 28 or newer' : "is not part of Jest's API";
     const refusal = problem(
       'invalid-chain',
       call,
-      `${callee} is not part of Jest's API; the call throws, and Jest fails the file.`,
+      `${callee} ${reason}; the call throws, and Jest fails the file.`,
       callee,
     );
     // Which of its parts the chain means is not known, so it declares a plain test or describe.

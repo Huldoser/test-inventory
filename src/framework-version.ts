@@ -47,11 +47,11 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
 export const OLDEST: Record<Framework, number[]> = {
   playwright: [1, 42],
   vitest: [3, 0],
-  jest: [29, 0],
+  jest: [27, 0],
   mocha: [10, 0],
   jasmine: [4, 0],
-  cypress: [13, 0],
-  webdriverio: [9, 0],
+  cypress: [12, 0],
+  webdriverio: [8, 0],
   node: [22, 0],
   bun: [1, 2, 23],
 };

@@ -98,11 +98,11 @@ versions checked in CI; it does not claim every later release has been tested.
 
 - [Playwright](/frameworks/playwright): Playwright 1.42 or newer.
 - [Vitest](/frameworks/vitest): Vitest 3.0 or newer.
-- [Jest](/frameworks/jest): Jest 29.0 or newer.
+- [Jest](/frameworks/jest): Jest 27.0 or newer.
 - [Mocha](/frameworks/mocha): Mocha 10.0 or newer.
 - [Jasmine](/frameworks/jasmine): Jasmine 4.0 or newer.
-- [Cypress](/frameworks/cypress): Cypress 13.0 or newer.
-- [WebdriverIO](/frameworks/webdriverio): WebdriverIO 9.0 or newer, with Mocha or Jasmine.
+- [Cypress](/frameworks/cypress): Cypress 12.0 or newer.
+- [WebdriverIO](/frameworks/webdriverio): WebdriverIO 8.0 or newer, with Mocha or Jasmine.
 - [node:test](/frameworks/node): node:test 22.0 or newer, using the Node.js version.
 - [Bun](/frameworks/bun): Bun 1.2.23 or newer.
 
