@@ -64,7 +64,9 @@ See [query recipes](/guide/recipes) for other inventory queries.
 ## Configuration and limits
 
 The scan reads the root `bunfig.toml` `[test]` table. Without it, files have no config.
-Explicit globs count as files given to `bun test`. Supported settings include `root`, `pathIgnorePatterns`,
+Explicit globs count as files given to `bun test`. A path filter on a package.json script's `bun test` command line, as
+`bun test tests/orders`, is not applied: the scan lists every file Bun would find, while Bun runs only those whose path
+contains the filter. Supported settings include `root`, `pathIgnorePatterns`,
 `concurrentTestGlob` and, from Bun 1.3, `retry`. Invalid pattern settings are reported.
 Malformed inline tables, including entries without a comma between them, produce a config diagnostic.
 
