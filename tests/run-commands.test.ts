@@ -116,6 +116,17 @@ describe('runCommands', () => {
     ]);
   });
 
+  it('escapes the characters node:test reads as a glob, so a route folder like [venue] matches only itself', () => {
+    const route = scanSource({
+      code: "import { test } from 'node:test';\ntest('quotes the venue', () => {});\n",
+      relativeFilePath: 'test/routes/[venue]/{quotes}*.test.js',
+      framework: 'node',
+    });
+    expect(runCommands(route).map((item) => item.command)).toEqual([
+      "node --test 'test/routes/[[]venue[]]/[{]quotes[}][*].test.js'",
+    ]);
+  });
+
   it('gives no command when no test is kept', () => {
     expect(runCommands(filterInventory(readGolden('trading-web'), { related: ['README.md'] }))).toEqual([]);
   });

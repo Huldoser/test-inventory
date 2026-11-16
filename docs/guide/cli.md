@@ -127,7 +127,9 @@ npx playwright test tests/orders/limit-orders.spec.ts tests/orders/market-orders
 
 Each runner gets the files the way it takes them: Jest exact paths, with `--runTestsByPath` and `--selectProjects`;
 Vitest a `--project` for each project; Playwright the files before `--project`; Cypress one command for each testing
-type, with `--component` for component tests; WebdriverIO a `--spec` for each file; Bun paths that start with `./`.
+type, with `--component` for component tests; WebdriverIO a `--spec` for each file; node:test, which reads its
+arguments as globs, paths with `[`, `]`, `*`, `?`, `{` and `}` in brackets, as `test/routes/[[]venue[]]/quotes.test.js`;
+Bun paths that start with `./`.
 Vitest takes each file as part of a path and Playwright as a regular expression, so a file whose path contains another
 file's path runs too. Mocha adds the files named on its command line to the config's `spec`, so its command runs every
 spec the config lists; a `#` line above a command says so. A test whose projects the scan couldn't work out runs in

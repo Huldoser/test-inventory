@@ -90,7 +90,8 @@ function commandFor(
             : null,
       };
     case 'node':
-      return { args: ['node', '--test', ...files], caveat: null };
+      // node --test reads each argument as a glob; a character in brackets stands for itself.
+      return { args: ['node', '--test', ...files.map((file) => file.replace(/[[\]*?{}]/g, '[$&]'))], caveat: null };
     case 'bun':
       // Without `./`, Bun takes an argument as part of a name to look for.
       return { args: ['bun', 'test', ...files.map((file) => `./${file}`)], caveat: null };
