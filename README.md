@@ -87,8 +87,8 @@ the first test's record includes:
 
 The output also has a `summary` with counts, a record for each describe, and `diagnostics` that point at code the
 scan could not read and values it could not work out. Filters such as `--state skip`, `--tag @smoke` and
-`--grep "limit order"` keep only some tests, `--fields fullName,reason` keeps only some keys, and `--format jsonl`
-writes one record per line.
+`--grep "limit order"` keep only some tests, `--fields fullName,reason` keeps only some keys, `--format jsonl`
+writes one record per line, and `--format commands` prints the command lines that run the tests kept.
 
 ## Library
 

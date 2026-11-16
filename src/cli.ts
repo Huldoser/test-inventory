@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import type { Readable, Writable } from 'node:stream';
 import { readFailure } from './files.ts';
+import { runCommands } from './run-commands.ts';
 import { checkFields, filterInventory, matcher, pickTestFields, type InventoryFilter } from './filter.ts';
 import { writeInventory, writeInventoryLines, type Output } from './json.ts';
 import { OptionsError, toPosixPath } from './options.ts';
@@ -46,7 +47,8 @@ Options:
   --related <file>             keep tests a change to this file can affect; can be repeated; - reads files, one per
                                line, from standard input, as git diff --name-only writes them
   --fields <keys>              write only these keys of each test, separated by commas; id is always kept
-  --format <format>            json or jsonl, one record per line (default: json)
+  --format <format>            json, jsonl, one record per line, or commands, a command line for each config that runs
+                               the tests kept (default: json)
   -o, --output <file>          write to a file instead of standard output
   --pretty                     indent the JSON
   -h, --help                   show this help
@@ -58,6 +60,7 @@ written, or a crash. 1 is reserved for a future release.
 Examples:
   test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
   test-inventory "tests/**/*.spec.ts" --framework playwright --state skip --fields fullName,reason
+  git diff --name-only main | test-inventory --related - --format commands
 `;
 
 /** CLI names for the option names in the library's errors. */
@@ -75,7 +78,7 @@ const FLAGS: Record<string, string> = {
   fields: '--fields',
 };
 
-const FORMATS = ['json', 'jsonl'];
+const FORMATS = ['json', 'jsonl', 'commands'];
 
 async function writeTo(stream: Writable, chunk: string): Promise<void> {
   if (stream.errored) throw stream.errored;
@@ -242,8 +245,12 @@ export async function run(argv: string[], io: Io): Promise<number> {
     return FINISHED;
   }
   const format = values.format ?? 'json';
-  if (!FORMATS.includes(format)) return fail('--format must be json or jsonl.');
-  if (format === 'jsonl' && values.pretty) return fail('--pretty indents JSON, so it does not go with --format jsonl.');
+  if (!FORMATS.includes(format)) return fail('--format must be json, jsonl or commands.');
+  if (format !== 'json' && values.pretty)
+    return fail(`--pretty indents JSON, so it does not go with --format ${format}.`);
+  if (format === 'commands' && values.fields !== undefined) {
+    return fail('--fields picks keys of the JSON records, so it does not go with --format commands.');
+  }
   const filter: InventoryFilter = {
     states: values.state as TestState[] | undefined,
     tags: values.tag,
@@ -299,7 +306,12 @@ export async function run(argv: string[], io: Io): Promise<number> {
   try {
     await writeOutput(io, values.output, async (output) => {
       const write = (chunk: string) => writeTo(output, chunk);
-      if (format === 'jsonl') {
+      if (format === 'commands') {
+        // A caveat is a shell comment, so the output still runs as a script.
+        for (const item of runCommands(result as Inventory)) {
+          await write(`${item.caveat === null ? '' : `# ${item.caveat}\n`}${item.command}\n`);
+        }
+      } else if (format === 'jsonl') {
         await writeInventoryLines(result, write);
       } else {
         await writeInventory(result, values.pretty === true, write);

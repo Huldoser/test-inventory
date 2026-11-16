@@ -13,6 +13,7 @@ const FILES = [
   'filter.ts',
   'diff.ts',
   'diff-markdown.ts',
+  'run-commands.ts',
 ];
 const src = path.resolve(import.meta.dirname, '../../src');
 

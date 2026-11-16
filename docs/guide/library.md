@@ -84,6 +84,21 @@ const short = pickTestFields(fixme, ['fullName', 'reason']);
 short.tests[0].reason; // string | null
 ```
 
+## runCommands
+
+The command lines that run the tests an inventory keeps, as `--format commands` prints them: one for each config, and
+for Cypress one for each testing type, with the projects that run the tests. See
+[Commands that run the tests](/guide/cli#commands-that-run-the-tests) for how each runner takes the files.
+
+<!-- types: runCommands, RunCommand -->
+
+To run the tests a change to the orders blotter can affect:
+
+```ts
+const affected = filterInventory(inventory, { related: ['pages/orders-blotter.ts'] });
+for (const { command, caveat } of runCommands(affected)) console.log(caveat ?? '', command);
+```
+
 ## diffInventories
 
 Compares two complete saved inventories, matching tests by id and body hash. See [Compare inventories](/guide/diff)

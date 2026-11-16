@@ -274,7 +274,15 @@ test.describe('orders', () => {
       ['tests', '--framework', 'vitest', '--root', 'missing'],
       /^--root must be a directory, and .*missing is not one\.$/,
     ],
-    [['tests', '--framework', 'vitest', '--format', 'xml'], '--format must be json or jsonl.'],
+    [['tests', '--framework', 'vitest', '--format', 'xml'], '--format must be json, jsonl or commands.'],
+    [
+      ['tests', '--framework', 'vitest', '--format', 'commands', '--pretty'],
+      '--pretty indents JSON, so it does not go with --format commands.',
+    ],
+    [
+      ['tests', '--framework', 'vitest', '--format', 'commands', '--fields', 'fullName'],
+      '--fields picks keys of the JSON records, so it does not go with --format commands.',
+    ],
     [
       ['tests', '--framework', 'vitest', '--format', 'jsonl', '--pretty'],
       '--pretty indents JSON, so it does not go with --format jsonl.',
@@ -432,6 +440,35 @@ test('opens the order ticket', async () => {
     expect((JSON.parse(result.stdout) as Inventory).tests.map((test) => test.title)).toEqual([
       'opens the order ticket',
     ]);
+  });
+
+  it('prints the command that runs the tests a changed file can affect, with a caveat as a shell comment', async () => {
+    const web = await cli(
+      [
+        'tests/*.spec.ts',
+        '--framework',
+        'playwright',
+        '--root',
+        'web',
+        '--related',
+        'web/pages/order-ticket.ts',
+        '--format',
+        'commands',
+      ],
+      project(files),
+    );
+    expect(web).toEqual({ code: 0, stdout: 'npx playwright test tests/orders.spec.ts\n', stderr: '' });
+    const gateway = await cli(
+      ['--format', 'commands'],
+      project({
+        'package.json': JSON.stringify({ devDependencies: { mocha: '12.0.3' } }),
+        '.mocharc.json': '{ "spec": "test/**/*.spec.js" }\n',
+        'test/fills.spec.js': "describe('fills', () => {\n  it('fills a market order', () => {});\n});\n",
+      }),
+    );
+    expect(gateway.stdout).toBe(
+      '# Mocha adds the files to the spec of the config, so every spec the config lists runs too.\nnpx mocha --config .mocharc.json test/fills.spec.js\n',
+    );
   });
 
   it('reads the changed files from standard input for -, one per line, as git diff --name-only writes them', async () => {

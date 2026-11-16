@@ -5,6 +5,8 @@ export type { ChangeKind, CloneGroup, InventoryDiff, MatchMethod, TestChange } f
 export { scanSource } from './scan-source.ts';
 export { filterInventory, pickTestFields } from './filter.ts';
 export type { InventoryFilter, PickedInventory } from './filter.ts';
+export { runCommands } from './run-commands.ts';
+export type { RunCommand } from './run-commands.ts';
 export type { CommentsMode, ScanOptions, ScanSourceOptions } from './options.ts';
 export type {
   Annotation,

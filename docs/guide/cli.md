@@ -42,8 +42,8 @@ See [Playwright configuration limits](/frameworks/playwright#configuration-and-l
 | `--without-reason`            | Keep non-active tests without a reason, including expected failures and conditional states, but excluding `notLoaded`.                                                                                                               |
 | `--related <file>`            | Keep tests a change to this file can affect; see [Tests a change can affect](#tests-a-change-can-affect). Can be given more than once; `-` reads files from standard input, one per line.                                            |
 | `--fields <keys>`             | Write only these keys of each test, separated by commas. `id` is always kept.                                                                                                                                                        |
-| `--format <format>`           | `json`, or `jsonl` for one record per line. Default: `json`.                                                                                                                                                                         |
-| `-o, --output <file>`         | Write the JSON to a file instead of standard output. The file is replaced only once it is complete.                                                                                                                                  |
+| `--format <format>`           | `json`, `jsonl` for one record per line, or `commands` for the command lines that run the tests kept; see [Commands that run the tests](#commands-that-run-the-tests). Default: `json`.                                              |
+| `-o, --output <file>`         | Write the output to a file instead of standard output. The file is replaced only once it is complete.                                                                                                                                |
 | `--pretty`                    | Indent the JSON with two spaces. Without it the JSON is on one line.                                                                                                                                                                 |
 | `-h, --help`                  | Show the help.                                                                                                                                                                                                                       |
 | `-v, --version`               | Show the version.                                                                                                                                                                                                                    |
@@ -107,6 +107,30 @@ git diff --name-only origin/main... | npx test-inventory --framework playwright 
 
 The scan reads the files as they are, so a deleted file is in no test's `dependencies`; the tests that imported it reach
 a file that can't be read, and are kept. Installed packages aren't followed: a lockfile change keeps no test.
+
+## Commands that run the tests
+
+`--format commands` prints, in place of the inventory, a command line for each config that runs the tests kept, with
+the projects that run them, to run from the project root. With `--related`, these are the tests a change can affect:
+
+<!-- scan: trading-web -->
+
+```sh
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --related pages/orders-blotter.ts --format commands
+```
+
+```text
+npx playwright test tests/orders/limit-orders.spec.ts tests/orders/market-orders.spec.ts tests/orders/order-lifecycle.spec.ts tests/portfolio.spec.ts --config playwright.config.ts --project chromium webkit
+```
+
+Each runner gets the files the way it takes them: Jest exact paths, with `--runTestsByPath` and `--selectProjects`;
+Vitest a `--project` for each project; Playwright the files before `--project`; Cypress one command for each testing
+type, with `--component` for component tests; WebdriverIO a `--spec` for each file; Bun paths that start with `./`.
+Vitest takes each file as part of a path and Playwright as a regular expression, so a file whose path contains another
+file's path runs too. Mocha adds the files named on its command line to the config's `spec`, so its command runs every
+spec the config lists; a `#` line above a command says so. A test whose projects the scan couldn't work out runs in
+every project of its config. Paths that a shell would split are quoted for a POSIX shell. `runCommands()` gives the
+same commands from the [library](/guide/library#runcommands).
 
 ## JSON Lines
 
