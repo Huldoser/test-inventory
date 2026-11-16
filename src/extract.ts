@@ -1,4 +1,13 @@
-import type { CallExpression, CatchClause, Expression, ImportDeclaration, Node, Program } from 'oxc-parser';
+import type {
+  CallExpression,
+  CatchClause,
+  Expression,
+  ImportDeclaration,
+  ImportDeclarationSpecifier,
+  Node,
+  Program,
+  VariableDeclarator,
+} from 'oxc-parser';
 import {
   childNodes,
   isFunctionNode,
@@ -28,7 +37,7 @@ import type {
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
-import { isScopeNode, type Resolved, type Value, type Values } from './values.ts';
+import { bindingNames, isScopeNode, type Resolved, type Value, type Values } from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
 export interface Scope {
@@ -1780,11 +1789,28 @@ function isConfigured(expression: Expression): boolean {
   return object.type === 'Identifier' && object.name === 'expect';
 }
 
-/** Whether a function uses a name that the import declaration at `at` in the program binds. */
+/**
+ * Whether a function uses a name that the import at `at` in the program binds. A framework-mismatch problem is on an
+ * import declaration, on one of its specifiers when the name comes from another module that imports the runner, or on
+ * a `require()` declarator.
+ */
 function usesImport(fn: FunctionNode, program: Program, at: Span): boolean {
-  // A framework-mismatch problem is always on an import declaration.
-  const statement = program.body.find((item) => item.start === at.start) as ImportDeclaration;
-  const names = new Set(statement.specifiers.map((specifier) => specifier.local.name));
+  const find = (node: Node): Node | undefined =>
+    node.start === at.start && node.end === at.end
+      ? node
+      : childNodes(node)
+          .filter((child) => child.start <= at.start && at.end <= child.end)
+          .map(find)
+          .find((found) => found !== undefined);
+  const node = program.body.map(find).find((found) => found !== undefined) as
+    ImportDeclaration | ImportDeclarationSpecifier | VariableDeclarator;
+  const names = new Set(
+    node.type === 'ImportDeclaration'
+      ? node.specifiers.map((specifier) => specifier.local.name)
+      : node.type === 'VariableDeclarator'
+        ? bindingNames(node.id)
+        : [node.local.name],
+  );
   const uses = (node: Node): boolean =>
     (node.type === 'Identifier' && names.has(node.name)) || childNodes(node).some(uses);
   return uses(fn.body as Node);

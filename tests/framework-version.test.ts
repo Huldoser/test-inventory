@@ -16,6 +16,36 @@ describe('framework version evidence', () => {
     expect(detectFrameworkVersion(root, 'mocha', [])).toEqual({ version: '12.0.3', source: file, range: null });
   });
 
+  it('reads the version from the tarball an npm 5 lockfile records in its place', () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '^20.0.4' } }),
+      'package-lock.json': JSON.stringify({
+        lockfileVersion: 1,
+        dependencies: { jest: { version: 'https://registry.npmjs.org/jest/-/jest-20.0.4.tgz' } },
+      }),
+    });
+    expect(detectFrameworkVersion(root, 'jest', [])).toEqual({
+      version: '20.0.4',
+      source: 'package-lock.json',
+      range: null,
+    });
+  });
+
+  it('passes over a locked git dependency to the version package.json declares', () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { mocha: '^11.7.0' } }),
+      'package-lock.json': JSON.stringify({
+        lockfileVersion: 1,
+        dependencies: { mocha: { version: 'github:mochajs/mocha#3f2a9c1' } },
+      }),
+    });
+    expect(detectFrameworkVersion(root, 'mocha', [])).toEqual({
+      version: '11.7.0',
+      source: 'package.json',
+      range: '^11.7.0',
+    });
+  });
+
   it.each(['dependencies', 'devDependencies', 'peerDependencies'])(
     'reads exact and ranged prereleases in %s',
     (field) => {

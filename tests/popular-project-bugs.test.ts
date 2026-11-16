@@ -305,6 +305,52 @@ test('fills a limit order at the limit price', () => {});`,
     const inventory = await scan({ root, framework: 'bun', patterns: ['orders.test.ts'] });
     expect(inventory.diagnostics.map((item) => [item.code, item.lineStart])).toEqual([['framework-mismatch', 3]]);
   });
+
+  it.each([
+    ['an import', "import { test } from './fixtures';"],
+    ['a require()', "const { test } = require('./fixtures');"],
+  ])(
+    'tells by the name %s binds whether a helper uses a test object another module builds from it',
+    async (_, binding) => {
+      const files = {
+        'package.json': JSON.stringify({ packageManager: 'bun@1.4.4', scripts: { test: 'bun test' } }),
+        'support/fixtures.ts':
+          "import { test as base } from '@playwright/test';\nexport const test = base.extend({});\n",
+        'support/orders.ts': [
+          binding,
+          "export function seedOrder(symbol) { return { symbol, side: 'buy', quantity: 100 }; }",
+          "export function repeatOrderSuite(title) { test.describe(title, () => { test('opens the order page', async () => {}); }); }",
+        ].join('\n'),
+      };
+      const seeded = await scan({
+        root: project({
+          ...files,
+          'orders.test.ts': `import { test } from 'bun:test';
+import { seedOrder } from './support/orders';
+seedOrder('AAPL');
+test('fills a limit order at the limit price', () => {});`,
+        }),
+        framework: 'bun',
+        patterns: ['orders.test.ts'],
+      });
+      expect(seeded.diagnostics).toEqual([]);
+      const repeated = await scan({
+        root: project({
+          ...files,
+          'orders.test.ts': `import { test } from 'bun:test';
+import { repeatOrderSuite } from './support/orders';
+repeatOrderSuite('order page');
+test('fills a limit order at the limit price', () => {});`,
+        }),
+        framework: 'bun',
+        patterns: ['orders.test.ts'],
+      });
+      // A require() in a module also makes `test` a local test object, with its own diagnostics.
+      const found = repeated.diagnostics.map((item) => [item.code, item.lineStart]);
+      expect(found).toContainEqual(['framework-mismatch', 3]);
+      expect(found.map(([code]) => code)).not.toContain('internal-error');
+    },
+  );
 });
 
 describe('a var declared in a nested block, which belongs to the whole function', () => {

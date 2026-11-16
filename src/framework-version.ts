@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { globSync } from 'tinyglobby';
 import { nodeTestCommands } from './node-scripts.ts';
-import { OptionsError } from './options.ts';
+import { majorMinor, OptionsError } from './options.ts';
 import type { Framework } from './types.ts';
 
 /** The package of each runner; `node:test` ships with Node.js. */
@@ -107,7 +107,10 @@ function lockedVersion(folder: string, name: string): { version: string; file: s
     packages?: Record<string, { version?: string }>;
     dependencies?: Record<string, { version?: string }>;
   } | null;
-  const fromNpm = npm?.packages?.[`node_modules/${name}`]?.version ?? npm?.dependencies?.[name]?.version;
+  const recorded = npm?.packages?.[`node_modules/${name}`]?.version ?? npm?.dependencies?.[name]?.version ?? null;
+  // npm 5 records the tarball of some packages in place of their version, and a git dependency's source.
+  const tarball = new RegExp(`/-/${escape(path.posix.basename(name))}-(\\d+\\.\\d+\\.\\d+[^/]*)\\.tgz$`);
+  const fromNpm = majorMinor(recorded) ? recorded : (tarball.exec(recorded ?? '')?.[1] ?? null);
   if (fromNpm) return { version: fromNpm, file: 'package-lock.json' };
   const pnpm = readText(path.join(folder, 'pnpm-lock.yaml'));
   const fromPnpm = pnpm && new RegExp(`^\\s+'?/?${escape(name)}@(\\d+\\.\\d+\\.\\d+[^:'(\\s]*)`, 'm').exec(pnpm);
