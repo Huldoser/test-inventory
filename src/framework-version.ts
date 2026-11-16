@@ -49,7 +49,7 @@ export const OLDEST: Record<Framework, number[]> = {
   vitest: [1, 0],
   jest: [27, 0],
   mocha: [10, 0],
-  jasmine: [4, 0],
+  jasmine: [3, 0],
   cypress: [10, 0],
   webdriverio: [7, 0],
   node: [22, 0],

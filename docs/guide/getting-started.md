@@ -100,7 +100,7 @@ versions checked in CI; it does not claim every later release has been tested.
 - [Vitest](/frameworks/vitest): Vitest 1.0 or newer.
 - [Jest](/frameworks/jest): Jest 27.0 or newer.
 - [Mocha](/frameworks/mocha): Mocha 10.0 or newer.
-- [Jasmine](/frameworks/jasmine): Jasmine 4.0 or newer.
+- [Jasmine](/frameworks/jasmine): Jasmine 3.0 or newer.
 - [Cypress](/frameworks/cypress): Cypress 10.0 or newer.
 - [WebdriverIO](/frameworks/webdriverio): WebdriverIO 7.0 or newer, with Mocha or Jasmine.
 - [node:test](/frameworks/node): node:test 22.0 or newer, using the Node.js version.

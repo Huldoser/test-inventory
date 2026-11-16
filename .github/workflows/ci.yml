@@ -237,6 +237,8 @@ jobs:
           - framework: mocha
             version: 12.0.3
           - framework: jasmine
+            version: 3.99.0
+          - framework: jasmine
             version: 4.6.0
           - framework: jasmine
             version: 7.0.0

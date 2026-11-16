@@ -9,6 +9,7 @@ import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { globSync } from 'tinyglobby';
 import { scan, type Framework, type Inventory, type TestRecord } from '../src/index.ts';
 import { run } from './run.ts';
 
@@ -244,23 +245,29 @@ function mochaTests(work: string): RunnerTest[] {
   }));
 }
 
+/** Runs Jasmine with the reporter of ours, on the given spec files or else the config's, and reads what it wrote. */
+function jasmineRun(work: string, files: string[]): { file?: string; titles: string[]; status: string }[] {
+  try {
+    run('npx', ['jasmine', `--reporter=${path.join(repository, 'scripts/jasmine-reporter.cjs')}`, ...files], work);
+  } catch {
+    // A failing spec makes Jasmine exit with 3; the reporter still wrote every spec.
+  }
+  return JSON.parse(readFileSync(path.join(work, 'jasmine-tests.json'), 'utf8')) as ReturnType<typeof jasmineRun>;
+}
+
 /**
  * Runs the specs with a reporter of our own, which lists every spec with its titles and file. Jasmine gives no line,
  * so specs are matched by name; pending, excluded and not applicable specs didn't run.
  */
 function jasmineTests(work: string): RunnerTest[] {
-  try {
-    run('npx', ['jasmine', `--reporter=${path.join(repository, 'scripts/jasmine-reporter.cjs')}`], work);
-  } catch {
-    // A failing spec makes Jasmine exit with 3; the reporter still wrote every spec.
+  let specs = jasmineRun(work, []);
+  // Jasmine before 4 gives a spec no file, so each spec file runs on its own and its specs take its name.
+  if (specs.some((spec) => spec.file === undefined)) {
+    const files = globSync(PROJECTS.jasmine.patterns, { cwd: work }).sort();
+    specs = files.flatMap((file) => jasmineRun(work, [file]).map((spec) => ({ ...spec, file: path.join(work, file) })));
   }
-  const specs = JSON.parse(readFileSync(path.join(work, 'jasmine-tests.json'), 'utf8')) as {
-    file: string;
-    titles: string[];
-    status: string;
-  }[];
   return specs.map((spec) => ({
-    file: posix(path.relative(work, spec.file)),
+    file: posix(path.relative(work, spec.file as string)),
     line: 0,
     name: spec.titles.join(' > '),
     status: ['passed', 'failed'].includes(spec.status) ? 'ran' : 'skipped',
