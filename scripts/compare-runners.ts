@@ -162,8 +162,13 @@ interface VitestReport {
 /** Runs the tests with Vitest's JSON reporter, which lists every test, skipped and todo ones too, with its state. */
 function vitestTests(work: string): RunnerTest[] {
   const output = path.join(work, 'vitest-report.json');
+  // Vitest 3 added --includeTaskLocation; before, a test comes without its line and is matched by name.
+  const installed = JSON.parse(readFileSync(path.join(work, 'node_modules/vitest/package.json'), 'utf8')) as {
+    version: string;
+  };
+  const location = Number(installed.version.split('.')[0]) >= 3 ? ['--includeTaskLocation'] : [];
   try {
-    run('npx', ['vitest', 'run', '--reporter=json', `--outputFile=${output}`, '--includeTaskLocation'], work);
+    run('npx', ['vitest', 'run', '--reporter=json', `--outputFile=${output}`, ...location], work);
   } catch {
     // A failing test makes Vitest exit with 1; the report still lists every test.
   }
@@ -171,8 +176,9 @@ function vitestTests(work: string): RunnerTest[] {
   return report.testResults.flatMap((file) => {
     const relative = posix(path.relative(work, file.name));
     return file.assertionResults.map((test) => {
-      // Type tests have the file's path as their first ancestor.
-      const ancestors = test.ancestorTitles[0] === relative ? test.ancestorTitles.slice(1) : test.ancestorTitles;
+      // Type tests have the file's path as their first ancestor, and Vitest 1 gives every test an empty one.
+      const isFile = test.ancestorTitles[0] === relative || test.ancestorTitles[0] === '';
+      const ancestors = isFile ? test.ancestorTitles.slice(1) : test.ancestorTitles;
       return {
         file: relative,
         line: test.location?.line ?? 0,

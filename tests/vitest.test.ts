@@ -276,6 +276,24 @@ test.describe('stop-loss', () => {
 
 describe('Vitest declarations', () => {
   it.each([
+    ['test.for', 'test', '2.0.0', '1.6.1', 2],
+    ['describe.for', 'describe', '3.0.0', '2.1.9', 3],
+  ])('reports %s before the version that added it, which fails the file', (callee, kind, since, before, major) => {
+    const code = `${VITEST_IMPORT}
+${callee}([['AAPL'], ['MSFT']])('quotes %s', ${kind === 'test' ? '([symbol]) => {}' : "([symbol]) => {\n  test('fills a market order', () => {});\n}"});
+test('opens the order ticket', () => {});
+`;
+    const old = scanVitest(code, { frameworkVersion: before });
+    expect(old.diagnostics.map((item) => [item.code, item.message])).toEqual([
+      ['invalid-chain', `${callee}([['AAPL'], ['MSFT']]) needs Vitest ${major} or newer.`],
+    ]);
+    expect(old.tests.every((test) => test.state === 'notLoaded')).toBe(true);
+    const current = scanVitest(code, { frameworkVersion: since });
+    expect(codes(current)).toEqual([]);
+    expect(current.tests.every((test) => test.state === 'active')).toBe(true);
+  });
+
+  it.each([
     ['test.skip', { state: 'skip', stateSource: 'test' }],
     ['test.todo', { state: 'todo' }],
     ['test.fails', { state: 'expectedToFail' }],

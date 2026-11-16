@@ -25,7 +25,7 @@ Each covers its runner's scan commands, examples, syntax and limitations.
 npm install --save-dev test-inventory
 ```
 
-Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 3.0 or newer, Jest 27.0 or newer,
+Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 1.0 or newer, Jest 27.0 or newer,
 Mocha 10.0 or newer, Jasmine 4.0 or newer, Cypress 12.0 or newer, WebdriverIO 8.0 or newer, node:test 22.0 or newer,
 Bun 1.2.23 or newer.
 

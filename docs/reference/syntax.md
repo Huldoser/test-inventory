@@ -62,7 +62,8 @@ from `@words` in titles.
 
 <!-- #region syntax-vitest -->
 
-Vitest 3.0 and newer.
+Vitest 1.0 and newer. `test.for` came in Vitest 2.0 and `describe.for` in 3.0; before, each is an `invalid-chain`
+error, as the call throws and Vitest fails the file.
 
 ### Where test comes from
 

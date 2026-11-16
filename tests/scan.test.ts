@@ -1528,14 +1528,14 @@ describe('scan reads the framework version', () => {
       },
     ]);
     const old = project({
-      'package.json': JSON.stringify({ devDependencies: { vitest: '^2.1.0' } }),
+      'package.json': JSON.stringify({ devDependencies: { vitest: '^0.34.0' } }),
       'tests/fees.test.ts': "import { test } from 'vitest';\ntest('charges the minimum fee', () => {});\n",
     });
     const inventory = await scanProject(old, { patterns: ['tests/*.test.ts'], framework: 'vitest' });
     expect(inventory.diagnostics).toMatchObject([
       {
         code: 'unsupported-framework-version',
-        message: 'Vitest 2.1.0 is older than 3.0, the oldest supported version; the results follow 3.0.',
+        message: 'Vitest 0.34.0 is older than 1.0, the oldest supported version; the results follow 1.0.',
       },
     ]);
   });
@@ -1603,17 +1603,17 @@ test('loads the stored orders', () => {
   });
 
   it('warns about a version older than the oldest supported one, where it was read', async () => {
-    const root = project({ 'node_modules/vitest/package.json': '{"version":"2.1.9"}', 'tests/a.test.ts': '' });
+    const root = project({ 'node_modules/vitest/package.json': '{"version":"0.34.6"}', 'tests/a.test.ts': '' });
     const inventory = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest' });
     expect(inventory.diagnostics.map((diagnostic) => [diagnostic.relativeFilePath, diagnostic.message])).toEqual([
       [
         'node_modules/vitest/package.json',
-        'Vitest 2.1.9 is older than 3.0, the oldest supported version; the results follow 3.0.',
+        'Vitest 0.34.6 is older than 1.0, the oldest supported version; the results follow 1.0.',
       ],
     ]);
-    const given = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest', frameworkVersion: '2.0.0' });
+    const given = await scan({ root, patterns: ['tests/*.test.ts'], framework: 'vitest', frameworkVersion: '0.34.0' });
     expect(given.diagnostics.map((diagnostic) => diagnostic.relativeFilePath)).toEqual(['.']);
-    const current = project({ 'node_modules/vitest/package.json': '{"version":"3.0.0"}', 'tests/a.test.ts': '' });
+    const current = project({ 'node_modules/vitest/package.json': '{"version":"1.0.0"}', 'tests/a.test.ts': '' });
     expect((await scan({ root: current, patterns: ['tests/*.test.ts'], framework: 'vitest' })).diagnostics).toEqual([]);
   });
 });
