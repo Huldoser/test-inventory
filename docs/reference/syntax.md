@@ -196,7 +196,7 @@ which a file the config lists in `require` exports as `mochaHooks`, run around e
 
 <!-- #region syntax-jasmine -->
 
-Jasmine 4.0 and newer.
+Jasmine 3.0 and newer.
 
 ### Where test comes from
 

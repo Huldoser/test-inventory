@@ -26,7 +26,7 @@ npm install --save-dev test-inventory
 ```
 
 Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.42 or newer, Vitest 1.0 or newer, Jest 27.0 or newer,
-Mocha 10.0 or newer, Jasmine 4.0 or newer, Cypress 10.0 or newer, WebdriverIO 7.0 or newer, node:test 22.0 or newer,
+Mocha 10.0 or newer, Jasmine 3.0 or newer, Cypress 10.0 or newer, WebdriverIO 7.0 or newer, node:test 22.0 or newer,
 Bun 1.2.23 or newer.
 
 ## Command line
