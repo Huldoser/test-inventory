@@ -2148,6 +2148,58 @@ export default { ...brokerDefaults };
       expect(warnings(spread)).toEqual([]);
     });
 
+    it("follows setup files a config names with require.resolve() or import.meta.resolve(), from the config's folder", async () => {
+      const ledgerTest = "test('settles a trade', () => {\n  expect(1).toBe(1);\n});\n";
+      const jestRoot = project({
+        'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+        'jest.config.js': `const path = require('node:path');
+
+module.exports = {
+  testEnvironment: 'node',
+  globalSetup: require.resolve('./tests/setup/exchange.js'),
+  globalTeardown: require.resolve('./tests/setup/exchange-teardown'),
+  setupFiles: [require.resolve('jest-extended/all')],
+  setupFilesAfterEnv: [require.resolve(path.join(__dirname, 'tests', 'setup', 'clock.js'))],
+};
+`,
+        'tests/setup/exchange.js': "module.exports = async () => {\n  process.env.EXCHANGE = 'paper';\n};\n",
+        'tests/setup/exchange-teardown.js': 'module.exports = async () => {};\n',
+        'tests/setup/clock.js': "jest.useFakeTimers({ now: new Date('2026-11-16T14:30:00Z') });\n",
+        'tests/ledger.test.js': ledgerTest,
+      });
+      const jest = await scan({ root: jestRoot, patterns: ['tests/*.test.js'], framework: 'jest' });
+      expectValidInventory(jest);
+      expect(jest.tests[0]).toMatchObject({
+        dependencies: expect.arrayContaining([
+          'tests/setup/clock.js',
+          'tests/setup/exchange-teardown.js',
+          'tests/setup/exchange.js',
+        ]) as string[],
+        hasUnfollowedDependencies: false,
+      });
+      const vitest = await scanProject(
+        project({
+          'package.json': VITEST_PACKAGE,
+          'vitest.config.ts': `import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globalSetup: fileURLToPath(import.meta.resolve('./tests/setup/exchange.ts')),
+    setupFiles: [fileURLToPath(import.meta.resolve('./tests/setup/missing.ts')), fileURLToPath(import.meta.resolve('@trading/test-setup')), fileURLToPath(import.meta.resolve(process.env.SETUP_FILE))],
+  },
+});
+`,
+          'tests/setup/exchange.ts': "export default async () => {\n  process.env.EXCHANGE = 'paper';\n};\n",
+          'tests/ledger.test.ts': `import { expect, test } from 'vitest';\n${ledgerTest}`,
+        }),
+        'vitest',
+      );
+      expect(vitest.tests[0].dependencies).toContain('tests/setup/exchange.ts');
+      // A file that isn't there, a package or a name the run gives can't be worked out from import.meta.resolve().
+      expect(vitest.tests[0].unfollowedDependencies).toEqual(['vitest.config.ts:7']);
+    });
+
     it('changes when an import is added to a file, also of a package', () => {
       const before = scanPlaywright(
         "import { test } from '@playwright/test';\ntest('opens the blotter', async () => {});\n",

@@ -34,6 +34,7 @@ import {
 import { atLeast, problem } from './frameworks/common.ts';
 import type { ModuleReader, ModuleSource, Span } from './model.ts';
 import { parseFile, type ParsedFile } from './parse.ts';
+import { findFile } from './resolve.ts';
 import { snippet } from './source.ts';
 import type { ConfigRecord, Diagnostic, DiagnosticLevel, Framework, ProjectRecord } from './types.ts';
 import { assignedNames, bindingNames, isKey, isScopeNode, Values, type Value } from './values.ts';
@@ -764,6 +765,30 @@ class ConfigCode {
   }
 
   /**
+   * The file `require.resolve('./global-setup')` or `import.meta.resolve('./global-setup.ts')` gives, found from the
+   * config's folder, as a path or a file URL; for `require.resolve()` of a package, its name, as a setting that names it
+   * directly does. Null when it can't be worked out or isn't there, and undefined for any other call.
+   */
+  private resolvedPath(call: CallExpression, frame: ConfigFrame, scopes: readonly Node[]): Setting | null | undefined {
+    const callee = unwrap(call.callee);
+    if (callee.type !== 'MemberExpression' || callee.computed || callee.property.name !== 'resolve') return undefined;
+    const { object } = callee;
+    const isRequire =
+      object.type === 'Identifier' &&
+      object.name === 'require' &&
+      frame.values.declarationOf('require', scopes) === null;
+    // `import.meta` is the only meta property with a `resolve()`.
+    const isImportMeta = object.type === 'MetaProperty';
+    if (!isRequire && !isImportMeta) return undefined;
+    const name = this.strings(call.arguments.slice(0, 1), frame, scopes)?.[0];
+    if (name === undefined) return null;
+    if (!/^\.\.?[\\/]/.test(name) && !path.isAbsolute(name)) return isRequire ? { kind: 'value', value: name } : null;
+    const file = findFile(path.resolve(path.dirname(frame.file), name));
+    if (file === null) return null;
+    return { kind: 'value', value: isRequire ? file : pathToFileURL(file).href };
+  }
+
+  /**
    * A call of `defineConfig()`, `defineProject()` or `mergeConfig()`, or of a Node.js path function such as
    * `path.join(__dirname, 'e2e')`; any other call can't be worked out.
    */
@@ -775,6 +800,8 @@ class ConfigCode {
     if (required !== null && isGlobal && /^\.\.?\//.test(required)) {
       return this.fromModule(frame, required, 'default', site) ?? unknown(site);
     }
+    const resolved = this.resolvedPath(call, frame, scopes);
+    if (resolved !== undefined) return resolved ?? unknown(site);
     const custom = this.framework === 'jest' ? this.nextJestCustom(call, frame, scopes) : null;
     if (custom) return withNextJest(custom, site);
     const origin = this.origin(unwrap(call.callee), frame, scopes);
