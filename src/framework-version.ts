@@ -113,7 +113,8 @@ function lockedVersion(folder: string, name: string): { version: string; file: s
   const fromNpm = majorMinor(recorded) ? recorded : (tarball.exec(recorded ?? '')?.[1] ?? null);
   if (fromNpm) return { version: fromNpm, file: 'package-lock.json' };
   const pnpm = readText(path.join(folder, 'pnpm-lock.yaml'));
-  const fromPnpm = pnpm && new RegExp(`^\\s+'?/?${escape(name)}@(\\d+\\.\\d+\\.\\d+[^:'(\\s]*)`, 'm').exec(pnpm);
+  // A key ends at the version: `vitest@5.0.0>happy-dom` in `overrides` selects a package below the runner.
+  const fromPnpm = pnpm && new RegExp(`^\\s+'?/?${escape(name)}@(\\d+\\.\\d+\\.\\d+[^:'(\\s>]*)['(:]`, 'm').exec(pnpm);
   if (fromPnpm) return { version: fromPnpm[1], file: 'pnpm-lock.yaml' };
   const yarn = readText(path.join(folder, 'yarn.lock'));
   const fromYarn =

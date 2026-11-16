@@ -119,6 +119,27 @@ describe('dependencyHash', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('follows an import written inside a block, as loaders such as reify allow', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { mocha: '11.7.0' } }),
+      'router.js': 'export function routeOrder(symbol) {\n  return { symbol, venue: "NYSE" };\n}\n',
+      'test/router.test.js': [
+        "describe('order router', () => {",
+        "  it('routes a market order to the primary venue', () => {",
+        "    import { routeOrder } from '../router.js';",
+        "    routeOrder('AAPL');",
+        '  });',
+        '});',
+      ].join('\n'),
+    });
+    const inventory = await scan({ root, patterns: ['test/*.test.js'], framework: 'mocha' });
+    expect(inventory.tests.map((test) => [test.title, test.dependencies])).toEqual([
+      ['routes a market order to the primary venue', ['router.js', 'test/router.test.js']],
+    ]);
+    // Standard JavaScript has imports only at the top level, which the scan reports while it reads the file.
+    expect(inventory.diagnostics.map((item) => [item.code, item.lineStart])).toEqual([['parse-error', 3]]);
+  });
+
   it('changes when code the test reaches changes, and not for formatting, comments or code it does not reach', async () => {
     const before = await hashesAfter(TRADING_WEB, null);
     const reformatted = await hashesAfter(TRADING_WEB, [

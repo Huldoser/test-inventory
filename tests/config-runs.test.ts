@@ -554,6 +554,26 @@ describe('which files a config runs, in the cases a review found', () => {
     expect(diagnostics).toEqual(['file-not-run e2e/orders.test.ts']);
   });
 
+  it('reads an absolute includeSource that names the root itself as matching no file', async () => {
+    const { diagnostics, inventory } = await placed(
+      {
+        'vitest.config.ts': [
+          "import { resolve } from 'node:path';",
+          'export default {',
+          "  root: './test',",
+          "  test: { include: ['**/*.spec.ts'], includeSource: [resolve(__dirname, './test')] },",
+          '};',
+          '',
+        ].join('\n'),
+        'test/orders.spec.ts': UNIT,
+      },
+      'vitest',
+      ['test/*.spec.ts'],
+    );
+    expect(inventory.tests.map((test) => test.relativeFilePath)).toEqual(['test/orders.spec.ts']);
+    expect(diagnostics).toEqual([]);
+  });
+
   it('leaves out the project folders a negated test.projects entry names', async () => {
     const { configs } = await placed(
       {

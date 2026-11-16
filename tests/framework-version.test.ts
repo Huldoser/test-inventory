@@ -31,6 +31,27 @@ describe('framework version evidence', () => {
     });
   });
 
+  it("passes over a pnpm override selector to the runner's own entry", () => {
+    const root = project({
+      'pnpm-lock.yaml': [
+        "lockfileVersion: '9.0'",
+        'overrides:',
+        '  vitest@5.0.0>happy-dom: 20.13.2',
+        'packages:',
+        '  happy-dom@20.13.2:',
+        '    resolution: {}',
+        '  vitest@5.0.0:',
+        '    resolution: {}',
+        '',
+      ].join('\n'),
+    });
+    expect(detectFrameworkVersion(root, 'vitest', [])).toEqual({
+      version: '5.0.0',
+      source: 'pnpm-lock.yaml',
+      range: null,
+    });
+  });
+
   it('passes over a locked git dependency to the version package.json declares', () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { mocha: '^11.7.0' } }),
