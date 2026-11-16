@@ -2004,6 +2004,46 @@ function unusedSuite() {
     );
   });
 
+  it('lists a helper called from a describe in a function nothing calls where it is written, whichever comes first', () => {
+    const settlementTests = `function settlementTests(cycle: string) {
+  test.describe(\`\${cycle} cycle\`, () => {
+    test('settles a trade', async () => {});
+  });
+}
+`;
+    const unusedSuite = `const unusedSuite = () => {
+  test.describe('settlement', () => {
+    settlementTests('T+1');
+    test('books the commission', async () => {});
+  });
+};
+`;
+    const calledElsewhere = `The test is declared in a function, and the function is called in another place than where it is written. ${REGISTERS}`;
+    const notCalled = `The test is declared in a function, and nothing in the file calls the function by name. ${REGISTERS}`;
+    const warnings = (inventory: ReturnType<typeof scanPlaywright>) =>
+      inventory.diagnostics
+        .filter((diagnostic) => diagnostic.code === 'test-in-function')
+        .map((diagnostic) => [diagnostic.lineStart, diagnostic.message]);
+    const helperFirst = scanPlaywright(`${PLAYWRIGHT_IMPORT}\n${settlementTests}${unusedSuite}`);
+    expect(helperFirst.tests.map((test) => [test.fullName, test.lineStart])).toEqual([
+      ['`${cycle} cycle` > settles a trade', 4],
+      ['settlement > books the commission', 10],
+    ]);
+    expect(warnings(helperFirst)).toEqual([
+      [4, calledElsewhere],
+      [10, notCalled],
+    ]);
+    const helperLast = scanPlaywright(`${PLAYWRIGHT_IMPORT}\n${unusedSuite}${settlementTests}`);
+    expect(helperLast.tests.map((test) => [test.fullName, test.lineStart])).toEqual([
+      ['settlement > books the commission', 5],
+      ['`${cycle} cycle` > settles a trade', 10],
+    ]);
+    expect(warnings(helperLast)).toEqual([
+      [5, notCalled],
+      [10, calledElsewhere],
+    ]);
+  });
+
   it('does not warn for a helper called once where it is written, or for tests in a callback', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 function orderFormTests() {

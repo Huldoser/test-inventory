@@ -210,7 +210,9 @@ suites make far fewer. Past 10,000, a `test-in-function` warning marks the call 
 
 A `test-in-function` warning remains for tests in a function the scan can't place: one that nothing in the file calls
 by name, one the file only exports, and one called only from tests or hooks, where the runner doesn't collect tests.
-Such a test is listed where it is written. Tests in a callback passed to another function, as in
+Such a test is listed where it is written, and so is a test in a function of the file that only such a function calls,
+even from a describe in it. A helper imported from another file and called from a describe in such a function has its
+tests listed at that call, with the same warning. Tests in a callback passed to another function, as in
 `withPaperAccount(() => { test(...) })`, are listed where they are written, with no warning.
 
 ## Loops and tables are one record

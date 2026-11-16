@@ -910,6 +910,32 @@ test.describe('short sells', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('warns at the call for the tests the helper registers from a describe in a function nothing calls', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/orders.ts': ORDERS_HELPERS,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { validatesQuantity } from '../helpers/orders';
+
+const legacyOrderTests = () => {
+  test.describe('buy orders', () => {
+    validatesQuantity('buy');
+  });
+};
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart])).toEqual([
+      ['buy orders > buy rejects a zero quantity', 6],
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['test-in-function', 6],
+    ]);
+    expect(inventory.diagnostics[0].message).toMatch(
+      /^The test is registered by validatesQuantity\(\) in a function, and nothing in the file calls the function by name\./,
+    );
+  });
+
   it('finds the helper through barrels, default exports and renamed exports, and in nested helpers', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
