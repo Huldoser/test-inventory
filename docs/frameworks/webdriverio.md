@@ -8,7 +8,7 @@ next:
 
 # WebdriverIO
 
-This guide covers **WebdriverIO 8.0 or newer**. You need Node.js 22.12 or newer to run test-inventory and an
+This guide covers **WebdriverIO 7.0 or newer**. You need Node.js 22.12 or newer to run test-inventory and an
 existing JavaScript or TypeScript test suite. The scanner reads your source without executing your tests or starting
 a browser. These are minimum supported versions; [CI comparisons](/guide/runners#checked-in-ci) list tested versions.
 
