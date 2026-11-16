@@ -209,6 +209,10 @@ jobs:
       matrix:
         include:
           - framework: playwright
+            version: 1.31.2
+          - framework: playwright
+            version: 1.41.2
+          - framework: playwright
             version: 1.42.1
           - framework: playwright
             version: 1.63.0

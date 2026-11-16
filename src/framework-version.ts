@@ -45,7 +45,7 @@ export const FRAMEWORK_NAMES: Record<Framework, string> = {
 
 /** Oldest supported version of each framework, as major, minor and for Bun, whose 1.2.23 changed how it runs tests, patch. */
 export const OLDEST: Record<Framework, number[]> = {
-  playwright: [1, 42],
+  playwright: [1, 31],
   vitest: [1, 0],
   jest: [27, 0],
   mocha: [10, 0],

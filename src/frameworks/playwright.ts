@@ -140,6 +140,9 @@ const ADDED_IN = new Map<string, [number, number]>([
   ['abort', [1, 60]],
 ]);
 
+/** The version that added the details of tests and describes, `{ tag, annotation }`, and `test.fail(title, body)`. */
+const DETAILS_ADDED_IN: [number, number] = [1, 42];
+
 function isPlaywrightSource(source: string): boolean {
   return (
     source === '@playwright/test' ||
@@ -391,6 +394,13 @@ export class PlaywrightAdapter implements Adapter {
       return this.testCall(call, key, context);
     }
     const describe = DESCRIBES.get(key);
+    if (describe && call.arguments.length === 3 && !atLeast(this.file.version, ...DETAILS_ADDED_IN)) {
+      const callee = snippet(text(this.file, call.callee));
+      const message = `${callee}(title, details, body) needs Playwright 1.42 or newer; the call throws, so Playwright fails to load the file and runs no tests at all.`;
+      return refused(call, problem('invalid-chain', call, message, callee), context, () =>
+        this.describeCall(call, describe, context),
+      );
+    }
     if (describe) return this.describeCall(call, describe, context);
     if (key === 'describe.configure') return this.configure(call, context);
     if (HOOKS.has(key)) {
@@ -632,7 +642,10 @@ export class PlaywrightAdapter implements Adapter {
         namedFunction(this.file, context.scopes, last) !== null ||
         (this.isTitle(args[0], context) && !this.isTitle(args[args.length - 1], context));
     }
-    if (!declares && declarationOnly) {
+    const hasDetails = atLeast(this.file.version, ...DETAILS_ADDED_IN);
+    // Before Playwright 1.42, which reads the details of a test, nothing checks that a test has a body.
+    const isBodyless = !declares && declarationOnly && !hasDetails && args.length === 1 && !isFunctionNode(first);
+    if (!declares && declarationOnly && !isBodyless) {
       const callee = snippet(text(this.file, call.callee));
       return {
         kind: 'invalid',
@@ -644,8 +657,16 @@ export class PlaywrightAdapter implements Adapter {
       };
     }
     const state = STATES.get(key) ?? null;
-    if (!declares) return this.modifier(call, state as State, context);
+    if (!declares && !isBodyless) return this.modifier(call, state as State, context);
+    if (!hasDetails && !declarationOnly && (key === 'fail' || args.length === 3)) {
+      return this.titleAsCondition(call, state as State, context);
+    }
     const problems: Problem[] = [];
+    if (isBodyless) {
+      const callee = snippet(text(this.file, call.callee));
+      const message = `${callee}() has no test body, so the test fails when it runs.`;
+      problems.push({ ...problem('test-without-body', call, message), level: 'warning' });
+    }
     const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
       stripTags: true,
       functionNames: false,
@@ -655,13 +676,18 @@ export class PlaywrightAdapter implements Adapter {
     const fn = isFunctionNode(last) ? last : null;
     const callback = fn ?? namedFunction(this.file, context.scopes, last);
     this.checkFixtureArguments(callback);
+    if (args.length === 3 && !hasDetails) {
+      const callee = snippet(text(this.file, call.callee));
+      const message = `${callee}(title, details, body) needs Playwright 1.42 or newer; before it, Playwright takes the details for the body, so the test fails when it runs, without their tags and annotations.`;
+      problems.push({ ...problem('invalid-chain', call, message, callee), level: 'warning' });
+    }
     return {
       kind: 'test',
       title,
       states: state ? [{ state, condition: null, reason: null, hasDynamicReason: false, line }] : [],
       isOnly: key.endsWith('only'),
       mode: null,
-      details: this.details(args.length === 3 ? args[1] : undefined, context, problems, title.text),
+      details: this.details(args.length === 3 && hasDetails ? args[1] : undefined, context, problems, title.text),
       fn,
       hashed: callback ?? wrappedFunction(last),
       isParameterized: false,
@@ -765,6 +791,24 @@ export class PlaywrightAdapter implements Adapter {
   }
 
   /**
+   * Before Playwright 1.42, `test.fail(title, body)` and `test.skip()`, `fixme()` or `fail()` with details declare no
+   * test: Playwright reads the title as the condition, and the rest as the reason.
+   */
+  private titleAsCondition(call: CallExpression, state: State, context: CallContext): ApiCall {
+    const callee = snippet(text(this.file, call.callee));
+    const form = call.arguments.length === 3 ? 'title, details, body' : 'title, body';
+    const message = `${callee}(${form}) needs Playwright 1.42 or newer; before it, Playwright reads the title as a condition and applies ${callee}() to every test in the scope.`;
+    return {
+      kind: 'modifier',
+      state,
+      condition: readCondition(this.file, context.scopes, call.arguments[0]),
+      reason: null,
+      hasDynamicReason: false,
+      problems: [problem('skip-without-body', call, message, snippet(text(this.file, call)))],
+    };
+  }
+
+  /**
    * From Playwright 1.65, `test.skip(description)` with a string: the string is the reason, and still a condition, so
    * an empty one applies nothing. A template literal with text of its own is never empty.
    */
@@ -823,12 +867,10 @@ export class PlaywrightAdapter implements Adapter {
       mode: kind.mode ?? null,
       isShuffled: false,
       passesDown: null,
-      details: this.details(
-        !anonymous && args.length === 3 ? args[1] : undefined,
-        context,
-        problems,
-        title?.text ?? '',
-      ),
+      // Before Playwright 1.42 a describe has no tags: the report gives a test only those of its own title.
+      details: atLeast(this.file.version, ...DETAILS_ADDED_IN)
+        ? this.details(!anonymous && args.length === 3 ? args[1] : undefined, context, problems, title?.text ?? '')
+        : this.details(undefined, context, problems, ''),
       fn,
       hashed: callback ?? wrappedFunction(args.at(-1)),
       isParameterized: false,
