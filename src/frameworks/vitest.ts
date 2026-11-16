@@ -308,10 +308,13 @@ export class VitestAdapter extends SuiteAdapter {
     }
     const callee = snippet(text(this.file, call.callee));
     const removed = (link: Link) => link.name === 'sequential' && atLeast(this.file.version, 5, 0);
+    // `test.for` came in Vitest 2.0 and `describe.for` in 3.0; before, the member is missing and the call throws.
+    const added = (link: Link) => (link.name !== 'for' ? 0 : kind === 'test' ? 2 : 3);
+    const isTooNew = (link: Link) => !atLeast(this.file.version, added(link), 0);
     const valid = (link: Link) => {
       const called = link.args !== null || link.template !== null;
       if (MODIFIERS[kind].has(link.name)) return !called && !removed(link);
-      return TABLES.has(link.name) ? called : CONDITIONS.has(link.name) && link.args !== null;
+      return TABLES.has(link.name) ? called && !isTooNew(link) : CONDITIONS.has(link.name) && link.args !== null;
     };
     const tableIndex = links.findIndex(
       (link) => TABLES.has(link.name) && (link.args !== null || link.template !== null),
@@ -320,7 +323,9 @@ export class VitestAdapter extends SuiteAdapter {
     if (!invalid) return this.declaration(call, kind, links, context);
     const refusal = removed(invalid)
       ? problem('removed-api', call, `sequential was removed in Vitest 5; ${callee}(...) fails.`, callee)
-      : problem('invalid-chain', call, `${callee} is not part of Vitest's API.`, callee);
+      : isTooNew(invalid)
+        ? problem('invalid-chain', call, `${callee} needs Vitest ${added(invalid)} or newer.`, callee)
+        : problem('invalid-chain', call, `${callee} is not part of Vitest's API.`, callee);
     if (NOT_DECLARING.has(links[0].name)) return { kind: 'invalid', problem: refusal };
     // Which of its parts the chain means is not known, so it declares a plain test or describe.
     return refused(call, refusal, context, () => this.declaration(call, kind, [], context));

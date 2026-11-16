@@ -217,6 +217,10 @@ jobs:
           - framework: playwright
             version: 1.65.1
           - framework: vitest
+            version: 1.6.1
+          - framework: vitest
+            version: 2.1.9
+          - framework: vitest
             version: 3.0.9
           - framework: vitest
             version: 5.1.0
