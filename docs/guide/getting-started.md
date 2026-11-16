@@ -98,7 +98,7 @@ versions checked in CI; it does not claim every later release has been tested.
 
 - [Playwright](/frameworks/playwright): Playwright 1.42 or newer.
 - [Vitest](/frameworks/vitest): Vitest 3.0 or newer.
-- [Jest](/frameworks/jest): Jest 29.0 or newer.
+- [Jest](/frameworks/jest): Jest 27.0 or newer.
 - [Mocha](/frameworks/mocha): Mocha 10.0 or newer.
 - [Jasmine](/frameworks/jasmine): Jasmine 4.0 or newer.
 - [Cypress](/frameworks/cypress): Cypress 13.0 or newer.

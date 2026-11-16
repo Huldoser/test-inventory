@@ -185,6 +185,24 @@ describe.skip('skipped', () => {
     expect(inventory.tests.every((test) => test.state === 'notLoaded')).toBe(true);
   });
 
+  it.each([
+    ['test.failing', "test.failing('rejects after the cut-off', () => {});"],
+    [
+      'test.concurrent.only.failing.each',
+      "test.concurrent.only.failing.each([['AAPL']])('rejects %s', async () => {});",
+    ],
+  ])('reports %s before Jest 28, whose circus added failing, and fails the file', (_, code) => {
+    const before = scanJest(code, { frameworkVersion: '27.5.1' });
+    expect(codes(before)).toEqual(['invalid-chain']);
+    expect(before.diagnostics[0].message).toMatch(
+      / needs Jest 28 or newer; the call throws, and Jest fails the file\.$/,
+    );
+    expect(before.tests.every((test) => test.state === 'notLoaded')).toBe(true);
+    const after = scanJest(code, { frameworkVersion: '28.0.3' });
+    expect(after.diagnostics).toEqual([]);
+    expect(after.tests.map((test) => test.state)).toEqual(['expectedToFail']);
+  });
+
   it('reads nothing from .each that is not called', () => {
     const inventory = scanJest(`
 const table = test.each;
