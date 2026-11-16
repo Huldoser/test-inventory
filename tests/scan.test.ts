@@ -290,6 +290,32 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('follows a test function a local module exports again when a condition or a function chooses it', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/runner.js': "const { it, test } = require('@jest/globals');\n\nmodule.exports = { it, test };\n",
+      'tests/runner.mjs': "export { it, test } from '@jest/globals';\n",
+      'tests/borrow.test.js': `const { test } = require('./runner');
+
+function onDesk(open) {
+  return open ? test : test.skip;
+}
+onDesk(!process.env.TRADING_LIVE_FEED)('locates shares to borrow', () => {});
+`,
+      'tests/margin.test.mjs': `import { it } from './runner.mjs';
+
+(process.env.TRADING_LIVE_FEED ? it : it.skip)('raises a margin call', () => {});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.{js,mjs}'], framework: 'jest' });
+    // As with a direct import, only what every choice has applies.
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['locates shares to borrow', 'active'],
+      ['raises a margin call', 'active'],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a default export', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

@@ -418,20 +418,23 @@ export abstract class SuiteAdapter implements Adapter {
 
   protected abstract hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall;
 
+  /** With `held` false, the expression is a name being called, not a value kept to be called later. */
   testFunction(
     expression: Expression,
     scopes: readonly Node[],
     returnsOf: CallContext['returnsOf'],
+    held = true,
   ): TestFunction | null {
-    return this.aliasOf(expression, { scopes, inBody: false, returnsOf });
+    return this.aliasOf(expression, { scopes, inBody: false, returnsOf }, held);
   }
 
   /**
    * The function a chain calls and the links after it, or null when it isn't the framework's. An import that can't be
-   * followed is reported only outside test and hook bodies, where a call can declare tests.
+   * followed is reported only outside test and hook bodies, where a call can declare tests. A chain `held` as a value,
+   * as a branch of `?:` or what a function returns, is called later with arguments not known here.
    */
-  protected resolve(chain: Chain, args: readonly Argument[], lookup: Lookup): TestFunction | null {
-    const start = this.start(chain, args, lookup);
+  protected resolve(chain: Chain, args: readonly Argument[], lookup: Lookup, held = false): TestFunction | null {
+    const start = this.start(chain, args, lookup, held);
     if (!start) return null;
     let kind = start.kind;
     let links = [...(start.modifiers ?? []), ...chain.links.slice(start.index)];
@@ -453,6 +456,7 @@ export abstract class SuiteAdapter implements Adapter {
     chain: Chain,
     args: readonly Argument[],
     lookup: Lookup,
+    held: boolean,
   ): { kind: Kind; index: number; modifiers?: Link[] } | null {
     const { base, links: chainLinks } = chain;
     const { scopes, inBody } = lookup;
@@ -500,7 +504,7 @@ export abstract class SuiteAdapter implements Adapter {
     }
     const followed =
       this.imports.get(base.name)?.node === declaration &&
-      this.worthFollowing(base.name, chainLinks, args) &&
+      this.worthFollowing(base.name, chainLinks, args, held) &&
       this.follow(base.name, !inBody && mayDeclareTests(base.name, chainLinks));
     if (!followed && !this.bindings.declarations.has(declaration)) {
       const alias = declaration.type === 'VariableDeclarator' ? this.alias(declaration, base.name, lookup) : null;
@@ -553,7 +557,7 @@ export abstract class SuiteAdapter implements Adapter {
     if (alias === undefined) {
       // Set first, so a variable defined through itself ends the lookup.
       this.aliases.set(declarator, null);
-      alias = declarator.init ? this.aliasOf(declarator.init, lookup) : null;
+      alias = declarator.init ? this.aliasOf(declarator.init, lookup, true) : null;
       this.aliases.set(declarator, alias);
     }
     return alias && { kind: alias.kind, links: [...alias.links, ...links(destructured)] };
@@ -573,8 +577,8 @@ export abstract class SuiteAdapter implements Adapter {
     return members;
   }
 
-  private aliasOf(expression: Expression, lookup: Lookup): TestFunction | null {
-    const functions = this.choices(expression, lookup)?.functions ?? [];
+  private aliasOf(expression: Expression, lookup: Lookup, held = false): TestFunction | null {
+    const functions = this.choices(expression, lookup, held)?.functions ?? [];
     if (functions.length === 0) return null;
     // Only the modifiers every choice has apply.
     return functions.slice(1).reduce<TestFunction | null>((common, item) => shared(common, item), functions[0]);
@@ -585,15 +589,19 @@ export abstract class SuiteAdapter implements Adapter {
    * function is never falsy, so `test.skip || test` and `test.skip ?? test` hold `test.skip`, while
    * `process.env.CI && test.skip || test` may hold either. Both branches of `?:` have to be test functions.
    */
-  private choices(expression: Expression, lookup: Lookup): { functions: TestFunction[]; mayBeOther: boolean } | null {
+  private choices(
+    expression: Expression,
+    lookup: Lookup,
+    held: boolean,
+  ): { functions: TestFunction[]; mayBeOther: boolean } | null {
     const node = unwrap(expression);
     if (node.type === 'ConditionalExpression') {
-      const [yes, no] = [this.choices(node.consequent, lookup), this.choices(node.alternate, lookup)];
+      const [yes, no] = [this.choices(node.consequent, lookup, true), this.choices(node.alternate, lookup, true)];
       if (!yes || !no) return null;
       return { functions: [...yes.functions, ...no.functions], mayBeOther: yes.mayBeOther || no.mayBeOther };
     }
     if (node.type === 'LogicalExpression') {
-      const [left, right] = [this.choices(node.left, lookup), this.choices(node.right, lookup)];
+      const [left, right] = [this.choices(node.left, lookup, true), this.choices(node.right, lookup, true)];
       const isFunction = left !== null && !left.mayBeOther;
       if (node.operator === '&&') return isFunction ? right : { functions: right?.functions ?? [], mayBeOther: true };
       if (isFunction) return left;
@@ -606,7 +614,7 @@ export abstract class SuiteAdapter implements Adapter {
     // A runner without modifiers, as Jasmine, has no members to hold: `it.only` is undefined there, while `fit` keeps
     // the `only` it carries.
     if (chain && chain.links.length > 0 && this.dialect.modifiers.size === 0) return null;
-    const resolved = chain ? this.resolve(chain, [], lookup) : null;
+    const resolved = chain ? this.resolve(chain, [], lookup, held) : null;
     const isAlias = resolved?.links.every((link) => this.isAliasLink(resolved.kind, link));
     return resolved && isAlias ? { functions: [resolved], mayBeOther: false } : null;
   }
@@ -652,11 +660,13 @@ export abstract class SuiteAdapter implements Adapter {
   /**
    * Whether a call through an imported name is worth following to the module: shaped like a test, a direct call with a
    * title of any kind and a body, as `test(TITLES.fill, fn)`, or such a call through any member of a name that reads
-   * like a test function, as `it.effect('title', fn)` on a test object that a package extends. What the name is gets
-   * decided there, so it doesn't depend on which call comes first.
+   * like a test function, as `it.effect('title', fn)` on a test object that a package extends. A name that reads like
+   * one and is held as a value, as in `open ? test : test.skip`, is followed too. What the name is gets decided there,
+   * so it doesn't depend on which call comes first.
    */
-  private worthFollowing(name: string, chainLinks: Link[], args: readonly Argument[]): boolean {
+  private worthFollowing(name: string, chainLinks: Link[], args: readonly Argument[], held: boolean): boolean {
     return (
+      (held && isTestName(name)) ||
       this.looksLikeTest(chainLinks, args) ||
       ((chainLinks.length === 0 || isTestName(name)) && hasDeclarationArguments(args))
     );
