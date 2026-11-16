@@ -286,7 +286,7 @@ export class VitestAdapter extends SuiteAdapter {
     ) {
       return null;
     }
-    const chosen = this.testFunction(callee, context.scopes, (name, scopes) => context.returnsOf(name, scopes));
+    const chosen = this.testFunction(callee, context.scopes, (name, scopes) => context.returnsOf(name, scopes), false);
     const member = chosen?.links.at(-1);
     if (!chosen || !member || member.args || member.template) return null;
     if (!readsItsFunction(chosen.kind, member.name, this.file.version)) return null;

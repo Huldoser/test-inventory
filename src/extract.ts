@@ -203,6 +203,11 @@ interface Context {
   /** The innermost function with a name being walked outside any test or hook; calling it registers its tests. */
   declaredIn: Node | null;
   /**
+   * While an imported helper is walked at a call in a function with a name walked where it is written: that function
+   * and the call. The tests the helper registers are listed at the call, and only a call of that function registers them.
+   */
+  calledIn: { fn: Node; call: CallExpression } | null;
+  /**
    * Set while a function is walked where it is written although it is also walked at its calls: only the states it sets
    * are collected, for calls from tests and hooks, and its tests and describes are not recorded again.
    */
@@ -447,8 +452,11 @@ class Walker {
    * time the helper is, and the first walk, from where the helper is called, places it.
    */
   private readonly callSites = new Map<Node, Map<Node, Placement>>();
-  /** The function with a name each test is declared in, which registers the test when it is called. */
-  private readonly declaredIn = new Map<PendingTest, Node>();
+  /**
+   * The function with a name each test is declared in, which registers the test when it is called, and the helper call
+   * in it that registers the test, if any.
+   */
+  private readonly declaredIn = new Map<PendingTest, { fn: Node; call: CallExpression | null }>();
   private readonly deferred: Deferred[] = [];
   private readonly isDeferred = new Set<Node>();
   /**
@@ -512,6 +520,7 @@ class Walker {
       isInFunction: false,
       helper: null,
       declaredIn: null,
+      calledIn: null,
       quiet: false,
       registeredBy: null,
     });
@@ -965,9 +974,15 @@ class Walker {
         context.test?.problems.push(...api.problems.map((item) => this.here(item)));
         return true;
       case 'invalid': {
-        // Code that runs after the file loads, or only when a condition holds, can't be sure to stop it loading.
+        // Code that runs after the file loads, only when a condition holds, or in a function the scan can't place, which
+        // runs only if something calls it, can't be sure to stop it loading.
         const afterLoad =
-          context.test !== null || context.hookScope !== null || context.helper !== null || context.isInCondition;
+          context.test !== null ||
+          context.hookScope !== null ||
+          context.helper !== null ||
+          context.declaredIn !== null ||
+          context.calledIn !== null ||
+          context.isInCondition;
         this.report({ ...api.problem, afterLoad: afterLoad || api.problem.afterLoad, scope: context.scope });
         // Under a condition, the call either never runs or fails the file, so it declares nothing either way.
         return api.declaration && !context.isInCondition ? this.handle(call, api.declaration, context) : true;
@@ -1028,7 +1043,9 @@ class Walker {
         hookName: context.test ? null : context.hookName,
         guards: context.guards,
       });
-    } else if (!this.callStack.includes(fn) && this.callStack.length < MAX_DEPTH) {
+    } else if (context.declaredIn === null && !this.callStack.includes(fn) && this.callStack.length < MAX_DEPTH) {
+      // From a describe in a function walked where it is written, the call only counts as one of the function's calls:
+      // walking it there would depend on which of the two functions the file declares first.
       return this.withinLimit({ fn, frame: this.frame }, call);
     }
     return null;
@@ -1194,6 +1211,7 @@ class Walker {
           ...context,
           isInFunction: true,
           declaredIn: null,
+          calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
           registeredBy: context.registeredBy ?? call,
         });
       },
@@ -1509,17 +1527,29 @@ class Walker {
    * else than where they are written: the runner adds a test to the describe around each call.
    */
   private checkFunctionTests(exported: Set<Node>): void {
-    for (const [test, innermost] of this.declaredIn) {
+    for (const [test, { fn: innermost, call }] of this.declaredIn) {
       let why: string | null = null;
       for (let fn: Node | null = innermost; fn && !why; fn = (this.written.get(fn) as Written).declaredIn) {
         why = this.misplaced(fn, exported);
       }
       if (!why) continue;
+      const registers = 'The runner registers the test at each call of the function, in the describe around the call';
+      if (call) {
+        const helper = `${snippet(this.main.parsed.source.slice(call.callee.start, call.callee.end))}()`;
+        test.problems.push(
+          problem(
+            'test-in-function',
+            test.site,
+            `The test is registered by ${helper} in a function, and ${why}. ${registers}; it is listed where ${helper} is called.`,
+          ),
+        );
+        continue;
+      }
       test.problems.push(
         problem(
           'test-in-function',
           test.call,
-          `The test is declared in a function, and ${why}. The runner registers the test at each call of the function, in the describe around the call; it is listed once, where it is written.`,
+          `The test is declared in a function, and ${why}. ${registers}; it is listed once, where it is written.`,
         ),
       );
     }
@@ -1622,7 +1652,8 @@ class Walker {
       problems: [...declaration.problems, ...empty].map((item) => this.here(item)),
     };
     this.tests.push(test);
-    if (context.declaredIn) this.declaredIn.set(test, context.declaredIn);
+    const placedBy = context.declaredIn ? { fn: context.declaredIn, call: null } : context.calledIn;
+    if (placedBy) this.declaredIn.set(test, placedBy);
     this.cut(context.scope, call);
     // A function declared in the file and passed by name runs as the test body too.
     this.withDeclarationBody(declaration, call, (body) => {

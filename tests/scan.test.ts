@@ -290,6 +290,82 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('keeps a file loaded when a helper it imports throws only from a function nothing calls', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/venues.js': `const { describe, test } = require('@jest/globals');
+
+function venueTests(venue) {
+  describe.each([])(\`\${venue} routes %s\`, (side) => {
+    test('nets a fill', () => {});
+  });
+}
+module.exports = { venueTests };
+`,
+      'tests/fees.test.js': `const { describe, test } = require('@jest/globals');
+const { venueTests } = require('./venues');
+
+const legacyDeskTests = () => {
+  describe('legacy desk', () => {
+    venueTests('NYSE');
+  });
+};
+test('books the commission', () => {});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['legacy desk > NYSE routes %s > nets a fill', 'active'],
+      ['books the commission', 'active'],
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['test-in-function', 6],
+      ['describe-throws', 6],
+    ]);
+  });
+
+  it('follows a test function a local module exports again when its first test passes the body by name and a timeout', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/runner.js': "const { test } = require('@jest/globals');\n\nmodule.exports = { test };\n",
+      'tests/margin.test.js': `const { test } = require('./runner');
+
+const TITLES = { call: 'raises a margin call' };
+const checkMargin = () => {};
+test(TITLES.call, checkMargin, 10_000);
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([['raises a margin call', 'active']]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('follows a test function a local module exports again when a condition or a function chooses it', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/runner.js': "const { it, test } = require('@jest/globals');\n\nmodule.exports = { it, test };\n",
+      'tests/runner.mjs': "export { it, test } from '@jest/globals';\n",
+      'tests/borrow.test.js': `const { test } = require('./runner');
+
+function onDesk(open) {
+  return open ? test : test.skip;
+}
+onDesk(!process.env.TRADING_LIVE_FEED)('locates shares to borrow', () => {});
+`,
+      'tests/margin.test.mjs': `import { it } from './runner.mjs';
+
+(process.env.TRADING_LIVE_FEED ? it : it.skip)('raises a margin call', () => {});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.{js,mjs}'], framework: 'jest' });
+    // As with a direct import, only what every choice has applies.
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['locates shares to borrow', 'active'],
+      ['raises a margin call', 'active'],
+    ]);
+    expect(inventory.diagnostics).toEqual([]);
+  });
+
   it('follows a default export', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,
@@ -908,6 +984,32 @@ test.describe('short sells', () => {
       true,
     );
     expect(inventory.diagnostics).toEqual([]);
+  });
+
+  it('warns at the call for the tests the helper registers from a describe in a function nothing calls', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'helpers/orders.ts': ORDERS_HELPERS,
+      'tests/orders.spec.ts': `import { test } from '@playwright/test';
+import { validatesQuantity } from '../helpers/orders';
+
+const legacyOrderTests = () => {
+  test.describe('buy orders', () => {
+    validatesQuantity('buy');
+  });
+};
+`,
+    });
+    const inventory = await scanProject(root);
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart])).toEqual([
+      ['buy orders > buy rejects a zero quantity', 6],
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['test-in-function', 6],
+    ]);
+    expect(inventory.diagnostics[0].message).toMatch(
+      /^The test is registered by validatesQuantity\(\) in a function, and nothing in the file calls the function by name\./,
+    );
   });
 
   it('finds the helper through barrels, default exports and renamed exports, and in nested helpers', async () => {
