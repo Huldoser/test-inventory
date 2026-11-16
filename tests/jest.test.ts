@@ -937,7 +937,7 @@ registerNetting('rates');
     expect(result.codes).toEqual([]);
   });
 
-  it('reads the names it can from a destructured require(), and none from a module of exports it cannot read', async () => {
+  it('reads the names it can from a require(), destructured or not, and not the ones it cannot read', async () => {
     const result = await scanned({
       'lib/symbols.js':
         "const SYMBOLS = ['AAPL', 'MSFT'];\nexports.SYMBOLS = SYMBOLS;\nexports.VENUES = [['XNAS', 'XNYS']];\n",
@@ -949,13 +949,20 @@ test.each(SYMBOLS)('routes %s', () => {});
 test.each(venues)('quotes on %s', () => {});
 test.each(rest.SYMBOLS)('books %s', () => {});
 test.each(limits.LOTS)('rounds %i lots', () => {});
+test(\`ticks at \${limits.TICK}\`, () => {});
+const symbols = require('../lib/symbols');
+test.each(Object.keys(symbols))('lists %s', () => {});
+test.each(Object.values(limits))('caps %s', () => {});
 `,
     });
     expect(result.tests).toEqual([
       ['routes %s', 'active', 2],
       ['quotes on %s', 'active', null],
       ['books %s', 'active', null],
-      ['rounds %i lots', 'active', null],
+      ['rounds %i lots', 'active', 2],
+      ['`ticks at ${limits.TICK}`', 'active', null],
+      ['lists %s', 'active', 2],
+      ['caps %s', 'active', null],
     ]);
   });
 

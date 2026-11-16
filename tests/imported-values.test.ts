@@ -104,6 +104,61 @@ describe('values imported from project files', () => {
     ]);
   });
 
+  it('works out one property of an object whose other values it cannot, written out or required', async () => {
+    const inventory = await scanFiles({
+      'package.json': VITEST_PACKAGE,
+      'tests/data/fees.cjs':
+        'module.exports = {\n  MINIMUM: 1.5,\n  DESK: "equities",\n  round: (fee) => Math.ceil(fee),\n};\n',
+      'tests/fees.test.ts': [
+        "import { test } from 'vitest';",
+        "const fees = require('./data/fees.cjs');",
+        "const TITLES = { fill: 'fills a limit order', format: (venue: string) => venue, route() { return 'IEX'; } };",
+        "const SIDES = ['buy', 'sell'];",
+        'test(TITLES.fill, () => {});',
+        'test(`routes ${SIDES.length} sides`, () => {});',
+        'test(`charges ${fees.MINIMUM} on the ${fees.DESK} desk`, () => {});',
+      ].join('\n'),
+    });
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'fills a limit order',
+      'routes 2 sides',
+      'charges 1.5 on the equities desk',
+    ]);
+    expect(messages(inventory)).toEqual([]);
+  });
+
+  it('keeps the source text of a property a spread, a key, a getter or a change may hide', async () => {
+    const inventory = await scanFiles({
+      'package.json': VITEST_PACKAGE,
+      'tests/data/fees.cjs': 'module.exports = { MINIMUM: 1.5 };\n',
+      'tests/fees.test.ts': [
+        "import { test } from 'vitest';",
+        "const fees = require('./data/fees.cjs');",
+        'fees.MINIMUM = 2;',
+        "const TITLES = { fill: 'fills a limit order', format: (venue: string) => venue };",
+        "const MORE = { ...TITLES, cancel: 'cancels a stale quote' };",
+        "const BY_VENUE = { [process.env.VENUE as string]: 'routes to the venue', fill: 'fills at the venue' };",
+        "const LABELS = { get fill() { return 'fills a limit order'; }, cancel: 'cancels a stale quote' };",
+        'test(LABELS.cancel, () => {});',
+        'test(LABELS.fill, () => {});',
+        'test(MORE.cancel, () => {});',
+        'test(BY_VENUE.fill, () => {});',
+        'test(TITLES[process.env.TITLE as string], () => {});',
+        'test(TITLES.missing, () => {});',
+        'test(`charges ${fees.MINIMUM}`, () => {});',
+      ].join('\n'),
+    });
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'cancels a stale quote',
+      'LABELS.fill',
+      'MORE.cancel',
+      'BY_VENUE.fill',
+      'TITLES[process.env.TITLE as string]',
+      'TITLES.missing',
+      '`charges ${fees.MINIMUM}`',
+    ]);
+  });
+
   it('names the module when an imported value still cannot be worked out', async () => {
     const inventory = await scanFiles(
       {

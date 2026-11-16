@@ -63,8 +63,9 @@ can read: string and number literals, constants, enums, arrays and objects built
 concatenation, template strings, arithmetic, `?:`, `&&`, `||`, `??`, comparisons, `Object.keys()`, `Object.values()`,
 `Object.entries()`, `JSON.stringify()`, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and an
 array's `join()`. Such values may be written in the file or exported by another file of the project, JSON files
-included. A function or class written in place as a title, as in `describe(function OrderBook() {}, ...)`, gives its
-name, as the runners read it:
+included. A property is worked out on its own, as `TITLES.fill` in an object that also holds a function, or
+`fees.MINIMUM` on a module that `const fees = require('./fees')` loads. A function or class written in place as a
+title, as in `describe(function OrderBook() {}, ...)`, gives its name, as the runners read it:
 
 ```ts
 import { TAGS } from '../../test-data/tags';
