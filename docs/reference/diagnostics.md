@@ -108,7 +108,8 @@ Only code that runs while the file loads counts. An `invalid-chain` inside a tes
 `test.step.skip()` before Playwright 1.50 or `test.slow()` in Vitest, runs later and fails only the test that reaches
 it, so the file loads. A refused call reached only under a condition, as in `if (process.env.LEGACY)
 test.only.skip(...)`, is reported, but its file's tests keep their states, since the file loads unless the condition
-holds. A test or describe inside a test or hook body is a `nested-test` warning only, even when its arguments are ones
+holds. So is one in a function the scan can't place, such as one nothing in the file calls, also inside a describe
+there and in a helper called only from it: it runs only if something calls the function. A test or describe inside a test or hook body is a `nested-test` warning only, even when its arguments are ones
 the runner refuses, as `it('title')` without a function in Jest: the runner refuses it when the test runs.
 
 ## Example

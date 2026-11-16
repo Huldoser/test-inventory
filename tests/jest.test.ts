@@ -795,6 +795,40 @@ describe('fees', {}, () => {
     expect(codes(inventory)).toEqual(['test-without-body', 'test-without-body', 'test-without-body']);
     expect(inventory.tests.every((test) => test.state === 'notLoaded')).toBe(true);
   });
+
+  it('keeps the file loaded when the describe that throws is in a function nothing calls', () => {
+    const inventory = scanJest(`
+const legacyDeskTests = () => {
+  describe('legacy desk', () => {
+    describe.each([])('routes %s', (venue) => {
+      test('fills an order', () => {});
+    });
+    venueTests('NYSE');
+  });
+};
+function venueTests(venue) {
+  describe(venue, () => {
+    describe.each([])('routes %s', (side) => {
+      test('nets a fill', () => {});
+    });
+  });
+}
+test('books the commission', () => {});
+`);
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['fills an order', 'active'],
+      ['nets a fill', 'active'],
+      ['books the commission', 'active'],
+    ]);
+    // venueTests is listed where it is written, so its describe keeps the parameter as its title.
+    expect(codes(inventory)).toEqual([
+      'describe-throws',
+      'test-in-function',
+      'dynamic-title',
+      'describe-throws',
+      'test-in-function',
+    ]);
+  });
 });
 
 describe('board follow-ups for the Jest release', () => {

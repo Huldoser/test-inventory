@@ -290,6 +290,40 @@ describe('scan follows a custom test object to its fixtures file', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('keeps a file loaded when a helper it imports throws only from a function nothing calls', async () => {
+    const root = project({
+      'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),
+      'tests/venues.js': `const { describe, test } = require('@jest/globals');
+
+function venueTests(venue) {
+  describe.each([])(\`\${venue} routes %s\`, (side) => {
+    test('nets a fill', () => {});
+  });
+}
+module.exports = { venueTests };
+`,
+      'tests/fees.test.js': `const { describe, test } = require('@jest/globals');
+const { venueTests } = require('./venues');
+
+const legacyDeskTests = () => {
+  describe('legacy desk', () => {
+    venueTests('NYSE');
+  });
+};
+test('books the commission', () => {});
+`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.test.js'], framework: 'jest' });
+    expect(inventory.tests.map((test) => [test.fullName, test.state])).toEqual([
+      ['legacy desk > NYSE routes %s > nets a fill', 'active'],
+      ['books the commission', 'active'],
+    ]);
+    expect(inventory.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.lineStart])).toEqual([
+      ['test-in-function', 6],
+      ['describe-throws', 6],
+    ]);
+  });
+
   it('follows a test function a local module exports again when a condition or a function chooses it', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),

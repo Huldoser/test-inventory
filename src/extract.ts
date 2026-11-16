@@ -974,9 +974,15 @@ class Walker {
         context.test?.problems.push(...api.problems.map((item) => this.here(item)));
         return true;
       case 'invalid': {
-        // Code that runs after the file loads, or only when a condition holds, can't be sure to stop it loading.
+        // Code that runs after the file loads, only when a condition holds, or in a function the scan can't place, which
+        // runs only if something calls it, can't be sure to stop it loading.
         const afterLoad =
-          context.test !== null || context.hookScope !== null || context.helper !== null || context.isInCondition;
+          context.test !== null ||
+          context.hookScope !== null ||
+          context.helper !== null ||
+          context.declaredIn !== null ||
+          context.calledIn !== null ||
+          context.isInCondition;
         this.report({ ...api.problem, afterLoad: afterLoad || api.problem.afterLoad, scope: context.scope });
         // Under a condition, the call either never runs or fails the file, so it declares nothing either way.
         return api.declaration && !context.isInCondition ? this.handle(call, api.declaration, context) : true;
