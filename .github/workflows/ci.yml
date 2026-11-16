@@ -241,11 +241,17 @@ jobs:
           - framework: jasmine
             version: 7.0.0
           - framework: cypress
+            version: 10.11.0
+          - framework: cypress
+            version: 11.2.0
+          - framework: cypress
             version: 12.17.4
           - framework: cypress
             version: 13.17.0
           - framework: cypress
             version: 16.3.0
+          - framework: webdriverio
+            version: 7.40.0
           - framework: webdriverio
             version: 8.46.0
           - framework: webdriverio
