@@ -96,7 +96,7 @@ Continue with the [Jest guide](/frameworks/jest), including config presets and t
 These are minimum supported versions. [Compared with the runners](/guide/runners#checked-in-ci) lists the specific
 versions checked in CI; it does not claim every later release has been tested.
 
-- [Playwright](/frameworks/playwright): Playwright 1.42 or newer.
+- [Playwright](/frameworks/playwright): Playwright 1.31 or newer.
 - [Vitest](/frameworks/vitest): Vitest 1.0 or newer.
 - [Jest](/frameworks/jest): Jest 27.0 or newer.
 - [Mocha](/frameworks/mocha): Mocha 10.0 or newer.

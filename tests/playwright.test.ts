@@ -246,6 +246,125 @@ test.fail.only('exports trades', async () => {});`,
     ]);
   });
 
+  it.each([
+    ["test.fail('rejects an order above buying power', async () => {})", 'expectedToFail', 'test.fail(title, body)'],
+    [
+      "test.skip('rejects an order above buying power', { tag: '@risk' }, async () => {})",
+      'skip',
+      'test.skip(title, details, body)',
+    ],
+    [
+      "test.fixme('rejects an order above buying power', { tag: '@risk' }, async () => {})",
+      'fixme',
+      'test.fixme(title, details, body)',
+    ],
+    [
+      "test.fail('rejects an order above buying power', { tag: '@risk' }, async () => {})",
+      'expectedToFail',
+      'test.fail(title, details, body)',
+    ],
+  ])('before Playwright 1.42, reads %s as a condition on every test in its scope', (call, state, form) => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test.describe('order ticket', () => {
+  test('submits a market order', async () => {});
+  ${call};
+  test('submits a limit order', async () => {});
+});
+test('shows the blotter', async () => {});`,
+      { frameworkVersion: '1.41.2' },
+    );
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['submits a market order', state],
+      ['submits a limit order', state],
+      ['shows the blotter', 'active'],
+    ]);
+    const callee = form.slice(0, form.indexOf('('));
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'skip-without-body',
+        level: 'warning',
+        message: `${form} needs Playwright 1.42 or newer; before it, Playwright reads the title as a condition and applies ${callee}() to every test in the scope.`,
+        lineStart: 4,
+      },
+    ]);
+  });
+
+  it('before Playwright 1.42, keeps the title tags of a test and leaves out its details', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test('cancels an open order @orders', { tag: '@risk', annotation: { type: 'issue', description: 'TRD-412' } }, async () => {});`,
+      { frameworkVersion: '1.41.2' },
+    );
+    expect(onlyTest(inventory)).toMatchObject({ state: 'active', tags: ['@orders'], annotations: [] });
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'invalid-chain',
+        level: 'warning',
+        message:
+          'test(title, details, body) needs Playwright 1.42 or newer; before it, Playwright takes the details for the body, so the test fails when it runs, without their tags and annotations.',
+        source: 'test',
+      },
+    ]);
+  });
+
+  it('before Playwright 1.42, reports a describe with details, which makes Playwright fail to load the file', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test('shows the blotter', async () => {});
+test.describe.serial('limit orders', { tag: '@orders' }, () => {
+  test('places a limit order', async () => {});
+});`,
+      { frameworkVersion: '1.41.2' },
+    );
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['shows the blotter', 'notLoaded'],
+      ['places a limit order', 'notLoaded'],
+    ]);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'invalid-chain',
+        level: 'error',
+        message:
+          'test.describe.serial(title, details, body) needs Playwright 1.42 or newer; the call throws, so Playwright fails to load the file and runs no tests at all.',
+        source: 'test.describe.serial',
+      },
+    ]);
+  });
+
+  it('before Playwright 1.42, lists a test without a body, which fails when it runs', () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test('shows the order history');
+test('shows the blotter', async () => {});`,
+      { frameworkVersion: '1.41.2' },
+    );
+    expect(inventory.tests.map((test) => [test.title, test.state])).toEqual([
+      ['shows the order history', 'active'],
+      ['shows the blotter', 'active'],
+    ]);
+    expect(inventory.diagnostics).toMatchObject([
+      {
+        code: 'test-without-body',
+        level: 'warning',
+        message: 'test() has no test body, so the test fails when it runs.',
+        lineStart: 2,
+      },
+    ]);
+  });
+
+  it("before Playwright 1.42, gives a test only the tags of its own title, as Playwright's report does", () => {
+    const inventory = scanPlaywright(
+      `${PLAYWRIGHT_IMPORT}
+test.describe('market orders @smoke', () => {
+  test('buys at the ask @orders', async () => {});
+});`,
+      { frameworkVersion: '1.41.2' },
+    );
+    expect(onlyTest(inventory).tags).toEqual(['@orders']);
+    expect(inventory.suites[0].tags).toEqual([]);
+  });
+
   it('reports a test without a body, which fails the whole file in Playwright', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 test('shows the order history');

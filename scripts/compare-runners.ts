@@ -117,12 +117,32 @@ interface PlaywrightSuite {
   suites?: PlaywrightSuite[];
 }
 
+interface PlaywrightReport {
+  config: { rootDir: string };
+  suites: PlaywrightSuite[];
+  errors: unknown[];
+}
+
+/** Lists the tests of the given files, or else of all, with Playwright's JSON report. */
+function playwrightList(work: string, files: string[]): PlaywrightReport {
+  try {
+    return JSON.parse(
+      run('npx', ['playwright', 'test', '--list', '--reporter=json', ...files], work),
+    ) as PlaywrightReport;
+  } catch (error) {
+    // A file that fails to load makes Playwright exit with 1; the report still says why.
+    return JSON.parse((error as { stdout: string }).stdout) as PlaywrightReport;
+  }
+}
+
 function playwrightTests(work: string): RunnerTest[] {
-  const report = JSON.parse(run('npx', ['playwright', 'test', '--list', '--reporter=json'], work)) as {
-    config: { rootDir: string };
-    suites: PlaywrightSuite[];
-  };
-  const testDir = posix(path.relative(work, report.config.rootDir));
+  let reports = [playwrightList(work, [])];
+  // A file that fails to load stops Playwright from listing any test, so each file is then listed on its own.
+  if (reports[0].errors.length > 0) {
+    const files = globSync(PROJECTS.playwright.patterns, { cwd: work }).sort();
+    reports = files.map((file) => playwrightList(work, [file]));
+  }
+  const testDir = posix(path.relative(work, reports[0].config.rootDir));
   const tests = new Map<string, RunnerTest>();
   const visit = (suite: PlaywrightSuite, titles: string[]) => {
     for (const spec of suite.specs ?? []) {
@@ -143,7 +163,7 @@ function playwrightTests(work: string): RunnerTest[] {
     for (const child of suite.suites ?? []) visit(child, child.title ? [...titles, child.title] : titles);
   };
   // The top-level suites are the files.
-  for (const file of report.suites) visit(file, []);
+  for (const file of reports.flatMap((report) => report.suites)) visit(file, []);
   return [...tests.values()];
 }
 
