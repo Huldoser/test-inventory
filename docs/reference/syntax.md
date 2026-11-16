@@ -236,7 +236,7 @@ a helper or spec file is not read. A `beforeEach` in a helper file runs around e
 
 <!-- #region syntax-cypress -->
 
-Cypress 13.0 and newer.
+Cypress 12.0 and newer.
 
 ### Where test comes from
 
@@ -269,7 +269,7 @@ file is `notLoaded`; the other specs run.
 
 <!-- #region syntax-webdriverio -->
 
-WebdriverIO 9.0 and newer, with Mocha or Jasmine. The config's `framework` decides which, Mocha by default; Cucumber's
+WebdriverIO 8.0 and newer, with Mocha or Jasmine. The config's `framework` decides which, Mocha by default; Cucumber's
 feature files are not read.
 
 ### Where test comes from

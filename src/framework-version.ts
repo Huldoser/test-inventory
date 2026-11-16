@@ -50,8 +50,8 @@ export const OLDEST: Record<Framework, number[]> = {
   jest: [27, 0],
   mocha: [10, 0],
   jasmine: [4, 0],
-  cypress: [13, 0],
-  webdriverio: [9, 0],
+  cypress: [12, 0],
+  webdriverio: [8, 0],
   node: [22, 0],
   bun: [1, 2, 23],
 };
