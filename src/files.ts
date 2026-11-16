@@ -132,7 +132,8 @@ export async function findFiles(
   }
   const candidates: (FoundFile & { realPath: string; linked: boolean })[] = [];
   // The default sort compares UTF-16 code units, so the order is the same on every machine and locale.
-  for (const match of matches.map((item) => item.replaceAll('\\', '/')).sort()) {
+  // Only on Windows is a backslash a separator; elsewhere it is part of a file's name.
+  for (const match of matches.map((item) => normalizePattern(item, platform)).sort()) {
     if (!EXTENSIONS.test(match)) {
       diagnostics.push(
         fileDiagnostic('unsupported-file', match, 'The file is not JavaScript or TypeScript, so it was not read.'),

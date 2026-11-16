@@ -1768,10 +1768,11 @@ export class ConfigRuns {
         found = strings(setting);
       }
       if (!Array.isArray(found)) return this.unknownProject(config, found, key);
-      // tinyglobby, which Vitest finds files with, takes an absolute pattern as one in the folder it searches.
-      const relative = (found as string[]).map((glob) =>
-        path.isAbsolute(glob) ? posix(path.relative(base, glob)) : glob,
-      );
+      // tinyglobby, which Vitest finds files with, takes an absolute pattern as one in the folder it searches; one that
+      // names that folder itself matches no file, and picomatch refuses the empty pattern it becomes.
+      const relative = (found as string[])
+        .map((glob) => (path.isAbsolute(glob) ? posix(path.relative(base, glob)) : glob))
+        .filter((glob) => glob !== '');
       const isMatch = picomatch(relative, { dot: true });
       // An excluded folder leaves out everything in it, as the glob doesn't enter it.
       matchers.push(isExclude ? (file) => folders(file).some((part) => isMatch(part) || isMatch(`${part}/`)) : isMatch);

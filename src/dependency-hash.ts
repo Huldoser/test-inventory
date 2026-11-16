@@ -1426,10 +1426,13 @@ export class DependencyGraph {
   }
 
   private importOf(module: Module, specifier: Node): Extract<Node, { type: 'ImportDeclaration' }> {
-    const program = (module.parsed as ParsedFile).program;
-    return program.body.find(
-      (statement) => statement.type === 'ImportDeclaration' && contains(statement, specifier),
-    ) as Extract<Node, { type: 'ImportDeclaration' }>;
+    // An import is also written inside a TypeScript `declare module` block, or a block where a loader such as reify
+    // allows one, so the search goes down to the specifier.
+    let node: Node = (module.parsed as ParsedFile).program;
+    while (node.type !== 'ImportDeclaration') {
+      node = childNodes(node).find((child) => contains(child, specifier)) as Node;
+    }
+    return node;
   }
 
   /** The units a unit uses directly: the declarations its names refer to, and the modules it loads. */

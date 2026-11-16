@@ -42,6 +42,15 @@ describe('file discovery boundaries', () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it('keeps a backslash in a file name where it is no folder separator', async () => {
+    const root = project({ 'tests/fx\\rates.test.ts': '', 'tests/orders.test.ts': '' });
+    const { files, diagnostics } = await findFiles(root, ['tests/**/*.test.ts'], [], 'vitest');
+    // Windows takes the backslash for a separator, so there the file is in a folder.
+    const name = path.sep === '\\' ? 'tests/fx/rates.test.ts' : 'tests/fx\\rates.test.ts';
+    expect(files.map((file) => file.relativeFilePath)).toEqual([name, 'tests/orders.test.ts']);
+    expect(diagnostics).toEqual([]);
+  });
+
   it('recognizes a linked Node test folder named with Windows path separators', async () => {
     const root = project({ 'shared/orders.test.mjs': '', 'tests/quotes.test.mjs': '' });
     symlinkSync(path.join(root, 'shared'), path.join(root, 'tests/linked'), 'junction');
