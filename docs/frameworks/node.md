@@ -63,6 +63,8 @@ Use `--framework node` for node:test. The scanner itself still needs Node.js 22.
 There is no config file the scan reads: `node.config.json` holds no file selection and Node.js reads it only
 with `--config-file`. File selection comes from explicit globs, or the `node --test` commands of the package scripts in
 the root and in each package below it, run from its folder; see [file selection](/reference/output#node-test-file-selection).
+A script's `--test-name-pattern` and `--test-skip-pattern` are not applied: every test in the files is listed, while
+the runner runs and reports only those whose names they let through.
 
 Script `--import`, `--require` and `--test-global-setup` files enter dependency hashes. They are not executed.
 Named `test` and `it` imports carry the module's hooks, `describe`, `suite` and test functions, just as the default
