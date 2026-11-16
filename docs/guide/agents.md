@@ -87,7 +87,8 @@ A line in the project's `AGENTS.md`, or `CLAUDE.md` for Claude Code, tells agent
 ```md
 To find tests and their skip reasons without running them, use
 `npx test-inventory "tests/**/*.spec.ts" --framework playwright` with `--state`, `--tag`, `--grep` and `--fields`.
-To find the tests a change can affect, pass the changed files with `--related`.
+To find the tests a change can affect, pass the changed files with `--related`; add `--format commands` for the
+commands that run them.
 Options: https://huldoser.github.io/test-inventory/guide/cli
 ```
 
