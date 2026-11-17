@@ -317,6 +317,25 @@ jobs:
     needs: [test, lint, package, oldest-node, docs, secrets, workflows, compare]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read # to list the jobs of this run
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
+      # needs.<job>.result is success for a matrix job when GitHub cancels one of its legs because no runner took it,
+      # so every job of this run attempt, each matrix leg included, must also have succeeded or been skipped.
+      - name: Check every job of this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IGNORED: Scan public projects
+        run: |
+          jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100"
+          gh api --paginate "$jobs" |
+            jq -r --arg ignored "$IGNORED" '.jobs[]
+              | select(.name != "ci" and .name != $ignored)
+              | select(.conclusion != "success" and .conclusion != "skipped")
+              | "\(.name): \(.conclusion // .status)"' > not-passed.txt
+          if [ -s not-passed.txt ]; then
+            while read -r job; do echo "::error::Not passed: $job"; done < not-passed.txt
+            exit 1
+          fi
