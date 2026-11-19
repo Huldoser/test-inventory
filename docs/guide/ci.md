@@ -98,7 +98,8 @@ fixme live price stream > shows a stale badge when the stream disconnects (tests
 
 Scan the pull request's exact base and head revisions with the same installed tool, then compare the complete
 inventories. The diff follows renamed and moved tests when its matching evidence allows it. `newlySkipped` means
-an active or expected-to-fail test became skip, fixme or todo; it does not prove that a conditional state held in CI.
+an active or expected-to-fail test became skip, fixme or todo, or a conditional skip state became unconditional.
+The records retain the conditions so you can check whether they held in CI.
 
 ```yaml
 # Another job in the workflow above, under jobs:

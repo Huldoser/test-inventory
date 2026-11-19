@@ -147,8 +147,14 @@ function kindsOf(before: TestRecord, after: TestRecord, fields: (keyof TestRecor
   if (fields.includes('dependencyHash')) kinds.push('dependenciesChanged');
   const disabled = (test: TestRecord) => ['skip', 'fixme', 'todo'].includes(test.state);
   const runnable = (test: TestRecord) => ['active', 'expectedToFail'].includes(test.state);
-  if (runnable(before) && disabled(after)) kinds.push('newlySkipped');
-  if (disabled(before) && runnable(after)) kinds.push('reEnabled');
+  const disabledUnderDifferentConditions =
+    before.isConditional !== after.isConditional && disabled(before) && disabled(after);
+  if ((runnable(before) && disabled(after)) || (disabledUnderDifferentConditions && !after.isConditional)) {
+    kinds.push('newlySkipped');
+  }
+  if ((disabled(before) && runnable(after)) || (disabledUnderDifferentConditions && after.isConditional)) {
+    kinds.push('reEnabled');
+  }
   if (fields.includes('state')) kinds.push('stateChanged');
   if (fields.includes('tags')) kinds.push('tagsChanged');
   if (fields.some((field) => !CLASSIFIED.has(field))) kinds.push('metadataChanged');

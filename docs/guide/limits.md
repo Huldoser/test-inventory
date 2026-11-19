@@ -228,7 +228,8 @@ an unknown pass count alone does not establish that the file fails to load.
 A `test.each` or `test.for` table is listed once, with `isParameterized: true` and `caseCount` set when the scan can
 count its rows. A list written out, its spreads, a constant the file doesn't change, and `Object.keys()`,
 `Object.values()` and `Object.entries()` of an object written out can be counted even when one of their values can't
-be worked out, as in `[NaN, Infinity].forEach(...)` or a table with a call in a row.
+be worked out, as in `[NaN, Infinity].forEach(...)` or a table with a call in a row. The scan can also count rows
+in a table imported from a project module when it can follow the import and count the table in that module.
 
 With `--expand-cases` (library: `expandCases: true`), each case of a table and each pass of a loop whose values the
 scan can work out is its own record, with the title the runner gives it, its `caseIndex`, and a `caseCount` of 1. The

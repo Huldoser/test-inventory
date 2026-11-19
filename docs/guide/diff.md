@@ -56,6 +56,8 @@ The list sorts by the current file, full name and id, using the previous record 
 | `stateChanged`, `tagsChanged`        | The declared state or the set of tags changed.                                                                                                   |
 | `metadataChanged`                    | Other metadata changed, such as timeout, retries, focus, reasons, conditions or assertion counts.                                                |
 
+A conditional skip state becoming unconditional also counts as `newlySkipped`. The reverse counts as `reEnabled`.
+
 One test can have several kinds, so category counts overlap. `summary.changed` counts matched tests with changes;
 `summary.unchanged` counts matches without changes. Moving only to another line does not count as a change. Location
 keys, registration ids, `declaredAt`, `stateLine` and `unfollowedDependencies` are excluded from `changedFields`,

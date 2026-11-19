@@ -10,6 +10,18 @@ function inventory(source = code, file = 'tests/quotes.test.ts'): Inventory {
 }
 
 describe('diffInventories', () => {
+  it('detects a test becoming always skipped or running again under a condition', () => {
+    const source = `import { describe, test } from 'vitest';
+describe.runIf(process.env.PAPER_TRADING)('paper orders', () => {
+  test('quotes the bid', () => {});
+});`;
+    const conditional = inventory(source);
+    const always = inventory(source.replace("('paper orders'", ".skip('paper orders'"));
+
+    expect(diffInventories(conditional, always).summary).toMatchObject({ newlySkipped: 1, stateChanged: 0 });
+    expect(diffInventories(always, conditional).summary).toMatchObject({ reEnabled: 1, stateChanged: 0 });
+  });
+
   it('ignores line moves in annotations and Playwright steps', () => {
     const source = `import { test } from '@playwright/test';
 test('routes a limit order', { annotation: { type: 'issue', description: 'EXAMPLE-123' } }, async () => {
