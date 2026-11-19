@@ -1,5 +1,15 @@
 # test-inventory
 
+## 0.11.1
+
+### Patch Changes
+
+- [#149](https://github.com/Huldoser/test-inventory/pull/149) [`3c312ac`](https://github.com/Huldoser/test-inventory/commit/3c312ac0109c424c7c4fc46efad6b0b75c4917dc) - Report a conditional skip becoming unconditional as `newlySkipped`, and the reverse as `reEnabled`.
+
+- [#149](https://github.com/Huldoser/test-inventory/pull/149) [`3c312ac`](https://github.com/Huldoser/test-inventory/commit/3c312ac0109c424c7c4fc46efad6b0b75c4917dc) - Count rows in imported parameterized test tables when the row count is known but some row values cannot be worked out.
+
+- [#147](https://github.com/Huldoser/test-inventory/pull/147) [`ac689fd`](https://github.com/Huldoser/test-inventory/commit/ac689fdf569751b933a6b4a79a5c58cc5e1723af) - Update oxc-parser to 0.159.0 to pick up JavaScript and TypeScript parsing fixes.
+
 ## 0.11.0
 
 ### Minor Changes
