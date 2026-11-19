@@ -5,7 +5,7 @@
     "version": "<version>"
   },
   "framework": "vitest",
-  "frameworkVersion": "5.1.0",
+  "frameworkVersion": "5.1.1",
   "summary": {
     "fileCount": 2,
     "suiteCount": 3,

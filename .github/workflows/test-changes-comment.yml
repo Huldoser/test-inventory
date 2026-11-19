@@ -17,6 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: Huldoser/test-inventory-action@fb9fa984a08300f8afd0c33c54433285f6db916b # v0.2.0
+      - uses: Huldoser/test-inventory-action@48473bab797faaf42d0610254ba3b670d2cb6d36 # v0.2.1
         with:
           mode: comment
