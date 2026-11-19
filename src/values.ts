@@ -3,8 +3,8 @@ import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type Fun
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
-/** A value worked out from the file, or the reason it could not be. `importedFrom` names the module it came from. */
-export type Resolved = { ok: true; value: Value } | { ok: false; importedFrom: string | null };
+/** A resolved value or a failed lookup. `arrayLength` can record the size of an imported array with unknown items. */
+export type Resolved = { ok: true; value: Value } | { ok: false; importedFrom: string | null; arrayLength?: number };
 
 /** What a name is bound to, and the node that declares it: a declarator, import specifier, function or parameter list. */
 type Binding = { declaration: Node } & (
@@ -519,7 +519,7 @@ export class Values {
 
   private imported(source: string, name: string | null): Resolved {
     const resolved = name !== null && this.imports ? this.imports(source, name) : UNRESOLVED;
-    return resolved.ok ? resolved : { ok: false, importedFrom: source };
+    return resolved.ok ? resolved : { ...resolved, importedFrom: source };
   }
 
   /**
@@ -528,14 +528,13 @@ export class Values {
    * null otherwise. `seen` stops at a constant defined through itself.
    */
   lengthOf(node: Expression, scopes: readonly Node[], seen = new Set<string>()): number | null {
+    const expression = unwrap(node);
+    if (expression.type === 'Identifier') return this.lengthOfName(expression.name, scopes, seen);
     const resolved = this.resolve(node, scopes);
     if (resolved.ok) return Array.isArray(resolved.value) ? resolved.value.length : null;
-    const expression = unwrap(node);
-    if (expression.type === 'Identifier') {
-      const binding = this.lookup(expression.name, scopes)?.binding;
-      if (binding?.kind !== 'const' || seen.has(expression.name)) return null;
-      if (this.changedAtLoad(binding.scopes[0]).has(expression.name)) return null;
-      return this.lengthOf(binding.init, binding.scopes, new Set([...seen, expression.name]));
+    if (expression.type === 'MemberExpression') {
+      const member = this.namespaceMember(expression, scopes);
+      return member?.ok === false ? (member.arrayLength ?? null) : null;
     }
     if (expression.type === 'CallExpression' && isObjectListing(expression)) {
       const target = expression.arguments[0] as Expression;
@@ -549,6 +548,16 @@ export class Values {
       length += inner;
     }
     return length;
+  }
+
+  /** How many items a named array holds, including a project import whose values are unknown. */
+  lengthOfName(name: string, scopes: readonly Node[], seen = new Set<string>()): number | null {
+    const resolved = this.resolveName(name, scopes);
+    if (resolved.ok) return Array.isArray(resolved.value) ? resolved.value.length : null;
+    const binding = this.lookup(name, scopes)?.binding;
+    if (binding?.kind === 'import') return resolved.arrayLength ?? null;
+    if (binding?.kind !== 'const' || seen.has(name) || this.changedAtLoad(binding.scopes[0]).has(name)) return null;
+    return this.lengthOf(binding.init, binding.scopes, new Set([...seen, name]));
   }
 
   /** How many keys an object written out has, held in a constant the module doesn't change; null otherwise. */

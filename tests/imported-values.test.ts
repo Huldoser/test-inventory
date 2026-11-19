@@ -14,6 +14,30 @@ async function scanFiles(files: Record<string, string>, binary: Record<string, U
 const messages = (inventory: Inventory) => inventory.diagnostics.map((diagnostic) => diagnostic.message);
 
 describe('values imported from project files', () => {
+  it('counts imported rows even when their contents cannot be worked out', async () => {
+    const inventory = await scanFiles({
+      'package.json': VITEST_PACKAGE,
+      'fixtures/orders.ts': `export const ORDERS = [[() => 'buy'], [() => 'sell']];
+export const UNKNOWN = [...ordersFromBroker()];
+export const FIRST = ORDERS[0];`,
+      'fixtures/index.ts': "export * from './orders';",
+      'fixtures/overnight.cjs': "module.exports = [[() => 'moc']];",
+      'tests/orders.test.ts': `import { test } from 'vitest';
+import { ORDERS, UNKNOWN, FIRST } from '../fixtures/index';
+import * as fixtures from '../fixtures/index';
+import overnight from '../fixtures/overnight.cjs';
+const VENUE = 'NYSE';
+test.each(ORDERS)('routes an order', () => {});
+test.each(UNKNOWN)('routes an order from the broker', () => {});
+test.each(FIRST)('routes the first order', () => {});
+test.each(fixtures.ORDERS)('routes an order from the fixtures', () => {});
+test.each(overnight)('routes an overnight order', () => {});
+test.each(VENUE)('routes a single venue as a table', () => {});`,
+    });
+
+    expect(inventory.tests.map((test) => test.caseCount)).toEqual([2, null, null, 2, 1, null]);
+  });
+
   it('works out titles, tags, annotations and reasons from constants another file exports', async () => {
     const inventory = await scanFiles({
       'package.json': PLAYWRIGHT_PACKAGE,

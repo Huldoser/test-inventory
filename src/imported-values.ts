@@ -3,7 +3,7 @@ import { commonJsExport, commonJsNames, ownExport, parseModule, starReexport } f
 import type { ModuleReader, ModuleSource } from './model.ts';
 import { Values, type ImportReader, type Resolved, type Value } from './values.ts';
 
-const UNRESOLVED: Resolved = { ok: false, importedFrom: null };
+const UNRESOLVED = { ok: false, importedFrom: null } as const;
 
 /** How many modules deep a name is followed through re-exports and imports, as for test objects. */
 const MAX_DEPTH = 16;
@@ -76,18 +76,28 @@ export class ExportedValues {
         return opened.values.resolveName(name, [program]);
       }
     }
+    const resolve = (value: string | Expression): Resolved => {
+      const scopes = [program];
+      const result =
+        typeof value === 'string' ? opened.values.resolveName(value, scopes) : opened.values.resolve(value, scopes);
+      if (result.ok) return result;
+      // A failure may refer to an unresolved part of this expression, so only keep the length of the export itself.
+      const arrayLength =
+        typeof value === 'string' ? opened.values.lengthOfName(value, scopes) : opened.values.lengthOf(value, scopes);
+      return arrayLength === null ? UNRESOLVED : { ...UNRESOLVED, arrayLength };
+    };
     const own = ownExport(program, name);
-    if (own?.kind === 'default') return opened.values.resolve(own.value, [program]);
+    if (own?.kind === 'default') return resolve(own.value);
     if (own?.kind === 'function') return UNRESOLVED;
     if (own?.kind === 'specifier' && own.source !== null) {
       const from = module.readModule(own.source);
       return 'reason' in from ? UNRESOLVED : (this.exported(from, own.local) ?? UNRESOLVED);
     }
     if (own) {
-      return opened.values.resolveName(own.kind === 'specifier' ? own.local : name, [program]);
+      return resolve(own.kind === 'specifier' ? own.local : name);
     }
     const commonJs = commonJsExport(program, name);
-    if (commonJs) return opened.values.resolve(commonJs, [program]);
+    if (commonJs) return resolve(commonJs);
     // What `require()` gives for a module that exports its names one by one: an object of them.
     const names = name === 'default' ? commonJsNames(program) : [];
     if (names.length > 0) {
