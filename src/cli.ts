@@ -16,12 +16,15 @@ import { diffInventories } from './diff.ts';
 import { formatDiffMarkdown } from './diff-markdown.ts';
 import type { Inventory } from './types.ts';
 
+type OutputStream = Pick<Writable, keyof NodeJS.EventEmitter | 'errored' | 'write'>;
+type InputStream = Pick<Readable, typeof Symbol.asyncIterator>;
+
 export interface Io {
-  stdout: Writable;
-  stderr: Writable;
+  stdout: OutputStream;
+  stderr: Pick<Writable, 'write'>;
   cwd: string;
   /** Read for `--related -`. */
-  stdin?: Readable;
+  stdin?: InputStream;
 }
 
 export const HELP = `Usage: test-inventory [glob...] [options]
@@ -80,7 +83,7 @@ const FLAGS: Record<string, string> = {
 
 const FORMATS = ['json', 'jsonl', 'commands'];
 
-async function writeTo(stream: Writable, chunk: string): Promise<void> {
+async function writeTo(stream: OutputStream, chunk: string): Promise<void> {
   if (stream.errored) throw stream.errored;
   if (!stream.write(chunk)) await once(stream, 'drain');
 }
@@ -92,7 +95,7 @@ async function writeTo(stream: Writable, chunk: string): Promise<void> {
 async function writeOutput(
   io: Io,
   file: string | undefined,
-  write: (output: Writable) => Promise<void>,
+  write: (output: OutputStream) => Promise<void>,
 ): Promise<void> {
   if (file === undefined) {
     await write(io.stdout);
@@ -115,7 +118,7 @@ async function writeOutput(
 }
 
 /** All of a stream's text, as `git diff --name-only` writes to it. */
-async function text(stream: Readable): Promise<string> {
+async function text(stream: InputStream): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
   return Buffer.concat(chunks).toString('utf8');

@@ -87,7 +87,7 @@
     "changeset": "changeset"
   },
   "dependencies": {
-    "oxc-parser": "0.157.0",
+    "oxc-parser": "0.159.0",
     "picomatch": "^4.0.7",
     "tinyglobby": "^0.2.17"
   },
@@ -99,17 +99,25 @@
     "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "5.1.0",
     "ajv": "^8.20.0",
-    "eslint": "~10.14.0",
-    "prettier": "3.9.10",
+    "eslint": "~10.15.0",
+    "prettier": "3.10.1",
     "publint": "^0.3.25",
     "ts-json-schema-generator": "2.9.0",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.14.1",
     "typedoc-vitepress-theme": "^1.1.4",
     "typescript": "~6.0.3",
-    "typescript-eslint": "~8.72.1",
+    "typescript-eslint": "~8.73.0",
     "vitepress": "2.0.0-alpha.21",
     "vitepress-plugin-llms": "^1.14.0",
     "vitest": "5.1.0"
+  },
+  "overrides": {
+    "ts-json-schema-generator": {
+      "glob": "^14.0.6"
+    },
+    "vitepress-plugin-llms": {
+      "minimatch": "^11.0.9"
+    }
   }
 }
