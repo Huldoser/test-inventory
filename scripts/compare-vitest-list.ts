@@ -56,6 +56,7 @@ const CAUSES = {
     "The scan says the runner refuses the file, for code Vitest's parser doesn't check: `test.sequential` in Vitest 5",
   conditional: 'A condition decides the state at run time; Vitest reads `skipIf` and `runIf` as skip',
   dynamicTitle: 'The title is worked out at run time',
+  callTitle: 'Vitest omits tests whose titles are computed by a call',
   missingTests: 'The scan reports an `unresolved-test-import` error: tests that use the import are missing',
   otherRunner: "The scan reports a `framework-mismatch` error: the file imports another runner's test functions",
 };
@@ -286,6 +287,16 @@ export function compareWithVitest(root: string, inventory: Inventory, modules: L
     const name = call ? chainName(call.callee) : null;
     if (name !== null && !isVitestName(codeOf(test.relativeFilePath).imported.get(name) ?? name)) {
       return CAUSES.vitestName;
+    }
+    if (
+      inventory.frameworkVersion === '5.1.1' &&
+      module?.errors.length === 0 &&
+      !test.isNotLoaded &&
+      test.hasDynamicTitle &&
+      call?.arguments[0]?.type === 'CallExpression' &&
+      isFunctionNode(call.arguments[1])
+    ) {
+      return CAUSES.callTitle;
     }
     return null;
   }

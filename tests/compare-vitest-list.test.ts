@@ -129,3 +129,26 @@ describe('quote feed', () => {
     "The scan reports a `framework-mismatch` error: the file imports another runner's test functions",
   ]);
 });
+
+it.each([
+  { frameworkVersion: '5.1.0', errors: [], cause: null },
+  { frameworkVersion: '5.1.1', errors: [], cause: 'Vitest omits tests whose titles are computed by a call' },
+  { frameworkVersion: '5.1.1', errors: ['cannot read the test file'], cause: null },
+])(
+  'compares missing computed and literal titles with Vitest $frameworkVersion ($errors)',
+  ({ frameworkVersion, errors, cause }) => {
+    const file = 'orders.test.ts';
+    const code = `import { test } from 'vitest';
+for (const order of ['NYSE order']) {
+  test(order.toLowerCase(), () => {});
+}
+test('quotes the bid', () => {});`;
+    const root = project({ [file]: code });
+    const inventory = scanSource({ code, relativeFilePath: file, framework: 'vitest', frameworkVersion });
+
+    expect(compareWithVitest(root, inventory, [{ file, tests: [], errors }])).toEqual([
+      expect.objectContaining({ at: `${file}:3`, cause }),
+      expect.objectContaining({ at: `${file}:5`, cause: null }),
+    ]);
+  },
+);

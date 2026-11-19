@@ -97,7 +97,7 @@
     "@changesets/cli": "^3.0.3",
     "@types/node": "~22.12.0",
     "@types/picomatch": "^4.0.3",
-    "@vitest/coverage-v8": "5.1.0",
+    "@vitest/coverage-v8": "5.1.1",
     "ajv": "^8.20.0",
     "eslint": "~10.15.0",
     "prettier": "3.10.1",
@@ -110,7 +110,7 @@
     "typescript-eslint": "~8.73.0",
     "vitepress": "2.0.0-alpha.21",
     "vitepress-plugin-llms": "^1.14.0",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   },
   "overrides": {
     "ts-json-schema-generator": {
