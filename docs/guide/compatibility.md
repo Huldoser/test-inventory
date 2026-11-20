@@ -11,9 +11,8 @@ Three versions describe different contracts:
 - **Schema:** the inventory or diff format, each with its own JSON Schema. A diff's `schemaVersion: 1` is not the
   inventory's schema format.
 
-The site's version label identifies the core package used to build these pages. The MCP README pins its own minor
-release in setup commands. Before 1.0, breaking changes use a new minor release; a pin such as `test-inventory-mcp@0.9`
-accepts patch fixes within that minor.
+The site's version label identifies the core package used to build these pages. MCP setup examples use
+`test-inventory-mcp@latest` to follow npm's latest published MCP release. If npm enforces a minimum release age, `npx` can select an earlier version until a new release is old enough. Before 1.0, breaking tool changes raise the MCP minor version.
 
 ## Feature minimums
 
@@ -36,8 +35,8 @@ for patch details. Runner minimums and versions actually exercised in CI are lis
 ## Upgrading an MCP client
 
 From MCP 0.9, unknown keys are errors instead of silently ignored filters. Pass `states`, not `state`, and use only
-arguments declared by that tool. Update the client's configured package minor when adopting a breaking release,
-restart the server through the client and verify the tools again. Do not clear caches or change credentials as a
+arguments declared by that tool. If your client still specifies a package version, change its configuration to
+`test-inventory-mcp@latest`, restart the server and check its tool list. Do not clear caches or change credentials as a
 first response to an argument error.
 
 When ids were obtained with `expandCases`, pass the same setting to `get_tests`. Keep directory, framework and

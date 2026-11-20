@@ -26,7 +26,7 @@ before scanning private code.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@0.9 --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@latest --framework playwright
 ```
 
 `--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. It scans the test
@@ -57,14 +57,16 @@ refused, use the server's [troubleshooting steps](https://github.com/Huldoser/te
 | `scan_diagnostics` | What the scan could not read, such as a file that failed to parse.                                                                               |
 | `diff_inventories` | Changes between two complete saved JSON scans: additions, removals, renames, moves, states, tags, code and dependencies, with matching evidence. |
 
+With MCP 0.12.0 or later, call `get_run_commands` with `{"related":["pages/orders-blotter.ts"]}` to get the runner command, config, projects and test files for that change.
+On MCP 0.11, use `find_tests` with the same `related` list to see the affected tests.
+
 The tests have the keys of the [output](/reference/output). Each scan-tool call reads the files again, so answers follow the
 agent's edits. `related` takes the files a change touches, as `git diff --name-only` writes them, and keeps the tests
 whose [`dependencies`](/reference/output#tests) include one of them, as [`--related`](/guide/cli#tests-a-change-can-affect)
 does on the command line. Every scan tool also takes `expandCases`, which lists each case of a `.each` or `.for` table and
 each pass of a loop as its own test, with the name the runner gives it, as `--expand-cases` does.
 
-The server has its own versions. Before 1.0, a change that breaks its tools raises the minor version, so
-`test-inventory-mcp@0.9` gets fixes only. Pass only the arguments a tool lists; unknown keys are errors.
+The setup command requests npm's latest published MCP version. Check your client's tool list for the tools and arguments it supports. Unknown arguments return an error.
 
 `diff_inventories` reads saved scans instead. Pass `before` and `after`, paths inside the server's project, and
 `limit` and `cursor` for pages. Save complete JSON inventories with matching roots, patterns, filters and case
