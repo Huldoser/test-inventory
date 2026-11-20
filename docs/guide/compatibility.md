@@ -12,7 +12,7 @@ Three versions describe different contracts:
   inventory's schema format.
 
 The site's version label identifies the core package used to build these pages. MCP setup examples use
-`test-inventory-mcp@latest` to follow npm's latest published MCP release. Before 1.0, breaking tool changes raise the MCP minor version.
+`test-inventory-mcp@latest` to follow npm's latest published MCP release. If npm enforces a minimum release age, `npx` can select an earlier version until a new release is old enough. Before 1.0, breaking tool changes raise the MCP minor version.
 
 ## Feature minimums
 
