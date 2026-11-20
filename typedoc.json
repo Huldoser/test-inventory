@@ -1,7 +1,7 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/index.ts"],
   "tsconfig": "tsconfig.build.json",
+  "treatWarningsAsErrors": true,
   "skipErrorChecking": true,
   "out": "docs/api",
   "plugin": ["typedoc-plugin-markdown", "typedoc-vitepress-theme"],

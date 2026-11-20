@@ -187,6 +187,12 @@ The range of a dependency decides what `npm update` may install, and `tests/depe
 `typescript` stays on 6.0: typescript-eslint, TypeDoc and ts-json-schema-generator use the TypeScript 6 API, which
 TypeScript 7 does not have.
 
+TypeDoc 0.28.20 depends on minimatch 10, which is affected by
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249). Its override selects minimatch 11.
+`npm run docs:api` starts TypeDoc in `scripts/typedoc`, where the private manifest names the package and points
+directly to its TypeScript entry. This keeps the JSON schemas out of the API reference and avoids TypeDoc's glob
+expansion. When TypeDoc supports minimatch 11, remove the override and recheck the generated pages.
+
 ## Pull requests
 
 Keep a pull request to one change. Its title becomes the commit message when it is merged, so write it as a sentence
