@@ -1,5 +1,15 @@
 # test-inventory
 
+## 0.12.0
+
+### Minor Changes
+
+- [#152](https://github.com/Huldoser/test-inventory/pull/152) [`271bb7d`](https://github.com/Huldoser/test-inventory/commit/271bb7d8e2eca630c5eeac4dbb567ba565e38855) - Track files selected by relative literal Vite module globs in Vitest scans. Test records store the pattern groups in `dependencyGlobs`, so filtering a saved inventory can select tests for newly added or deleted matching files. Node ESM imports with a fixed relative filename and a dynamic query now track the source file.
+
+### Patch Changes
+
+- [#151](https://github.com/Huldoser/test-inventory/pull/151) [`4d404b9`](https://github.com/Huldoser/test-inventory/commit/4d404b93f83f9a11540a74cf571b32a933008e8b) - Resolve Vitest project paths and globs from the configured root. Report unknown project membership when the root cannot be read, so the scan no longer says those files will be skipped.
+
 ## 0.11.1
 
 ### Patch Changes
