@@ -14,7 +14,7 @@ jobs:
         with:
           persist-credentials: false
       - id: tests
-        uses: Huldoser/test-inventory-action@48473bab797faaf42d0610254ba3b670d2cb6d36 # v0.2.1
+        uses: Huldoser/test-inventory-action@1a971576a927060370e6a74ab307d0bf15b3eba8 # v0.2.3
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-inventory-report
