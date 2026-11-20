@@ -2,7 +2,7 @@
 // files, JSON shown is in their scan output, types shown are declared in src/, recipes print what the docs say, and
 // the reference pages list every diagnostic, option and key.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -194,6 +194,8 @@ describe('recipes', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'test-inventory-recipe-'));
     try {
       writeFileSync(path.join(dir, 'inventory.json'), readFileSync(goldenPath(block.marker?.value ?? '')));
+      mkdirSync(path.join(dir, 'node_modules'));
+      symlinkSync(repository, path.join(dir, 'node_modules', 'test-inventory'), 'junction');
       writeFileSync(path.join(dir, 'recipe.mjs'), block.code);
       const printed = execFileSync(process.execPath, ['recipe.mjs'], { cwd: dir, encoding: 'utf8' });
       expect(printed.replaceAll('\r\n', '\n').trimEnd()).toBe(block.output);

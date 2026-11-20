@@ -43,21 +43,23 @@ fixme tests/price-stream.spec.ts:14 live price stream > shows a stale badge when
 
 ## Tests a change can affect
 
-The tests whose code, fixtures, test data, config or snapshots include a changed file, and those that reach code the
-scan can't follow, with where. The CLI's `--related` gives the same tests; this shows them by file.
+Use `filterInventory` from the installed `test-inventory` package to apply the CLI's `--related` rules to a saved
+scan. A changed file can match a saved Vite module glob even if the file was added after the scan. Tests with
+unfollowed dependencies are also kept. The script shows each selected test and why it may be affected.
 
 <!-- recipe: trading-web -->
 
 ```js
 import { readFileSync } from 'node:fs';
+import { filterInventory } from 'test-inventory';
 
-const changed = new Set(['pages/orders-blotter.ts', 'test-data/tags.ts']);
-const { tests } = JSON.parse(readFileSync('inventory.json', 'utf8'));
-for (const test of tests) {
-  const reasons = test.dependencies.filter((file) => changed.has(file));
+const changed = ['pages/orders-blotter.ts', 'test-data/tags.ts'];
+const inventory = JSON.parse(readFileSync('inventory.json', 'utf8'));
+for (const test of filterInventory(inventory, { related: changed }).tests) {
+  const reasons = test.dependencies.filter((file) => changed.includes(file));
   reasons.push(...test.unfollowedDependencies.map((place) => `code the scan cannot follow at ${place}`));
-  if (reasons.length > 0)
-    console.log(`${test.relativeFilePath}:${test.lineStart} ${test.fullName} (${reasons.join(', ')})`);
+  if (reasons.length === 0) reasons.push('changed path matches a saved module glob');
+  console.log(`${test.relativeFilePath}:${test.lineStart} ${test.fullName} (${reasons.join(', ')})`);
 }
 ```
 
