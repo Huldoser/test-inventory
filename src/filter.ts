@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { globRelated } from './module-globs.ts';
 import { checkObject, OptionsError } from './options.ts';
 import { summarize } from './summary.ts';
 import type { Inventory, TestRecord, TestState } from './types.ts';
@@ -17,7 +18,7 @@ export interface InventoryFilter {
   withoutReason?: boolean;
   /**
    * Keeps the tests a change to one of these files can affect: those whose `dependencies` include it, and those that
-   * reach code the scan can't follow (`hasUnfollowedDependencies`). Paths are from the project root, as
+   * reach a matching module glob or code the scan can't follow (`hasUnfollowedDependencies`). Paths are from the project root, as
    * `dependencies` writes them. An empty list keeps only the tests the scan can't follow.
    */
   related?: string[];
@@ -44,6 +45,7 @@ const TEST_KEYS = Object.keys({
   bodyHash: true,
   dependencyHash: true,
   dependencies: true,
+  dependencyGlobs: true,
   hasUnfollowedDependencies: true,
   unfollowedDependencies: true,
   suiteId: true,
@@ -158,13 +160,26 @@ export function matcher(filter: InventoryFilter): (test: TestRecord) => boolean 
       : new Set(
           list(checked.related, 'filter.related', null).map((file) => path.posix.normalize(file.replaceAll('\\', '/'))),
         );
+  const groups = new Map<string, boolean>();
+  const relatedGroup = (patterns: string[]) => {
+    const key = JSON.stringify(patterns);
+    let matches = groups.get(key);
+    if (matches === undefined) {
+      matches = globRelated(patterns, related as Set<string>);
+      groups.set(key, matches);
+    }
+    return matches;
+  };
   return (test) =>
     (states.length === 0 || states.includes(test.state)) &&
     (tags.length === 0 || test.tags.some((tag) => tags.includes(tag))) &&
     (grep === null || grep.test(test.fullName)) &&
     (!only || test.isOnly) &&
     (!withoutReason || (!test.isActive && !test.isNotLoaded && test.reason === null)) &&
-    (related === null || test.hasUnfollowedDependencies || test.dependencies.some((file) => related.has(file)));
+    (related === null ||
+      test.hasUnfollowedDependencies ||
+      test.dependencies.some((file) => related.has(file)) ||
+      ((test as Partial<TestRecord>).dependencyGlobs ?? []).some(relatedGroup));
 }
 
 /**

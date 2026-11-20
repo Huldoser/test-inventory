@@ -196,6 +196,7 @@
         "cypress/support/e2e.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "15a76b663192cecb",
       "parentTestId": null,
@@ -285,6 +286,7 @@
         "src/OrderTicket.tsx"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "aa2d1f3ed19b3695",
       "parentTestId": null,
@@ -374,6 +376,7 @@
         "src/OrderTicket.tsx"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "aa2d1f3ed19b3695",
       "parentTestId": null,

@@ -360,6 +360,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "074fe1fecd876b55",
       "parentTestId": null,
@@ -447,6 +448,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "074fe1fecd876b55",
       "parentTestId": null,
@@ -533,6 +535,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "074fe1fecd876b55",
       "parentTestId": null,
@@ -620,6 +623,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "09a05e2811ed526e",
       "parentTestId": null,
@@ -707,6 +711,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "09a05e2811ed526e",
       "parentTestId": null,
@@ -794,6 +799,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "bbca260f3f84a734",
       "parentTestId": null,
@@ -881,6 +887,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "4d111e4ee0557d19",
       "parentTestId": null,
@@ -968,6 +975,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "4d111e4ee0557d19",
       "parentTestId": null,
@@ -1055,6 +1063,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "4d111e4ee0557d19",
       "parentTestId": null,
@@ -1141,6 +1150,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "4d111e4ee0557d19",
       "parentTestId": null,
@@ -1230,6 +1240,7 @@
         "wdio.conf.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "a0b8109bdb9ed9ba",
       "parentTestId": null,

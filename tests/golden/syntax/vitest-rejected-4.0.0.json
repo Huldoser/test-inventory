@@ -314,6 +314,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "9b8c9c751a192001",
       "parentTestId": null,
@@ -397,6 +398,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "9b8c9c751a192001",
       "parentTestId": null,
@@ -480,6 +482,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "4839062f18bbcd42",
       "parentTestId": null,
@@ -563,6 +566,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d891c3b51b58f2d6",
       "parentTestId": null,
@@ -646,6 +650,7 @@
         "tests/vitest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest-rejected.test.ts:24"
       ],

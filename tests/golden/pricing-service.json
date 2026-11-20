@@ -245,6 +245,7 @@
         "src/spread.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -327,6 +328,7 @@
         "src/spread.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -409,6 +411,7 @@
         "test/fx/cross-rates.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -491,6 +494,7 @@
         "test/fx/cross-rates.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -572,6 +576,7 @@
         "test/fx/cross-rates.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -654,6 +659,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d4e8ad4192b6252c",
       "parentTestId": null,
@@ -737,6 +743,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d4e8ad4192b6252c",
       "parentTestId": null,
@@ -820,6 +827,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d4e8ad4192b6252c",
       "parentTestId": null,
@@ -904,6 +912,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "0c3d22e90e7595c6",
       "parentTestId": null,
@@ -988,6 +997,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "c7474286196d7c2f",
       "parentTestId": null,
@@ -1073,6 +1083,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -1155,6 +1166,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "76080f80b7409d6f",
@@ -1238,6 +1250,7 @@
         "test/quotes.test.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "76080f80b7409d6f",

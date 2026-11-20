@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { moduleMatches, modulePatterns } from './module-globs.ts';
 import {
   visitorKeys,
   type CallExpression,
@@ -75,6 +76,7 @@ interface Unit {
   asks: string[] | null;
   /** The snapshot matchers its code calls, which compare against files beside the test file. */
   snapshots: SnapshotUse[];
+  globs?: { patterns: string[]; files: string[] }[];
   hash: string | null | undefined;
 }
 
@@ -124,6 +126,7 @@ interface Reach {
   /** The fixtures the units' code asks for; null when some of it asks for all. */
   asks: string[] | null;
   snapshots: SnapshotUse[];
+  globs: string[][];
 }
 
 /** What several reaches cover together, by file. */
@@ -177,6 +180,7 @@ export interface Dependencies {
   files: string[];
   /** The file and line of each place the test reaches that can't be followed, sorted. */
   unfollowed: string[];
+  globs: string[][];
 }
 
 /** Statements that only declare something, unless code in them runs while they are evaluated. */
@@ -528,6 +532,14 @@ function isLoadCode(statement: Node): boolean {
  * that code uses, in its own file and through imports. Each piece is read once per scan, however many tests reach it.
  */
 export class DependencyGraph {
+  private readonly root: string | null;
+  private readonly framework: Framework | null;
+
+  constructor(root: string | null = null, framework: Framework | null = null) {
+    this.root = root;
+    this.framework = framework;
+  }
+
   private readonly modules = new WeakMap<ParsedFile | ModuleSource, Module>();
   private readonly units: [WeakMap<object, Unit>, WeakMap<object, Unit>] = [new WeakMap(), new WeakMap()];
   private readonly imports = new WeakMap<Node, Unit>();
@@ -610,8 +622,14 @@ export class DependencyGraph {
     const fixtures: Fixtures[] = [];
     let asks: string[] | null = [];
     const snapshots: SnapshotUse[] = [];
+    const globs: string[][] = [];
     for (const unit of units) {
       snapshots.push(...unit.snapshots);
+      for (const glob of unit.globs ?? []) {
+        globs.push(glob.patterns);
+        // Vite exposes the file name as a key even when the module has no code to hash.
+        for (const file of glob.files) if (!byFile.has(file)) byFile.set(file, []);
+      }
       if (unit.place) places.push(unit.place);
       if (unit.fixtures) fixtures.push(unit.fixtures);
       if (unit.asks === null) asks = null;
@@ -624,7 +642,7 @@ export class DependencyGraph {
     }
     // Sorted by hash, so that moving code around in a file doesn't change it; each part keeps its own order.
     for (const hashes of byFile.values()) hashes.sort();
-    return { units, byFile, places, fixtures, asks, snapshots };
+    return { units, byFile, places, fixtures, asks, snapshots, globs };
   }
 
   /**
@@ -717,7 +735,9 @@ export class DependencyGraph {
     });
     // Places on one line, as two imports a statement makes, are one entry.
     const unfollowed = places.map((place) => `${place.relativeFilePath}:${place.source.position(start(place)).line}`);
-    return { hash: shortHash(`[${parts.join(',')}]`), files, unfollowed: [...new Set(unfollowed)] };
+    const groups = new Map(reached.flatMap((r) => r.globs).map((group) => [JSON.stringify(group), group]));
+    const globs = [...groups.keys()].sort().map((key) => groups.get(key) as string[]);
+    return { globs, hash: shortHash(`[${parts.join(',')}]`), files, unfollowed: [...new Set(unfollowed)] };
   }
 
   private newModule(
@@ -1551,9 +1571,17 @@ export class DependencyGraph {
           }
           break;
         }
-        case 'ImportExpression':
-          loadsByPath(node.source, scopes, node);
+        case 'ImportExpression': {
+          // In Node ESM the query distinguishes module instances while the pathname identifies their source.
+          const prefix =
+            this.framework === 'node' && node.source.type === 'TemplateLiteral'
+              ? node.source.quasis[0].value.cooked
+              : null;
+          const file = prefix?.match(/^(\.\.?\/[\w./-]+\.(?:mjs|js|cjs|json))\?/)?.[1];
+          if (file) add(this.imported(module, file, '*', types, node));
+          else loadsByPath(node.source, scopes, node);
           break;
+        }
         case 'CallExpression': {
           const { callee } = node;
           asks(node, scopes);
@@ -1578,13 +1606,25 @@ export class DependencyGraph {
               loadsByPath(node.arguments.at(0), scopes, node);
             }
             if (object.type === 'MetaProperty' && property.name.startsWith('glob')) {
-              edges.add(
-                this.placeUnit(
-                  module,
-                  node,
-                  "The modules this loads match a pattern, so dependencyHash doesn't cover them.",
-                ),
-              );
+              const patterns =
+                this.framework === 'vitest' && object.meta.name === 'import' && property.name === 'glob'
+                  ? modulePatterns(node, module.relativeFilePath)
+                  : null;
+              const files = patterns && this.root ? moduleMatches(this.root, patterns) : null;
+              if (patterns && files) {
+                (unit.globs ??= []).push({ patterns, files });
+                for (const file of files) {
+                  const relative = path.posix.relative(path.posix.dirname(module.relativeFilePath), file);
+                  add(this.imported(module, relative.startsWith('../') ? relative : './' + relative, '*', types, node));
+                }
+              } else
+                edges.add(
+                  this.placeUnit(
+                    module,
+                    node,
+                    "The modules this loads match a pattern, so dependencyHash doesn't cover them.",
+                  ),
+                );
             }
           }
           break;

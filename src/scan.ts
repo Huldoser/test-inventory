@@ -238,7 +238,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   projectDiagnostics.push(...found.diagnostics);
 
   const readerFor = moduleResolver(root);
-  const graph = new DependencyGraph();
+  const graph = new DependencyGraph(root, framework);
   const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
   const runs = new ConfigRuns(configs, framework, rules, patterns === null);

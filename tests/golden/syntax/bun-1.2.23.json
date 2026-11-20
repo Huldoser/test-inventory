@@ -266,6 +266,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -349,6 +350,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -432,6 +434,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -515,6 +518,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -598,6 +602,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -681,6 +686,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -764,6 +770,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -847,6 +854,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -930,6 +938,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1013,6 +1022,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1096,6 +1106,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1179,6 +1190,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1262,6 +1274,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1345,6 +1358,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1428,6 +1442,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1511,6 +1526,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1594,6 +1610,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1677,6 +1694,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1760,6 +1778,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "5a600f8c9ea66980",
       "parentTestId": null,
@@ -1843,6 +1862,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "fafb201788fb90ce",
       "parentTestId": null,
@@ -1927,6 +1947,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "7f4f592c8e630cad",
       "parentTestId": null,
@@ -2011,6 +2032,7 @@
         "tests/bun.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "7ae404c23b5aeb26",
       "parentTestId": null,

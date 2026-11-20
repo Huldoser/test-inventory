@@ -298,6 +298,7 @@
         "cypress/e2e/blotter.cy.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "f2e5142d4b4fdcc5",
       "parentTestId": null,
@@ -384,6 +385,7 @@
         "cypress/e2e/blotter.cy.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "8e029e3ccdfae106",
       "parentTestId": null,
@@ -472,6 +474,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b850d6c4c650ea08",
       "parentTestId": null,
@@ -561,6 +564,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b850d6c4c650ea08",
       "parentTestId": null,
@@ -651,6 +655,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b850d6c4c650ea08",
       "parentTestId": null,
@@ -740,6 +745,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b850d6c4c650ea08",
       "parentTestId": null,
@@ -829,6 +835,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b850d6c4c650ea08",
       "parentTestId": null,
@@ -920,6 +927,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b850d6c4c650ea08",
       "parentTestId": null,
@@ -1009,6 +1017,7 @@
         "src/ticket.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "bff5953a5e171ef6",
       "parentTestId": null,

@@ -162,6 +162,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -245,6 +246,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -328,6 +330,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -411,6 +414,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -494,6 +498,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -577,6 +582,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -660,6 +666,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -743,6 +750,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -826,6 +834,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -909,6 +918,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d1a691b172a73a62",
       "parentTestId": null,
@@ -992,6 +1002,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "38238f41887aba1a",
       "parentTestId": null,
@@ -1076,6 +1087,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -1157,6 +1169,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -1238,6 +1251,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -1319,6 +1333,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "7b5eeb2028787bbf",
@@ -1402,6 +1417,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "2b747993a2231cbc",
@@ -1486,6 +1502,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "7b5eeb2028787bbf",
@@ -1569,6 +1586,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -1650,6 +1668,7 @@
         "tests/node.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": "7f85288a2faefdf1",

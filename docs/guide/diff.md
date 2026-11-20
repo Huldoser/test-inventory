@@ -47,14 +47,14 @@ body edit in the same change can therefore appear as an addition and removal. `m
 `after` records, and `changedFields`. An addition has `before: null`, a removal `after: null`; both have `match: null`.
 The list sorts by the current file, full name and id, using the previous record for removals.
 
-| Kind                                 | Meaning                                                                                                                                          |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `added`, `removed`                   | No matching record on the other side.                                                                                                            |
-| `moved`, `renamed`                   | A matched test changed file, or changed title or suite path.                                                                                     |
-| `bodyChanged`, `dependenciesChanged` | The corresponding hash changed. A rename can change `dependencyHash`, which includes the call's title.                                           |
-| `newlySkipped`, `reEnabled`          | Active or expected-to-fail became skip, fixme or todo, or the reverse. Conditions remain in the records; this does not prove the condition held. |
-| `stateChanged`, `tagsChanged`        | The declared state or the set of tags changed.                                                                                                   |
-| `metadataChanged`                    | Other metadata changed, such as timeout, retries, focus, reasons, conditions or assertion counts.                                                |
+| Kind                                 | Meaning                                                                                                                                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `added`, `removed`                   | No matching record on the other side.                                                                                                                            |
+| `moved`, `renamed`                   | A matched test changed file, or changed title or suite path.                                                                                                     |
+| `bodyChanged`, `dependenciesChanged` | The corresponding hash changed, or the test reaches a different group of module patterns. A rename can change `dependencyHash`, which includes the call's title. |
+| `newlySkipped`, `reEnabled`          | Active or expected-to-fail became skip, fixme or todo, or the reverse. Conditions remain in the records; this does not prove the condition held.                 |
+| `stateChanged`, `tagsChanged`        | The declared state or the set of tags changed.                                                                                                                   |
+| `metadataChanged`                    | Other metadata changed, such as timeout, retries, focus, reasons, conditions or assertion counts.                                                                |
 
 A conditional skip state becoming unconditional also counts as `newlySkipped`. The reverse counts as `reEnabled`.
 
@@ -76,7 +76,7 @@ change them even in a patch. Rescan both revisions with one tool version when fo
 
 A scan with errors adds a warning: missing tests can look like additions or removals. An unreadable or partial scan
 cannot establish that a test was deleted. Inventories from different frameworks, with duplicate test ids, or not
-matching the complete schema v1 format are refused.
+matching the complete schema v1 format are refused. Complete records saved before `dependencyGlobs` was added are read with an empty list.
 
 ## Library and schema
 

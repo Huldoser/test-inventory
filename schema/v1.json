@@ -790,6 +790,16 @@
           "type": "boolean",
           "description": "Something the test reaches couldn't be followed, so a change there doesn't change `dependencyHash`."
         },
+        "dependencyGlobs": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Root-relative Vite module patterns, grouped by call. Within each group a leading ! excludes matching paths."
+        },
         "unfollowedDependencies": {
           "type": "array",
           "items": {
@@ -1231,6 +1241,7 @@
         "dependencyHash",
         "dependencies",
         "hasUnfollowedDependencies",
+        "dependencyGlobs",
         "unfollowedDependencies",
         "suiteId",
         "parentTestId",

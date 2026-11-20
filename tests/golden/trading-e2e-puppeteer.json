@@ -191,6 +191,7 @@
         "jest.config.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d25b69e9d445cd56",
       "parentTestId": null,
@@ -279,6 +280,7 @@
         "jest.config.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d25b69e9d445cd56",
       "parentTestId": null,
@@ -367,6 +369,7 @@
         "jest.config.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "d25b69e9d445cd56",
       "parentTestId": null,
@@ -457,6 +460,7 @@
         "jest.config.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "befc738454087eb0",
       "parentTestId": null,
@@ -543,6 +547,7 @@
         "jest.config.js"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "befc738454087eb0",
       "parentTestId": null,

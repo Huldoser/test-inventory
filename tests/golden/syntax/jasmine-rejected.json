@@ -161,6 +161,7 @@
         "tests/jasmine-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "f4b5e81e68c88cd0",
       "parentTestId": null,
@@ -244,6 +245,7 @@
         "tests/jasmine-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "f4b5e81e68c88cd0",
       "parentTestId": null,
@@ -327,6 +329,7 @@
         "tests/jasmine-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -408,6 +411,7 @@
         "tests/jasmine-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b5b1a94db57b12f2",
       "parentTestId": null,

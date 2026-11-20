@@ -475,6 +475,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -562,6 +563,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -649,6 +651,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -736,6 +739,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -823,6 +827,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -910,6 +915,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -997,6 +1003,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1086,6 +1093,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1173,6 +1181,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1260,6 +1269,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1347,6 +1357,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1434,6 +1445,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1521,6 +1533,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1608,6 +1621,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1695,6 +1709,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1782,6 +1797,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1869,6 +1885,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -1956,6 +1973,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -2043,6 +2061,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -2130,6 +2149,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -2217,6 +2237,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -2310,6 +2331,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
@@ -2399,6 +2421,7 @@
         "tests/vitest.test.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/vitest.test.ts:4"
       ],
