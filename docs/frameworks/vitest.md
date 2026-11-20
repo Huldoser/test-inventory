@@ -70,6 +70,9 @@ before Vitest 5 the config above it. It reads file and project selection,
 `test.globals`, run settings, modes, `allowOnly` and defined tags. A Vitest 3 project list in
 `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
 
+Paths and globs in `test.projects` start at `test.root`, then Vite's `root` if set.
+If the scan cannot read the root, it reports unknown membership for those entries.
+
 Without globs, a project list the scan can't read, as one built from the folders, a function in `test.projects`, or
 `test.workspace`, leaves candidates: the files the config's own `include` and `exclude` select, as projects mostly
 narrow those. Their tests' `projects` is `null`, and a `config-value-unknown` error says tests may be missing. With a
