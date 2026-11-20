@@ -80,7 +80,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write . --ignore-path .gitignore --ignore-path .prettierignore --ignore-path .git/info/exclude",
     "format:check": "node scripts/format-check.ts",
-    "docs:api": "typedoc",
+    "docs:api": "cd scripts/typedoc && typedoc --options ../../typedoc.json",
     "docs:dev": "npm run docs:api && vitepress dev docs",
     "docs:build": "npm run docs:api && vitepress build docs",
     "docs:preview": "vitepress preview docs",
@@ -115,6 +115,9 @@
   "overrides": {
     "ts-json-schema-generator": {
       "glob": "^14.0.6"
+    },
+    "typedoc": {
+      "minimatch": "^11.0.9"
     },
     "vitepress-plugin-llms": {
       "minimatch": "^11.0.9"

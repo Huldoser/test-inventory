@@ -1,0 +1,5 @@
+{
+  "name": "test-inventory",
+  "private": true,
+  "main": "../../src/index.ts"
+}
