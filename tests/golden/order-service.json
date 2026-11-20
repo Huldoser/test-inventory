@@ -428,6 +428,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "e5d3fd6171c3d3c6",
       "parentTestId": null,
@@ -515,6 +516,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "01368de13c737b6f",
       "parentTestId": null,
@@ -602,6 +604,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "01368de13c737b6f",
       "parentTestId": null,
@@ -692,6 +695,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "ce489a36e28daa91",
       "parentTestId": null,
@@ -782,6 +786,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "ce489a36e28daa91",
       "parentTestId": null,
@@ -871,6 +876,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "a2a7d7f0713569f9",
       "parentTestId": null,
@@ -958,6 +964,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "a2a7d7f0713569f9",
       "parentTestId": null,
@@ -1045,6 +1052,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "a2a7d7f0713569f9",
       "parentTestId": null,
@@ -1133,6 +1141,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "21e05ad9554be115",
       "parentTestId": null,
@@ -1221,6 +1230,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "21e05ad9554be115",
       "parentTestId": null,
@@ -1309,6 +1319,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "21e05ad9554be115",
       "parentTestId": null,
@@ -1397,6 +1408,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "21e05ad9554be115",
       "parentTestId": null,
@@ -1485,6 +1497,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "8e34b4d56c3217af",
       "parentTestId": null,
@@ -1573,6 +1586,7 @@
         "vitest.config.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "8e34b4d56c3217af",
       "parentTestId": null,

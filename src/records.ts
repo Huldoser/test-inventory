@@ -777,6 +777,7 @@ class RecordBuilder {
       dependencyHash: dependencies.hash,
       dependencies: dependencies.files,
       hasUnfollowedDependencies: dependencies.unfollowed.length > 0,
+      dependencyGlobs: dependencies.globs,
       unfollowedDependencies: dependencies.unfollowed,
       suiteId: describes.length > 0 ? (this.suiteIds.get(describes[describes.length - 1]) as string) : null,
       parentTestId: null,

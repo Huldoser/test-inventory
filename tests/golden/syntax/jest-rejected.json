@@ -161,6 +161,7 @@
         "tests/jest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b426b5f012cf6cd7",
       "parentTestId": null,
@@ -244,6 +245,7 @@
         "tests/jest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b426b5f012cf6cd7",
       "parentTestId": null,
@@ -327,6 +329,7 @@
         "tests/jest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "b426b5f012cf6cd7",
       "parentTestId": null,
@@ -410,6 +413,7 @@
         "tests/jest-rejected.test.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "9b11f61881d83cd0",
       "parentTestId": null,

@@ -87,6 +87,7 @@ const CLASSIFIED = new Set([
   'suitePath',
   'bodyHash',
   'dependencyHash',
+  'dependencyGlobs',
   'state',
   'tags',
   'isActive',
@@ -144,7 +145,7 @@ function kindsOf(before: TestRecord, after: TestRecord, fields: (keyof TestRecor
   if (fields.includes('relativeFilePath')) kinds.push('moved');
   if (before.title !== after.title || stable(before.suitePath) !== stable(after.suitePath)) kinds.push('renamed');
   if (fields.includes('bodyHash')) kinds.push('bodyChanged');
-  if (fields.includes('dependencyHash')) kinds.push('dependenciesChanged');
+  if (fields.includes('dependencyHash') || fields.includes('dependencyGlobs')) kinds.push('dependenciesChanged');
   const disabled = (test: TestRecord) => ['skip', 'fixme', 'todo'].includes(test.state);
   const runnable = (test: TestRecord) => ['active', 'expectedToFail'].includes(test.state);
   const disabledUnderDifferentConditions =
@@ -167,8 +168,8 @@ function kindsOf(before: TestRecord, after: TestRecord, fields: (keyof TestRecor
  * different tool versions are not compared; scan both revisions with one version for rename and body detection.
  */
 export function diffInventories(before: Inventory, after: Inventory): InventoryDiff {
-  checkInventory(before, 'before');
-  checkInventory(after, 'after');
+  before = checkInventory(before, 'before');
+  after = checkInventory(after, 'after');
   if (before.framework !== after.framework)
     throw new OptionsError(
       'before and after must use the same framework. Scan both revisions with the same --framework.',

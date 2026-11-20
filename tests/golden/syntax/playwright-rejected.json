@@ -165,6 +165,7 @@
         "tests/playwright-rejected.spec.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "33143feb6a9d2147",
       "parentTestId": null,
@@ -250,6 +251,7 @@
         "tests/playwright-rejected.spec.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "33143feb6a9d2147",
       "parentTestId": null,
@@ -335,6 +337,7 @@
         "tests/playwright-rejected.spec.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -416,6 +419,7 @@
         "tests/playwright-rejected.spec.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": null,
       "parentTestId": null,
@@ -497,6 +501,7 @@
         "tests/playwright-rejected.spec.ts"
       ],
       "hasUnfollowedDependencies": false,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [],
       "suiteId": "16a5d7a8c63ba8ab",
       "parentTestId": null,

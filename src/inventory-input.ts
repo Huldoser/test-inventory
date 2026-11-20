@@ -53,7 +53,16 @@ function matches(value: unknown, rule: Schema): boolean {
 }
 
 /** Validates a saved scan before a diff reads its records; projected records and JSON Lines are not full scans. */
-export function checkInventory(value: unknown, name: string): asserts value is Inventory {
+export function checkInventory(value: unknown, name: string): Inventory {
+  // Older complete v1 records predate dependencyGlobs. A saved scan can be shared with another caller.
+  if (value && typeof value === 'object' && 'tests' in value && Array.isArray(value.tests)) {
+    value = {
+      ...value,
+      tests: value.tests.map((test: unknown) =>
+        test && typeof test === 'object' && !('dependencyGlobs' in test) ? { ...test, dependencyGlobs: [] } : test,
+      ),
+    };
+  }
   let valid = false;
   try {
     JSON.stringify(value);
@@ -67,4 +76,5 @@ export function checkInventory(value: unknown, name: string): asserts value is I
   const ids = new Set(inventory.tests.map((test) => test.id));
   if (ids.size !== inventory.tests.length)
     throw new OptionsError(`${name} contains duplicate test ids. Scan it again without combining inventories.`);
+  return inventory;
 }

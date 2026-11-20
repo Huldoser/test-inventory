@@ -54,7 +54,7 @@ rename matching and incomplete comparisons.
 
 ## Related tests are candidates
 
-`--related` keeps tests whose dependencies include a changed file and tests with unfollowed dependencies. It can
+`--related` keeps tests whose dependencies or saved module patterns match a changed file and tests with unfollowed dependencies. It can
 therefore return more tests than the change actually affects. Network behavior, runtime file reads and installed
 packages can also connect tests to changes the scanner does not see.
 

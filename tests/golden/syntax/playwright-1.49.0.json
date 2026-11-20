@@ -677,6 +677,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -768,6 +769,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -858,6 +860,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -950,6 +953,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1040,6 +1044,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1136,6 +1141,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1226,6 +1232,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1316,6 +1323,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1406,6 +1414,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1496,6 +1505,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1582,6 +1592,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1668,6 +1679,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1754,6 +1766,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1838,6 +1851,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -1924,6 +1938,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2024,6 +2039,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2110,6 +2126,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2198,6 +2215,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2284,6 +2302,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2370,6 +2389,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2456,6 +2476,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2540,6 +2561,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2626,6 +2648,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2712,6 +2735,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2798,6 +2822,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2886,6 +2911,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -2972,6 +2998,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"
@@ -3058,6 +3085,7 @@
         "tests/playwright.spec.ts"
       ],
       "hasUnfollowedDependencies": true,
+      "dependencyGlobs": [],
       "unfollowedDependencies": [
         "tests/playwright.spec.ts:4",
         "tests/playwright.spec.ts:5"

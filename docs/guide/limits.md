@@ -272,11 +272,15 @@ something included. Some of what a test runs is out of its reach:
   gives `hasUnfollowedDependencies` and a `dependency-not-followed` warning. Other aliases, such as `@app/pricing`,
   read as installed packages.
 - Files read at runtime through `fs` or `fetch`, environment variables and the clock.
-- Import paths worked out at runtime from anything but string literals and the module's own folder, patterns such
-  as `import.meta.glob()`, and modules described only by `.d.ts` files. These give `hasUnfollowedDependencies` and a
+- Import paths worked out at runtime from anything but string literals and the module's own folder, unsupported glob calls, and modules described only by `.d.ts` files. These give `hasUnfollowedDependencies` and a
   `dependency-not-followed` warning. A path built from literals and `__dirname`, `import.meta.dirname` or
   `import.meta.url` with `path.join()`, `path.resolve()`, `new URL()`, `fileURLToPath()` or `pathToFileURL()`, as
-  `require(path.join(__dirname, 'venues', 'nasdaq.cjs'))`, is followed.
+  `require(path.join(__dirname, 'venues', 'nasdaq.cjs'))`, is followed. In node:test a relative JavaScript or JSON
+  filename written before a dynamic query in an import template is followed as well.
+- In Vitest the scan follows possible modules from `import.meta.glob('./venues/**/*.ts')`, including literal arrays
+  with negative entries. It accepts relative paths with simple names, stars and globstars, and an optional literal
+  boolean `eager`. Eager and lazy matches both contribute possible dependencies. Aliases, other options, paths leaving
+  the project and directories the scan cannot safely read keep the call marked unfollowed.
 - A config the runner's `--config` selects for a file a config found by name runs too, or that only a CI workflow or
   a wrapper script names. A setup path computed at runtime, such as `setupFiles: process.env.SETUP`, or a
   nonexistent path gives a `dependency-not-followed` warning. `require.resolve('./global-setup')` and

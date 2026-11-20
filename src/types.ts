@@ -332,6 +332,8 @@ export interface TestRecord {
   dependencies: string[];
   /** Something the test reaches couldn't be followed, so a change there doesn't change `dependencyHash`. */
   hasUnfollowedDependencies: boolean;
+  /** Root-relative Vite module patterns, grouped by call. Within each group a leading ! excludes matching paths. */
+  dependencyGlobs: string[][];
   /**
    * Where the test reaches what couldn't be followed: the file and line of each place, as `support/venues.ts:2`, sorted;
    * empty when `hasUnfollowedDependencies` is false. A `dependency-not-followed` warning at the place says what it is.

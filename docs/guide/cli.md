@@ -91,7 +91,7 @@ To keep only some files, give a narrower glob instead: the files left out are no
 `--related` keeps the tests a change to a file can affect: those whose
 [`dependencies`](/reference/output#tests) include it, which covers the tests themselves, the code, fixtures, test data,
 configs, setup files and snapshots they use, and the tests that reach code the scan can't follow, which a change may
-affect unseen. To list the web app's tests that use the orders blotter page object:
+affect unseen. Matching Vite module patterns also select the test, including for newly added or deleted files. To list the web app's tests that use the orders blotter page object:
 
 <!-- scan: trading-web -->
 
