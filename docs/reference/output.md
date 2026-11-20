@@ -440,7 +440,8 @@ that `testMatch` matches and `testIgnore` doesn't, matched against the full path
 For Vitest: the
 files under `test.dir`, `test.root` or `root` that `include` matches and `exclude` doesn't, with each version's
 defaults, `includeSource` files that hold in-source tests, `typecheck.include` when `typecheck.enabled` is on, and
-`benchmark.include`, whose files are marked `isBenchmark`. A project written in `test.projects` inherits the root config
+`benchmark.include`, whose files are marked `isBenchmark`. Paths and globs in `test.projects` start at `test.root`, then Vite's `root` if set.
+If the scan cannot read the root, it reports unknown membership for those entries. A project written in `test.projects` inherits the root config
 as each version decides, or the config its `extends` names. It runs from the config's root unless it sets its own, which
 Vitest 5 resolves from the config's root and older versions from the config's folder. A config file or folder it names
 is a project of its own, a folder without a config gets Vitest's defaults, and in Vitest 5 a config that lists projects

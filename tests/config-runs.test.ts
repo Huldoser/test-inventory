@@ -574,6 +574,32 @@ describe('which files a config runs, in the cases a review found', () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it.each(['desks', 'desk*', '<rootDir>/desks'])('resolves the Vitest project %s from test.root', async (entry) => {
+    const { diagnostics } = await placed(
+      {
+        'vitest.config.ts': `export default { root: 'legacy', test: { root: 'packages', projects: ['${entry}'] } };`,
+        'packages/desks/fill.test.ts': UNIT,
+        'desks/quote.test.ts': UNIT,
+      },
+      'vitest',
+      ['**/*.test.ts'],
+    );
+    expect(diagnostics).toEqual(['file-not-run desks/quote.test.ts']);
+  });
+
+  it('leaves Vitest project membership unknown when its relative path starts at a computed root', async () => {
+    const { inventory, diagnostics } = await placed(
+      {
+        'vitest.config.ts': "export default { test: { root: process.env.TEST_ROOT, projects: ['..'] } };",
+        'packages/desks/fill.unit.ts': UNIT,
+      },
+      'vitest',
+      ['**/*.unit.ts'],
+    );
+    expect(diagnostics).toEqual(['config-value-unknown vitest.config.ts']);
+    expect(inventory.tests[0]?.projects).toBeNull();
+  });
+
   it('leaves out the project folders a negated test.projects entry names', async () => {
     const { configs } = await placed(
       {

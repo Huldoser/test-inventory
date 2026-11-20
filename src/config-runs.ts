@@ -1579,24 +1579,26 @@ export class ConfigRuns {
     if (list.kind !== 'list') {
       return [this.unknownProject(config, unknownAt(list), 'test.projects', this.vitestCandidates(config, folder))];
     }
+    const written = writtenRoot(config.settings);
+    const root = typeof written === 'string' ? path.resolve(folder, written) : folder;
     this.expanding.set(config, name);
     const globs: string[] = [];
     // Vitest names an inline project without a name after its place among the entries that aren't paths.
     let index = 0;
     const projects = list.items.flatMap((item) => {
       if (item.kind === 'value' && typeof item.value === 'string') {
-        // `<rootDir>` is the config's folder, written with / as globs are.
-        const pattern = item.value.replace('<rootDir>', posix(folder));
+        if (written && typeof written !== 'string') return [this.unknownProject(config, written.setting, written.key)];
+        const pattern = item.value.replace('<rootDir>', () => posix(root));
         // Vitest globs every pattern and negation together, and reads a plain path as it is.
         if (pattern.startsWith('!') || picomatch.scan(pattern).isGlob) globs.push(pattern);
-        else return this.vitestPath(config, path.resolve(folder, pattern), container);
+        else return this.vitestPath(config, path.resolve(root, pattern), container);
         return [];
       }
       return this.vitestEntry(config, item, folder, String(index++), container);
     });
     const matches = globs.length
       ? globSync(globs, {
-          cwd: folder,
+          cwd: root,
           absolute: true,
           dot: true,
           onlyFiles: false,
