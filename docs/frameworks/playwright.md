@@ -73,6 +73,10 @@ or `playwright.chromium.launch()` through a default or CommonJS import is config
 invalid test declaration; so are `firefox`, `webkit`, `request`, `devices`, `selectors`, `errors`, `mergeTests` and
 `mergeExpects`. Extended test functions do not inherit those module exports.
 
+If a package.json script runs plain `playwright test` in a folder without a Playwright config, discovery uses Playwright's
+default test filenames and respects its ignore rules from that folder. A script with additional file filters needs
+explicit scan globs when there is no config.
+
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it, or one the scan can't read. A config named
 only in a CI workflow isn't read. A config built by a function the project writes, such as `configureE2e({ port: 3002 })`

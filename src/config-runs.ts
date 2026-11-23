@@ -484,8 +484,8 @@ export class ConfigRuns {
           config = stat.isDirectory() ? this.configs.inFolder(target) : this.configs.at(target);
           if (config === null) continue;
         }
-        // Vitest runs with its defaults without a config; the others refuse to start, or always find one.
-        if (config === null && this.framework !== 'vitest') continue;
+        // A plain Playwright test command and Vitest both collect tests without a config.
+        if (config === null && this.framework !== 'vitest' && !command.playwrightDefaults) continue;
         const key = `${config?.file ?? ''}\0${root}`;
         if (seen.has(key)) continue;
         seen.add(key);

@@ -57,6 +57,28 @@ describe('a scan without patterns', () => {
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['no-files-matched']);
   });
 
+  it('discovers default Playwright specs in the package that runs playwright test', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'apps/trader/package.json': JSON.stringify({ scripts: { test: 'playwright test' } }),
+      'apps/trader/orders.spec.ts': SPEC,
+      'apps/trader/market-data.ts': SPEC,
+      'apps/trader/.gitignore': 'archive/\n',
+      'apps/trader/archive/fees.spec.ts': SPEC,
+      'apps/quotes/package.json': JSON.stringify({ scripts: { test: 'playwright test --config missing.ts' } }),
+      'apps/quotes/quotes.spec.ts': SPEC,
+      'apps/positions/package.json': JSON.stringify({ scripts: { test: 'playwright test margin' } }),
+      'apps/positions/risk.spec.ts': SPEC,
+      'portfolio.spec.ts': SPEC,
+    });
+    const inventory = await scan({ root, framework: 'playwright' });
+    expect(inventory.files.map((file) => [file.relativeFilePath, file.config])).toEqual([
+      ['apps/trader/orders.spec.ts', null],
+    ]);
+    expect(inventory.tests.map((test) => test.title)).toEqual(['places a market order']);
+    expect(inventory.configs).toEqual([]);
+  });
+
   it('discovers Playwright files through a package script whose config is outside their ancestors', async () => {
     const root = project({
       'package.json': JSON.stringify({
