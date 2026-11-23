@@ -61,6 +61,9 @@ Other Vitest examples: [React](/frameworks/vitest-examples#react-with-testing-li
 
 ## Configuration and limits
 
+A local module can re-export a Vitest test function under another name. For a JavaScript call with a title, options
+and a callback, Vitest reads those three arguments even if more follow. The scan keeps the timeout in the options.
+
 The scan finds `vitest.config.*`, or `vite.config.*` when absent, in the test file's folder and its ancestors.
 A config elsewhere that reaches the file counts only when a package.json script in the file's folder or above names
 it, as in `vitest run --config vitest.config.integration.mts`; its globs are then read from the folder the script runs
