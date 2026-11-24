@@ -68,7 +68,8 @@ ancestor, combined with the nearest `package.json` `mocha` key. List options suc
 Explicit scan globs count as supplied specs, less `ignore`, because project scripts often pass Mocha its files.
 Without globs, the scan reads those scripts: a package.json script that starts Mocha, also through `nyc` or `c8`, as
 `nyc mocha --recursive 'src/**/*.spec.ts'`, runs the files its command line names, with the `.mocharc` found from the
-script's folder, as Mocha starts there.
+script's folder, as Mocha starts there. For example, a root script running `mocha 'test/**/*.spec.js'` collects
+`test/orders.spec.js`. It leaves out `test/quotes.cjs` unless another script or an explicit config entry selects it.
 The config's `timeout`, `retries` and `forbid-only` are read. Runtime or package-provided settings remain unknown.
 `this.skip()` is read from source; whether a conditional call actually skips a test needs a run.
 

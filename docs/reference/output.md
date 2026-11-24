@@ -481,7 +481,9 @@ starts `mocha`, `_mocha` or `ts-mocha` in a folder runs the files its command li
 folder: the `.mocharc` file `--config` names or that Mocha finds from there up, with the nearest package.json's `mocha`
 key, unless `--no-config` or `--no-package` leave them out; the specs it gives as arguments, along with the `spec`
 that remains; and its `--spec`, `--extension`, `--ignore`, `--file`, `--recursive` and `--ui` over the config's. Globs
-on the command line are read as Mocha reads quoted ones, also when a shell would expand them first. The config's
+on the command line are read as Mocha reads quoted ones, also when a shell would expand them first. When the root
+package has a readable Mocha command, discovery uses `./test` only for commands that have no spec. A separate
+script that runs plain `mocha` can therefore still collect files directly under `test/`. The config's
 `timeout`, which may be a string such as `'5s'`, and `retries` apply to every test.
 
 <!-- #endregion files-mocha -->

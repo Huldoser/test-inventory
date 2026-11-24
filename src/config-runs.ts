@@ -613,10 +613,14 @@ export class ConfigRuns {
    * takes, also in folders below with `recursive`, less those `ignore` matches; and the `file` entries, loaded first.
    * With globs, every file they match, less `ignore`. A timeout may be written as `'2s'`.
    */
-  private mochaProject(config: ConfigFile, settings: Setting, folder = this.configs.root): Project {
+  private mochaProject(config: ConfigFile, settings: Setting, scriptFolder?: string): Project {
+    const folder = scriptFolder ?? this.configs.root;
+    // Each script supplies its own default spec when it has no arguments. Don't add a second, implicit bare run.
+    const useScriptSpecs =
+      this.findsFiles && scriptFolder === undefined && this.routesIn(folder).some((route) => 'mocha' in route);
     const lists: Record<string, string[]> = {};
     for (const [key, fallback] of [
-      ['spec', ['./test']],
+      ['spec', useScriptSpecs ? [] : ['./test']],
       ['extension', ['js', 'cjs', 'mjs']],
       ['ignore', []],
       ['file', []],

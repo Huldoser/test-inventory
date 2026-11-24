@@ -317,6 +317,29 @@ describe('Mocha started by a package.json script', () => {
   const manifest = (scripts: Record<string, string>, extra: object = {}) =>
     JSON.stringify({ name: 'order-service', devDependencies: { mocha: '12.0.3' }, scripts, ...extra });
 
+  it.each([{}, { mocha: { timeout: 3000 } }])(
+    'uses the root script’s spec without adding the default test folder, with package settings %j',
+    async (extra) => {
+      const root = project({
+        'package.json': manifest({ test: "mocha 'test/**/*.spec.js'" }, extra),
+        'test/fees.spec.js': TEST,
+        'test/quotes.cjs': TEST,
+      });
+      expect(files(await scan({ root }))).toEqual(['test/fees.spec.js']);
+      expect(files(await scan({ root, patterns: ['test/*.cjs'] }))).toEqual(['test/quotes.cjs']);
+    },
+  );
+
+  it('keeps the default test folder when another root script runs plain Mocha', async () => {
+    const root = project({
+      'package.json': manifest({ test: 'mocha', 'test:fees': "mocha 'specs/**/*.js'" }),
+      'specs/fees.js': TEST,
+      'test/quotes.cjs': TEST,
+      'scripts/orders.js': TEST,
+    });
+    expect(files(await scan({ root }))).toEqual(['specs/fees.js', 'test/quotes.cjs']);
+  });
+
   it('runs the files a glob on the command line names, without patterns', async () => {
     const root = project({
       'package.json': manifest({ test: "mocha 'src/**/*.spec.js'" }),
