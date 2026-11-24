@@ -340,6 +340,19 @@ test(TITLES.call, checkMargin, 10_000);
     expect(inventory.diagnostics).toEqual([]);
   });
 
+  it('collects a re-exported Vitest declaration with an extra argument after its body', async () => {
+    const root = project({
+      'package.json': VITEST_PACKAGE,
+      'runner.js': "export { it as checkOrder } from 'vitest';",
+      'orders.test.js': [
+        "import { checkOrder } from './runner.js';",
+        "checkOrder('reserves the order quantity', { timeout: 2000 }, () => {}, 10000);",
+      ].join('\n'),
+    });
+    const inventory = await scan({ root, patterns: ['orders.test.js'], framework: 'vitest' });
+    expect(inventory.tests.map((test) => [test.title, test.timeout])).toEqual([['reserves the order quantity', 2000]]);
+  });
+
   it('follows a test function a local module exports again when a condition or a function chooses it', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { jest: '30.5.2' } }),

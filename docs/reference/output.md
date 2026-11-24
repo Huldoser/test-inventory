@@ -386,7 +386,8 @@ or from its `--root` or `--project`; Jest, Playwright and WebdriverIO read them 
 script names a config the scan can't read, such as a variable, the scan can't tell which files it runs and reports a
 `config-value-unknown` warning on the package.json in place of `file-not-run`. The runner is found past variables
 set before it, `cross-env`, `dotenv --`, `xvfb-run`, `xvfb-maybe`, the coverage tools `nyc`, `c8` and `mcr`, and the
-package managers that start a binary.
+package managers that start a binary. When a script runs plain `playwright test` in a folder without a config,
+discovery applies the default Playwright file matcher in that folder. The file's `config` is `null`.
 Currents' `pwc` and `pwc-p` count as Playwright, with the `--config` they pass on, and its `cypress-cloud` as Cypress,
 with `--config-file` and `--project`. Scripts that start the runner through a wrapper of their own, and configs only a
 CI workflow names, aren't followed. A file that a collected test file

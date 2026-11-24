@@ -665,10 +665,12 @@ export abstract class SuiteAdapter implements Adapter {
    * so it doesn't depend on which call comes first.
    */
   private worthFollowing(name: string, chainLinks: Link[], args: readonly Argument[], held: boolean): boolean {
+    // Vitest reads the title, options and body even when JavaScript supplies a fourth argument.
+    const declarationArgs = this.dialect.name === 'Vitest' && args.length > 3 ? args.slice(0, 3) : args;
     return (
       (held && isTestName(name)) ||
       this.looksLikeTest(chainLinks, args) ||
-      ((chainLinks.length === 0 || isTestName(name)) && hasDeclarationArguments(args))
+      ((chainLinks.length === 0 || isTestName(name)) && hasDeclarationArguments(declarationArgs))
     );
   }
 

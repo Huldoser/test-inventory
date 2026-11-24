@@ -38,7 +38,8 @@ npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventor
 ```
 
 Without the glob, the test files are those the project's Playwright, Vitest, Jest, Mocha, Jasmine, Cypress or
-WebdriverIO configs run, or for node:test and Bun the files `node --test` and `bun test` run. Without `--framework`, the
+WebdriverIO configs run, or for node:test and Bun the files `node --test` and `bun test` run. A package script running
+plain `playwright test` also discovers Playwright specs without a config. Without `--framework`, the
 scan takes the runner the project uses, and asks for `--framework` when it uses several.
 
 For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:

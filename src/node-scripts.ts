@@ -153,6 +153,8 @@ export interface RunnerCommand {
   root: string | null;
   /** Whether it names its config or root in a way the scan can't read: a variable, or Jest's inline JSON. */
   unreadable: boolean;
+  /** A plain playwright test command collects its default files even without a config. */
+  playwrightDefaults?: true;
   /** For Mocha, which takes its files and settings from them, the words after the program. */
   args?: string[];
 }
@@ -231,6 +233,7 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
       args = args.slice(1);
     }
     const command: RunnerCommand = { config: null, root: null, unreadable: false };
+    if (started.program === 'playwright' && args.length === 0) command.playwrightDefaults = true;
     if (runner === 'mocha') command.args = args;
     if (runner === 'webdriverio') {
       const first = args.at(0) === 'run' ? args.at(1) : args.at(0);
