@@ -27,7 +27,7 @@ import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
 import type { RunSettings } from './model.ts';
 import type { ImportMap } from './resolve.ts';
-import type { ConfigDefaults, FileConfig, TagDefinition, TagOptions, VitestTags } from './records.ts';
+import type { ConfigDefaults, FileConfig, FileRecords, TagDefinition, TagOptions, VitestTags } from './records.ts';
 import type { Framework, MetaValue, ProjectRecord, SuiteRecord, TestRecord } from './types.ts';
 import {
   VITEST_BENCHMARK_INCLUDE,
@@ -274,7 +274,7 @@ export class ConfigRuns {
   /** Whether the configs find the test files, as in a scan without patterns, rather than the patterns. */
   private readonly findsFiles: boolean;
   private readonly candidates: readonly string[];
-  private readonly mayRegisterTests: (file: string) => boolean;
+  private readonly selectedTests: (file: string) => FileRecords | null;
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
@@ -298,14 +298,14 @@ export class ConfigRuns {
     framework: Framework,
     version: [number, number] | null,
     candidates: readonly string[] | null,
-    mayRegisterTests: (file: string) => boolean,
+    selectedTests: (file: string) => FileRecords | null,
   ) {
     this.configs = configs;
     this.framework = framework;
     this.version = version;
     this.findsFiles = candidates !== null;
     this.candidates = candidates ?? [];
-    this.mayRegisterTests = mayRegisterTests;
+    this.selectedTests = selectedTests;
   }
 
   /**
@@ -563,8 +563,16 @@ export class ConfigRuns {
       };
       for (const project of projects) {
         if (!project.about.dependencies.length && !settingAt(project.about.settings, ['teardown'])) continue;
-        if (this.candidates.some((file) => matchesFile(file) && project.runs?.(file) && this.mayRegisterTests(file)))
-          visit(project);
+        const hasTests = this.candidates.some((file) => {
+          if (!matchesFile(file) || !project.runs?.(file)) return false;
+          const records = this.selectedTests(file);
+          if (!records) return true;
+          const tags = this.configTags(project.config);
+          return records.tests.some(
+            (test) => projectsRunning([project.about], test, records.suites, file, tags)?.length !== 0,
+          );
+        });
+        if (hasTests) visit(project);
       }
       return (file, project) => matchesFile(file) || required.has(project);
     }
@@ -725,14 +733,13 @@ export class ConfigRuns {
     if (recursiveSetting?.kind === 'unknown') return this.unknownProject(config, recursiveSetting, 'recursive');
     const recursive = recursiveSetting?.kind === 'value' && recursiveSetting.value === true;
     const extensions = lists.extension.map((ext) => ext.replace(/^\./, ''));
-    const ignores = [...lists.ignore, ...lists.exclude].map((pattern) => {
-      const glob = posix(pattern);
-      if (glob.startsWith('./')) {
-        const match = picomatch(glob.slice(2));
-        return (file: string) => file.startsWith('./') && match(file.slice(2));
-      }
-      return picomatch(glob);
-    });
+    const ignores = [...lists.ignore, ...lists.exclude]
+      .filter((pattern) => !pattern.startsWith('#'))
+      .map((pattern) => {
+        const glob = posix(pattern).replace(/^!+/, '');
+        const negate = (pattern.length - glob.length) % 2 === 1;
+        return (file: string) => path.posix.matchesGlob(file, glob) !== negate;
+      });
     const included = (file: string) => !ignores.some((match) => match(file));
     const specs = lists.spec.map((spec) => mochaSpec(folder, spec, extensions, recursive, included));
     const loaded = new Set<string>();

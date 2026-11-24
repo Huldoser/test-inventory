@@ -102,28 +102,18 @@ export function noRecords(relativeFilePath: string): Omit<FileRecords, 'diagnost
   return { file: fileRecord(relativeFilePath, noHooks(), { suites: [], tests: [] }), suites: [], tests: [] };
 }
 
-function declarations(parsed: ParsedFile, relativeFilePath: string, settings: FileSettings) {
-  const exports = settings.exports ?? new ExportedValues();
-  const main = frame(parsed, relativeFilePath, settings, settings.readModule, exports);
-  const extraction = extract(
-    main,
-    (module: ModuleSource) => {
-      const helper = parseModule(module);
-      return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
-    },
-    { expandCases: settings.expandCases ?? false, version: settings.version },
-  );
-  return { main, extraction };
-}
-
 /** Playwright starts dependencies after collecting a test in the filtered project. Imported modules can register
  * tests as a side effect, even when the spec has no declarations of its own. */
-export function mayRegisterPlaywrightTests(module: ModuleSource, version: FileSettings['version']): boolean {
+export function playwrightSelection(module: ModuleSource, version: FileSettings['version']): FileRecords | null {
   const parsed = parseModule(module);
-  if (parsed.error) return true;
-  const canRegisterOnImport = (name: string) =>
-    !isBuiltin(name) && name !== '@playwright/test' && name !== 'playwright/test';
-  if (importsFrom(parsed.program, canRegisterOnImport)) return true;
+  if (parsed.error) return null;
+  const canRegisterOnImport = (name: string) => {
+    if (isBuiltin(name) || name === '@playwright/test' || name === 'playwright/test') return false;
+    const imported = module.readModule(name);
+    if ('reason' in imported) return true;
+    return !onlyExportsData(imported);
+  };
+  if (importsFrom(parsed.program, canRegisterOnImport)) return null;
   const loadsDynamically = (node: Node): boolean =>
     node.type === 'ImportExpression' ||
     (node.type === 'CallExpression' &&
@@ -131,21 +121,63 @@ export function mayRegisterPlaywrightTests(module: ModuleSource, version: FileSe
       node.callee.name === 'require' &&
       requiredModule(node) === null) ||
     childNodes(node).some(loadsDynamically);
-  if (loadsDynamically(parsed.program)) return true;
-  const { extraction } = declarations(parsed, module.relativeFilePath, {
+  if (loadsDynamically(parsed.program)) return null;
+  const records = scanFile(parsed, module.relativeFilePath, {
     framework: 'playwright',
     version,
     readModule: module.readModule,
     comments: 'none',
     root: null,
   });
-  return extraction.tests.length > 0 || extraction.problems.length > 0;
+  return records.diagnostics.length ? null : records;
+}
+
+/** A local module consisting of data declarations and exports has no calls or imports that could register tests. */
+const DATA_NODES = new Set<Node['type']>([
+  'Program',
+  'VariableDeclaration',
+  'VariableDeclarator',
+  'ExportNamedDeclaration',
+  'ExportDefaultDeclaration',
+  'ExpressionStatement',
+  'AssignmentExpression',
+  'MemberExpression',
+  'Identifier',
+  'Literal',
+  'ObjectExpression',
+  'Property',
+  'ArrayExpression',
+  'UnaryExpression',
+  'EmptyStatement',
+]);
+
+function dataOnly(node: Node): boolean {
+  return DATA_NODES.has(node.type) && childNodes(node).every(dataOnly);
+}
+
+function onlyExportsData(module: ModuleSource): boolean {
+  const modules = new Set([module]);
+  for (const current of modules) {
+    const parsed = parseModule(current);
+    if (parsed.error) return false;
+    for (const statement of parsed.program.body) {
+      if (
+        (statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportAllDeclaration') &&
+        statement.source
+      ) {
+        const next = current.readModule(statement.source.value);
+        if ('reason' in next) return false;
+        modules.add(next);
+      } else if (!dataOnly(statement)) return false;
+    }
+  }
+  return true;
 }
 
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
-export function scanFile(code: string, relativeFilePath: string, settings: FileSettings): FileResult {
+export function scanFile(code: string | ParsedFile, relativeFilePath: string, settings: FileSettings): FileResult {
   try {
-    const parsed = parseFile(relativeFilePath, code);
+    const parsed = typeof code === 'string' ? parseFile(relativeFilePath, code) : code;
     const diagnostics = [];
     if (parsed.error) {
       const { message, start, end } = parsed.error;
@@ -164,7 +196,16 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       // The parser keeps what it could read after some errors; after others it returns nothing.
       if (parsed.program.body.length === 0) return { ...noRecords(relativeFilePath), diagnostics, usesGlobals: false };
     }
-    const { main, extraction } = declarations(parsed, relativeFilePath, settings);
+    const exports = settings.exports ?? new ExportedValues();
+    const main = frame(parsed, relativeFilePath, settings, settings.readModule, exports);
+    const extraction = extract(
+      main,
+      (module: ModuleSource) => {
+        const helper = parseModule(module);
+        return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
+      },
+      { expandCases: settings.expandCases ?? false, version: settings.version },
+    );
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
     const unfollowed: Place[] = [];
     const dependencies = fileDependencies(

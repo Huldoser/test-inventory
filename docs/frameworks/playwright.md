@@ -77,8 +77,9 @@ A package script running `playwright test tests/orders.spec.ts` applies the argu
 the full path of each eligible test file. With no config, discovery uses Playwright's default filenames and ignore
 rules in the script's folder. Multiple scripts can select different files, and plain `playwright test` collects
 the full set. A filtered project with tests collects its prerequisite projects and teardown, including transitive prerequisites.
-An empty spec or one containing only hooks does not activate setup. Discovery retains setup when a selected spec can
-load tests from another module or its contents cannot be read. See [package script file filters](/reference/output#configs) for the supported arguments.
+Empty specs, hook-only specs and imports that only provide data do not activate setup. The project's `grep` and
+`grepInvert` also apply before setup is selected. Discovery retains setup when a selected spec may load tests from
+another module or its contents cannot be read. See [package script file filters](/reference/output#configs) for the supported arguments.
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it, or one the scan can't read. A config named

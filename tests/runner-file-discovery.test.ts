@@ -27,11 +27,18 @@ describe('Playwright project dependencies with a package-script file filter', ()
     { selected: 'module.exports = {};', seed: false },
     { selected: "import { test } from '@playwright/test';", seed: false },
     { selected: "const {test} = require('@playwright/test'); test.beforeEach(() => {});", seed: false },
-    { selected: "require('./register.cjs').orders();", seed: true },
-    { selected: "require('./side-effect.cjs');", seed: true },
+    { selected: "require('./register.js').orders();", seed: true },
+    { selected: "require('./side-effect.js');", seed: true },
     { selected: "const entry = './side-effect.cjs'; require(entry);", seed: true },
     { selected: "await import('./side-effect.cjs');", seed: true },
     { selected: 'export const order = {', seed: true },
+    { selected: "require('./ledger-util.cjs');", seed: false },
+    { selected: "import './reexport.mjs';", seed: true },
+    { selected: "import './rates.mjs';", seed: false },
+    { selected: "import './missing-rate.mjs';", seed: true },
+    { selected: "import './invalid-rate.mjs';", seed: true },
+    { selected: "require('ledger-registration-plugin');", seed: true },
+    { selected: "const {test} = require('@playwright/test'); test('settles the order');", seed: true },
   ])('collects prerequisites according to what the selected spec registers: $selected', async ({ selected, seed }) => {
     const root = project({
       'package.json': manifest('@playwright/test', '1.65.1', 'playwright test orders'),
@@ -41,13 +48,42 @@ describe('Playwright project dependencies with a package-script file filter', ()
       'tests/orders.ui.js': selected,
       'tests/orders.spec.js': playwrightOrder,
       'tests/session.seed.js': playwrightOrder,
-      'tests/register.cjs': `exports.orders = () => { ${playwrightOrder} };`,
+      'tests/register.js': `exports.orders = () => { ${playwrightOrder} };`,
+      'tests/side-effect.js': playwrightOrder,
       'tests/side-effect.cjs': playwrightOrder,
+      'tests/ledger-util.cjs': 'exports.fee = 2;',
+      'tests/reexport.mjs': "export {} from './side-effect.js';",
+      'tests/rates.mjs': "export {fee} from './ledger-util.cjs';",
+      'tests/missing-rate.mjs': "export * from './absent.mjs';",
+      'tests/invalid-rate.mjs': 'export const rate = {',
     });
     const inventory = await scan({ root });
     const paths = inventory.tests.map((test) => test.relativeFilePath);
     expect(paths).toContain('tests/orders.spec.js');
     expect(paths.includes('tests/session.seed.js')).toBe(seed);
+  });
+
+  it.each([
+    ['grep: /settles/', true],
+    ['grep: /cancelled/', false],
+    ['grepInvert: /cancelled/', true],
+    ['grepInvert: /settles/', false],
+    ['grep: /ui orders.ui.js settlement desk settles the order @smoke/', true],
+  ] as const)('uses project title selection before including prerequisites with %s', async (filter, seeded) => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test orders'),
+      'playwright.config.cjs': `module.exports = { testDir: 'tests', projects: [
+        { name: 'seed', testMatch: '**/*.seed.js' },
+        { name: 'ui', testMatch: '**/*.ui.js', dependencies: ['seed'], ${filter} }
+      ]};`,
+      'tests/orders.ui.js': `const {test} = require('@playwright/test');
+        test.describe('settlement desk', {tag: '@smoke'}, () => {test('settles the order', () => {});});`,
+      'tests/session.seed.js': playwrightOrder,
+    });
+    const { tests } = await scan({ root });
+    const ui = tests.find((test) => test.relativeFilePath === 'tests/orders.ui.js');
+    expect(ui?.projects).toEqual(seeded ? ['ui'] : []);
+    expect(tests.some((test) => test.relativeFilePath === 'tests/session.seed.js')).toBe(seeded);
   });
 
   it.each([
@@ -221,6 +257,10 @@ describe('shell directory changes before a Jest file argument', () => {
     ['cd -L desk &&', 'desk/tests/orders.spec.js'],
     ['echo ready | cd desk &&', 'tests/orders.spec.js'],
     ['cd missing;', 'tests/orders.spec.js'],
+    ['false && cd desk;', 'tests/orders.spec.js'],
+    ['true || cd desk;', 'tests/orders.spec.js'],
+    ['cd desk && true || cd ..;', 'desk/tests/orders.spec.js'],
+    [': || cd desk;', 'tests/orders.spec.js'],
   ])('resolves a file from the shell directory after %s', async (prefix, selected) => {
     const root = project({
       'package.json': manifest('jest', '30.5.2', prefix + ' jest --runTestsByPath tests/orders.spec.js'),
@@ -232,6 +272,22 @@ describe('shell directory changes before a Jest file argument', () => {
 });
 
 describe('Mocha glob expansion before file collection', () => {
+  it.each([
+    ['test/[!a].js', ['test/[a].js', 'test/a.js', 'test/account.js']],
+    ['test/[a].js', ['test/[a].js', 'test/account.js', 'test/b.js']],
+    ['test/!(a).js', ['test/a.js']],
+    ['!test/a.js', ['test/a.js']],
+    ['!!test/a.js', ['test/[a].js', 'test/account.js', 'test/b.js']],
+    ['#test/*.js', ['test/[a].js', 'test/a.js', 'test/account.js', 'test/b.js']],
+  ] as const)('matches the Mocha ignore expression %s', async (ignore, expected) => {
+    const root = project({
+      'package.json': manifest('mocha', '12.0.3', "mocha 'test/*.js'"),
+      '.mocharc.json': JSON.stringify({ ignore }),
+      ...testSources(['test/[a].js', 'test/a.js', 'test/b.js', 'test/account.js']),
+    });
+    await expectFiles(root, [...expected]);
+  });
+
   it.each([
     { spec: 'test/{orders,quotes}.js', expected: ['test/fees.js', 'test/orders.js.cjs'] },
     {

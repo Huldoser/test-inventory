@@ -257,6 +257,10 @@ export function runnerCommands(
     previous = next;
     if ((before === '&&' && success === false) || (before === '||' && success === true)) continue;
     success = null;
+    if (words.length === 1 && ['true', 'false', ':'].includes(words[0])) {
+      success = words[0] !== 'false';
+      continue;
+    }
     if (words[0] === 'cd' && before !== '|' && next !== '|') {
       const args = words.slice(1);
       if (args[0] === '-L') args.shift();
