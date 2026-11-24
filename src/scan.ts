@@ -41,7 +41,7 @@ import {
 } from './options.ts';
 import type { FileRecords } from './records.ts';
 import { moduleResolver } from './resolve.ts';
-import { noRecords, scanFile } from './scan-file.ts';
+import { mayRegisterPlaywrightTests, noRecords, scanFile } from './scan-file.ts';
 import type { Diagnostic, Framework, Inventory } from './types.ts';
 import { globalsCheck } from './vitest-config.ts';
 
@@ -241,11 +241,19 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const graph = new DependencyGraph(root, framework);
   const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
+  const registering = new Map<string, boolean>();
   const runs = new ConfigRuns(
     configs,
     framework,
     rules,
     patterns === null ? found.files.map((file) => file.absolutePath) : null,
+    (file) => {
+      if (!registering.has(file)) {
+        const module = readerFor(file)(file);
+        registering.set(file, 'reason' in module || mayRegisterPlaywrightTests(module, rules));
+      }
+      return registering.get(file) as boolean;
+    },
   );
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
   const files = patterns

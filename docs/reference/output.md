@@ -396,7 +396,8 @@ imports gets no warning either, as its tests run in that file.
 During discovery, a config used by a filtered package command contributes the files selected by its scripts.
 `jest --runTestsByPath` takes exact paths from the script's folder, `vitest run` takes case-insensitive path
 substrings and `playwright test` matches regular expressions against full file paths. Several arguments or scripts
-select their combined set. Playwright file filters also collect prerequisite projects and teardown for a project with matching files.
+select their combined set. Playwright file filters also collect prerequisite projects and teardown for a project whose selected
+files contain tests or may load them from another module. An empty spec or a hook by itself does not activate setup.
 A literal shell directory change such as `cd desk && jest --runTestsByPath tests/orders.spec.js` resolves the runner's paths from `desk`.
 A command without filters keeps the full selection for that config. An independent
 config can also select a file, and explicit scan globs can select files outside the commands' filters.

@@ -66,6 +66,24 @@ function lock(root: string, ...files: string[]): void {
 const SPEC = "import { test } from '@playwright/test';\ntest('fills an order', async () => {});\n";
 
 describe('scan', () => {
+  it('keeps setup for a spec selected by two scripts when the spec cannot be read', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { '@playwright/test': '1.65.1' },
+        scripts: { orders: 'playwright test orders', pending: 'playwright test pending' },
+      }),
+      'playwright.config.cjs': `module.exports = { projects: [
+        {name:'seed',testMatch:'**/*.seed.ts'}, {name:'ledger',testMatch:'**/*.spec.ts',dependencies:['seed']}
+      ]};`,
+      'tests/pending-orders.spec.ts': SPEC,
+      'tests/session.seed.ts': SPEC,
+    });
+    lock(root, 'tests/pending-orders.spec.ts');
+    const inventory = await scan({ root });
+    expect(inventory.tests.map((test) => test.relativeFilePath)).toEqual(['tests/session.seed.ts']);
+    expect(inventory.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'read-error' })]));
+  });
+
   it('reports a file it cannot read without its absolute path, and goes on with the others', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

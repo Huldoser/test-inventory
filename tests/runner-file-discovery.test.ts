@@ -24,6 +24,33 @@ async function expectFiles(root: string, expected: string[]) {
 
 describe('Playwright project dependencies with a package-script file filter', () => {
   it.each([
+    { selected: 'module.exports = {};', seed: false },
+    { selected: "import { test } from '@playwright/test';", seed: false },
+    { selected: "const {test} = require('@playwright/test'); test.beforeEach(() => {});", seed: false },
+    { selected: "require('./register.cjs').orders();", seed: true },
+    { selected: "require('./side-effect.cjs');", seed: true },
+    { selected: "const entry = './side-effect.cjs'; require(entry);", seed: true },
+    { selected: "await import('./side-effect.cjs');", seed: true },
+    { selected: 'export const order = {', seed: true },
+  ])('collects prerequisites according to what the selected spec registers: $selected', async ({ selected, seed }) => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test orders'),
+      'playwright.config.cjs': `module.exports = {testDir:'tests', projects:[
+        {name:'seed',testMatch:'**/*.seed.js'}, {name:'ui',testMatch:'**/*.ui.js',dependencies:['seed']},
+        {name:'ledger',testMatch:'**/*.spec.js'}]};`,
+      'tests/orders.ui.js': selected,
+      'tests/orders.spec.js': playwrightOrder,
+      'tests/session.seed.js': playwrightOrder,
+      'tests/register.cjs': `exports.orders = () => { ${playwrightOrder} };`,
+      'tests/side-effect.cjs': playwrightOrder,
+    });
+    const inventory = await scan({ root });
+    const paths = inventory.tests.map((test) => test.relativeFilePath);
+    expect(paths).toContain('tests/orders.spec.js');
+    expect(paths.includes('tests/session.seed.js')).toBe(seed);
+  });
+
+  it.each([
     {
       connected: true,
       expected: ['tests/orders.spec.js', 'tests/session.clean.js', 'tests/session.prepare.js', 'tests/session.seed.js'],
@@ -234,4 +261,27 @@ it('reports an unknown script working directory when a package leaves the scanne
   });
   const result = await scan({ root });
   expect(result.diagnostics.map((d) => d.code)).toContain('config-value-unknown');
+});
+
+describe('Mocha character classes and extension values', () => {
+  it.each([
+    { spec: 'test/[a].js', expected: ['test/a.js.cjs', 'test/fees.js'] },
+    { spec: 'test/[!a].js', expected: ['test/b.js', 'test/fees.js'] },
+    { spec: 'test/!(a).js', expected: ['test/ab.js', 'test/b.js', 'test/fees.js'] },
+    { spec: 'test/{a,b}/../a.js', expected: ['test/a.js.cjs', 'test/fees.js'] },
+  ])('collects the files selected by $spec', async ({ spec, expected }) => {
+    const root = project({
+      'package.json': manifest('mocha', '12.0.3', `mocha test/fees.js '${spec}'`),
+      ...testSources(['test/a.js', 'test/a.js.cjs', 'test/b.js', 'test/ab.js', 'test/fees.js']),
+    });
+    await expectFiles(root, expected);
+  });
+  it('preserves whitespace at the end of the last configured extension', async () => {
+    const root = project({
+      'package.json': manifest('mocha', '12.0.3', 'mocha test/fees.js test/orders'),
+      '.mocharc.json': JSON.stringify({ extension: 'js,cjs ' }),
+      ...testSources(['test/fees.js', 'test/orders.js', 'test/orders.cjs']),
+    });
+    await expectFiles(root, ['test/fees.js', 'test/orders.js']);
+  });
 });

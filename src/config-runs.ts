@@ -274,6 +274,7 @@ export class ConfigRuns {
   /** Whether the configs find the test files, as in a scan without patterns, rather than the patterns. */
   private readonly findsFiles: boolean;
   private readonly candidates: readonly string[];
+  private readonly mayRegisterTests: (file: string) => boolean;
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
@@ -297,12 +298,14 @@ export class ConfigRuns {
     framework: Framework,
     version: [number, number] | null,
     candidates: readonly string[] | null,
+    mayRegisterTests: (file: string) => boolean,
   ) {
     this.configs = configs;
     this.framework = framework;
     this.version = version;
     this.findsFiles = candidates !== null;
     this.candidates = candidates ?? [];
+    this.mayRegisterTests = mayRegisterTests;
   }
 
   /**
@@ -560,7 +563,8 @@ export class ConfigRuns {
       };
       for (const project of projects) {
         if (!project.about.dependencies.length && !settingAt(project.about.settings, ['teardown'])) continue;
-        if (this.candidates.some((file) => matchesFile(file) && project.runs?.(file))) visit(project);
+        if (this.candidates.some((file) => matchesFile(file) && project.runs?.(file) && this.mayRegisterTests(file)))
+          visit(project);
       }
       return (file, project) => matchesFile(file) || required.has(project);
     }
@@ -715,10 +719,7 @@ export class ConfigRuns {
       const found = setting === null || isUnset(setting) ? [...fallback] : patterns(setting, false);
       if (!Array.isArray(found)) return this.unknownProject(config, found, key);
       const values = found as string[];
-      lists[key] =
-        key === 'extension' || key === 'file'
-          ? values.flatMap((value) => value.split(',').map((item) => item.trim()))
-          : values;
+      lists[key] = key === 'extension' || key === 'file' ? values.join(',').split(/ *, */) : values;
     }
     const recursiveSetting = settingAt(settings, ['recursive']);
     if (recursiveSetting?.kind === 'unknown') return this.unknownProject(config, recursiveSetting, 'recursive');
@@ -2030,16 +2031,17 @@ function mochaSpec(
   included: (name: string) => boolean,
 ): (file: string) => boolean {
   const target = path.resolve(folder, spec);
-  const stat = statSync(target, { throwIfNoEntry: false });
+  // A missing component before `..` prevents a literal lookup, even if its normalized target exists.
+  const literal = path.isAbsolute(spec) ? spec : folder + path.sep + spec;
+  const stat = statSync(literal, { throwIfNoEntry: false });
   if (stat?.isFile()) return (file) => file === target && included(posix(spec));
   const lookupName = (file: string) => posix(path.isAbsolute(spec) ? file : path.relative(folder, file));
   if (!stat?.isDirectory()) {
-    const written = posix(path.isAbsolute(spec) ? path.relative(folder, spec) : spec);
+    const written = posix(path.isAbsolute(spec) ? path.relative(folder, spec) : spec).replace(/^(?:\.\/)+/, '');
     // Mocha's glob library expands braces but counts only wildcards and extglobs as magic.
-    const magic = picomatch.scan(written.replace(/[{}]/g, '_'), { nonegate: true }).isGlob;
+    const magic = picomatch.scan(written.replace(/\[[^[\]\\]\]|[{}]/g, '_'), { nonegate: true }).isGlob;
     const pattern = magic ? written : written + '+(' + extensions.map((ext) => '.' + ext).join('|') + ')';
-    const match = picomatch(pattern, { nonegate: true });
-    return (file) => match(posix(path.relative(folder, file))) && included(lookupName(file));
+    return (file) => path.posix.matchesGlob(posix(path.relative(folder, file)), pattern) && included(lookupName(file));
   }
   return (file) => {
     if (!isInside(target, file) || path.basename(file).startsWith('.')) return false;

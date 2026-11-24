@@ -1,8 +1,11 @@
+import { isBuiltin } from 'node:module';
+import type { Node } from 'oxc-parser';
+import { childNodes } from './ast.ts';
 import type { RunsWith } from './config-dependencies.ts';
 import { DependencyGraph, fileDependencies, type Place, type SnapshotFiles } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
-import { parseModule } from './frameworks/bindings.ts';
+import { importsFrom, parseModule, requiredModule } from './frameworks/bindings.ts';
 import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
@@ -99,6 +102,46 @@ export function noRecords(relativeFilePath: string): Omit<FileRecords, 'diagnost
   return { file: fileRecord(relativeFilePath, noHooks(), { suites: [], tests: [] }), suites: [], tests: [] };
 }
 
+function declarations(parsed: ParsedFile, relativeFilePath: string, settings: FileSettings) {
+  const exports = settings.exports ?? new ExportedValues();
+  const main = frame(parsed, relativeFilePath, settings, settings.readModule, exports);
+  const extraction = extract(
+    main,
+    (module: ModuleSource) => {
+      const helper = parseModule(module);
+      return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
+    },
+    { expandCases: settings.expandCases ?? false, version: settings.version },
+  );
+  return { main, extraction };
+}
+
+/** Playwright starts dependencies after collecting a test in the filtered project. Imported modules can register
+ * tests as a side effect, even when the spec has no declarations of its own. */
+export function mayRegisterPlaywrightTests(module: ModuleSource, version: FileSettings['version']): boolean {
+  const parsed = parseModule(module);
+  if (parsed.error) return true;
+  const canRegisterOnImport = (name: string) =>
+    !isBuiltin(name) && name !== '@playwright/test' && name !== 'playwright/test';
+  if (importsFrom(parsed.program, canRegisterOnImport)) return true;
+  const loadsDynamically = (node: Node): boolean =>
+    node.type === 'ImportExpression' ||
+    (node.type === 'CallExpression' &&
+      node.callee.type === 'Identifier' &&
+      node.callee.name === 'require' &&
+      requiredModule(node) === null) ||
+    childNodes(node).some(loadsDynamically);
+  if (loadsDynamically(parsed.program)) return true;
+  const { extraction } = declarations(parsed, module.relativeFilePath, {
+    framework: 'playwright',
+    version,
+    readModule: module.readModule,
+    comments: 'none',
+    root: null,
+  });
+  return extraction.tests.length > 0 || extraction.problems.length > 0;
+}
+
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
 export function scanFile(code: string, relativeFilePath: string, settings: FileSettings): FileResult {
   try {
@@ -121,16 +164,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       // The parser keeps what it could read after some errors; after others it returns nothing.
       if (parsed.program.body.length === 0) return { ...noRecords(relativeFilePath), diagnostics, usesGlobals: false };
     }
-    const exports = settings.exports ?? new ExportedValues();
-    const main = frame(parsed, relativeFilePath, settings, settings.readModule, exports);
-    const extraction = extract(
-      main,
-      (module: ModuleSource) => {
-        const helper = parseModule(module);
-        return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
-      },
-      { expandCases: settings.expandCases ?? false, version: settings.version },
-    );
+    const { main, extraction } = declarations(parsed, relativeFilePath, settings);
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
     const unfollowed: Place[] = [];
     const dependencies = fileDependencies(
