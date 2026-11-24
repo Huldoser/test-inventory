@@ -1,3 +1,4 @@
+import path from 'node:path';
 import picomatch from 'picomatch';
 
 /** Node.js options that take their value as the next argument, so it is not a file to test. */
@@ -62,7 +63,7 @@ const VALUE_OPTIONS = new Set([
  */
 export function nodeTestCommands(script: string, setups = false): string[][] {
   const commands: string[][] = [];
-  for (const words of commandsOf(script)) {
+  for (const { words } of commandsOf(script)) {
     const node = words.findIndex((word) => /(^|[/\\])node(\.exe)?$/.test(word));
     if (node === -1) continue;
     let runsTests = false;
@@ -89,17 +90,17 @@ export function nodeTestCommands(script: string, setups = false): string[][] {
 }
 
 /** The commands of a script, each as its words, without quotes. */
-function commandsOf(script: string): string[][] {
+function commandsOf(script: string): { words: string[]; next: string }[] {
   // A word is quoted in whole or in part, as `--server-args="-screen 0 1280x1024x24"`, and the shell drops the quotes.
-  const commands: string[][] = [[]];
-  let words = commands[0];
+  const commands = [];
+  let words: string[] = [];
   for (const [word, separator] of script.matchAll(/(&&|\|\||[;|])|(?:[^\s'"&;|]+|'[^']*'|"[^"]*"|&(?!&))+/g)) {
     if (separator) {
+      commands.push({ words, next: separator });
       words = [];
-      commands.push(words);
     } else words.push(word.replaceAll(/'([^']*)'|"([^"]*)"/g, '$1$2'));
   }
-  return commands;
+  return [...commands, { words, next: '' }];
 }
 
 /**
@@ -112,7 +113,7 @@ export function scriptsRunBy(scripts: Record<string, unknown>, name: string): st
   const visit = (current: string) => {
     if (run.includes(current) || !names.includes(current)) return;
     run.push(current);
-    for (const words of commandsOf(scripts[current] as string)) {
+    for (const { words } of commandsOf(scripts[current] as string)) {
       for (const called of calledScripts(words, names)) visit(called);
     }
   };
@@ -149,6 +150,7 @@ export type ScriptRunner = 'vitest' | 'jest' | 'playwright' | 'cypress' | 'webdr
 
 /** A command of a script that starts a test runner. */
 export interface RunnerCommand {
+  cwd?: string;
   /** The config it names, as written; null when it names none. */
   config: string | null;
   /** The folder it takes as the project's root, as written: Vitest's `--root`, Cypress's `--project`; else null. */
@@ -240,10 +242,35 @@ function fileFilters(program: string, args: string[]): string[] {
  * The commands of a package.json script that start a runner, with the config and root each names. Only a command whose
  * program is the runner counts, so `eslint --plugin jest -c .eslintrc.json` and `npm run jest` start none.
  */
-export function runnerCommands(script: string, runner: ScriptRunner): RunnerCommand[] {
+export function runnerCommands(
+  script: string,
+  runner: ScriptRunner,
+  canEnter: (cwd: string) => boolean | null = () => true,
+): RunnerCommand[] {
   const { programs, config, root } = RUNNERS[runner];
   const found: RunnerCommand[] = [];
-  for (const words of commandsOf(script)) {
+  let cwd: string | null = '.';
+  let previous = '';
+  let success: boolean | null = null;
+  for (const { words, next } of commandsOf(script)) {
+    const before = previous;
+    previous = next;
+    if ((before === '&&' && success === false) || (before === '||' && success === true)) continue;
+    success = null;
+    if (words[0] === 'cd' && before !== '|' && next !== '|') {
+      const args = words.slice(1);
+      if (args[0] === '-L') args.shift();
+      if (args[0] === '--') args.shift();
+      const [target] = args;
+      if (args.length !== 1 || !/^(?:[A-Za-z]:\/)?[\p{L}\p{N}_./ -]+$/u.test(target) || target.startsWith('-')) {
+        cwd = null;
+      } else {
+        const dir: string | null = path.isAbsolute(target) ? target : cwd === null ? null : path.join(cwd, target);
+        success = dir === null ? null : canEnter(dir);
+        if (success !== false) cwd = success ? dir : null;
+      }
+      continue;
+    }
     const started = programOf(words);
     if (!started || !Object.hasOwn(programs, started.program)) continue;
     const subcommands = programs[started.program];
@@ -252,7 +279,8 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
       if (!subcommands.includes(args[0])) continue;
       args = args.slice(1);
     }
-    const command: RunnerCommand = { config: null, root: null, unreadable: false };
+    const command: RunnerCommand = { config: null, root: null, unreadable: cwd === null };
+    if (cwd && cwd !== '.') command.cwd = cwd;
     if (started.program === 'playwright' && args.length === 0) command.playwrightDefaults = true;
     if (runner === 'mocha') command.args = args;
     if (runner === 'webdriverio') {

@@ -396,7 +396,9 @@ imports gets no warning either, as its tests run in that file.
 During discovery, a config used by a filtered package command contributes the files selected by its scripts.
 `jest --runTestsByPath` takes exact paths from the script's folder, `vitest run` takes case-insensitive path
 substrings and `playwright test` matches regular expressions against full file paths. Several arguments or scripts
-select their combined set. A command without filters keeps the full selection for that config. An independent
+select their combined set. Playwright file filters also collect prerequisite projects and teardown for a project with matching files.
+A literal shell directory change such as `cd desk && jest --runTestsByPath tests/orders.spec.js` resolves the runner's paths from `desk`.
+A command without filters keeps the full selection for that config. An independent
 config can also select a file, and explicit scan globs can select files outside the commands' filters.
 
 The scanner reads simple path arguments made of letters, digits, spaces, underscores, hyphens, dots and slashes.
@@ -483,8 +485,10 @@ globs retain declarations with empty `projects` and a `file-not-run` diagnostic.
 For Mocha:
 from the root, each `spec` entry as a glob, a file, a file named without its extension, or a folder, whose files with
 one of the `extension`s, `js`, `cjs` and `mjs` by default, are taken, those in folders below too with `recursive`,
-without those `ignore` matches as written, so that a pattern starting with `./` matches nothing; and the `file` entries,
-which Mocha loads first, and to which `ignore` doesn't apply. An extension may have several parts, as `spec.js`. The
+without those its `ignore` or `exclude` entries match. Mocha applies ignores to each spec's lookup result before
+resolving the path. A literal `./test/orders.js` keeps that prefix, while listing the directory `./test` returns
+`test/orders.js`. Mocha loads `file` entries before the specs, including extensionless modules and directory indexes.
+Ignores apply only to specs. An extension may have several parts, as `spec.js`. An extensionless spec can also match repeated suffixes, such as `orders.js.cjs`. Comma-separated extension and preload settings select every listed value. The
 default `spec` is `./test`. Scanned with globs, every file they match counts as run, without those `ignore` matches, as
 a project's scripts often give Mocha the spec on its command line, which no config shows. Without globs, a script that
 starts `mocha`, `_mocha` or `ts-mocha` in a folder runs the files its command line and config give, read from that

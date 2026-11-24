@@ -241,7 +241,12 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const graph = new DependencyGraph(root, framework);
   const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
-  const runs = new ConfigRuns(configs, framework, rules, patterns === null);
+  const runs = new ConfigRuns(
+    configs,
+    framework,
+    rules,
+    patterns === null ? found.files.map((file) => file.absolutePath) : null,
+  );
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
   const files = patterns
     ? found.files

@@ -1224,14 +1224,6 @@ export class Configs {
   }
 
   /**
-   * The config Jest started in a folder with a package.json reads: as `jestConfigIn`, with the package.json itself,
-   * and so Jest's defaults from that folder, when it has no `jest` key.
-   */
-  jestConfigFrom(folder: string): ConfigFile | null {
-    return this.jestConfigIn(folder, true);
-  }
-
-  /**
    * The config Jest takes in a folder: a `jest.config` file, else the `package.json` with a `jest` key, which from 30.0
    * may be the path to the config. A `package.json` without one is a config only in the root, as Jest started there
    * reads it; below the root it is a package, whose tests the root's config runs. Jest refuses to start with more than

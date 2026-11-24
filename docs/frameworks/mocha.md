@@ -74,6 +74,9 @@ Mocha combines command-line and configured specs, extensions, preloaded files an
 `--extension cjs` with `extension: ['js']` selects both extensions. A script's `--no-recursive` overrides
 `recursive: true`. An existing path such as `specs/[orders].js` selects that literal file before glob expansion.
 
+Mocha reads comma-separated extension and preload lists, including preloads given as a module path without its
+extension or as a directory with an index file. Both `ignore` and `exclude` apply to the path each spec produces.
+
 The config's `timeout`, `retries` and `forbid-only` are read. Runtime or package-provided settings remain unknown.
 `this.skip()` is read from source; whether a conditional call actually skips a test needs a run.
 

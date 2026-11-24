@@ -25,7 +25,7 @@ This normalization also applies when a node:test pattern names a linked folder e
 
 Without scan globs, package scripts can narrow discovery using `jest --runTestsByPath tests/orders.spec.js`,
 `vitest run orders`, or `playwright test orders`. Scripts using the same config contribute their combined file set.
-Playwright also applies simple file filters to its default files in a package without a config.
+These commands follow literal shell directory changes within the scanned project. Playwright also applies simple file filters to its default files in a package without a config.
 
 For Playwright and Vitest projects built at runtime, readable top-level file settings select candidates with
 `projects: null`.

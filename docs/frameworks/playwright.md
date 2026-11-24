@@ -76,7 +76,7 @@ invalid test declaration; so are `firefox`, `webkit`, `request`, `devices`, `sel
 A package script running `playwright test tests/orders.spec.ts` applies the argument as a regular expression to
 the full path of each eligible test file. With no config, discovery uses Playwright's default filenames and ignore
 rules in the script's folder. Multiple scripts can select different files, and plain `playwright test` collects
-the full set. See [package script file filters](/reference/output#configs) for the supported arguments.
+the full set. A matching project also collects its prerequisite projects and teardown, including transitive prerequisites. See [package script file filters](/reference/output#configs) for the supported arguments.
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it, or one the scan can't read. A config named

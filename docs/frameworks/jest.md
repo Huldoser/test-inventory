@@ -69,7 +69,7 @@ From Jest 30, a string-valued `jest` key names a config file. Multiple configs i
 `injectGlobals` and supported run settings are read.
 
 During discovery, `jest --runTestsByPath tests/orders.spec.js` selects that exact file from the package script's
-folder if the Jest config accepts it. Multiple scripts can select different files with the same config. A plain
+working directory if the Jest config accepts it. A literal `cd desk && jest` starts Jest in `desk`. Multiple scripts can select different files with the same config. A plain
 `jest` script still selects the full configured set. See [package script file filters](/reference/output#configs).
 
 A config built with next/jest, as the [Next.js Jest guide](https://nextjs.org/docs/app/guides/testing/jest) writes

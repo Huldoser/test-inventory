@@ -186,3 +186,52 @@ describe('Mocha spec lookup and options', () => {
     await expectFiles(root, ['test/orders.cjs', orders, 'test/orders.js.cjs']);
   });
 });
+
+describe('shell directory changes before a Jest file argument', () => {
+  it.each([
+    ['cd desk;', 'desk/tests/orders.spec.js'],
+    ['cd -- desk &&', 'desk/tests/orders.spec.js'],
+    ['cd -L desk &&', 'desk/tests/orders.spec.js'],
+    ['echo ready | cd desk &&', 'tests/orders.spec.js'],
+    ['cd missing;', 'tests/orders.spec.js'],
+  ])('resolves a file from the shell directory after %s', async (prefix, selected) => {
+    const root = project({
+      'package.json': manifest('jest', '30.5.2', prefix + ' jest --runTestsByPath tests/orders.spec.js'),
+      'jest.config.cjs': "module.exports = {testMatch:['**/*.spec.js']};",
+      ...testSources(['tests/orders.spec.js', 'desk/tests/orders.spec.js', 'desk/tests/quotes.spec.js']),
+    });
+    await expectFiles(root, [selected]);
+  });
+});
+
+describe('Mocha glob expansion before file collection', () => {
+  it.each([
+    { spec: 'test/{orders,quotes}.js', expected: ['test/fees.js', 'test/orders.js.cjs'] },
+    {
+      spec: 'test/{orders,quotes}',
+      expected: ['test/fees.js', 'test/orders.js', 'test/orders.js.cjs', 'test/quotes.js'],
+    },
+  ])('tries the configured extensions on the brace expression $spec', async ({ spec, expected }) => {
+    const root = project({
+      'package.json': manifest('mocha', '12.0.3', `mocha test/fees.js '${spec}'`),
+      ...testSources(['test/fees.js', 'test/orders.js', 'test/orders.js.cjs', 'test/quotes.js']),
+    });
+    await expectFiles(root, expected);
+  });
+  it('matches a dotted ignore glob against only the specs with the same prefix', async () => {
+    const root = project({
+      'package.json': manifest('mocha', '12.0.3', "mocha ./test/orders.js test/quotes.js --ignore './test/*.js'"),
+      ...testSources(['test/orders.js', 'test/quotes.js']),
+    });
+    await expectFiles(root, ['test/quotes.js']);
+  });
+});
+
+it('reports an unknown script working directory when a package leaves the scanned project', async () => {
+  const root = project({
+    'package.json': manifest('vitest', '5.1.0', 'cd .. && vitest run'),
+    'tests/orders.spec.js': "import {it} from 'vitest'; " + order,
+  });
+  const result = await scan({ root });
+  expect(result.diagnostics.map((d) => d.code)).toContain('config-value-unknown');
+});

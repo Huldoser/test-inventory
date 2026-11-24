@@ -310,3 +310,23 @@ describe('the Mocha commands of a package.json script', () => {
     expect(mochaArguments(['specs/unit', '--ui'])).toEqual({ positional: ['specs/unit'], options: new Map() });
   });
 });
+
+describe('package script working directories', () => {
+  it('tracks successful and failed directory changes through shell conditionals', () => {
+    const commands = runnerCommands(
+      'cd desk || jest --config skipped; cd missing && jest --config absent; jest --config live',
+      'jest',
+      (dir) => dir === 'desk',
+    );
+    expect(commands).toEqual([{ config: 'live', root: null, unreadable: false, cwd: 'desk' }]);
+    expect(runnerCommands('cd desk && mocha', 'mocha')[0].cwd).toBe('desk');
+  });
+
+  it('resumes from an absolute directory after an unknown shell directory', () => {
+    const commands = runnerCommands('cd "$DESK" && cd tests && jest; cd /fixtures && jest', 'jest');
+    expect(commands).toEqual([
+      { config: null, root: null, unreadable: true },
+      { config: null, root: null, unreadable: false, cwd: '/fixtures' },
+    ]);
+  });
+});
