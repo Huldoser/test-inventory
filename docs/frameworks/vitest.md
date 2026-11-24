@@ -73,6 +73,10 @@ before Vitest 5 the config above it. It reads file and project selection,
 `test.globals`, run settings, modes, `allowOnly` and defined tags. A Vitest 3 project list in
 `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
 
+During discovery, a package script such as `vitest run orders` selects eligible files whose paths contain
+`orders`, ignoring case. A script can supply multiple filters, including a directory relative to the package.
+Discovery collects files selected by any script using the config. See [package script file filters](/reference/output#configs).
+
 Paths and globs in `test.projects` start at `test.root`, then Vite's `root` if set.
 If the scan cannot read the root, it reports unknown membership for those entries.
 

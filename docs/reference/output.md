@@ -386,15 +386,25 @@ or from its `--root` or `--project`; Jest, Playwright and WebdriverIO read them 
 script names a config the scan can't read, such as a variable, the scan can't tell which files it runs and reports a
 `config-value-unknown` warning on the package.json in place of `file-not-run`. The runner is found past variables
 set before it, `cross-env`, `dotenv --`, `xvfb-run`, `xvfb-maybe`, the coverage tools `nyc`, `c8` and `mcr`, and the
-package managers that start a binary. When a script runs plain `playwright test` in a folder without a config,
+package managers that start a binary. When a script runs `playwright test` with or without simple file arguments in a folder without a config,
 discovery applies the default Playwright file matcher in that folder. The file's `config` is `null`.
 Currents' `pwc` and `pwc-p` count as Playwright, with the `--config` they pass on, and its `cypress-cloud` as Cypress,
 with `--config-file` and `--project`. Scripts that start the runner through a wrapper of their own, and configs only a
 CI workflow names, aren't followed. A file that a collected test file
 imports gets no warning either, as its tests run in that file.
 
-Without globs, the scan also discovers files through a package.json script when no config above the file runs it, or
-the one there can't be read.
+During discovery, a config used by a filtered package command contributes the files selected by its scripts.
+`jest --runTestsByPath` takes exact paths from the script's folder, `vitest run` takes case-insensitive path
+substrings and `playwright test` matches regular expressions against full file paths. Several arguments or scripts
+select their combined set. A command without filters keeps the full selection for that config. An independent
+config can also select a file, and explicit scan globs can select files outside the commands' filters.
+
+The scanner reads simple path arguments made of letters, digits, spaces, underscores, hyphens, dots and slashes.
+It accepts the runner's config and root options, Jest's `--ci` and `--runInBand`, and Vitest's `--coverage` after
+`run`. With variables, shell globs or other unmodeled options, it uses the configured file set. With no Playwright
+config, discovery requires a plain command or supported file arguments.
+
+A script can also discover files when no config above the file runs it, or the one there can't be read.
 If a Playwright or Vitest config's projects are unknown but its top-level file settings are readable, discovery keeps
 the candidates those settings select. Their `projects` is `null`; a `config-value-unknown` error warns that project
 overrides may select other files or exclude these candidates. An unknown top-level file setting still needs explicit
@@ -479,9 +489,10 @@ default `spec` is `./test`. Scanned with globs, every file they match counts as 
 a project's scripts often give Mocha the spec on its command line, which no config shows. Without globs, a script that
 starts `mocha`, `_mocha` or `ts-mocha` in a folder runs the files its command line and config give, read from that
 folder: the `.mocharc` file `--config` names or that Mocha finds from there up, with the nearest package.json's `mocha`
-key, unless `--no-config` or `--no-package` leave them out; the specs it gives as arguments, along with the `spec`
-that remains; and its `--spec`, `--extension`, `--ignore`, `--file`, `--recursive` and `--ui` over the config's. Globs
-on the command line are read as Mocha reads quoted ones, also when a shell would expand them first. When the root
+key, unless `--no-config` or `--no-package` leave them out. Positional arguments and `--spec` add to configured specs.
+The command's `--extension`, `--ignore` and `--file` also add to the configured lists. Its `--recursive`,
+`--no-recursive` and `--ui` override the corresponding settings. Spec lookup checks for an existing literal
+path before expanding a glob. Command-line globs are read as Mocha reads quoted ones. When the root
 package has a readable Mocha command, discovery uses `./test` only for commands that have no spec. A separate
 script that runs plain `mocha` can therefore still collect files directly under `test/`. The config's
 `timeout`, which may be a string such as `'5s'`, and `retries` apply to every test.

@@ -70,6 +70,10 @@ Without globs, the scan reads those scripts: a package.json script that starts M
 `nyc mocha --recursive 'src/**/*.spec.ts'`, runs the files its command line names, with the `.mocharc` found from the
 script's folder, as Mocha starts there. For example, a root script running `mocha 'test/**/*.spec.js'` collects
 `test/orders.spec.js`. It leaves out `test/quotes.cjs` unless another script or an explicit config entry selects it.
+Mocha combines command-line and configured specs, extensions, preloaded files and ignores. For example,
+`--extension cjs` with `extension: ['js']` selects both extensions. A script's `--no-recursive` overrides
+`recursive: true`. An existing path such as `specs/[orders].js` selects that literal file before glob expansion.
+
 The config's `timeout`, `retries` and `forbid-only` are read. Runtime or package-provided settings remain unknown.
 `this.skip()` is read from source; whether a conditional call actually skips a test needs a run.
 

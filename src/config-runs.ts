@@ -162,6 +162,7 @@ interface Route {
   config: ConfigFile | null;
   root: string;
   mocha?: MochaArguments;
+  selects?: (file: string, project: Project) => boolean;
 }
 /** A route, or, as `unknown`, why the scan can't tell what a script runs. */
 type ScriptRoute = Route | { manifest: string; unknown: string };
@@ -321,6 +322,14 @@ export class ConfigRuns {
     return routed ?? placement;
   }
 
+  private *scriptRoutesAbove(file: string): Generator<ScriptRoute> {
+    if (!isInside(this.configs.root, file)) return;
+    for (let folder = path.dirname(file); ; folder = path.dirname(folder)) {
+      yield* this.routesIn(folder);
+      if (folder === this.configs.root) break;
+    }
+  }
+
   private placeByConfigs(file: string): Omit<Placement, 'tags'> {
     if (this.framework === 'mocha') return this.placeMocha(file);
     if (this.framework === 'jasmine') return this.placeJasmine(file);
@@ -331,7 +340,15 @@ export class ConfigRuns {
     // Jest started at the root reads the config there only, and the others through its `projects`.
     const rootConfig = this.framework === 'jest' ? this.configs.inFolder(this.configs.root) : null;
     const around = this.framework !== 'jest' ? this.configs.around(file) : rootConfig ? [rootConfig] : [];
-    for (const config of around) {
+    // A config selected by filtered package scripts runs with their arguments during discovery.
+    const scripted = new Set<string>();
+    if (this.findsFiles && around.length) {
+      for (const route of this.scriptRoutesAbove(file)) {
+        if ('selects' in route && route.config) scripted.add(route.config.file);
+      }
+    }
+    const standalone = around.filter((config) => !scripted.has(config.file));
+    for (const config of standalone) {
       const running = this.projectsOf(config).flatMap((project) => {
         const runs = project.runs?.(file);
         return runs ? [{ project, runs }] : [];
@@ -342,7 +359,7 @@ export class ConfigRuns {
         return { config: project.config, settings: project.settings, runs, projects };
       }
     }
-    const unknown = around.flatMap((config) => this.projectsOf(config)).find((project) => project.unknown);
+    const unknown = standalone.flatMap((config) => this.projectsOf(config)).find((project) => project.unknown);
     if (unknown?.unknown) {
       return this.unknownPlacement(unknown, file);
     }
@@ -406,32 +423,31 @@ export class ConfigRuns {
    */
   private placeByScripts(file: string): Omit<Placement, 'tags'> | 'unknown' | null {
     const unknown: { manifest: string; unknown: string }[] = [];
-    for (let folder = path.dirname(file); ; folder = path.dirname(folder)) {
-      for (const route of this.routesIn(folder)) {
-        if ('unknown' in route) {
-          unknown.push(route);
-          continue;
-        }
-        const projects = this.projectsOfRoute(route);
-        const running = projects.flatMap((project) => {
-          const runs = project.runs?.(file);
-          return runs ? [{ project, runs }] : [];
-        });
-        if (running.length > 0) {
-          const [{ project, runs }] = running;
-          const config = route.config && project.config;
-          return { config, settings: project.settings, runs, projects: running.map((item) => item.project.about) };
-        }
-        const unknownProject = projects.find((project) => project.unknown);
-        if (unknownProject?.unknown) {
-          if (this.findsFiles && CANDIDATE_RUNNERS.has(this.framework)) {
-            return this.unknownPlacement(unknownProject, file);
-          }
-          this.configs.reportUnknown(unknownProject.unknown.setting, unknownProject.unknown.key, ASSUMED);
-          return 'unknown';
-        }
+    for (const route of this.scriptRoutesAbove(file)) {
+      if ('unknown' in route) {
+        unknown.push(route);
+        continue;
       }
-      if (folder === this.configs.root) break;
+      const projects = this.projectsOfRoute(route).filter(
+        (project) => !this.findsFiles || !route.selects || route.selects(file, project),
+      );
+      const running = projects.flatMap((project) => {
+        const runs = project.runs?.(file);
+        return runs ? [{ project, runs }] : [];
+      });
+      if (running.length > 0) {
+        const [{ project, runs }] = running;
+        const config = route.config && project.config;
+        return { config, settings: project.settings, runs, projects: running.map((item) => item.project.about) };
+      }
+      const unknownProject = projects.find((project) => project.unknown);
+      if (unknownProject?.unknown) {
+        if (this.findsFiles && CANDIDATE_RUNNERS.has(this.framework)) {
+          return this.unknownPlacement(unknownProject, file);
+        }
+        this.configs.reportUnknown(unknownProject.unknown.setting, unknownProject.unknown.key, ASSUMED);
+        return 'unknown';
+      }
     }
     for (const route of unknown) this.configs.reportFile(this.configs.relative(route.manifest), route.unknown);
     return unknown.length > 0 ? 'unknown' : null;
@@ -485,15 +501,44 @@ export class ConfigRuns {
           if (config === null) continue;
         }
         // A plain Playwright test command and Vitest both collect tests without a config.
-        if (config === null && this.framework !== 'vitest' && !command.playwrightDefaults) continue;
-        const key = `${config?.file ?? ''}\0${root}`;
+        if (config === null && this.framework !== 'vitest' && !command.playwrightDefaults && !command.filters) continue;
+        const key = `${config?.file ?? ''}\0${root}\0${JSON.stringify(command.filters)}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        routes.push({ config, root });
+        const route: Route = { config, root };
+        if (command.filters) route.selects = this.matchScriptFiles(command.filters, folder);
+        routes.push(route);
       }
     }
     this.scriptRoutes.set(folder, routes);
     return routes;
+  }
+
+  private matchScriptFiles(filters: string[], folder: string): NonNullable<Route['selects']> {
+    if (this.framework === 'jest') {
+      const paths = new Set(filters.map((filter) => path.resolve(folder, filter)));
+      return (file) => paths.has(file);
+    }
+    if (this.framework === 'playwright') {
+      const patterns: RegExp[] = [];
+      for (const filter of filters) {
+        const literal = /^\/(.*)\/([gi]*)$/.exec(filter);
+        const pattern = literal ? regExp(literal[1], literal[2]) : new RegExp(filter, 'i');
+        if (!pattern) return () => false;
+        patterns.push(pattern);
+      }
+      return playwrightMatcher(patterns);
+    }
+    return (file, project) => {
+      const dir = project.about.testDir;
+      const test = posix(path.relative(dir, file)).toLocaleLowerCase();
+      return filters.some((filter) => {
+        if (path.isAbsolute(filter) && posix(file).startsWith(filter)) return true;
+        const relative = posix(path.relative(dir, path.resolve(folder, filter)));
+        const resolved = filter.endsWith('/') ? path.posix.join(relative, '/') : relative;
+        return test.includes(filter.toLocaleLowerCase()) || test.includes(resolved.toLocaleLowerCase());
+      });
+    };
   }
 
   /**
@@ -595,6 +640,15 @@ export class ConfigRuns {
   /** Mocha runs one set of files, from the config it starts with, or its defaults without one. */
   private placeMocha(file: string): Omit<Placement, 'tags'> {
     const config = this.configs.mochaConfig();
+    // A readable root command runs this config with its CLI options. A separately discovered config still counts.
+    if (
+      this.findsFiles &&
+      this.routesIn(this.configs.root).some(
+        (route) => 'mocha' in route && (!config || route.config?.file === config.file),
+      )
+    ) {
+      return { config, settings: null, runs: false, projects: null };
+    }
     const project = config
       ? this.projectsOf(config)[0]
       : (this.mochaDefaults ??= this.mochaProject(this.noConfig(), emptySettings()));
@@ -613,14 +667,10 @@ export class ConfigRuns {
    * takes, also in folders below with `recursive`, less those `ignore` matches; and the `file` entries, loaded first.
    * With globs, every file they match, less `ignore`. A timeout may be written as `'2s'`.
    */
-  private mochaProject(config: ConfigFile, settings: Setting, scriptFolder?: string): Project {
-    const folder = scriptFolder ?? this.configs.root;
-    // Each script supplies its own default spec when it has no arguments. Don't add a second, implicit bare run.
-    const useScriptSpecs =
-      this.findsFiles && scriptFolder === undefined && this.routesIn(folder).some((route) => 'mocha' in route);
+  private mochaProject(config: ConfigFile, settings: Setting, folder = this.configs.root): Project {
     const lists: Record<string, string[]> = {};
     for (const [key, fallback] of [
-      ['spec', useScriptSpecs ? [] : ['./test']],
+      ['spec', ['./test']],
       ['extension', ['js', 'cjs', 'mjs']],
       ['ignore', []],
       ['file', []],
@@ -1914,20 +1964,19 @@ function writtenRoot(settings: Setting): string | null | { setting: Unknown; key
 
 /** A config's settings without `test.projects`, as an inline project inherits them; both are known objects. */
 /**
- * Whether Mocha's lookup of one `spec` entry finds a file: an entry with glob characters is a glob, which takes any
- * file it matches; otherwise a file, the entry with one of the extensions added, or a folder, whose files with one of
- * the extensions it takes, without hidden ones, and those of folders below with `recursive`.
+ * Mocha looks for the literal file or folder first, then expands a glob or tries the configured extensions. A
+ * folder selects files with those extensions, skipping hidden filenames and descending only with `recursive`.
  */
 function mochaSpec(folder: string, spec: string, extensions: string[], recursive: boolean): (file: string) => boolean {
   const target = path.resolve(folder, spec);
-  if (picomatch.scan(posix(spec)).isGlob) {
+  const stat = statSync(target, { throwIfNoEntry: false });
+  if (stat?.isFile()) return (file) => file === target;
+  if (!stat && picomatch.scan(posix(spec)).isGlob) {
     // An absolute glob, as `path.join(__dirname, 'test', '**', '*.spec.js')` builds it, is taken from the folder.
     const written = path.isAbsolute(spec) ? path.relative(folder, spec) : spec;
     const isMatch = picomatch(posix(written).replace(/^\.\//, ''));
     return (file) => isMatch(posix(path.relative(folder, file)));
   }
-  const stat = statSync(target, { throwIfNoEntry: false });
-  if (stat?.isFile()) return (file) => file === target;
   if (!stat?.isDirectory()) return (file) => extensions.some((extension) => file === `${target}.${extension}`);
   return (file) => {
     if (!isInside(target, file) || path.basename(file).startsWith('.')) return false;
@@ -2276,26 +2325,29 @@ function jestGlobs(globs: string[]): (file: string) => boolean {
 }
 
 /**
- * A config's settings with a Mocha command line's over them: an option given there replaces the config's, and the
- * specs it gives as positional arguments run along with the `spec` that remains, as Mocha joins them.
+ * Mocha combines repeatable options from its command line and config, including positional specs. The command
+ * line takes precedence for scalar options.
  */
 function mochaSettings(settings: Setting, args: MochaArguments): Setting {
   if (settings.kind !== 'object') return settings;
-  const list = (values: string[]): Setting[] => values.map((value) => ({ kind: 'value', value }));
   const keys = new Map(settings.keys);
   for (const name of ['spec', 'extension', 'ignore', 'file']) {
-    const values = args.options.get(name);
-    if (values) keys.set(name, { kind: 'list', items: list(values) });
+    const values = args.options.get(name) ?? [];
+    const added = name === 'spec' ? [...args.positional, ...values] : values;
+    if (!added.length) continue;
+    const configured = settingAt(settings, [name]) ?? (name === 'ignore' ? settingAt(settings, ['exclude']) : null);
+    const existing =
+      configured === null || isUnset(configured) ? [] : configured.kind === 'list' ? configured.items : [configured];
+    keys.set(name, {
+      kind: 'list',
+      items: [...added.map((value) => ({ kind: 'value' as const, value })), ...existing],
+    });
   }
   const ui = args.options.get('ui')?.at(-1);
   if (ui !== undefined) keys.set('ui', { kind: 'value', value: ui });
-  if (args.options.has('recursive')) keys.set('recursive', { kind: 'value', value: true });
-  const merged: ObjectSetting = { ...settings, keys };
-  if (args.positional.length === 0) return merged;
-  const spec = settingAt(merged, ['spec']);
-  const rest = spec === null || isUnset(spec) ? [] : spec.kind === 'list' ? spec.items : [spec];
-  keys.set('spec', { kind: 'list', items: [...list(args.positional), ...rest] });
-  return merged;
+  const recursive = args.options.get('recursive');
+  if (recursive) keys.set('recursive', { kind: 'value', value: recursive[0] !== 'false' });
+  return { ...settings, keys };
 }
 
 /** Whether a Jest setting is given: `null` and `undefined` leave Jest's default, as a `testMatch: null` beside `testRegex`. */

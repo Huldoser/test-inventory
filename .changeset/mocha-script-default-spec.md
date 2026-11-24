@@ -3,3 +3,5 @@
 ---
 
 Respect a root Mocha script's file selection during discovery. A script that names its specs no longer picks up unrelated files directly under `test/` through Mocha's default spec.
+
+Combine Mocha's configured specs, extensions, ignores and preloads with the command line, honor `--no-recursive`, and prefer existing literal spec paths to glob expansion. During discovery, apply simple package-script file filters from Jest, Vitest and Playwright, including Playwright commands in packages without a config.
