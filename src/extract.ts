@@ -17,7 +17,7 @@ import {
   unwrap,
   type FunctionNode,
 } from './ast.ts';
-import { commonJsExport, exportName } from './frameworks/bindings.ts';
+import { commonJsExport, exportName, requiredModule } from './frameworks/bindings.ts';
 import { problem, readCount } from './frameworks/common.ts';
 import type {
   Adapter,
@@ -1018,10 +1018,15 @@ class Walker {
     if (callee.type === 'MemberExpression') {
       const object = unwrap(callee.object);
       const member = propertyName(callee);
-      const imported =
-        runsHere && object.type === 'Identifier' && member !== null
-          ? this.importedFunction(object.name, this.scopes, this.frame, member)
-          : null;
+      if (!runsHere || member === null) return null;
+      let imported: Callee | null = null;
+      if (object.type === 'Identifier') {
+        imported = this.importedFunction(object.name, this.scopes, this.frame, member);
+      } else {
+        const source = requiredModule(object);
+        if (source !== null && !this.frame.values.declarationOf('require', this.scopes))
+          imported = this.functionFrom(this.frame, source, member);
+      }
       return imported && !this.callStack.includes(imported.fn) ? this.withinLimit(imported, call) : null;
     }
     if (callee.type !== 'Identifier') return null;
@@ -1114,8 +1119,12 @@ class Walker {
     const imported = from.values.importedName(name, scopes);
     const whole = imported === null || from.values.declarationOf(name, scopes)?.type === 'VariableDeclarator';
     const exported = member === null ? imported : whole ? member : null;
-    const frame = exported === null ? null : this.openFrom(from, source);
-    return frame ? this.exportedFunction(frame, exported as string, new Set(), 0) : null;
+    return exported === null ? null : this.functionFrom(from, source, exported);
+  }
+
+  private functionFrom(from: Frame, source: string, name: string): Callee | null {
+    const frame = this.openFrom(from, source);
+    return frame ? this.exportedFunction(frame, name, new Set(), 0) : null;
   }
 
   /** A module a file imports, read as a frame once; null when it can't be read or parsed. */

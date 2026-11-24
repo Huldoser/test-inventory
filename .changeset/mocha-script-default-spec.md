@@ -11,3 +11,5 @@ Follow literal working-directory changes before runner commands and include Play
 Match Mocha's glob character classes and extension-list spacing. Omit Playwright setup and teardown selected only by empty or hook-only specs.
 
 Honor shell `true` and `false` in conditional directory changes. Apply Playwright project title filters before selecting setup, recognize imports that only export data, and match Mocha ignore character classes and extended patterns.
+
+Collect tests registered by a helper called directly on a CommonJS import, such as `require('./checks').validateOrder()`.

@@ -201,6 +201,7 @@ hides how many there are.
 A function imported from another file is followed the same way, through the imports above, also when a shared file
 imports it and exports it again, as an `index.js` of helpers does, and when it is called on the module, as
 `checks.validatesQuantity('buy')` after `import * as checks from './checks'` or `const checks = require('./checks')`.
+A direct call such as `require('./checks').validatesQuantity('buy')` works too.
 Its records give the call
 in the scanned file as their location, since that is the line that registers the tests, and `declaredAt` gives the
 file and line where the helper writes the test.

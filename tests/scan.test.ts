@@ -1137,6 +1137,21 @@ export function venueTests() {
     ]);
   });
 
+  it('registers tests from a helper called directly on require and ignores a local require function', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'checks/ledger.cjs': `const {test} = require('@playwright/test');
+        exports.settle = (side) => test(side + ' order settles', () => {});`,
+      'tests/orders.spec.cjs': `require('../checks/ledger.cjs')['settle']('buy');`,
+      'tests/account.spec.cjs': `function require() { return {settle() {}}; }
+        require('../checks/ledger.cjs').settle('sell');`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.cjs'] });
+    expect(
+      inventory.tests.map((test) => [test.title, test.relativeFilePath, test.declaredAt?.relativeFilePath]),
+    ).toEqual([['buy order settles', 'tests/orders.spec.cjs', 'checks/ledger.cjs']]);
+  });
+
   it('follows a helper called as a member of the module, through a namespace import or require', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { mocha: '12.0.3' } }),
