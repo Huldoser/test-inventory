@@ -87,7 +87,7 @@
     "changeset": "changeset"
   },
   "dependencies": {
-    "oxc-parser": "0.159.0",
+    "oxc-parser": "0.160.0",
     "picomatch": "^4.0.7",
     "tinyglobby": "^0.2.17"
   },
