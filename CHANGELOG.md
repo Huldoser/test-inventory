@@ -1,5 +1,15 @@
 # test-inventory
 
+## 0.12.1
+
+### Patch Changes
+
+- [#157](https://github.com/Huldoser/test-inventory/pull/157) [`dafab8b`](https://github.com/Huldoser/test-inventory/commit/dafab8b7108fa9ee58b107e016be13a0837db5af) - Discover Playwright specs when a package script runs `playwright test` without a config file. Default file matching and ignore rules apply from the package folder.
+
+- [#157](https://github.com/Huldoser/test-inventory/pull/157) [`dafab8b`](https://github.com/Huldoser/test-inventory/commit/dafab8b7108fa9ee58b107e016be13a0837db5af) - Update oxc-parser to 0.160.0 for TypeScript parsing fixes, including comparisons after `as` and `satisfies`.
+
+- [#157](https://github.com/Huldoser/test-inventory/pull/157) [`dafab8b`](https://github.com/Huldoser/test-inventory/commit/dafab8b7108fa9ee58b107e016be13a0837db5af) - Recognize a re-exported Vitest test called with a title, options, a body and an extra argument.
+
 ## 0.12.0
 
 ### Minor Changes
