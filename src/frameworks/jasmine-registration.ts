@@ -109,26 +109,25 @@ export function jasmineArguments(
   return positions;
 }
 
-function callback(
+export function jasmineCallback(
   body: Position,
   file: FileContext,
 ): {
   status: 'valid' | 'callback' | 'unknown' | 'missing';
-  fn: FunctionNode | null;
+  binding: { fn: FunctionNode; scopes: readonly Node[] } | null;
 } {
-  if (!body) return { status: 'missing', fn: null };
+  if (!body) return { status: 'missing', binding: null };
   const { node, scopes } = body;
-  if (node.type === 'SpreadElement') return { status: 'unknown', fn: null };
+  if (node.type === 'SpreadElement') return { status: 'unknown', binding: null };
   const resolved = body.resolved ?? file.values.resolve(node, scopes);
-  if (resolved.ok) return { status: resolved.value === undefined ? 'missing' : 'callback', fn: null };
+  if (resolved.ok) return { status: resolved.value === undefined ? 'missing' : 'callback', binding: null };
   const assigned = file.values.assignedIn(scopes[0], false);
-  const fn = isFunctionNode(node)
-    ? node
+  const binding = isFunctionNode(node)
+    ? { fn: node, scopes }
     : node.type === 'Identifier' && !assigned.has(node.name)
-      ? file.values.functionOf(node.name, scopes)
+      ? file.values.functionWithScopes(node.name, scopes)
       : null;
-  if (fn?.generator) return { status: 'callback', fn: null };
-  if (fn || node.type === 'ClassExpression') return { status: 'valid', fn };
+  if (binding || node.type === 'ClassExpression') return { status: 'valid', binding };
   // Jasmine's spec and suite declarations return objects which cannot serve as callbacks.
   const callee = node.type === 'CallExpression' && unwrap(node.callee);
   const registration =
@@ -139,11 +138,11 @@ function callback(
     !file.values.declarationOf(callee.name, scopes);
   const nonfunction =
     registration || ['Literal', 'ArrayExpression', 'ObjectExpression', 'TemplateLiteral'].includes(node.type);
-  return { status: nonfunction ? 'callback' : 'unknown', fn: null };
+  return { status: nonfunction ? 'callback' : 'unknown', binding: null };
 }
 
 export function jasmineRegistration(
-  body: Position,
+  read: ReturnType<typeof jasmineCallback>,
   limit: Position,
   file: FileContext,
   allowsPending: boolean,
@@ -152,9 +151,9 @@ export function jasmineRegistration(
   fn: FunctionNode | null;
   missing: boolean;
 } {
-  const read = callback(body, file);
   const missing = read.status === 'missing';
-  const fn = read.fn;
+  const fn = read.binding?.fn ?? null;
+  if (fn?.generator) return { status: 'callback', fn: null, missing };
   if (read.status === 'callback' || (missing && !allowsPending)) return { status: 'callback', fn, missing };
   if (limit && atLeast(file.version, 3, 10)) {
     if (limit.node.type === 'SpreadElement') return { status: 'unknown', fn, missing };
@@ -187,8 +186,7 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
   const active: { block: BlockStatement; at: number }[] = [];
   const parameters: { fn: FunctionNode; initialized: Set<string> }[] = [];
   const assigned = file.values.assignedIn(outer[0], false);
-  function argument(arg: Argument | undefined, scopes: readonly Node[]): ArgumentValue | undefined {
-    if (!arg || arg.type === 'SpreadElement') return undefined;
+  function argument(arg: Expression, scopes: readonly Node[]): ArgumentValue | undefined {
     const node = unwrap(arg);
     if (node.type !== 'Identifier') return { node, scopes };
     const declaration = file.values.declarationOf(node.name, scopes);
@@ -314,28 +312,32 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       if (evaluated !== 'next') return evaluated;
       const positions = jasmineArguments(args, scopes, file, spec ? 3 : 2);
       const index = spec ? 1 : 0;
-      const { status } = jasmineRegistration(positions[index], positions[index + 1], file, spec && name !== 'fit');
+      const read = jasmineCallback(positions[index], file);
+      const { status } = jasmineRegistration(read, positions[index + 1], file, spec && name !== 'fit');
       if (status === 'unknown') return 'unknown';
       if (status !== 'valid') return 'throw';
       if (spec) children.registered = true;
       return 'next';
     }
-    const first = argument(args.at(0), scopes)?.node;
-    const secondArg = argument(args.at(1), scopes);
-    if (first?.type !== 'Literal' || typeof first.value !== 'string') return 'unknown';
-    if (
-      ['describe', 'xdescribe', 'fdescribe'].includes(name) &&
-      args.length === 2 &&
-      secondArg &&
-      isRuntimeFunction(secondArg.node)
-    ) {
-      if (name === 'describe' && functionLength(secondArg.node) > 0) return 'throw';
-      if (secondArg.node.async || secondArg.node.generator) return 'throw';
-      // Jasmine attaches the suite before running its callback and checking its children.
-      children.registered = true;
-      return suite(secondArg.node, secondArg.scopes, name === 'describe');
+    if (!['describe', 'xdescribe', 'fdescribe'].includes(name)) return 'unknown';
+    const evaluated = elements(args, scopes, children);
+    if (evaluated !== 'next') return evaluated;
+    const [title, body] = jasmineArguments(args, scopes, file, 2);
+    const { status, binding: callback } = jasmineCallback(body, file);
+    if (status === 'missing' || status === 'callback') return 'throw';
+    if (!callback || !isRuntimeFunction(callback.fn)) return 'unknown';
+    const fn = callback.fn;
+    const plain = name === 'describe';
+    if (fn.async || fn.generator || (plain && functionLength(fn) > 0)) return 'throw';
+    // An unresolved description may run user code when Jasmine formats it.
+    // Resolving the callback position has already established the width of preceding spreads.
+    if (title) {
+      const value = title.resolved ?? file.values.resolve(title.node as Expression, title.scopes);
+      if (!value.ok || (value.value !== null && typeof value.value === 'object')) return 'unknown';
     }
-    return 'unknown';
+    // Jasmine attaches the suite before running its callback and checking its children.
+    children.registered = true;
+    return suite(fn, callback.scopes, plain);
   }
   function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Exit {
     for (const item of items) {

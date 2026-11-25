@@ -29,3 +29,4 @@ Check the children registered through local helpers before collecting specs afte
 Report rejected Jasmine hooks, exclude them from hook counts and follow registration into the caller's catch.
 Read Jasmine hook callbacks and timeouts supplied through array or string spreads.
 Track registration and recovery when Jasmine rejects a spec callback or timeout, including pending and spread declarations.
+Collect Jasmine suites and their specs when an array supplies the title and callback, and follow recovery after a rejected callback.

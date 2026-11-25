@@ -22,6 +22,7 @@ import {
   functionLength,
   isRuntimeFunction,
   jasmineArguments,
+  jasmineCallback,
   jasmineRegistration,
   registrationExit,
   type JasmineArgument,
@@ -92,7 +93,7 @@ export class JasmineAdapter extends SuiteAdapter {
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
     const [body, limit] = jasmineArguments(call.arguments, context.scopes, this.file, 2);
-    const { status, fn } = jasmineRegistration(body, limit, this.file, false);
+    const { status, fn } = jasmineRegistration(jasmineCallback(body, this.file), limit, this.file, false);
     if (status === 'callback' || status === 'timeout') {
       const reason = status === 'callback' ? 'requires a non-generator function' : 'refuses a timeout above 2147483647';
       return { kind: 'invalid', problem: this.refusal('invalid-hook', call, `${name}() ${reason}`, context) };
@@ -150,8 +151,8 @@ export class JasmineAdapter extends SuiteAdapter {
     const flags = new Set(links.map((link) => link.name));
     const problems: Problem[] = [];
     const spec = kind === 'test';
-    const slots = spec ? jasmineArguments(args, context.scopes, this.file, this.trailingRetries ? 4 : 3) : null;
-    const titleArg: JasmineArgument | null | undefined = slots ? slots[0] : { node: args[0], scopes: context.scopes };
+    const slots = jasmineArguments(args, context.scopes, this.file, spec ? (this.trailingRetries ? 4 : 3) : 2);
+    const [titleArg, bodyArg] = slots;
     let title = { text: '', withoutTags: '', isDynamic: false };
     if (titleArg) {
       const read = readTitle(
@@ -164,17 +165,14 @@ export class JasmineAdapter extends SuiteAdapter {
       title = read.title;
       if (read.problem) problems.push(read.problem);
     }
-    const spreadSuite = !spec && args.some((arg) => arg.type === 'SpreadElement');
-    const written = slots ? slots[1]?.node : args.at(1);
-    const body = spreadSuite ? null : written;
-    const registration = slots ? jasmineRegistration(slots[1], slots[2], this.file, !flags.has('only')) : null;
-    const binding =
-      body?.type === 'Identifier' && !spec ? this.file.values.functionWithScopes(body.name, context.scopes) : null;
-    const callback = registration ? registration.fn : isFunctionNode(body) ? body : binding?.fn;
+    const body = bodyArg?.node;
+    const read = jasmineCallback(bodyArg, this.file);
+    const binding = read.binding;
+    const callback = binding?.fn;
     // A function in a named tuple uses its defining scope, like a named callback.
-    const fn = isFunctionNode(body) && (!slots || slots[1]?.scopes === context.scopes) ? body : null;
+    const fn = isFunctionNode(body) && bodyArg?.scopes === context.scopes ? body : null;
     const line = this.file.source.line(call.start);
-    const isSkipped = flags.has('skip') || registration?.missing;
+    const isSkipped = flags.has('skip') || (spec && read.status === 'missing');
     const base = {
       title,
       states: isSkipped
@@ -184,13 +182,14 @@ export class JasmineAdapter extends SuiteAdapter {
       mode: null,
       details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
       fn,
-      hashed: callback ?? wrappedFunction(body ?? undefined),
+      hashed: callback ?? wrappedFunction(body),
       isParameterized: false,
       caseCount: null,
       cases: null,
       problems,
     };
-    if (slots && registration) {
+    if (spec) {
+      const registration = jasmineRegistration(read, slots[2], this.file, !flags.has('only'));
       const declared: ApiCall = {
         kind: 'test',
         ...base,
@@ -223,14 +222,7 @@ export class JasmineAdapter extends SuiteAdapter {
       return refused(call, this.refusal('test-without-body', call, reason, context), context, () => declared);
     }
     const declared: ApiCall = { kind: 'describe', ...base, isShuffled: false, passesDown: IN_DESCRIBE };
-    if (body === null) return declared;
-    if (
-      body === undefined ||
-      (body.type === 'Identifier' &&
-        body.name === 'undefined' &&
-        !this.file.values.declarationOf(body.name, context.scopes)) ||
-      !isFunctionLike(body)
-    ) {
+    if (read.status === 'missing' || read.status === 'callback') {
       const refusal = this.refusal('test-without-body', call, `${callee}() has no function`, context);
       return refused(call, refusal, context, () => declared);
     }
@@ -254,17 +246,14 @@ export class JasmineAdapter extends SuiteAdapter {
       return refused(call, refusal, context, () => declared);
     }
     if (
-      isRuntimeFunction(callback) &&
+      isRuntimeFunction(binding?.fn) &&
       atLeast(this.file.version, 4, plain ? 0 : 5) &&
-      registrationExit(
-        { call, fn: callback, definition: binding?.scopes ?? context.scopes, plain },
-        context.scopes,
-        this.file,
-      ) === 'throw'
+      registrationExit({ call, fn: binding.fn, definition: binding.scopes, plain }, context.scopes, this.file) ===
+        'throw'
     ) {
       const refusal = this.refusal(
         'describe-throws',
-        callback,
+        binding.fn,
         'The describe declares no spec or describe, which Jasmine refuses',
         context,
       );
@@ -293,10 +282,4 @@ export class JasmineAdapter extends SuiteAdapter {
     const message = `${what}, so the describe around it throws: Jasmine reports it as failed, and registers none of the specs written after this call in it.`;
     return { ...problem(code, node, message, source), afterLoad: true };
   }
-}
-
-/** Whether an argument may be a function: anything but a value that can't be one, as a number or an object. */
-function isFunctionLike(node: CallExpression['arguments'][number]): boolean {
-  const value = unwrap(node as Expression);
-  return !['Literal', 'ObjectExpression', 'ArrayExpression', 'TemplateLiteral'].includes(value.type);
 }

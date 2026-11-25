@@ -530,6 +530,66 @@ catch { it('recovers the fill', () => {}); }`);
     expect(ambiguous.diagnostics.some((d) => d.level === 'error')).toBe(false);
   });
 
+  it('collects suite callbacks spread from a tuple in their defining scope', () => {
+    for (const api of ['describe', 'xdescribe', 'fdescribe']) {
+      for (const args of ['...setup', '...inlineSetup', "...[...['cash desk'], ...[book]]"]) {
+        const scan = scanJasmine(`
+const desk = 'records a quote';
+function book() { it(desk, () => {}); }
+const setup = ['cash desk', book], inlineSetup = ['cash desk', () => it(desk, () => {})];
+try { { const desk = 'records a fee'; ${api}(${args}, it('opens the market', () => {})); } }
+catch { it('recovers the market', () => {}); }`);
+        expect(
+          scan.tests.map((test) => test.fullName),
+          api + args,
+        ).toContain('cash desk > records a quote');
+        expect(testNamed(scan, 'opens the market').fullName).toBe('opens the market');
+        expect(
+          scan.tests.some((test) => test.title === 'recovers the market'),
+          api + args,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('rejects invalid spread suite callbacks after evaluating ignored arguments', () => {
+    for (const api of ['describe', 'xdescribe', 'fdescribe']) {
+      for (const args of [
+        "...['cash desk',, book]",
+        "...['cash desk', null]",
+        "...['cash desk', ledger]",
+        "...['cash desk', async () => {}]",
+      ]) {
+        const scan = scanJasmine(`function* ledger() {} function book() {}
+try { ${api}(${args}, it('opens the market', () => {})); it('continues registration', () => {}); }
+catch { it('recovers the market', () => {}); }`);
+        expect(testNamed(scan, 'continues registration').state, api + args).toBe('notLoaded');
+        expect(testNamed(scan, 'recovers the market').state).toBe('active');
+        expect(testNamed(scan, 'opens the market').state).toBe('active');
+      }
+    }
+  });
+
+  it('resumes outside a caught suite error and keeps recovery for a callback or title that may throw', () => {
+    for (const args of ['...[]', "'cash desk', null"]) {
+      const scan = scanJasmine(`
+try { try { describe(${args}); } catch { it('recovers the suite', () => {}); } }
+catch { it('recovers the caller', () => {}); }`);
+      expect(testNamed(scan, 'recovers the suite').state).toBe('active');
+      expect(scan.tests.some((test) => test.title === 'recovers the caller')).toBe(false);
+    }
+    for (const args of ["'cash desk', invalidBody()", 'title, book']) {
+      const scan = scanJasmine(`
+function invalidBody(){ return null; } function book(){ it('opens the market', () => {}); }
+const title = { toString() { throw Error('closed'); } };
+try { describe(${args}); } catch { it('recovers the caller', () => {}); }`);
+      expect(testNamed(scan, 'recovers the caller').state, args).toBe('active');
+    }
+    const hole = scanJasmine(`function book() { it('opens the market', () => {}); }
+try { describe(...[,book]); } catch { it('recovers the caller', () => {}); }`);
+    expect(hole.tests.some((test) => test.title === 'recovers the caller')).toBe(false);
+  });
+
   it('checks the actual binding when a Jasmine suite callback is named undefined', () => {
     const accepted = scanJasmine(
       `{ const undefined = () => it('quotes a bid', () => {}); describe('cash desk', undefined); }`,
