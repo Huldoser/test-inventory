@@ -1176,6 +1176,53 @@ export function venueTests() {
     ]);
   });
 
+  it.each([
+    ["import type {Fee} from './fees.cjs';", false],
+    ["import {type Fee} from './fees.cjs';", false],
+    ["export {type Fee} from './fees.cjs';", false],
+    ["import {fee} from './fees.cjs';", false],
+    ["import {fee} from './fees.cjs'; type Amount = typeof fee;", false],
+    ["import {fee} from './fees.cjs'; const order = {fee: 2}; void order.fee;", false],
+    ["import {fee} from './fees.cjs'; function amount(fee: number) {return fee;}", false],
+    ["import {fee} from './fees.cjs'; void fee;", true],
+    ["import {fee} from './fees.cjs'; export {fee};", true],
+    ["import {} from './fees.cjs';", true],
+    ["export {} from './fees.cjs';", true],
+  ] as const)('loads Playwright registrations only through imports TypeScript retains: %s', async (source, loads) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.ts': source,
+      'tests/fees.cjs':
+        "const {test}=require('@playwright/test'); exports.fee=2; test('charges the order fee', () => {});",
+    });
+    const { tests } = await scan({ root, patterns: ['tests/*.spec.ts'] });
+    expect(tests.map((test) => test.title)).toEqual(loads ? ['charges the order fee'] : []);
+  });
+
+  it.each([
+    ["import {fee} from './fees'; export const view = () => <fee/>;", false],
+    ["import {fee} from './fees'; export const view = () => <div fee='2'/>;", false],
+    ["import {fee} from './fees'; export const view = () => <div data-fee={fee}/>;", true],
+    ["import {Fee} from './fees'; export const view = () => <Fee/>;", true],
+    ["import * as fees from './fees'; export const view = () => <fees.Fee/>;", true],
+    ["import {React} from './fees'; export const view = () => <></>;", true],
+    ["/** Settlement amounts are in cents. */ import {React} from './fees'; export const view = () => <div/>;", true],
+    ["/** @jsx desk.create */ import * as desk from './fees'; export const view = () => <div/>;", true],
+    [
+      "/** @jsx desk.create */ /** @jsxFrag desk.Fragment */ import {React} from './fees'; export const view = () => <div/>;",
+      false,
+    ],
+  ] as const)('retains Playwright TSX imports used by the emitted JSX: %s', async (source, loads) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.tsx': source,
+      'tests/fees.ts':
+        "import {test} from '@playwright/test'; export const fee=2, Fee=()=>null, React={}; test('charges the order fee', () => {});",
+    });
+    const { tests } = await scan({ root, patterns: ['tests/*.spec.tsx'] });
+    expect(tests.map((test) => test.title)).toEqual(loads ? ['charges the order fee'] : []);
+  });
+
   it('follows side-effect imports and re-exports that register Playwright tests during collection', async () => {
     const root = project({
       'package.json': PLAYWRIGHT_PACKAGE,

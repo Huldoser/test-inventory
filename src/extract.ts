@@ -1,4 +1,5 @@
 import { isBuiltin } from 'node:module';
+import { visitorKeys } from 'oxc-parser';
 import type {
   CallExpression,
   CatchClause,
@@ -13,6 +14,7 @@ import {
   childNodes,
   isFunctionNode,
   isImportMetaVitest,
+  isReference,
   propertyName,
   returnValues,
   unwrap,
@@ -428,6 +430,90 @@ function commentLines(comment: { type: 'Line' | 'Block'; value: string }): strin
   return lines.filter((line) => line !== '' && !DIRECTIVE.test(line));
 }
 
+/** A component or the object of a JSX member tag reads a binding. Intrinsic tags and attribute names are strings. */
+function jsxReference(name: string, field: string | null, parent: Node | null): boolean {
+  if (parent?.type === 'JSXMemberExpression') return field === 'object';
+  return (
+    (parent?.type === 'JSXOpeningElement' || parent?.type === 'JSXClosingElement') &&
+    field === 'name' &&
+    !/^[a-z]/.test(name)
+  );
+}
+
+/** References that keep imported values in Playwright's emitted TypeScript. Look up the binding at the use
+ * so a local parameter or a property with the same name cannot keep an import alive. */
+function runtimeReferences(frame: Frame): Set<Node> {
+  const used = new Set<Node>();
+  let hasJsx = false;
+  const scopes: Node[] = [];
+  const program = frame.parsed.program;
+  const imports = new Map<string, Node>();
+  for (const statement of program.body) {
+    if (statement.type === 'ImportDeclaration')
+      for (const specifier of statement.specifiers) imports.set(specifier.local.name, specifier);
+  }
+  const visit = (node: Node, field: string | null, parent: Node | null): void => {
+    if (
+      node.type === 'ImportDeclaration' ||
+      ('declare' in node && node.declare) ||
+      (node.type === 'ExportNamedDeclaration' && (node.source || node.exportKind === 'type')) ||
+      (node.type === 'ExportSpecifier' && node.exportKind === 'type')
+    )
+      return;
+    if (node.type.startsWith('TS') && !TS_RUNTIME.has(node.type)) return;
+    const scoped = isScopeNode(node);
+    if (scoped) scopes.push(node);
+    if (node.type === 'Identifier' || node.type === 'JSXIdentifier') {
+      const imported = imports.get(node.name);
+      const readsValue =
+        node.type === 'Identifier' ? isReference(field, parent) : jsxReference(node.name, field, parent);
+      if (imported && readsValue && frame.values.declarationOf(node.name, scopes) === imported) used.add(imported);
+    }
+    if (!hasJsx && (node.type === 'JSXElement' || node.type === 'JSXFragment')) {
+      hasJsx = true;
+      const factories = new Map([
+        ['jsx', 'React'],
+        ['jsxFrag', 'React'],
+      ]);
+      for (const comment of frame.parsed.comments) {
+        const pragma = /@(jsx(?:Frag)?)\s+([^\s.]+)/.exec(comment.value);
+        if (pragma) factories.set(pragma[1], pragma[2]);
+      }
+      for (const name of factories.values()) {
+        const binding = frame.values.declarationOf(name, [program]);
+        if (binding) used.add(binding);
+      }
+    }
+    const fields = node as unknown as Record<string, unknown>;
+    for (const key of visitorKeys[node.type]) {
+      const value = fields[key];
+      if (Array.isArray(value)) {
+        for (const child of value as (Node | null)[]) if (child) visit(child, key, node);
+      } else if (value) visit(value as Node, key, node);
+    }
+    if (scoped) scopes.pop();
+  };
+  visit(program, null, null);
+  return used;
+}
+
+const TS_RUNTIME = new Set<string>([
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSTypeAssertion',
+  'TSNonNullExpression',
+  'TSInstantiationExpression',
+  'TSEnumDeclaration',
+  'TSEnumBody',
+  'TSEnumMember',
+  'TSModuleDeclaration',
+  'TSModuleBlock',
+  'TSParameterProperty',
+  'TSExportAssignment',
+  'TSImportEqualsDeclaration',
+  'TSExternalModuleReference',
+]);
+
 class Walker {
   private readonly scopes: Node[] = [];
   private readonly parents: Node[] = [];
@@ -442,6 +528,7 @@ class Walker {
   /** While an imported helper is walked, the call in the scanned file that walks it; records and problems point there. */
   private site: Node | null = null;
   private readonly loaded = new Set<string>();
+  private readonly valueImports = new WeakMap<Frame, Set<Node>>();
   private importDepth = 0;
   private unknownRegistration = false;
   private readonly openModule: OpenModule;
@@ -701,14 +788,34 @@ class Walker {
    * the declaration's own location in the loaded module, just as for a helper invoked at a call site. */
   private collectImport(node: Node, context: Context): void {
     let source: string | null;
-    if (node.type === 'ImportDeclaration' && node.importKind !== 'type') source = node.source.value;
-    else if (
+    if (node.type === 'ImportDeclaration' && node.importKind !== 'type') {
+      source = node.source.value;
+      if (node.specifiers.length && /\.[cm]?tsx?$/.test(this.frame.relativeFilePath)) {
+        let used = this.valueImports.get(this.frame);
+        if (!used) {
+          used = runtimeReferences(this.frame);
+          this.valueImports.set(this.frame, used);
+        }
+        if (
+          !node.specifiers.some(
+            (item) => (item.type !== 'ImportSpecifier' || item.importKind !== 'type') && used.has(item),
+          )
+        )
+          return;
+      }
+    } else if (
       (node.type === 'ExportAllDeclaration' || node.type === 'ExportNamedDeclaration') &&
       node.source &&
       node.exportKind !== 'type'
-    )
+    ) {
+      if (
+        node.type === 'ExportNamedDeclaration' &&
+        node.specifiers.length &&
+        node.specifiers.every((item) => item.exportKind === 'type')
+      )
+        return;
       source = node.source.value;
-    else if (
+    } else if (
       node.type === 'CallExpression' &&
       node.callee.type === 'Identifier' &&
       node.callee.name === 'require' &&

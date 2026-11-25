@@ -103,3 +103,35 @@ export function propertyName(member: MemberExpression): string | null {
   }
   return isStringLiteral(member.property) ? member.property.value : null;
 }
+
+/** Whether an identifier refers to a binding, rather than naming a property, a label or a member. */
+export function isReference(key: string | null, parent: Node | null): boolean {
+  switch (parent?.type) {
+    case 'MemberExpression':
+      return key === 'object' || parent.computed;
+    case 'Property':
+    case 'MethodDefinition':
+    case 'PropertyDefinition':
+    case 'AccessorProperty':
+    case 'TSPropertySignature':
+    case 'TSMethodSignature':
+      return key !== 'key' || parent.computed;
+    case 'LabeledStatement':
+    case 'BreakStatement':
+    case 'ContinueStatement':
+      return false;
+    case 'TSEnumMember':
+    case 'TSModuleDeclaration':
+    case 'TSTypeParameter':
+    case 'TSImportEqualsDeclaration':
+      return key !== 'id' && key !== 'name';
+    case 'TSQualifiedName':
+      return key === 'left';
+    case 'ExportSpecifier':
+      return key === 'local';
+    case 'MetaProperty':
+      return false;
+    default:
+      return true;
+  }
+}
