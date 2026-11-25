@@ -370,6 +370,42 @@ describe('verified prices',{fails:false},()=>{
     },
   );
 
+  it.each([
+    ['', true],
+    ['sequence:{concurrent:false},', false],
+  ] as const)(
+    'distinguishes an omitted Vitest 4 concurrency default from explicit false for a tagged test (%s)',
+    async (setting, enabled) => {
+      const inventory = await scanned(
+        `export default {test:{${setting}tags:[{name:'paired',concurrent:true}]}};`,
+        {
+          'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe.sequential('closing prices',()=>{
+          test('pairs the quotes',{tags:['paired']},()=>{});
+        });`,
+        },
+        '4.1.12',
+      );
+      expect(inventory.tests.map((t) => t.isParallel)).toEqual([enabled]);
+    },
+  );
+
+  it('reports Vitest 4 concurrency that holds for every value of a conditional default', async () => {
+    const inventory = await scanned(
+      "export default {test:{sequence:{concurrent:process.env.PAIRED === '1'},tags:[{name:'paired',concurrent:true}]}};",
+      {
+        'tests/orders.test.ts': `import {test} from 'vitest';
+        test('settles the spread',{tags:['paired']},()=>{});
+        test.concurrent('posts the paired quotes',()=>{});`,
+      },
+      '4.1.12',
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+      ['settles the spread', false],
+      ['posts the paired quotes', true],
+    ]);
+  });
+
   it('narrows a focused suite to the test selected by a later tag', async () => {
     const inventory = await scanned("export default {test:{allowOnly:true,tags:[{name:'closing',only:true}]}};", {
       'tests/orders.test.ts': `import {describe,test} from 'vitest';

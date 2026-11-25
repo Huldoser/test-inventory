@@ -69,6 +69,11 @@ A nested suite or test can clear it with `fails: false`. In Vitest 4 and earlier
 `fails: false` also clears a test's `.fails` modifier. In Vitest 5 the modifier takes precedence.
 When a focus tag makes a skipped or todo test run, its own `.fails` or `fails: true` still applies.
 
+`isParallel` follows the runner's scheduling options. Before Vitest 4.1.6, a test with
+`concurrent: false` can still run concurrently when `sequence.concurrent` is enabled.
+From 4.1.6 that test setting takes precedence over the project default. Vitest 5 ignores the
+`sequential` option and reads `concurrent: false` to turn concurrency off.
+
 ## Example
 
 <!--@include: ../guide/examples.md#example-vitest-->

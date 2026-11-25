@@ -530,6 +530,16 @@ export class VitestAdapter extends SuiteAdapter {
       states,
       isOnly: flags.has('only'),
       mode,
+      vitestConcurrency:
+        inheritsBeforeChain &&
+        (chain.has('concurrent') || chain.has('sequential') || read.concurrent !== null || read.flags.has('sequential'))
+          ? {
+              concurrent: read.concurrent ?? undefined,
+              sequential: read.flags.get('sequential'),
+              chainConcurrent: chain.has('concurrent'),
+              chainSequential: chain.has('sequential'),
+            }
+          : undefined,
       ...(skips
         ? { skipPassedDown: { line: passed.line, withoutSkip: this.states(flags, conditions, isTodo, line) } }
         : {}),
@@ -644,6 +654,7 @@ export class VitestAdapter extends SuiteAdapter {
       return isUndefined && atLeast(this.file.version, 5, 0) ? undefined : option;
     };
     for (const flag of ['only', 'todo', 'fails', 'concurrent', 'sequential', 'shuffle']) {
+      if (flag === 'sequential' && atLeast(this.file.version, 5, 0)) continue;
       const option = given(flag);
       if (option && !option.resolved.ok) {
         const { importedFrom } = option.resolved;

@@ -3,6 +3,7 @@ import type { FunctionNode } from './ast.ts';
 import type { Scope } from './extract.ts';
 import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue } from './types.ts';
 import type { Value } from './values.ts';
+import type { VitestConcurrency } from './vitest-concurrency.ts';
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
 
@@ -83,6 +84,7 @@ interface Declaration {
   states: StateSetting[];
   isOnly: boolean;
   mode: Mode | null;
+  vitestConcurrency?: VitestConcurrency;
   /** A Vitest suite's inherited skip, and the declaration's states if a config tag clears it. */
   skipPassedDown?: { line: number; withoutSkip: StateSetting[] };
   /** Vitest: a suite's todo option merged into the test's options, independent of a nested suite's mode. */

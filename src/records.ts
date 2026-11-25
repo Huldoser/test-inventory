@@ -12,6 +12,7 @@ import {
   type Scope,
 } from './extract.ts';
 import { problem } from './frameworks/common.ts';
+import { legacyVitestParallel, suiteConcurrency, type ConcurrencyRules } from './vitest-concurrency.ts';
 import type { Dependencies } from './dependency-hash.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Mode, Problem, RunSettings, Span, State, StateOption, StateSetting, TestDeclaration } from './model.ts';
@@ -52,7 +53,7 @@ export interface ConfigDefaults {
   retryText: string | null;
   repeatsText: string | null;
   /** Whether tests run in parallel unless the file says otherwise: Playwright's `fullyParallel`, Vitest's `sequence.concurrent`. */
-  parallel: boolean;
+  parallel: boolean | null | undefined;
 }
 
 /** What a Vitest tag the config defines sets on the tests that carry it. */
@@ -80,8 +81,6 @@ export interface VitestTags {
   isStrict: boolean;
   /** From Vitest 5 a tag's options win over the describe's around the test; before, the describe's win. */
   beatsDescribes: boolean;
-  /** Vitest 4.1 passes the config's `sequence.concurrent`, when it sets one, to every test, over a tag's `concurrent`. */
-  concurrentBeatsTags: boolean;
 }
 
 /** What the config the file uses gives it. */
@@ -107,6 +106,7 @@ export interface FileConfig {
 }
 
 interface RecordOptions {
+  vitestConcurrency: ConcurrencyRules | null;
   relativeFilePath: string;
   framework: Framework;
   /** Jasmine's focus rules apply: for Jasmine, and for WebdriverIO on Jasmine. */
@@ -573,7 +573,10 @@ class RecordBuilder {
       condition: chosen?.setting.condition ?? null,
       reason: chosen?.setting.reason ?? null,
       hasDynamicReason: chosen?.setting.hasDynamicReason ?? false,
-      isParallel: scope.mode === 'parallel',
+      isParallel:
+        declaration.vitestConcurrency && this.options.vitestConcurrency
+          ? suiteConcurrency({}, declaration.vitestConcurrency, this.options.vitestConcurrency).concurrent === true
+          : scope.mode === 'parallel',
       isSerial: scope.mode === 'serial',
       isShuffled: declaration.isShuffled,
       isParameterized: declaration.isParameterized,
@@ -755,7 +758,7 @@ class RecordBuilder {
       ...describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []),
       ...parents.map((parent) => parent.declaration.title.text),
     ];
-    const tagConcurrent = this.options.config?.tags?.concurrentBeatsTags ? undefined : fromTags?.concurrent;
+    const tagConcurrent = fromTags?.concurrent;
     const tagMode: Mode | null = tagConcurrent === undefined ? null : tagConcurrent ? 'parallel' : 'default';
     const [mode = null] = tagged(
       [declaration.mode],
@@ -901,7 +904,15 @@ class RecordBuilder {
     }
     return {
       ...withConfig(record, defaults),
-      isParallel: record.isParallel || (mode === null && defaults?.parallel === true),
+      isParallel: this.options.vitestConcurrency
+        ? legacyVitestParallel(
+            this.options.vitestConcurrency,
+            describes.map((scope) => suiteOf(scope).declaration.vitestConcurrency),
+            declaration.vitestConcurrency,
+            fromTags?.concurrent,
+            defaults?.parallel,
+          )
+        : record.isParallel || (mode === null && defaults?.parallel === true),
       projects,
     };
   }

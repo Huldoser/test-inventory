@@ -2093,7 +2093,6 @@ export class ConfigRuns {
         tags: vitestTags(
           ownTags ?? settingAt(settings, ['test', 'tags']),
           settingAt(settings, ['test', 'strictTags']),
-          settingAt(settings, ['test', 'sequence', 'concurrent']),
           atLeast(this.version, 5, 0),
         ),
       },
@@ -2363,14 +2362,8 @@ function tagIn(setting: Setting): TagDefinition | null {
 
 /**
  * The tags a Vitest config defines, from `test.tags` and `test.strictTags`; null when the scan can't work them out.
- * Vitest 4.1 passes a `sequence.concurrent` the config sets to every test as an option, where it wins over a tag's.
  */
-function vitestTags(
-  tags: Setting | null,
-  strictTags: Setting | null,
-  concurrent: Setting | null,
-  beatsDescribes: boolean,
-): VitestTags | null {
+function vitestTags(tags: Setting | null, strictTags: Setting | null, beatsDescribes: boolean): VitestTags | null {
   const items = tags === null || isUnset(tags) ? [] : tags.kind === 'list' ? tags.items : null;
   const definitions = items?.map(tagIn) ?? null;
   if (definitions === null || definitions.includes(null)) return null;
@@ -2379,7 +2372,6 @@ function vitestTags(
     definitions: definitions as TagDefinition[],
     isStrict: Boolean(strictTags?.value ?? true),
     beatsDescribes,
-    concurrentBeatsTags: !beatsDescribes && concurrent !== null && !isUnset(concurrent),
   };
 }
 
@@ -2416,7 +2408,10 @@ function configDefaults(projects: ProjectAbout[]): ConfigDefaults | null {
     timeoutText: agreedText((defaults) => defaults.timeout),
     retryText: agreedText(({ retry }) => (retry?.kind === 'object' ? settingAt(retry, ['count']) : retry)),
     repeatsText: agreedText((defaults) => defaults.repeatEach ?? defaults.repeats),
-    parallel: projects.every(({ defaults }) => defaults.parallel?.kind === 'value' && defaults.parallel.value === true),
+    parallel: agreed(({ parallel }) => {
+      if (parallel === null || isUnset(parallel)) return undefined;
+      return parallel.kind === 'value' && typeof parallel.value === 'boolean' ? parallel.value : null;
+    }),
   };
 }
 
@@ -2430,7 +2425,7 @@ const UNKNOWN_DEFAULTS: ConfigDefaults = {
   timeoutText: null,
   retryText: null,
   repeatsText: null,
-  parallel: false,
+  parallel: null,
 };
 
 /**
@@ -2446,7 +2441,7 @@ export function fileConfig(
   const { config, projects } = placement;
   if (config === null) {
     // Without a config, Vitest defines no tags and keeps strictTags on.
-    const tags = vitestTags(null, null, null, atLeast(version, 5, 0));
+    const tags = vitestTags(null, null, atLeast(version, 5, 0));
     const forbidOnly = onlyRule(framework, null);
     if (placement.testFilters?.size) {
       const filters = [...placement.testFilters.values()];

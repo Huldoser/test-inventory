@@ -7,6 +7,7 @@ import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
+import { concurrencyRules } from './vitest-concurrency.ts';
 import { JestAdapter } from './frameworks/jest.ts';
 import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
 import { BunAdapter } from './frameworks/bun.ts';
@@ -194,6 +195,7 @@ export function scanFile(code: string | ParsedFile, relativeFilePath: string, se
       focusesLikeJasmine:
         settings.framework === 'jasmine' ||
         (settings.framework === 'webdriverio' && settings.webdriverioFramework === 'jasmine'),
+      vitestConcurrency: settings.framework === 'vitest' ? concurrencyRules(settings.version, settings.patch) : null,
       narrowsVitestFocus:
         settings.framework === 'vitest' &&
         (atLeast(settings.version, 4, 1) || (settings.version?.[0] === 4 && (settings.patch ?? 0) >= 17)),

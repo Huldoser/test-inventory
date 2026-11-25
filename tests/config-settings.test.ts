@@ -320,6 +320,34 @@ describe('run settings from the config', () => {
     expect(inventory.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('forbidden-only');
   });
 
+  it.each([
+    ['3.2.7', true],
+    ['4.1.5', true],
+    ['4.1.6', false],
+  ] as const)('handles concurrent: false with Vitest %s sequence.concurrent enabled', async (version, useDefault) => {
+    const inventory = await scanned(
+      {
+        'package.json': JSON.stringify({ devDependencies: { vitest: version } }),
+        'vitest.config.ts': 'export default {test:{sequence:{concurrent:true}}};',
+        'tests/orders.test.ts': `import {describe,test} from 'vitest';
+test('prices a spread',{concurrent:false},()=>{});
+describe.sequential('halted venue',()=>{
+  test('holds the quote',{concurrent:false},()=>{});
+  describe.concurrent('reopened lane',()=>{
+    test('releases the quote',{concurrent:false},()=>{});
+  });
+});`,
+      },
+      'vitest',
+      ['tests/*.test.ts'],
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+      ['prices a spread', useDefault],
+      ['holds the quote', false],
+      ['releases the quote', useDefault],
+    ]);
+  });
+
   it('runs tests in parallel with fullyParallel or sequence.concurrent, unless the file sets the mode', async () => {
     const playwright = await scanned(
       {

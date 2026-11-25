@@ -696,6 +696,71 @@ describe.todo('one-cancels-other orders', { todo: false }, () => {
     ]);
   });
 
+  it.each([
+    ['1.6.1', true, false],
+    ['2.0.5', false, false],
+    ['2.1.2', false, false],
+    ['2.1.3', true, true],
+    ['4.1.12', true, true],
+  ] as const)(
+    'resolves concurrency requests inside sequential suites in Vitest %s',
+    (frameworkVersion, chained, cleared) => {
+      const inventory = scanVitest(
+        `${VITEST_IMPORT}
+describe.sequential('closing auction', () => {
+  describe.concurrent('pairs', () => {
+    test('matches hedges', () => {});
+  });
+  describe('closing trades', {sequential:false}, () => {
+    test('books both legs', () => {});
+  });
+});`,
+        { frameworkVersion },
+      );
+      expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+        ['matches hedges', chained],
+        ['books both legs', cleared],
+      ]);
+    },
+  );
+
+  it.each(['3.2.7', '4.1.12'])('records the concurrency requested on a Vitest %s suite', (frameworkVersion) => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe('opening pairs', {sequential:false}, () => {});
+describe('auction book', {concurrent:true,sequential:true}, () => {});
+describe.concurrent('settlement', {concurrent:false}, () => {});
+describe.concurrent('closing prices', {sequential:true}, () => {});`,
+      { frameworkVersion },
+    );
+    expect(inventory.suites.map((s) => [s.title, s.isParallel])).toEqual([
+      ['opening pairs', true],
+      ['auction book', false],
+      ['settlement', false],
+      ['closing prices', false],
+    ]);
+  });
+
+  it('ignores a sequential option on a suite or test in Vitest 5', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe.concurrent('opening auction', () => {
+  test('publishes a price', { sequential: true }, () => {});
+  describe('closing book', { sequential: true }, () => {
+    test('settles a fill', () => {});
+  });
+});
+test('records a halt', { sequential: process.env.CLOSED }, () => {});`,
+      { frameworkVersion: '5.1.1' },
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+      ['publishes a price', true],
+      ['settles a fill', true],
+      ['records a halt', false],
+    ]);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it("lets a test's chain set its mode over its options", () => {
     const inventory = scanVitest(
       `${VITEST_IMPORT}
