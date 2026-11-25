@@ -66,7 +66,9 @@ array's `join()`. Such values may be written in the file or exported by another 
 included. A property is worked out on its own, as `TITLES.fill` in an object that also holds a function, or
 `fees.MINIMUM` on a module that `const fees = require('./fees')` loads. In a local object literal, a final explicit
 property supplies the value even if an earlier spread, computed key or getter used the same name. A later spread
-or computed key can leave the value unknown. A function or class written in place as a
+or computed key can leave the value unknown. A local class can supply a title through a static field,
+a static method or a prototype method. A getter or a later static block can leave that title unknown.
+A function or class written in place as a
 title, as in `describe(function OrderBook() {}, ...)`, gives its name, as the runners read it:
 
 ```ts

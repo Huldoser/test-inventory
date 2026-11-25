@@ -158,7 +158,11 @@ export class BunAdapter extends SuiteAdapter {
     const written = titleArg && titleArg.type !== 'SpreadElement' ? unwrap(titleArg) : null;
     const value = written ? this.file.values.resolve(written, context.scopes) : null;
     const declaredName =
-      written && !value?.ok ? this.file.values.functionName(written, context.scopes, 'declared') : null;
+      written && !value?.ok
+        ? this.file.values.functionName(written, context.scopes, {
+            inferStaticFieldNames: atLeast(this.file.version, 1, 4),
+          })
+        : null;
     const unnamed = !titleArg || (value?.ok && (value.value === undefined || value.value === null));
     const defaultName = kind === 'test' ? '(unnamed)' : '';
     const { title, problem: titleProblem } = unnamed

@@ -83,6 +83,29 @@ test('closes the book', () => {});`);
     }
   });
 
+  it('uses the Bun version when an anonymous static field is supplied as a test title', () => {
+    for (const initializer of ['() => {}', 'function () {}']) {
+      const code = `class Book { static post = ${initializer}; }
+const alias = Book.post;
+test('opens the book', () => {});
+test(alias, () => {});
+test('closes the book', () => {});`;
+      const old = scanBun(code, { frameworkVersion: '1.3.14' });
+      expect(old.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded']);
+      expect(codes(old)).toContain('invalid-chain');
+      const current = scanBun(code, { frameworkVersion: '1.4.0' });
+      expect(current.tests.map((test) => [test.title, test.state])).toEqual([
+        ['opens the book', 'active'],
+        ['post', 'active'],
+        ['closes the book', 'active'],
+      ]);
+      expect(codes(current)).not.toContain('dynamic-title');
+    }
+    const source = 'class Book { static post = class {}; } test(Book.post, () => {}); test(Book.post.name, () => {});';
+    expect(scanBun(source, { frameworkVersion: '1.3.14' }).tests.map((test) => test.title)).toEqual(['', 'post']);
+    expect(scanBun(source, { frameworkVersion: '1.4.0' }).tests.map((test) => test.title)).toEqual(['post', 'post']);
+  });
+
   it('keeps the empty name Bun registers for an unnamed class title', () => {
     const result = scanBun('test(class {}, () => {});');
     expect(onlyTest(result)).toMatchObject({ title: '', hasDynamicTitle: false });

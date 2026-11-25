@@ -1233,6 +1233,40 @@ test(getter.settle, () => {});
     expect(result.tests.map((test) => test.hasDynamicTitle)).toEqual([true, true, true]);
   });
 
+  it('reads static and prototype methods and the final static fields as Jest table titles', () => {
+    const result = scanJest(
+      `
+const key = 'closing auction';
+class Book {
+  static [key]() {}
+  postOrder() {}
+  static settle = 'final print';
+  static settle() {}
+  static route() {}
+  static route = function routeOrder() {};
+}
+const desk = Book;
+const methods = desk.prototype;
+const post = methods.postOrder;
+describe(desk[key], () => {
+  test.each([1, 2])(post, () => {});
+  test(Book.settle, () => {});
+  test(Book.route.name, () => {});
+  test(Book.prototype.postOrder.name, () => {});
+});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'closing auction > postOrder',
+      'closing auction > postOrder',
+      'closing auction > final print',
+      'closing auction > routeOrder',
+      'closing auction > postOrder',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
   it('distinguishes a class with an empty name field from the empty string property', () => {
     const definition = 'class Settlement { static name = ""; }';
     const direct = scanJest(`${definition} test('opens the book', () => {}); test(Settlement, () => {});`);

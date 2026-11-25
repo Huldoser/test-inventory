@@ -87,6 +87,9 @@ object used as the title. For `const book = { ['post']() {} }`, Bun rejects `boo
 and accepts `book.post.name` as the string `post`. An explicitly named function on the same computed
 property keeps its declared name. A null or undefined title gives the test or suite its unnamed label.
 
+For `class Book { static post = () => {} }`, Bun 1.4 takes `Book.post` as the title `post`.
+Earlier versions reject that function as a title. Passing `Book.post.name` supplies the string `post` in both.
+
 <!--@include: ../reference/syntax.md#syntax-bun-->
 
 The [shared syntax rules](/reference/syntax#in-every-runner) also apply.

@@ -38,6 +38,33 @@ describe('Values', () => {
       expect(resolve(code)).toEqual(UNRESOLVED);
   });
 
+  it('resolves declared class data properties in JavaScript initialization order', () => {
+    for (const [code, value] of [
+      ['class Desk { static { this.window = "opening"; } static window = "closing"; } Desk.window;', 'closing'],
+      ['class Desk { static window; } Desk.window;', undefined],
+      ['class Desk { static name() {} } Desk.name.name;', 'name'],
+      ['class Desk { static open() {} declare static open: () => void; } Desk.open.name;', 'open'],
+      ['class Desk { settle() {} static settle = "closing"; } Desk.prototype.settle.name;', 'settle'],
+    ] as const)
+      expect(resolve(code)).toEqual({ ok: true, value });
+  });
+
+  it('leaves class titles unknown when a getter, decorator, static block or write determines them', () => {
+    for (const code of [
+      'class Desk { static get window() { return currentWindow(); } } Desk.window;',
+      'class Desk { static window = "opening"; static { this.window = currentWindow(); } } Desk.window;',
+      'class Desk { settle() {} static { this.prototype.settle = chooseMethod(); } } Desk.prototype.settle.name;',
+      'class Desk { static open() {} static [currentWindow()]() {} } Desk.open.name;',
+      'class Desk { static open() {} static [currentWindow()] = "opening"; } Desk.open.name;',
+      '@chooseDesk class Desk { static open() {} } Desk.open.name;',
+      'class Desk { @chooseMethod static open() {} } Desk.open.name;',
+      'class Desk { static accessor window = "opening"; } Desk.window;',
+      'class Desk { static window = "opening"; } Desk.window = currentWindow(); Desk.window;',
+      'class Desk {} Desk.prototype.prototype;',
+    ])
+      expect(resolve(code)).toEqual(UNRESOLVED);
+  });
+
   it.each([
     ["'AAPL';", 'AAPL'],
     ['187.5;', 187.5],

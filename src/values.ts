@@ -1,4 +1,4 @@
-import type { CallExpression, Expression, Node, TSEnumDeclaration, VariableDeclarator } from 'oxc-parser';
+import type { CallExpression, ClassBody, Expression, Node, TSEnumDeclaration, VariableDeclarator } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from './ast.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
@@ -17,6 +17,14 @@ type Binding = { declaration: Node } & (
 );
 
 const UNRESOLVED: Resolved = { ok: false, importedFrom: null };
+
+interface DataProperty {
+  name: string;
+  computed: boolean;
+  value: Expression | null;
+  scopes: readonly Node[];
+  staticField?: boolean;
+}
 
 /** What another module exports under a name, `default` included, for an import of the file. */
 export type ImportReader = (source: string, name: string) => Resolved;
@@ -328,7 +336,7 @@ export class Values {
           if (name) return name;
         }
         const own = this.ownProperty(expression, scopes);
-        if (own) return this.resolveConstant(own.value, own.scopes);
+        if (own) return own.value ? this.resolveConstant(own.value, own.scopes) : { ok: true, value: undefined };
         const object = this.resolve(expression.object, scopes);
         if (!object.ok) return object;
         const key = expression.computed
@@ -407,7 +415,7 @@ export class Values {
   functionName(
     expression: Expression,
     scopes: readonly Node[],
-    kind: 'property' | 'declared' = 'property',
+    bun?: { inferStaticFieldNames: boolean },
   ): Resolved | null {
     let node: Node = unwrap(expression);
     let inferred = '';
@@ -416,9 +424,9 @@ export class Values {
     while (node.type === 'Identifier' || node.type === 'MemberExpression') {
       if (node.type === 'MemberExpression') {
         const own = this.ownProperty(node, scopes);
-        if (!own || seen.has(own.value)) return null;
+        if (!own?.value || seen.has(own.value)) return null;
         seen.add(own.value);
-        inferred = kind === 'declared' && own.computed ? '' : own.name;
+        inferred = bun && (own.computed || (own.staticField && !bun.inferStaticFieldNames)) ? '' : own.name;
         node = unwrap(own.value);
         scopes = own.scopes;
         continue;
@@ -437,27 +445,11 @@ export class Values {
     if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
       if (modified) return UNRESOLVED;
       const declared = { ok: true as const, value: node.id?.name ?? inferred };
-      if (kind === 'declared') return declared;
-      let field: Resolved | null = null;
-      let method = false;
-      // Class methods are installed before static fields and blocks run in source order.
-      for (const member of node.body.body) {
-        if (member.type === 'StaticBlock') {
-          field = UNRESOLVED;
-          continue;
-        }
-        if (!('key' in member) || !member.static || member.key.type === 'PrivateIdentifier') continue;
-        const key = this.propertyKey(member.key, member.computed, scopes);
-        if (key.ok && key.value !== 'name') continue;
-        if (member.type === 'PropertyDefinition') {
-          field = !key.ok
-            ? UNRESOLVED
-            : member.value
-              ? this.resolveConstant(member.value, scopes)
-              : { ok: true, value: undefined };
-        } else method = true;
-      }
-      return field ?? (method ? UNRESOLVED : declared);
+      if (bun) return declared;
+      const member = this.classProperty(node.body, 'name', false, scopes);
+      if (member === null) return declared;
+      if (member === 'unknown') return UNRESOLVED;
+      return member.value ? this.resolveConstant(member.value, scopes) : { ok: true, value: undefined };
     }
     if (
       node.type === 'FunctionDeclaration' ||
@@ -465,7 +457,7 @@ export class Values {
       node.type === 'ArrowFunctionExpression'
     ) {
       const name = node.type === 'ArrowFunctionExpression' ? inferred : (node.id?.name ?? inferred);
-      return modified ? UNRESOLVED : { ok: true, value: kind === 'declared' && name === '' ? undefined : name };
+      return modified ? UNRESOLVED : { ok: true, value: bun && name === '' ? undefined : name };
     }
     return null;
   }
@@ -559,24 +551,39 @@ export class Values {
   private ownProperty(
     expression: Extract<Expression, { type: 'MemberExpression' }>,
     scopes: readonly Node[],
-  ): { name: string; computed: boolean; value: Expression; scopes: readonly Node[] } | null {
-    let object = unwrap(expression.object);
+  ): DataProperty | null {
+    let object: Node = unwrap(expression.object);
     let objectScopes = scopes;
-    const seen = new Set<Expression>();
-    while (object.type === 'Identifier') {
-      const binding = this.lookup(object.name, objectScopes)?.binding;
-      if (binding?.kind !== 'const' || this.changedAtLoad(binding.scopes[0]).has(object.name) || seen.has(binding.init))
+    let prototype = false;
+    const seen = new Set<Node>();
+    while (object.type === 'Identifier' || object.type === 'MemberExpression') {
+      if (object.type === 'MemberExpression') {
+        if (prototype || propertyName(object) !== 'prototype') return null;
+        prototype = true;
+        object = unwrap(object.object);
+        continue;
+      }
+      const found = this.lookup(object.name, objectScopes);
+      if (!found || this.changedAtLoad(found.scopes[0]).has(object.name) || seen.has(found.binding.declaration))
         return null;
-      seen.add(binding.init);
-      object = unwrap(binding.init);
-      objectScopes = binding.scopes;
+      seen.add(found.binding.declaration);
+      const binding = found.binding;
+      if (binding.kind === 'const') object = unwrap(binding.init);
+      else if (binding.declaration.type === 'ClassDeclaration') object = binding.declaration;
+      else return null;
+      objectScopes = found.scopes;
     }
-    if (object.type !== 'ObjectExpression') return null;
     const key = expression.computed
       ? this.resolve(expression.property, scopes)
       : { ok: true as const, value: propertyName(expression) };
     if (!key.ok || !isKey(key.value)) return null;
     const name = String(key.value);
+    if (object.type === 'ClassDeclaration' || object.type === 'ClassExpression') {
+      if (object.decorators.length) return null;
+      const member = this.classProperty(object.body, name, prototype, objectScopes);
+      return member === 'unknown' ? null : member;
+    }
+    if (object.type !== 'ObjectExpression' || prototype) return null;
     for (let index = object.properties.length - 1; index >= 0; index--) {
       const property = object.properties[index];
       if (property.type === 'SpreadElement') return null;
@@ -588,6 +595,36 @@ export class Values {
           : null;
     }
     return null;
+  }
+
+  /** Methods are installed first. Static fields and blocks can then replace them, in source order. */
+  private classProperty(
+    body: ClassBody,
+    name: string,
+    prototype: boolean,
+    scopes: readonly Node[],
+  ): DataProperty | 'unknown' | null {
+    let method: DataProperty | 'unknown' | null = null;
+    let field: DataProperty | 'unknown' | null = null;
+    for (const member of body.body) {
+      if (member.type === 'StaticBlock') {
+        field = 'unknown';
+        continue;
+      }
+      if (!('key' in member) || member.static === prototype || member.key.type === 'PrivateIdentifier') continue;
+      const key = this.propertyKey(member.key, member.computed, scopes);
+      if (key.ok && isKey(key.value) && String(key.value) !== name) continue;
+      const known = key.ok && isKey(key.value) && !member.decorators.length;
+      if (member.type === 'MethodDefinition') {
+        method =
+          known && member.kind === 'method'
+            ? { name, computed: member.computed, value: member.value, scopes }
+            : 'unknown';
+      } else if (!prototype && member.type === 'PropertyDefinition' && !member.declare) {
+        field = known ? { name, computed: member.computed, value: member.value, scopes, staticField: true } : 'unknown';
+      } else if (member.type === 'AccessorProperty') method = 'unknown';
+    }
+    return field ?? method;
   }
 
   private imported(source: string, name: string | null): Resolved {
