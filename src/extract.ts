@@ -40,7 +40,15 @@ import type {
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
-import { bindingNames, isScopeNode, type Resolved, type Value, type Values } from './values.ts';
+import {
+  bindingNames,
+  isScopeNode,
+  nonIterable,
+  type ParameterStep,
+  type Resolved,
+  type Value,
+  type Values,
+} from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
 export interface Scope {
@@ -190,7 +198,7 @@ interface Registration {
 interface Context {
   /** Evaluating an argument to a runner API at collection time, before the runner receives it. */
   evaluatingArgument?: boolean;
-  parameterDefaults?: ReadonlyMap<Node, boolean | null>;
+  parameterSteps?: ReadonlyMap<Node, ParameterStep>;
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
   registration?: Registration;
   emptySuiteAt?: number;
@@ -696,13 +704,21 @@ class Walker {
         isFunctionNode(node)
       )
         return;
-      if (node.type === 'AssignmentPattern') {
-        const selected = context.parameterDefaults?.get(node);
-        if (selected !== undefined) {
-          this.visitBranch(node.right, context, `${this.text(node.left)} === undefined`, selected);
-          this.visit(node.left, context);
-          return;
-        }
+      const step = context.parameterSteps?.get(node);
+      if (step === 'throw') {
+        this.stopRegistration(node, context);
+        return;
+      }
+      if (node.type === 'AssignmentPattern' && step !== undefined) {
+        this.visitBranch(node.right, context, `${this.text(node.left)} === undefined`, step);
+        this.visit(node.left, context);
+        return;
+      }
+      if (node.type === 'SpreadElement' && this.parents.at(-2)?.type !== 'ObjectExpression') {
+        this.visit(node.argument, context);
+        const value = this.frame.values.resolve(node.argument, this.scopes);
+        if (value.ok && nonIterable(value.value)) this.stopRegistration(node, context);
+        return;
       }
       if (node.type === 'ClassBody') {
         // Class creation computes the keys first, then initializes static elements in declaration order.
@@ -1559,7 +1575,7 @@ class Walker {
       }
       for (const value of list.value) args.push({ ok: true, value });
     }
-    const defaults = context.evaluatingArgument ? new Map<Node, boolean | null>() : undefined;
+    const parameterSteps = context.evaluatingArgument ? new Map<Node, ParameterStep>() : undefined;
     const caller = this.frame;
     const site = this.site;
     if (frame !== caller) {
@@ -1582,7 +1598,7 @@ class Walker {
           {
             ...context,
             registration,
-            parameterDefaults: defaults,
+            parameterSteps,
             isInFunction: true,
             declaredIn: null,
             calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
@@ -1592,7 +1608,7 @@ class Walker {
         );
       },
       complete,
-      defaults,
+      parameterSteps,
     );
     this.callStack.pop();
     this.scopes.splice(0, this.scopes.length, ...saved);

@@ -22,6 +22,14 @@ export type Value = string | number | boolean | null | undefined | Value[] | { [
 /** A resolved value or a failed lookup. `arrayLength` can record the size of an imported array with unknown items. */
 export type Resolved = { ok: true; value: Value } | { ok: false; importedFrom: string | null; arrayLength?: number };
 
+/** Whether a parameter default runs (null when unknown), or a destructuring pattern throws before binding. */
+export type ParameterStep = boolean | null | 'throw';
+
+/** Only strings and values with an iterator can be spread into a call or bound to an array pattern. */
+export function nonIterable(value: Value): boolean {
+  return typeof value !== 'string' && (value === null || typeof value !== 'object' || !(Symbol.iterator in value));
+}
+
 /** What a name is bound to, and the node that declares it: a declarator, import specifier, function or parameter list. */
 type Binding = { declaration: Node } & (
   | { kind: 'const'; init: Expression; scopes: Node[] }
@@ -131,7 +139,7 @@ export class Values {
    * `validatesQuantity('buy')`. `args` stop at a spread argument, after which no position is known, and `complete` is
    * false then. A missing argument takes the parameter's default value, worked out in `scopes`, the scopes around the
    * function. A rest parameter, as `...cycles`, holds the arguments left. When collecting parameter side effects,
-   * `defaults` records whether each initializer runs. A null entry means the supplied value is unknown.
+   * `steps` records conditional defaults and destructuring failures in the order the caller visits the parameters.
    */
   withArguments<T>(
     fn: FunctionNode,
@@ -139,7 +147,7 @@ export class Values {
     scopes: readonly Node[],
     read: () => T,
     complete = true,
-    defaults?: Map<Node, boolean | null>,
+    steps?: Map<Node, ParameterStep>,
   ): T {
     const parameters = new Map<string, () => Resolved>();
     for (const [index, parameter] of fn.params.entries()) {
@@ -147,10 +155,10 @@ export class Values {
         const rest = args.slice(index);
         const unknown = complete ? rest.find((item) => !item.ok) : UNRESOLVED;
         const value = unknown ?? { ok: true, value: rest.map((item) => (item as { value: Value }).value) };
-        this.bind(parameter.argument, value, parameters, [...scopes, fn], defaults);
+        this.bind(parameter.argument, value, parameters, [...scopes, fn], steps);
       } else {
-        const value = args.at(index) ?? (!complete && defaults ? UNRESOLVED : undefined);
-        this.bind(parameter, value, parameters, [...scopes, fn], defaults);
+        const value = args.at(index) ?? (!complete && steps ? UNRESOLVED : undefined);
+        this.bind(parameter, value, parameters, [...scopes, fn], steps);
       }
     }
     // A parameter the function assigns to may hold another value by the time it is read.
@@ -204,7 +212,7 @@ export class Values {
     value: Resolved | undefined,
     names: Map<string, () => Resolved>,
     scopes: readonly Node[],
-    defaults?: Map<Node, boolean | null>,
+    steps?: Map<Node, ParameterStep>,
   ): void {
     switch (pattern.type) {
       case 'Identifier':
@@ -212,9 +220,9 @@ export class Values {
         return;
       case 'AssignmentPattern': {
         const useDefault = !value || (value.ok && value.value === undefined);
-        defaults?.set(pattern, value && !value.ok ? null : useDefault);
+        steps?.set(pattern, value && !value.ok ? null : useDefault);
         if (!useDefault) {
-          this.bind(pattern.left, value, names, scopes, defaults);
+          this.bind(pattern.left, value, names, scopes, steps);
           return;
         }
         const fallback = pattern.right;
@@ -222,20 +230,28 @@ export class Values {
           names.set(pattern.left.name, () => this.resolve(fallback, scopes));
           return;
         }
-        this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes, defaults);
+        this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes, steps);
         return;
       }
       case 'ArrayPattern':
+        if (steps && (!value || (value.ok && nonIterable(value.value)))) {
+          steps.set(pattern, 'throw');
+          return;
+        }
         for (const [index, element] of pattern.elements.entries()) {
           if (!element || !value) continue;
           const list = value.ok && Array.isArray(value.value) ? value.value : null;
           const part = (rest: boolean): Resolved =>
             list ? { ok: true, value: rest ? list.slice(index) : list[index] } : value.ok ? UNRESOLVED : value;
-          if (element.type === 'RestElement') this.bind(element.argument, part(true), names, scopes, defaults);
-          else this.bind(element, part(false), names, scopes, defaults);
+          if (element.type === 'RestElement') this.bind(element.argument, part(true), names, scopes, steps);
+          else this.bind(element, part(false), names, scopes, steps);
         }
         return;
       case 'ObjectPattern': {
+        if (steps && (!value || (value.ok && (value.value === null || value.value === undefined)))) {
+          steps.set(pattern, 'throw');
+          return;
+        }
         if (!value) return;
         const object = value.ok && isPlainObject(value.value) ? value.value : null;
         const taken: string[] = [];
@@ -247,7 +263,7 @@ export class Values {
               rest ? { ok: true, value: rest } : value.ok ? UNRESOLVED : value,
               names,
               scopes,
-              defaults,
+              steps,
             );
             continue;
           }
@@ -256,7 +272,7 @@ export class Values {
           if (name !== null) taken.push(name);
           const part: Resolved =
             object && name !== null ? { ok: true, value: object[name] } : value.ok ? UNRESOLVED : value;
-          this.bind(property.value, part, names, scopes, defaults);
+          this.bind(property.value, part, names, scopes, steps);
         }
         return;
       }

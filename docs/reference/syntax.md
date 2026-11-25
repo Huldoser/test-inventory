@@ -237,6 +237,7 @@ and `finally` can register specs before the error escapes. The same recovery rul
 The scan omits a `catch` block when it can establish that the preceding `try` completes normally. Calls with unknown side effects keep recovery specs in the inventory.
 When a synchronous helper registers specs while evaluating arguments to a Jasmine declaration, those specs belong to the enclosing suite. If an argument throws, Jasmine skips the remaining arguments and the declaration itself.
 A helper's default parameter initializer runs for a missing or undefined value. The scan follows defaults through literal arrays, objects and known spread arguments.
+If a known value cannot be destructured or spread into a call or array, the scan keeps specs registered before the failure. An async function returns a rejected promise for a parameter binding error. An invalid spread in the caller throws before the async function starts.
 From Jasmine 4.5, an empty-suite error leaves that suite open. Specs registered by a `catch` or `finally` then belong to the empty suite and inherit its hooks and focus or skip settings.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in

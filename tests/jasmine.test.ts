@@ -345,6 +345,64 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('stops on a refused parameter binding after earlier defaults and before later defaults or the helper body', () => {
+    for (const [binding, argument] of [
+      ['{bid}', 'null'],
+      ['{bid}', 'undefined'],
+      ['{book: {bid}}', '{book: null}'],
+      ['[bid]', '15'],
+    ]) {
+      const result = scanJasmine(`
+function consume(start = it('opens the feed', () => {}), ${binding}, end = it('reads the last quote', () => {})) {
+  it('enters the pricing helper', () => {});
+}
+describe('cash desk', () => {
+  try { it('accepts the trade', () => {}, 25, consume(undefined, ${argument})); }
+  catch { it('recovers the feed', () => {}); }
+  it('closes the desk', () => {});
+});`);
+      expect(
+        result.tests.map((test) => test.fullName),
+        binding,
+      ).toEqual(['cash desk > opens the feed', 'cash desk > recovers the feed', 'cash desk > closes the desk']);
+    }
+  });
+
+  it('stops spreading a non-iterable before later arguments and still evaluates object spreads and strings', () => {
+    for (const expression of [
+      "record(it('opens the feed', () => {}), ...null, it('reads the late quote', () => {}))",
+      "[it('opens the feed', () => {}), ...false, it('reads the late quote', () => {})]",
+      "new Ticket(it('opens the feed', () => {}), ...{}, it('reads the late quote', () => {}))",
+    ]) {
+      const result = scanJasmine(`
+function record() {}
+class Ticket {}
+try { it('accepts the trade', () => {}, 25, ${expression}); }
+catch { it('recovers the feed', () => {}); }
+it('closes the desk', () => {}, 25, {...null, ...false, quote: it('opens the book', () => {})}, [...'FX']);`);
+      expect(
+        result.tests.map((test) => test.title),
+        expression,
+      ).toEqual(['opens the feed', 'recovers the feed', 'opens the book', 'closes the desk']);
+    }
+  });
+
+  it('keeps an async parameter rejection inside its promise but propagates invalid spreads before the async call', () => {
+    const result = scanJasmine(`
+async function record({bid}) { it('enters the pricing helper', () => {}); }
+async function* quotes({bid}) {}
+it('accepts a rejected promise', () => {}, 25, record(null).catch(() => {}));
+try { it('accepts an invalid spread', () => {}, 25, record(...false).catch(() => {})); }
+catch { it('recovers the spread', () => {}); }
+try { it('requests quotes', () => {}, 25, quotes()); }
+catch { it('recovers the iterator', () => {}); }`);
+    expect(result.tests.map((test) => test.title)).toEqual([
+      'accepts a rejected promise',
+      'recovers the spread',
+      'recovers the iterator',
+    ]);
+  });
+
   it('evaluates registration arguments in order before entering the Jasmine declaration', () => {
     const result = scanJasmine(`
 function readTitle() { it('reads the quote', () => {}); return 'closing auction'; }

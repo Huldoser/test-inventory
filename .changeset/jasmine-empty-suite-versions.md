@@ -10,3 +10,4 @@ Assign recovery specs to the suite Jasmine leaves open after it rejects an empty
 Omit Jasmine recovery specs when the guarded registrations and local helpers complete without throwing.
 Collect specs declared while evaluating Jasmine runner arguments in call order, stopping at a synchronous exception.
 Use supplied helper arguments when deciding which parameter defaults register specs.
+Honor synchronous errors from invalid spreads and destructuring in Jasmine declaration arguments.
