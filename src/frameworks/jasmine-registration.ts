@@ -186,7 +186,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       callback(secondArg.node)
     ) {
       if (name === 'describe' && functionLength(secondArg.node) > 0) return 'throw';
-      if (secondArg.node.async || secondArg.node.generator) return 'unknown';
+      if (secondArg.node.async || secondArg.node.generator) return 'throw';
       const nested: Children = { registered: false };
       const result = invoke(secondArg.node, secondArg.scopes, nested);
       if (result === 'unknown') return result;

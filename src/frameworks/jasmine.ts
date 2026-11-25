@@ -201,11 +201,11 @@ export class JasmineAdapter extends SuiteAdapter {
       const refusal = this.refusal('test-without-body', call, `${callee}() has no function`, context);
       return refused(call, refusal, context, () => declared);
     }
-    if (callback?.async) {
+    if (callback && (callback.async || callback.generator)) {
       const refusal = this.refusal(
-        'async-describe',
+        callback.async ? 'async-describe' : 'describe-throws',
         callback,
-        'The describe callback is async, which Jasmine refuses',
+        `The describe callback is ${callback.async ? 'async' : 'a generator'}, which Jasmine refuses`,
         context,
       );
       return refused(call, refusal, context, () => declared);

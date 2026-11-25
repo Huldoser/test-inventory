@@ -24,3 +24,4 @@ Account for registrations and exceptions from calls inside arguments to local Ja
 Check generator parameter defaults and destructuring at the call, including specs registered while binding a default.
 Stop registration at a parameter read before initialization while preserving reads deferred inside a closure.
 Use the arguments supplied to ordinary Jasmine helpers when checking whether a default or the function body reaches the caller's catch.
+Mark suites with a generator callback as refused by Jasmine and keep recovery with the handler that catches the refusal.

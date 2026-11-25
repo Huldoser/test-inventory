@@ -401,6 +401,25 @@ try { describe('closing auction', orders); } catch { it('recovers the callback',
     expect(result.tests.some((test) => test.title === 'recovers the callback')).toBe(true);
   });
 
+  it('marks a rejected Jasmine suite callback as not loaded and stops recovery at the handler that caught it', () => {
+    for (const runner of ['describe', 'xdescribe', 'fdescribe']) {
+      for (const kind of ['function*', 'async function', 'async function*']) {
+        const result = scanJasmine(`
+${kind} quotes(bid = it('reads the initial bid', () => {})) {
+  it('reads the closing price', () => {});
+}
+try {
+  try { ${runner}('closing auction', quotes); }
+  catch { it('recovers the callback', () => {}); }
+  it('closes the order', () => {});
+} catch { it('recovers the outer caller', () => {}); }`);
+        const loaded = result.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.title);
+        expect(loaded, runner + kind).toEqual(['recovers the callback', 'closes the order']);
+        expect(codes(result), kind).toContain(kind === 'function*' ? 'describe-throws' : 'async-describe');
+      }
+    }
+  });
+
   it('stops Jasmine registration when a default reads a parameter before it has been initialized', () => {
     for (const kind of ['function', 'function*', 'async function', 'async function*']) {
       for (const [parameters, args, fails] of [
