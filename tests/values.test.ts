@@ -493,6 +493,41 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + deferred + 'day.label;')).toEqual({ ok: true, value: 'day' });
   });
 
+  it('resolves a constant alias of a callback in the scope that captured the parameter', () => {
+    const code =
+      'const day={label:"day"};const night={label:"night"};function inspect(desk){return desk.label;}function close(desk){desk.label="closing";}';
+    const run =
+      'function run(fn,desk){const first=fn;const apply=first;{const fn=inspect;apply(desk);}}run(inspect,day);run(close,night);';
+    expect(resolve(code + run + 'night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(code + run + 'day.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
+  it('tracks functions selected by expressions while preserving an applicable default callback', () => {
+    const setup =
+      'const desk={label:"opening"};function close(row){row.label="closing";}function inspect(row){return row.label;}';
+    for (const choice of ['flip()?close:inspect', '(inspect,close)', 'null??close', 'true?close:inspect']) {
+      expect(resolve(setup + 'const task=' + choice + ';function run(fn){fn(desk);}run(task);desk.label;')).toEqual(
+        UNRESOLVED,
+      );
+    }
+    for (const choice of ['false?close:inspect', '(close,inspect)']) {
+      expect(resolve(setup + 'const task=' + choice + ';function run(fn){fn(desk);}run(task);desk.label;')).toEqual({
+        ok: true,
+        value: 'opening',
+      });
+    }
+    const mayBeMissing =
+      'function run(fn=close){fn(desk);}function outer(fn){run(fn);}outer(flip()?inspect:undefined);';
+    expect(resolve(setup + mayBeMissing + 'desk.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('tracks a callback supplied by an assignment expression and stops on circular callable aliases', () => {
+    const setup = 'const desk={label:"opening"};function close(row){row.label="closing";}function run(fn){fn(desk);}';
+    expect(resolve(setup + 'let edit;run(edit=close);desk.label;')).toEqual(UNRESOLVED);
+    const cycle = 'function route(active){if(active){const first=second;const second=first;run(second);}}route(false);';
+    expect(resolve(setup + cycle + 'desk.label;')).toEqual({ ok: true, value: 'opening' });
+  });
+
   it('includes every possible callback when a computed property can override a named one', () => {
     const setup =
       'const desk={label:"opening"}; function close(row){row.label="closing";} function inspect(row){return row.label;} function run({task},row){task(row);}';

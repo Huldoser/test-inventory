@@ -21,3 +21,4 @@ Flag possible changes to titles through the arguments of local helpers called du
 Follow possible returned objects even when the same helper is called inside its own argument or another branch returns no value.
 Follow local constant aliases of functions when collecting tests or tracking writes through helper arguments.
 Track possible writes through callbacks passed to local helpers, keeping each callback paired with its own arguments.
+Follow callback parameters through local aliases and selection expressions, including defaults when a supplied callback could be missing.

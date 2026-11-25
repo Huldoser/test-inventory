@@ -32,9 +32,14 @@ export interface ScopedFunction {
   fn: FunctionNode;
   scopes: readonly Node[];
 }
+export interface CallbackChoice {
+  targets: ScopedFunction[];
+  /** Every possible value is a known function, so a parameter default cannot be used. */
+  definite: boolean;
+}
 export interface CallbackContext {
   owner: Node;
-  functions: Map<string, ScopedFunction[]>;
+  functions: Map<string, CallbackChoice>;
 }
 export interface ParameterSource extends Site {
   name: string;
@@ -77,7 +82,9 @@ function memberKey(member: Extract<Expression, { type: 'MemberExpression' }>): K
 }
 
 /** Which operand supplies a reference when the condition can be decided without reading mutable bindings. */
-function selected(value: Extract<Expression, { type: 'ConditionalExpression' | 'LogicalExpression' }>): Expression[] {
+export function referenceOperands(
+  value: Extract<Expression, { type: 'ConditionalExpression' | 'LogicalExpression' }>,
+): Expression[] {
   const conditional = value.type === 'ConditionalExpression';
   const test = unwrapChain(conditional ? value.test : value.left);
   const present = !conditional && value.operator === '??';
@@ -337,7 +344,7 @@ export function changedReferences(
         returning.pop();
       }
     } else if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
-      for (const source of selected(value)) follow(direct(source), path, site, context);
+      for (const source of referenceOperands(value)) follow(direct(source), path, site, context);
     } else if (value.type === 'SequenceExpression') {
       follow(direct(value.expressions[value.expressions.length - 1]), path, site, context);
     } else if (value.type === 'AssignmentExpression' && value.operator === '=') {
