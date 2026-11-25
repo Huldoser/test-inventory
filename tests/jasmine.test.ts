@@ -345,6 +345,46 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('stops a Jasmine registration helper when a return leaves its try or its selected catch', () => {
+    for (const body of [
+      'try { return 5; } catch {}',
+      'try { return await 0; } catch {}',
+      'try { const bid = await 0; return bid; } catch {}',
+      'try { if (true) return 5; } catch {}',
+      'try { await Promise.reject("closed"); } catch { return await 0; }',
+      'try { try { return 5; } finally {} } finally {}',
+      'try { throw Error("closed"); } finally { return; }',
+    ]) {
+      const result = scanJasmine(`
+async function price() {
+  try { ${body} } finally { it('clears the quotes', () => {}); }
+  it('prices a closed book', () => {});
+}
+price(); it('closes the desk', () => {});`);
+      expect(result.tests.map((test) => test.title).sort(), body).toEqual(['clears the quotes', 'closes the desk']);
+    }
+  });
+
+  it('keeps the enclosing Jasmine helper open after a nested return or a catch that can recover', () => {
+    for (const body of [
+      'function book() { try { return 7; } catch {} } book();',
+      'async function book() { try { return await 0; } catch {} } book();',
+      '(() => { return 5; })();',
+      'describe("closing auction", () => { it("checks the book", () => {}); return; });',
+      'try { if (false) return 5; } catch {}',
+      'try { if (feed.closed) return 5; } finally {}',
+      'try { return readFeed(); } catch {}',
+      'try { return await Promise.reject("closed"); } catch {}',
+      'try { try { return 5; } finally { throw Error("closed"); } } catch {}',
+    ]) {
+      const result = scanJasmine(`async function price() { ${body} it('prices the book', () => {}); } price();`);
+      expect(
+        result.tests.map((test) => test.title),
+        body,
+      ).toContain('prices the book');
+    }
+  });
+
   it('omits unreachable recovery specs after awaiting a primitive and keeps recovery for thenables', () => {
     for (const [operand, canReject] of [
       ['0', false],

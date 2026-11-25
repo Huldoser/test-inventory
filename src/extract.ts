@@ -195,6 +195,8 @@ interface AsyncRegistration {
 
 interface Registration {
   stoppedAt?: number;
+  /** A return from the current registration callback, after its operand was evaluated. */
+  returned?: boolean;
   /** The suite an async helper leaves current when it gives control back to the caller. */
   asyncCall?: AsyncRegistration;
   /** Current suite after user code caught an empty-suite error. */
@@ -720,7 +722,14 @@ class Walker {
 
   private visitNode(node: Node, context: Context): void {
     const task = context.registration?.asyncCall;
-    if (task && (context.skipImports || task.pending || context.registration?.stoppedAt !== undefined)) return;
+    if (
+      task &&
+      (context.skipImports ||
+        task.pending ||
+        context.registration?.returned ||
+        context.registration?.stoppedAt !== undefined)
+    )
+      return;
     if (context.evaluatingArgument && context.registration) {
       if (
         context.skipImports ||
@@ -828,6 +837,7 @@ class Walker {
         const attempt = context.registration && { ...context.registration };
         this.visit(node.block, { ...context, registration: attempt, handlesRegistrationError: !!attempt });
         let failure = attempt?.stoppedAt;
+        let returned = attempt?.returned;
         let scope = attempt?.recoveryScope ?? attempt?.scope;
         const exit =
           node.handler && attempt && failure === undefined
@@ -842,18 +852,29 @@ class Walker {
           this.visit(node.handler, handler);
           if (failure !== undefined && handler.registration) {
             failure = handler.registration.stoppedAt;
+            returned = handler.registration.returned;
             scope = handler.registration.recoveryScope ?? handler.registration.scope;
-          }
+          } else returned = returned && handler.registration?.returned;
         }
         if (context.registration) context.registration.scope = scope;
         if (node.finalizer) {
           this.visit(node.finalizer, context);
-          if (failure !== undefined && this.frame.adapter.registrationExit?.(node.finalizer, this.scopes) === 'return')
+          if (
+            failure !== undefined &&
+            (context.registration?.returned ||
+              this.frame.adapter.registrationExit?.(node.finalizer, this.scopes) === 'return')
+          )
             failure = undefined;
         }
         if (context.registration && failure !== undefined) context.registration.stoppedAt ??= failure;
+        if (returned && context.registration) context.registration.returned = true;
         return;
       }
+      case 'ReturnStatement':
+        if (node.argument) this.visit(node.argument, context);
+        if (context.registration?.asyncCall && context.registration.stoppedAt === undefined)
+          context.registration.returned = true;
+        return;
       case 'ThrowStatement':
         this.visit(node.argument, context);
         this.stopRegistration(node, context);
@@ -1060,6 +1081,7 @@ class Walker {
     let current = context;
     for (let index = start; index < statements.length; index++) {
       const task = current.registration?.asyncCall;
+      if (current.registration?.returned) return;
       if (task?.atAwait && task.body === this.parents.at(-1)) {
         if (!current.skipImports && !task.pending && current.registration?.stoppedAt === undefined)
           this.deferStatements(statements, index, current, task.body);
@@ -1227,6 +1249,7 @@ class Walker {
     // Function expressions and arrows always have a body; only declarations of overloads don't.
     if (!parameterSteps || (!fn.generator && bindings.registration?.stoppedAt === undefined))
       this.visit(fn.body as Node, context);
+    if (context.registration?.returned) context.registration.returned = false;
     this.parents.pop();
     this.scopes.pop();
   }

@@ -18,3 +18,4 @@ Preserve the current Jasmine suite across the synchronous part of an async regis
 Collect successive statements after a Jasmine helper suspends in microtask order, with their captured parameters.
 Omit unreachable Jasmine registrations after an async return, a rejected await or a promise that remains pending.
 Exclude unreachable Jasmine recovery specs after awaiting a primitive literal.
+Honor returns through Jasmine async helpers’ try, catch and finally blocks when collecting subsequent specs.

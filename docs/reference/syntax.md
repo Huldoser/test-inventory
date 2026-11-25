@@ -245,6 +245,7 @@ If a helper catches that error while evaluating a declaration argument, the decl
 An async helper can change that suite before it first suspends. The caller inherits the suite active at that point, including changes made while evaluating the operand of `await`.
 For successive statements after `await` in an async helper, the scan resumes collection after the file's synchronous code. Resumed helpers retain their argument bindings and share Jasmine's current suite in microtask order.
 An unconditional return or a known rejected await ends the normal path. Awaiting a built-in promise with an empty executor suspends the helper indefinitely, including its cleanup.
+A return from a helper's `try` or `catch` still runs its `finally` block. If a call in the `try` can throw and the `catch` can recover, the scan keeps the specs that follow.
 Awaiting a primitive literal such as `0` or `null` always fulfills. If the rest of the `try` also succeeds, the scan omits specs declared in its `catch`.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in

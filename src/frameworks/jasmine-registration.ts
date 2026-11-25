@@ -130,6 +130,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
   function expression(node: Expression, scopes: readonly Node[], children: Children): Exit {
     const value = unwrap(node);
     if (value.type === 'CallExpression') return call(value, scopes, children);
+    if (value.type === 'Identifier' && argument(value, scopes)) return 'next';
     return completesWithoutThrowing(value) ? 'next' : 'unknown';
   }
   function statement(node: Statement, scopes: readonly Node[], children: Children): Exit {
