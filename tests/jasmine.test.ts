@@ -1329,6 +1329,92 @@ it('closes the desk',()=>{});`,
     }
   });
 
+  it('binds each sent value to the suspended yield of the iterator that received it', () => {
+    const scan = scanJasmine(`function* quotes(book){
+  const side=yield book;
+  it('opens '+side,()=>{});
+  if(yield side)return yield 'settling';
+  return 'closed';
+}
+const a=quotes('orders'),b=quotes('trades');
+it(a.next('ignored').value,()=>{});b.next();
+it(b.next('ask').value,()=>{});it(a.next('bid').value,()=>{});
+it(a.next(true).value,()=>{});it(b.next(false).value,()=>{});it(a.next('filled').value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'orders',
+      'opens ask',
+      'ask',
+      'opens bid',
+      'bid',
+      'settling',
+      'closed',
+      'filled',
+    ]);
+  });
+
+  it('evaluates arguments around suspended yields once and in order', () => {
+    const scan = scanJasmine(`function mark(label){it(label,()=>{});return label;}
+function place(...parts){it(parts.join('/'),()=>{});}
+function* quotes(){
+  place(mark('opens'),yield mark('pauses'),yield,mark('closes'));
+  return yield (yield 'settling');
+}
+const ticks=quotes();ticks.next();it('parks the book',()=>{});ticks.next('bid');
+it(ticks.next('ask').value,()=>{});it(ticks.next('trade').value,()=>{});it(ticks.next('settled').value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'opens',
+      'pauses',
+      'parks the book',
+      'closes',
+      'opens/bid/ask/closes',
+      'settling',
+      'trade',
+      'settled',
+    ]);
+  });
+
+  it('uses a resumed yield as a Jasmine title and as the argument of a returned helper call', () => {
+    const scan = scanJasmine(`function title(side){return 'settles '+side;}
+function* prices(){
+  it(yield 'enter trade',()=>{});
+  return title(yield 'choose side');
+}
+const ticks=prices();ticks.next();
+it(ticks.next('opens the book').value,()=>{});
+it(ticks.next('bid').value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['opens the book', 'choose side', 'settles bid']);
+  });
+
+  it('unwinds a partially evaluated call if a prefix or yield operand throws', () => {
+    const scan = scanJasmine(`function reject(){throw 'closed';}
+function place(...parts){it(parts.join('/'),()=>{});}
+function* quotes(){
+  try{place(reject(),yield 'unreachable');}catch{it('rejects the first argument',()=>{});}
+  try{const result=yield reject();it(result,()=>{});}catch{it('rejects the quote',()=>{});}
+  return 'settled';
+}
+it(quotes().next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['rejects the first argument', 'rejects the quote', 'settled']);
+  });
+
+  it('keeps recovery possible for unsupported suspensions in compound declarations or spread arguments', () => {
+    for (const body of [
+      "const bid='order', ask=yield bid;",
+      "const [bid]=yield ['order'];",
+      "return place(...sides, yield 'bid');",
+      "return place?.(yield 'bid');",
+      "return orders.place(yield 'bid');",
+      "return yield* ['bid'];",
+    ]) {
+      const scan = scanJasmine(`function* quotes(){${body}}
+const ticks=quotes();try{ticks.next();ticks.next();}catch{it('recovers the quote',()=>{});}`);
+      expect(
+        scan.tests.map((t) => t.title),
+        body,
+      ).toContain('recovers the quote');
+    }
+  });
+
   it('closes a fresh iterator on throw and leaves subsequent advances exhausted', () => {
     const scan = scanJasmine(`function* prices(){it('opens the book',()=>{});yield 'bid';}
 const ticks=prices();

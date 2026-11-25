@@ -515,6 +515,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   }
   function expression(node: Expression, scopes: readonly Node[], children: Children, iteration?: Iteration): Flow {
     const value = unwrap(node);
+    if (file.values.completedOperand(value, scopes)) return 'next';
     if (value.type === 'ArrayExpression') return elements(value, scopes, children);
     if (value.type === 'ObjectExpression') {
       for (const property of value.properties) {

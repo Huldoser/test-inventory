@@ -742,6 +742,7 @@ class Walker {
   }
 
   private visit(node: Node, context: Context): void {
+    if (this.frame.values.completedOperand(node, this.scopes)) return;
     const isScope = isScopeNode(node);
     if (isScope) this.scopes.push(node);
     this.parents.push(node);
@@ -1923,11 +1924,28 @@ class Walker {
           };
           const body = fn.body as Extract<Node, { type: 'BlockStatement' }>;
           const yielded: Resolved[] = [];
-          let step = stepGenerator(body, position, method === 'spread' ? 'next' : method, argument, evaluate);
-          while (method === 'spread' && typeof step.position === 'object') {
-            yielded.push(step.value);
-            step = stepGenerator(body, step.position, 'next', omitted, evaluate);
-          }
+          const operands = new Map(typeof position === 'object' ? position.operands : []);
+          const enterCall = (name: string, around: readonly Node[]) => {
+            // If an argument suspends or throws, the helper body cannot register at its declaration.
+            const callee = this.functionNamed(name, [...scopes, fn, ...around]);
+            if (callee) this.walkedAtCall.add(callee);
+          };
+          const step = frame.values.withGeneratorOperands(operands, () => {
+            let next = stepGenerator(
+              body,
+              position,
+              method === 'spread' ? 'next' : method,
+              argument,
+              operands,
+              evaluate,
+              enterCall,
+            );
+            while (method === 'spread' && typeof next.position === 'object') {
+              yielded.push(next.value);
+              next = stepGenerator(body, next.position, 'next', omitted, operands, evaluate, enterCall);
+            }
+            return next;
+          });
           caller.scope = registration.scope;
           return {
             values: yielded,
@@ -1957,7 +1975,7 @@ class Walker {
     this.walkedAtCall.add(fn);
     // Arguments are worked out where the call is, in the file and scopes of the caller.
     const { args, complete } = this.frame.values.callArguments(call, this.scopes, registering, (operand) =>
-      this.readArgument(operand, registering && fn.generator),
+      this.readArgument(operand, registering),
     );
     const parameterSteps = registering ? new Map<Node, ParameterStep>() : undefined;
     const caller = this.frame;

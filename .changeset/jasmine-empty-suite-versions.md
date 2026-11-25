@@ -42,3 +42,4 @@ Stop Jasmine argument evaluation when it spreads a noniterable helper result, as
 Follow synchronous generator calls consumed by spreads in Jasmine registration arguments.
 Track the first and repeated consumption of saved synchronous iterators in Jasmine registration arguments.
 Follow explicit synchronous generator steps during Jasmine registration, including yielded and returned values, exhaustion and cleanup.
+Use values sent by `next(value)` when a Jasmine generator resumes and preserve the order of registrations around suspended call arguments.

@@ -77,6 +77,7 @@ interface BoundCall {
   parameters: Map<string, () => Resolved>;
   /** Constants are worked out again for each call, since they may be built from the parameters. */
   cache: Map<Expression, Resolved>;
+  operands?: ReadonlyMap<Node, Resolved>;
   iterators?: WeakMap<Expression, Resolved>;
 }
 
@@ -272,6 +273,26 @@ export class Values {
     };
   }
 
+  /** Branches may resume the same suspension with different values. Keep their constant caches independent. */
+  withGeneratorOperands<T>(operands: ReadonlyMap<Node, Resolved>, read: () => T): T {
+    const binding = this.calls[this.calls.length - 1];
+    this.calls.push({ ...binding, operands, cache: new Map() });
+    try {
+      return read();
+    } finally {
+      this.calls.pop();
+    }
+  }
+
+  completedOperand(node: Node, scopes: readonly Node[]): Resolved | undefined {
+    for (let i = this.calls.length - 1; i >= 0; i--) {
+      const call = this.calls[i];
+      if (call.operands && scopes.includes(call.fn) && call.fn.start <= node.start && node.end <= call.fn.end)
+        return call.operands.get(node);
+    }
+    return undefined;
+  }
+
   /** Read arguments in the calling scope, up to the first spread whose length is unknown. */
   callArguments(
     call: CallExpression,
@@ -461,6 +482,8 @@ export class Values {
   /** `scopes` lists the scope nodes around the expression, outermost first. */
   resolve(node: Expression, scopes: readonly Node[]): Resolved {
     const expression = unwrap(node);
+    const completed = this.completedOperand(expression, scopes);
+    if (completed) return completed;
     if (isValueOperation(expression)) return operationValue(expression, (part) => this.resolve(part, scopes));
     switch (expression.type) {
       case 'Literal':
