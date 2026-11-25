@@ -175,6 +175,7 @@ describe('Values', () => {
     ['0 / 0;'],
     ["'buy' * 'sell';"],
     ['[1] === [1];'],
+    ['+({ toString: null, valueOf: null });'],
     ['1 == 1;'],
     ['price ? 1 : 2;'],
     ['price || 1;'],

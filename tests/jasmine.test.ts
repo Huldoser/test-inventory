@@ -370,6 +370,31 @@ describe('declarations Jasmine refuses', () => {
     expect(codes(promised)).toContain('dynamic-title');
   });
 
+  it('uses evaluated operands when a Jasmine helper builds a title', () => {
+    for (const [title, expected] of [
+      ["desk() + ' opens'", 'cash desk opens'],
+      ['true ? desk() : closed()', 'cash desk'],
+      ['missing() ?? desk()', 'cash desk'],
+      ['desk() || closed()', 'cash desk'],
+      ["desk() && 'opens'", 'opens'],
+      ["desk() === 'cash desk'", 'true'],
+      ['-fee()', '-7'],
+      ['+fee()', '7'],
+      ['!missing()', 'true'],
+      ['`market ${desk()}`', 'market cash desk'],
+    ]) {
+      const scan = scanJasmine(`
+function desk(){return 'cash desk';} function missing(){return null;}
+function fee(){return 7;} function closed(){throw Error('closed');}
+try { describe(${title}, () => it((() => (${title}))(), () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(
+        scan.tests.map((test) => test.fullName),
+        title,
+      ).toEqual([expected + ' > ' + expected]);
+    }
+  });
+
   it('uses the title returned by a Jasmine helper on the path that completed', () => {
     for (const [title, expected] of [
       ['((name = desk) => name)()', 'cash desk'],

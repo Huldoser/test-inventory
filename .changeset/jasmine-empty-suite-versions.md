@@ -32,3 +32,4 @@ Track registration and recovery when Jasmine rejects a spec callback or timeout,
 Collect Jasmine suites and their specs when an array supplies the title and callback, and follow recovery after a rejected callback.
 Read Jasmine test and suite names returned by synchronous local functions and track errors while evaluating those calls.
 Match the names Jasmine reports for primitive spec and suite descriptions, including zero and false.
+Read Jasmine titles built from helper results and follow evaluated operands during registration.

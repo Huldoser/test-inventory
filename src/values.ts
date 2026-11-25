@@ -71,6 +71,73 @@ export function isKey(value: Value): value is string | number {
   return typeof value === 'string' || typeof value === 'number';
 }
 
+type Operation = Extract<
+  Expression,
+  { type: 'TemplateLiteral' | 'BinaryExpression' | 'LogicalExpression' | 'ConditionalExpression' | 'UnaryExpression' }
+>;
+
+export function isValueOperation(node: Expression): node is Operation {
+  return (
+    node.type === 'TemplateLiteral' ||
+    node.type === 'BinaryExpression' ||
+    node.type === 'LogicalExpression' ||
+    node.type === 'ConditionalExpression' ||
+    node.type === 'UnaryExpression'
+  );
+}
+
+/** Read operands in evaluation order, including only the selected side of a short-circuit expression. */
+export function operationValue(expression: Operation, read: (node: Expression) => Resolved): Resolved {
+  switch (expression.type) {
+    case 'TemplateLiteral': {
+      // Only tagged templates can lack a cooked value, so these strings are always present.
+      let text = expression.quasis[0].value.cooked as string;
+      for (const [index, part] of expression.expressions.entries()) {
+        const resolved = read(part);
+        if (!resolved.ok) return resolved;
+        if (!isPrimitive(resolved.value)) return UNRESOLVED;
+        text += String(resolved.value) + (expression.quasis[index + 1].value.cooked as string);
+      }
+      return { ok: true, value: text };
+    }
+    case 'BinaryExpression': {
+      if (!BINARY.has(expression.operator)) return UNRESOLVED;
+      const left = read(expression.left as Expression);
+      if (!left.ok) return left;
+      const right = read(expression.right);
+      if (!right.ok) return right;
+      if (!isPrimitive(left.value) || !isPrimitive(right.value)) return UNRESOLVED;
+      return binary(expression.operator, left.value, right.value);
+    }
+    case 'LogicalExpression': {
+      const left = read(expression.left);
+      if (!left.ok) return left;
+      const useLeft =
+        expression.operator === '&&'
+          ? !left.value
+          : expression.operator === '||'
+            ? Boolean(left.value)
+            : left.value !== null && left.value !== undefined;
+      return useLeft ? left : read(expression.right);
+    }
+    case 'ConditionalExpression': {
+      const test = read(expression.test);
+      if (!test.ok) return test;
+      return read(test.value ? expression.consequent : expression.alternate);
+    }
+    case 'UnaryExpression': {
+      if (expression.operator === 'void') return { ok: true, value: undefined };
+      if (expression.operator !== '!' && expression.operator !== '-' && expression.operator !== '+') return UNRESOLVED;
+      const argument = read(expression.argument);
+      if (!argument.ok) return argument;
+      if (expression.operator === '!') return { ok: true, value: !argument.value };
+      if (!isPrimitive(argument.value)) return UNRESOLVED;
+      const number = Number(argument.value);
+      return Number.isNaN(number) ? UNRESOLVED : { ok: true, value: expression.operator === '-' ? -number : number };
+    }
+  }
+}
+
 export function isScopeNode(node: Node): boolean {
   switch (node.type) {
     case 'Program':
@@ -329,55 +396,12 @@ export class Values {
   /** `scopes` lists the scope nodes around the expression, outermost first. */
   resolve(node: Expression, scopes: readonly Node[]): Resolved {
     const expression = unwrap(node);
+    if (isValueOperation(expression)) return operationValue(expression, (part) => this.resolve(part, scopes));
     switch (expression.type) {
       case 'Literal':
         return 'regex' in expression || 'bigint' in expression ? UNRESOLVED : { ok: true, value: expression.value };
-      case 'TemplateLiteral': {
-        // Only tagged templates can lack a cooked value, so these strings are always present.
-        let text = expression.quasis[0].value.cooked as string;
-        for (const [index, part] of expression.expressions.entries()) {
-          const resolved = this.resolve(part, scopes);
-          if (!resolved.ok) return resolved;
-          if (!isPrimitive(resolved.value)) return UNRESOLVED;
-          text += String(resolved.value) + (expression.quasis[index + 1].value.cooked as string);
-        }
-        return { ok: true, value: text };
-      }
-      case 'BinaryExpression': {
-        if (!BINARY.has(expression.operator)) return UNRESOLVED;
-        const left = this.resolve(expression.left as Expression, scopes);
-        if (!left.ok) return left;
-        const right = this.resolve(expression.right, scopes);
-        if (!right.ok) return right;
-        if (!isPrimitive(left.value) || !isPrimitive(right.value)) return UNRESOLVED;
-        return binary(expression.operator, left.value, right.value);
-      }
-      case 'LogicalExpression': {
-        const left = this.resolve(expression.left, scopes);
-        if (!left.ok) return left;
-        const useLeft =
-          expression.operator === '&&'
-            ? !left.value
-            : expression.operator === '||'
-              ? Boolean(left.value)
-              : left.value !== null && left.value !== undefined;
-        return useLeft ? left : this.resolve(expression.right, scopes);
-      }
-      case 'ConditionalExpression': {
-        const test = this.resolve(expression.test, scopes);
-        if (!test.ok) return test;
-        return this.resolve(test.value ? expression.consequent : expression.alternate, scopes);
-      }
       case 'CallExpression':
         return this.call(expression, scopes);
-      case 'UnaryExpression': {
-        if (expression.operator === 'void') return { ok: true, value: undefined };
-        if (expression.operator !== '!' && expression.operator !== '-') return UNRESOLVED;
-        const argument = this.resolve(expression.argument, scopes);
-        if (!argument.ok) return argument;
-        if (expression.operator === '!') return { ok: true, value: !argument.value };
-        return typeof argument.value === 'number' ? { ok: true, value: -argument.value } : UNRESOLVED;
-      }
       case 'ArrayExpression': {
         const items: Value[] = [];
         for (const element of expression.elements) {

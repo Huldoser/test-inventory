@@ -1,7 +1,14 @@
 import type { Argument, BlockStatement, CallExpression, Expression, Node, Statement } from 'oxc-parser';
 import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
 import { literalArguments } from '../mutation-references.ts';
-import { nonIterable, type ParameterStep, type Resolved, type Value } from '../values.ts';
+import {
+  isValueOperation,
+  operationValue,
+  nonIterable,
+  type ParameterStep,
+  type Resolved,
+  type Value,
+} from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
@@ -182,11 +189,10 @@ interface SuiteCall {
 
 /** Evaluate the registration path and keep helper return values in their invocation's bindings. */
 function registrationFlow(start: number, outer: readonly Node[], file: FileContext) {
-  const results = new Map<CallExpression, Resolved>();
+  const results = new Map<Expression, Resolved>();
   function valueOf(expr: Expression, scopes: readonly Node[]): Resolved {
     const node = unwrap(expr);
-    const value = node.type === 'CallExpression' ? results.get(node) : undefined;
-    return value ?? file.values.resolve(node, scopes);
+    return results.get(node) ?? file.values.resolve(node, scopes);
   }
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
@@ -382,6 +388,17 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     if (value.type === 'CallExpression') return call(value, scopes, children);
     if (value.type === 'UnaryExpression' && value.operator === 'void')
       return expression(value.argument, scopes, children);
+    if (isValueOperation(value)) {
+      let failure: Flow = 'unknown';
+      const computed = operationValue(value, (part) => {
+        const outcome = expression(part, scopes, children);
+        if (outcome === 'next') return valueOf(part, scopes);
+        failure = outcome;
+        return { ok: false, importedFrom: null };
+      });
+      results.set(value, computed);
+      return computed.ok ? 'next' : failure;
+    }
     if (value.type === 'Identifier') {
       const declaration = file.values.declarationOf(value.name, scopes);
       const binding = parameters.findLast((entry) => entry.fn === declaration);
@@ -459,7 +476,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
         return 'unknown';
     }
   }
-  return { call, statement, suite, valueOf };
+  return { expression, statement, suite, valueOf };
 }
 
 export function registrationExit(
@@ -479,10 +496,10 @@ export function registrationExit(
 export function jasmineTitleValue(title: JasmineArgument, file: FileContext, spec: boolean): Resolved | undefined {
   const node = title.node;
   if (node.type === 'SpreadElement') return undefined;
-  let resolved: Resolved | undefined = title.resolved;
-  if (!resolved && node.type === 'CallExpression') {
+  let resolved = title.resolved ?? file.values.resolve(node, title.scopes);
+  if (!resolved.ok && (node.type === 'CallExpression' || isValueOperation(node))) {
     const flow = registrationFlow(node.start, title.scopes, file);
-    flow.call(node, title.scopes, { registered: false });
+    flow.expression(node, title.scopes, { registered: false });
     resolved = flow.valueOf(node, title.scopes);
   }
   const literal = node.type === 'UnaryExpression' && node.operator === '-' ? unwrap(node.argument) : node;
@@ -490,7 +507,6 @@ export function jasmineTitleValue(title: JasmineArgument, file: FileContext, spe
     const value = node === literal ? literal.value : -literal.value;
     return { ok: true, value: spec && !value ? '' : String(value) };
   }
-  const result = resolved ?? file.values.resolve(node, title.scopes);
-  if (!result.ok || (result.value !== null && typeof result.value === 'object')) return result;
-  return { ok: true, value: String((spec && !result.value ? '' : result.value) ?? '') };
+  if (!resolved.ok || (resolved.value !== null && typeof resolved.value === 'object')) return resolved;
+  return { ok: true, value: String((spec && !resolved.value ? '' : resolved.value) ?? '') };
 }
