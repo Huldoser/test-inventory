@@ -186,6 +186,11 @@ interface PassedSkip {
   covered: boolean;
 }
 
+interface SuiteOptions {
+  skip: PassedSkip | null;
+  todo?: { enabled: boolean; line: number };
+}
+
 /**
  * Whether a member of `test` or `describe` reads the function it is called on through `this`, so that it throws when
  * destructured, as each version of Vitest runs it (checked with 3.2.4, 4.0.18, 4.1.12, 5.0.0 and 5.1.0).
@@ -468,24 +473,37 @@ export class VitestAdapter extends SuiteAdapter {
     }
     // A test's own options win over its chain, so `test.skip('title', { skip: false }, fn)` runs. The chain wins for a
     // test's mode, and for everything on a describe.
+    const suiteOptionModes = atLeast(this.file.version, 4, 1);
+    const readsOwnMode = kind === 'test' || suiteOptionModes;
     for (const [flag, value] of read.flags) {
+      if (!readsOwnMode && flag === 'todo') continue;
       if (value) flags.add(flag);
       else if (kind === 'test' && flag !== 'sequential') flags.delete(flag);
     }
     if (read.skip && kind === 'test') {
       flags.delete('skip');
       conditions = [read.skip];
-    } else if (read.skip) {
+    } else if (read.skip && readsOwnMode) {
       conditions.push(read.skip);
     }
     // Vitest passes a describe's options down to the tests and describes inside, where their own options and `only`
     // win. A `skip` passed down skips them, and turns todo into skip, as skip goes before todo.
     const line = this.file.source.line(call.start);
-    const around = context.passedDown as PassedSkip | null;
-    const passed = read.skip || conditionSetsSkip ? null : around;
-    const skips = passed?.condition.applies === 'always' && !flags.has('only');
+    const around = context.passedDown as SuiteOptions | null;
+    const passed = read.skip || conditionSetsSkip ? null : around?.skip;
+    // Before Vitest 5, test options inherited from a suite override the test's chain; its own options still win.
+    const inheritsBeforeChain = !atLeast(this.file.version, 5, 0);
+    if (kind === 'test' && inheritsBeforeChain) {
+      if (passed?.condition.applies === 'never') {
+        flags.delete('skip');
+        conditions = [];
+      }
+      if (around?.todo?.enabled === false && !read.flags.has('todo')) flags.delete('todo');
+      if (!suiteOptionModes && passed?.condition.applies === 'sometimes') conditions.push(passed.condition);
+    }
+    const skips = readsOwnMode && passed?.condition.applies === 'always' && !flags.has('only');
     const table = links.find((link) => TABLES.has(link.name)) ?? null;
-    const isTodo = flags.has('todo') || body === undefined;
+    const isTodo = flags.has('todo') || (body === undefined && readsOwnMode);
     const states = this.states(flags, conditions, isTodo && !skips, line);
     const skipped = () => states.some((setting) => setting.state === 'skip' && !setting.condition);
     // The skip is set where the describe that passes it down sets it. A skipped describe around already skips what is
@@ -506,7 +524,13 @@ export class VitestAdapter extends SuiteAdapter {
       states,
       isOnly: flags.has('only'),
       mode,
-      ...(skips ? { skipPassedDown: passed.line } : {}),
+      ...(skips
+        ? { skipPassedDown: { line: passed.line, withoutSkip: this.states(flags, conditions, isTodo, line) } }
+        : {}),
+      todoPassedDown:
+        !isTodo && !read.flags.has('todo') && !flags.has('only') && around?.todo?.enabled
+          ? around.todo.line
+          : undefined,
       details: read.details,
       fn,
       hashed: fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body),
@@ -520,8 +544,12 @@ export class VitestAdapter extends SuiteAdapter {
       // A table's cases are passed instead.
       const first = table ? null : fn?.params.at(0);
       if (fn && first?.type === 'Identifier') this.suiteParameters.set(fn, first.name);
-      const own = read.skip ? { condition: read.skip, line } : around;
-      const passesDown: PassedSkip | null = own && { ...own, covered: (around?.covered ?? false) || skipped() };
+      const own = read.skip ? { condition: read.skip, line } : around?.skip;
+      const todo = read.flags.get('todo');
+      const passesDown: SuiteOptions = {
+        skip: own ? { ...own, covered: (around?.skip?.covered ?? false) || skipped() } : null,
+        todo: todo === undefined ? around?.todo : { enabled: todo, line },
+      };
       declared = { kind: 'describe', ...base, isShuffled: flags.has('shuffle'), passesDown };
     } else {
       const index = table?.name === 'for' ? 1 : table ? null : 0;
@@ -533,8 +561,10 @@ export class VitestAdapter extends SuiteAdapter {
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
         ownStateOptions: [
-          ...(read.skip || conditionSetsSkip ? ['skip' as const] : []),
-          ...STATE_FLAGS.filter((flag) => read.flags.has(flag)),
+          ...(read.skip || conditionSetsSkip || (inheritsBeforeChain && around?.skip) ? ['skip' as const] : []),
+          ...STATE_FLAGS.filter(
+            (flag) => read.flags.has(flag) || (inheritsBeforeChain && flag === 'todo' && around?.todo),
+          ),
         ],
       };
     }

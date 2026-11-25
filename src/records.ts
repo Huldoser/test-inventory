@@ -199,18 +199,31 @@ const ALWAYS = { condition: null, reason: null, hasDynamicReason: false };
 function declaredStates(
   declared: StateSetting[],
   options: TagOptions | null,
-  { isOnly, skipPassedDown }: TestDeclaration,
+  { isOnly, skipPassedDown, todoPassedDown }: TestDeclaration,
+  tagsFirst: boolean,
 ): Chosen[] {
-  const own = declared.map((setting) => ({ setting, source: 'test' as const }));
-  if (options === null) return own;
+  const clearsSkip = tagsFirst && options?.skip === false;
+  const inheritedSkip = clearsSkip ? undefined : skipPassedDown;
+  const states = clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared;
+  const own = states.map((setting) => ({ setting, source: 'test' as const }));
+  const todo: Chosen[] =
+    todoPassedDown !== undefined && !inheritedSkip && !(tagsFirst && options?.todo !== undefined)
+      ? [{ setting: { ...ALWAYS, state: 'todo', line: todoPassedDown }, source: 'suite' }]
+      : [];
+  if (options === null && !todo.length) return own;
   // A describe's `skip` option is merged in too, where the scan otherwise leaves it to the describe's own state; the
   // test's own skip, when it has one, sorts first.
   const passed: Chosen[] =
-    skipPassedDown === undefined
+    options === null || inheritedSkip === undefined
       ? []
-      : [{ setting: { ...ALWAYS, state: 'skip', line: skipPassedDown }, source: 'suite' }];
-  const all = [...own, ...passed, ...tagStates(options).map((setting) => ({ setting, source: 'config' as const }))];
-  const kept = isOnly || options.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
+      : [{ setting: { ...ALWAYS, state: 'skip', line: inheritedSkip.line }, source: 'suite' }];
+  const all = [
+    ...own,
+    ...passed,
+    ...todo,
+    ...(options ? tagStates(options).map((setting) => ({ setting, source: 'config' as const })) : []),
+  ];
+  const kept = isOnly || options?.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
   return kept.sort((a, b) => FLAG_ORDER.indexOf(a.setting.state) - FLAG_ORDER.indexOf(b.setting.state));
 }
 
@@ -680,7 +693,7 @@ class RecordBuilder {
       : chooseState([
           // Outermost first, as the outermost of them decides.
           ...around.filter((candidate) => candidate.overrides).reverse(),
-          ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
+          ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration, tagsFirst),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
           // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
           ...parents.flatMap((parent) =>

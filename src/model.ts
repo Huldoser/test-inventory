@@ -83,8 +83,10 @@ interface Declaration {
   states: StateSetting[];
   isOnly: boolean;
   mode: Mode | null;
-  /** Vitest: the line of the describe whose `skip` option reaches this declaration, merged into its options. */
-  skipPassedDown?: number;
+  /** A Vitest suite's inherited skip, and the declaration's states if a config tag clears it. */
+  skipPassedDown?: { line: number; withoutSkip: StateSetting[] };
+  /** Vitest: a suite's todo option merged into the test's options, independent of a nested suite's mode. */
+  todoPassedDown?: number;
   details: Details;
   fn: FunctionNode | null;
   /**

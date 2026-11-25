@@ -233,6 +233,24 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
   const states = (inventory: Inventory) =>
     inventory.tests.map((test) => [test.title, test.state, test.isOnly, test.stateSource]);
 
+  it.each([
+    { version: '4.1.12', expected: ['active', 'active', 'skip', 'skip'] },
+    { version: '5.1.1', expected: ['skip', 'todo', 'todo', 'todo'] },
+  ])('merges false tag and suite options before deriving test states in $version', async ({ version, expected }) => {
+    const inventory = await scanned(
+      "export default {test:{tags:[{name:'blocked',skip:true},{name:'review',todo:true},{name:'ready',skip:false}]}};",
+      {
+        'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe('cash desk',{skip:false},()=>{test('prices a bond',{tags:['blocked']},()=>{});});
+        describe('energy desk',{todo:false},()=>{test('delivers gas',{tags:['review']},()=>{});});
+        describe('rates desk',{skip:true},()=>{test('settles a swap',{tags:['ready'],todo:true},()=>{});});
+        describe('margin desk',{todo:true},()=>{describe('borrows',{skip:true},()=>{test('locates shares',{tags:['ready']},()=>{});});});`,
+      },
+      version,
+    );
+    expect(inventory.tests.map((test) => test.state)).toEqual(expected);
+  });
+
   it('picks only over skip over todo from all of them, as one declaration does', async () => {
     const inventory = await scanned(TAGS, {
       'tests/orders.test.ts': [

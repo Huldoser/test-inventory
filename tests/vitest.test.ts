@@ -712,6 +712,70 @@ describe.concurrent('quotes', () => {
     ]);
   });
 
+  it.each([
+    { version: '3.2.7', expected: ['active', 'active', 'active', 'active'] },
+    { version: '4.1.12', expected: ['skip', 'todo', 'active', 'active'] },
+    { version: '5.1.1', expected: ['skip', 'todo', 'skip', 'todo'] },
+  ])('applies explicit suite and test option overrides in Vitest $version', ({ version, expected }) => {
+    const inventory = scanVitest(
+      `import {describe,test} from 'vitest';
+describe('margin desk',{skip:true},()=>{test('recalls a loan',{skip:false},()=>{});});
+describe('cash desk',{todo:true},()=>{test('settles cash',{todo:false},()=>{});});
+describe('rates desk',{skip:false},()=>{test.skip('marks the bond',()=>{});});
+describe('energy desk',{todo:false},()=>{test.todo('delivers the contract',()=>{});});`,
+      { frameworkVersion: version },
+    );
+    expect(inventory.tests.map((t) => t.state)).toEqual(expected);
+  });
+
+  it.each(['3.2.7', '4.1.12', '5.1.0', '5.1.1'])(
+    'retains the originating suite for inherited todo in Vitest %s',
+    (frameworkVersion) => {
+      const inventory = scanVitest(
+        `import {describe,test} from 'vitest';
+describe('margin desk', {todo:true}, () => {
+  describe.skip('short positions', () => {
+    test('locates the borrow', () => {});
+    test('recalls a loan', {skip:false}, () => {});
+    test('marks the position', {todo:false}, () => {});
+  });
+  describe('long positions', {skip:true}, () => {
+    test('settles the trade', {skip:false}, () => {});
+  });
+});
+describe('cash desk', {skip:true}, () => {
+  describe('credit limits', {todo:true}, () => {
+    test('reviews a limit', {skip:false}, () => {});
+  });
+});`,
+        { frameworkVersion },
+      );
+      expect(inventory.tests.map((t) => [t.title, t.state, t.stateSource, t.stateLine])).toEqual([
+        ['locates the borrow', 'todo', 'suite', 2],
+        ['recalls a loan', 'todo', 'suite', 2],
+        ['marks the position', 'skip', 'suite', 3],
+        ['settles the trade', 'todo', 'suite', 2],
+        ['reviews a limit', 'todo', 'suite', 13],
+      ]);
+    },
+  );
+
+  it('passes a conditional skip from an active Vitest 3 suite to tests that inherit it', () => {
+    const inventory = scanVitest(
+      `import {describe,test} from 'vitest';
+describe('closing auction',{skip:process.env.FEED_CLOSED},()=>{
+  test('marks the bond',()=>{});
+  test('nets the orders',{skip:false},()=>{});
+});`,
+      { frameworkVersion: '3.2.7' },
+    );
+    expect(inventory.suites[0].isSkipped).toBe(false);
+    expect(inventory.tests.map((t) => [t.state, t.condition])).toEqual([
+      ['skip', 'process.env.FEED_CLOSED'],
+      ['active', null],
+    ]);
+  });
+
   it("passes a describe's skip option down to everything inside, where skip goes before todo", () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 describe('crypto desk', { skip: true }, () => {
