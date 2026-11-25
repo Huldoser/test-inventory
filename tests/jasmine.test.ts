@@ -345,6 +345,49 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('keeps a Jasmine file loaded when it catches its own registration error', () => {
+    for (const expandCases of [false, true]) {
+      const result = scanJasmine(
+        `
+function rejectFee() { it('charges a fee', 42); }
+it('opens the market', () => {});
+try {
+  rejectFee();
+  it('enters a late fill', () => {});
+} catch (error) {
+  it('recovers the fee', () => {});
+} finally {
+  it('clears the ledger', () => {});
+}
+it('closes the market', () => {});
+`,
+        { expandCases },
+      );
+      expect(testNamed(result, 'opens the market').state).toBe('active');
+      expect(testNamed(result, 'enters a late fill')).toMatchObject({
+        state: 'notLoaded',
+        stateSource: 'file',
+        stateLine: 2,
+      });
+      expect(testNamed(result, 'recovers the fee').state).toBe('active');
+      expect(testNamed(result, 'clears the ledger').state).toBe('active');
+      expect(testNamed(result, 'closes the market').state).toBe('active');
+      expect(result.diagnostics.find((d) => d.code === 'test-without-body')?.message).not.toContain('stops before');
+    }
+  });
+
+  it('rejects every spec if an exception escapes the file after recovery or cleanup', () => {
+    for (const body of [
+      "try { it('charges a fee', 42); } finally { it('clears the ledger', () => {}); }",
+      "try { it('charges a fee', 42); } catch (error) { throw error; }",
+      "try { it('charges a fee', 42); } catch (error) {} finally { throw Error('feed unavailable'); }",
+    ]) {
+      const result = scanJasmine(`it('opens the market', () => {});\n${body}\nit('closes the desk', () => {});`);
+      for (const test of result.tests)
+        expect(test, body).toMatchObject({ state: 'notLoaded', stateSource: 'file', stateLine: 2 });
+    }
+  });
+
   it('uses registration order when a helper interrupts its containing suite', () => {
     const inventory = scanJasmine(`
 function recordFill() { it('records a fill', () => {}); }

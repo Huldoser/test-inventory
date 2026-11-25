@@ -443,6 +443,7 @@ class RecordBuilder {
       this.parsed.source.line((item.node as Span).start),
     );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
+    if (extraction.registrationStoppedAt !== undefined) this.rejectedAt = extraction.registrationStoppedAt;
     this.keepsEarlierTests = rejecting.length > 0 && rejecting.every((item) => item.keepsEarlierTests === true);
     this.focused = new Set(extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope));
     const focusedAt = [
@@ -858,7 +859,12 @@ class RecordBuilder {
       condition: setting?.condition ?? null,
       reason: setting?.reason ?? null,
       hasDynamicReason: setting?.hasDynamicReason ?? false,
-      stateSource: scopeFailureLine !== undefined ? 'suite' : rejected ? 'file' : (chosen?.source ?? null),
+      stateSource:
+        scopeFailureLine !== undefined && pending.scope.kind === 'describe'
+          ? 'suite'
+          : rejected
+            ? 'file'
+            : (chosen?.source ?? null),
       stateLine: scopeFailureLine ?? (rejected ? this.rejectedAt : (setting?.line ?? null)),
       isParallel: mode === 'parallel',
       isSerial: mode === 'serial',

@@ -243,6 +243,9 @@ export class JasmineAdapter extends SuiteAdapter {
     context: CallContext,
   ): Problem {
     const source = snippet(text(this.file, node));
+    if (context.handlesRegistrationError) {
+      return problem(code, node, `${what}, so this call throws during Jasmine registration.`, source);
+    }
     if (context.passedDown !== IN_DESCRIBE) {
       return problem(code, node, `${what}, so ${this.refusedEffect}.`, source);
     }

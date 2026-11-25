@@ -165,6 +165,8 @@ interface Callee {
 }
 
 export interface Extraction {
+  /** Line where an uncaught exception stopped Jasmine loading this spec file. */
+  registrationStoppedAt?: number;
   unknownRegistration: boolean;
   suites: PendingSuite[];
   tests: PendingTest[];
@@ -180,6 +182,7 @@ export interface Extraction {
 interface Context {
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
   registration?: { stoppedAt?: number };
+  handlesRegistrationError?: boolean;
   /** Direct declarations are inventoried under guards even where an import cannot execute. */
   skipImports?: boolean;
   scope: Scope;
@@ -610,7 +613,9 @@ class Walker {
   }
 
   run(): Extraction {
+    const registration: Context['registration'] = this.main.adapter.catchesSuiteErrors ? {} : undefined;
     this.visit(this.main.parsed.program, {
+      registration,
       scope: this.fileScope,
       test: null,
       hookScope: null,
@@ -642,6 +647,7 @@ class Walker {
     this.checkFunctionTests(exported);
     return {
       suites: this.suites,
+      registrationStoppedAt: registration?.stoppedAt,
       tests: this.tests,
       problems: [...this.main.adapter.problems, ...this.problems],
       hooks: this.fileScope.hooks,
@@ -716,7 +722,7 @@ class Walker {
       }
       case 'TryStatement': {
         const attempt = context.registration && { ...context.registration };
-        this.visit(node.block, { ...context, registration: attempt });
+        this.visit(node.block, { ...context, registration: attempt, handlesRegistrationError: !!attempt });
         let failure = attempt?.stoppedAt;
         if (node.handler) {
           const handler = this.guarded(context, this.catchCondition(node.handler));
@@ -1153,6 +1159,7 @@ class Walker {
       inTest: context.test !== null,
       inBody: context.test !== null || context.hookScope !== null,
       passedDown: context.scope.suite?.declaration.passesDown ?? null,
+      handlesRegistrationError: !!context.registration && context.handlesRegistrationError,
       returnsOf: (name, scopes) => this.returnsOf(name, scopes),
     });
     if (!api) return false;
@@ -1244,7 +1251,11 @@ class Walker {
           context.declaredIn !== null ||
           context.calledIn !== null ||
           context.isInCondition;
-        this.report({ ...api.problem, afterLoad: afterLoad || api.problem.afterLoad, scope: context.scope });
+        this.report({
+          ...api.problem,
+          afterLoad: afterLoad || context.registration !== undefined || api.problem.afterLoad,
+          scope: context.scope,
+        });
         // Under a condition, the call either never runs or fails the file, so it declares nothing either way.
         return api.declaration && !context.isInCondition ? this.handle(call, api.declaration, context) : true;
       }
@@ -2043,6 +2054,7 @@ class Walker {
           ...context,
           scope,
           registration: this.frame.adapter.catchesSuiteErrors ? { ...context.registration } : undefined,
+          handlesRegistrationError: false,
           test: null,
           hookScope: null,
           hookName: null,

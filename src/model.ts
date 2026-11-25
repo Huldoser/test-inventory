@@ -186,6 +186,8 @@ export type ApiCall =
   | { kind: 'other' };
 
 export interface CallContext {
+  /** The call runs inside a try block or helper whose registration error may be caught by user code. */
+  handlesRegistrationError?: boolean;
   scopes: readonly Node[];
   /** The test context of the test or hook whose body the call is in, as the framework returned it. */
   testContext: unknown;
