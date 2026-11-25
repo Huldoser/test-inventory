@@ -223,6 +223,66 @@ describe('greeks', () => {
     }
   });
 
+  it('marks a file not loaded when its suite body cannot register a child', () => {
+    for (const body of [
+      "if (false) it('routes a trade', () => {});",
+      "const marketOpen = false; if (marketOpen) it('routes a trade', () => {});",
+      "if (true) { if (0) it('routes a trade', () => {}); } else { it('routes an order', () => {}); }",
+      "function registerTrades() { it('routes a trade', () => {}); }",
+      "'use strict'; ; { beforeEach(() => {}); }",
+      "const book = { prepare: () => it('routes a trade', () => {}) };",
+      "const callbacks = [() => it('routes a trade', () => {})];",
+      "{ return; } it('routes a trade', () => {});",
+      'function openMarket() {} beforeEach(openMarket, 250);',
+      'let quote; const rows = [, 12];',
+      'return 7;',
+    ]) {
+      const scan = scanJasmine(`describe('closing auction', () => { ${body} }); it('settles', () => {});`);
+      expect(testNamed(scan, 'settles').state, body).toBe('notLoaded');
+      expect(codes(scan), body).toContain('describe-throws');
+    }
+  });
+
+  it('keeps the file loaded when evaluating a suite might register a spec or throw', () => {
+    for (const body of [
+      "function registerTrades() { it('routes a trade', () => {}); } registerTrades();",
+      "const book = { ready: it('routes a trade', () => {}) };",
+      "const rows = [it('routes a trade', () => {})];",
+      "const book = { [it('routes a trade', () => {})]: 1 };",
+      "beforeEach((it('routes a trade', () => {}), () => {}));",
+      "function beforeEach(fn) { it('routes a trade', fn); } beforeEach(() => {});",
+      "const open = false; { const open = true; if (open) it('routes a trade', () => {}); }",
+      "if (open) it('routes a trade', () => {}); const open = false;",
+      "return it('routes a trade', () => {});",
+      "throw Error('feed unavailable');",
+      'beforeEach(42);',
+      'beforeEach(function* staleQuotes() {});',
+      'beforeEach(() => {}, 2147483648);',
+      'beforeEach(() => {}, getTimeout());',
+      "beforeEach(() => {}, 25, it('routes a trade', () => {}));",
+      'const { price } = getQuote();',
+      'const quotes = [...openQuotes];',
+      'const book = { ...closingPrices };',
+      "if (market.isOpen) it('routes a trade', () => {});",
+    ]) {
+      const scan = scanJasmine(`describe('closing auction', () => { ${body} }); it('settles', () => {});`);
+      expect(testNamed(scan, 'settles').state, body).toBe('active');
+    }
+  });
+
+  it('checks the definition scope and parameter evaluation of a named Jasmine callback', () => {
+    const deferred = scanJasmine(`
+function registerTrades(option = it('routes a trade', () => {})) {}
+describe('orders', registerTrades);
+it('settles', () => {});
+`);
+    expect(testNamed(deferred, 'settles').state).toBe('active');
+    const simple = scanJasmine(
+      "describe('orders', (open = false) => beforeEach(() => {}, 25)); it('settles', () => {});",
+    );
+    expect(testNamed(simple, 'settles').state).toBe('notLoaded');
+  });
+
   it('accepts an unused callback argument on a skipped or focused Jasmine suite', () => {
     for (const api of ['xdescribe', 'fdescribe']) {
       const result = scanJasmine(`${api}('closing auction', (venue) => {it('fills the order', () => {});});`);
