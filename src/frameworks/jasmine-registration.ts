@@ -1,14 +1,15 @@
-import type { Argument, BlockStatement, CallExpression, Expression, Node, Statement } from 'oxc-parser';
+import type {
+  Argument,
+  ArrayExpression,
+  BlockStatement,
+  CallExpression,
+  Expression,
+  Node,
+  Statement,
+} from 'oxc-parser';
 import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
 import { literalArguments } from '../mutation-references.ts';
-import {
-  isValueOperation,
-  operationValue,
-  nonIterable,
-  type ParameterStep,
-  type Resolved,
-  type Value,
-} from '../values.ts';
+import { isValueOperation, operationValue, type ParameterStep, type Resolved, type Value } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
@@ -399,24 +400,39 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     if (result === 'next') results.set(node, objectResult);
     return result;
   }
-  function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Flow {
-    for (const item of items) {
-      if (!item) continue;
-      const result = expression(item.type === 'SpreadElement' ? item.argument : item, scopes, children);
+  function elements(list: readonly Argument[] | ArrayExpression, scopes: readonly Node[], children: Children): Flow {
+    const array = 'elements' in list;
+    let parts: Value[] | undefined = array ? [] : undefined;
+    for (const item of array ? list.elements : list) {
+      if (!item) {
+        parts?.push(undefined);
+        continue;
+      }
+      const operand = item.type === 'SpreadElement' ? item.argument : item;
+      const result = expression(operand, scopes, children);
       if (result !== 'next') return result;
       if (item.type === 'SpreadElement') {
-        if (unwrap(item.argument).type === 'ArrayExpression') continue;
-        const spread = file.values.resolve(item.argument, scopes);
+        const spread = valueOf(operand, scopes);
         if (!spread.ok) {
-          if (file.values.lengthOf(item.argument, scopes) === null) return 'unknown';
-        } else if (nonIterable(spread.value)) return 'throw';
+          if (unwrap(operand).type !== 'ArrayExpression' && file.values.lengthOf(operand, scopes) === null)
+            return 'unknown';
+          parts = undefined;
+        } else {
+          if (!Array.isArray(spread.value) && typeof spread.value !== 'string') return 'throw';
+          if (parts) for (const element of spread.value) parts.push(element);
+        }
+      } else if (parts) {
+        const element = valueOf(operand, scopes);
+        if (element.ok) parts.push(element.value);
+        else parts = undefined;
       }
     }
+    if (array) results.set(list, parts ? { ok: true, value: parts } : objectResult);
     return 'next';
   }
   function expression(node: Expression, scopes: readonly Node[], children: Children): Flow {
     const value = unwrap(node);
-    if (value.type === 'ArrayExpression') return elements(value.elements, scopes, children);
+    if (value.type === 'ArrayExpression') return elements(value, scopes, children);
     if (value.type === 'CallExpression') return call(value, scopes, children);
     if (value.type === 'UnaryExpression' && value.operator === 'void')
       return expression(value.argument, scopes, children);
@@ -529,7 +545,7 @@ export function jasmineTitleValue(title: JasmineArgument, file: FileContext, spe
   const node = title.node;
   if (node.type === 'SpreadElement') return undefined;
   let resolved = title.resolved ?? file.values.resolve(node, title.scopes);
-  if (!resolved.ok && (node.type === 'CallExpression' || isValueOperation(node))) {
+  if (!resolved.ok && (node.type === 'ArrayExpression' || node.type === 'CallExpression' || isValueOperation(node))) {
     const flow = registrationFlow(node.start, title.scopes, file);
     flow.expression(node, title.scopes, { registered: false });
     resolved = flow.valueOf(node, title.scopes);

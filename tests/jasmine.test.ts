@@ -416,6 +416,23 @@ catch { it('recovers the market', () => {}); }`);
     expect(invalid.tests.map((test) => test.title)).toContain('recovers the market');
   });
 
+  it('uses array elements as they are evaluated when Jasmine registers a title', () => {
+    for (const [array, title] of [
+      ['[, desk(), , fee()]', ',cash desk,,7'],
+      ["[...(() => [, desk()])(), ...'FX']", ',cash desk,F,X'],
+      ['[[fee(), desk()], beforeEach(() => {})]', '7,cash desk,'],
+      ['(() => [desk(), fee()])()', 'cash desk,7'],
+    ]) {
+      const scan = scanJasmine(`function desk(){return 'cash desk';} function fee(){return 7;}
+try { describe(${array}, () => it((() => ${array})(), () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(
+        scan.tests.map((test) => test.fullName),
+        array,
+      ).toEqual([title + ' > ' + title]);
+    }
+  });
+
   it('chooses a Jasmine title from the result of registering a spec, suite or hook', () => {
     for (const [title, expected] of [
       ["it('records a fee') ? 'cash desk' : closed()", 'cash desk'],
