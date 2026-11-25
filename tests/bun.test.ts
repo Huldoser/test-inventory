@@ -7,9 +7,71 @@ function states(inventory: Inventory): [string, string, string | null][] {
 }
 
 describe('Bun tests', () => {
+  it('collects Bun callback-only declarations and keeps their bodies and child tests', () => {
+    const inventory = scanBun(`
+function postOrder() { expect(2).toBe(2); }
+test(postOrder);
+describe(() => { test('fills the order', () => {}); });
+test(null, () => {});
+test.skip();
+test.todo();
+`);
+    expect(inventory.tests.map((t) => [t.title, t.state, t.expectCount])).toEqual([
+      ['(unnamed)', 'active', 1],
+      ['fills the order', 'active', 0],
+      ['(unnamed)', 'active', 0],
+      ['(unnamed)', 'skip', 0],
+      ['(unnamed)', 'todo', 0],
+    ]);
+    expect(codes(inventory)).not.toContain('internal-error');
+  });
+
+  it('marks the file as not loaded for a title Bun rejects with a separate callback', () => {
+    for (const title of ['function () {}', '() => {}', 'false', '({})', '[]']) {
+      const result = scanBun(`test('opens the book', () => {}); describe.skip(${title}, () => {});`);
+      expect(onlyTest(result).state).toBe('notLoaded');
+      expect(codes(result)).toContain('invalid-chain');
+    }
+  });
+
+  it('keeps sibling Bun tests runnable when a nested declaration has an invalid title', () => {
+    const result = scanBun(`
+test('opens the book', () => {});
+test('runs the auction', () => { test(false, () => {}); });
+test('closes the book', () => {});
+`);
+    expect(result.tests.map((t) => [t.title, t.state])).toEqual([
+      ['opens the book', 'active'],
+      ['runs the auction', 'active'],
+      ['closes the book', 'active'],
+    ]);
+    expect(codes(result)).toEqual(['nested-test']);
+  });
+
+  it('distinguishes missing and invalid callbacks for skipped Bun declarations', () => {
+    for (const declaration of ['describe.skip()', 'describe.todo("overnight")', 'test.if(false)("overnight", null)']) {
+      const result = scanBun(`test('opens the book', () => {}); ${declaration};`);
+      expect(result.tests[0].state).toBe('active');
+      expect(codes(result)).not.toContain('internal-error');
+    }
+    for (const declaration of ['test()', 'describe()', 'test.skip("overnight", 7)', 'describe.skip("overnight", {})']) {
+      const result = scanBun(`test('opens the book', () => {}); ${declaration};`);
+      expect(result.tests[0].state).toBe('notLoaded');
+      expect(codes(result)).toContain('test-without-body');
+    }
+  });
+
   it('keeps the empty name Bun registers for an unnamed class title', () => {
     const result = scanBun('test(class {}, () => {});');
     expect(onlyTest(result)).toMatchObject({ title: '', hasDynamicTitle: false });
+  });
+
+  it('uses the declared Bun class name for the class and its static field for an explicit name property', () => {
+    const result = scanBun(`class Desk { static name = "closing auction"; }
+const record = function postOrder() {};
+describe(Desk, () => { test(record, () => {}); });
+test(Desk.name, () => {});`);
+    expect(result.tests.map((t) => t.fullName)).toEqual(['Desk > postOrder', 'closing auction']);
   });
 
   it('reads its globals, bun:test imported any way, and @jest/globals and vitest imports, which Bun rewrites', () => {

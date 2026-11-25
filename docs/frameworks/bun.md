@@ -78,6 +78,13 @@ See [Bun file selection](/reference/output#bun-file-selection) for exact default
 
 ## Supported syntax
 
+Bun uses the declared class name when a class supplies the title. Passing `Desk.name` explicitly
+uses the value of that property, including a static `name` field.
+
+With a function as the only argument, `test(fn)` registers an `(unnamed)` test and `describe(fn)` collects
+an unnamed suite. When a separate callback is supplied, Bun rejects an unnamed function, boolean, array or
+object used as the title. A null or undefined title gives the test or suite its unnamed label.
+
 <!--@include: ../reference/syntax.md#syntax-bun-->
 
 The [shared syntax rules](/reference/syntax#in-every-runner) also apply.

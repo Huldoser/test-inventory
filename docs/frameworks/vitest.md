@@ -153,6 +153,7 @@ the snapshot file for every test that reaches it.
 ## Supported syntax
 
 Vitest uses a function or class name as a title and calls an unnamed one `<anonymous>`.
+The scanner follows local aliases and reads a class's static `name` field when it can resolve its value.
 In `describe(function OrderBook() {}, collectOrders)`, Vitest calls `collectOrders` to collect the suite.
 
 <!--@include: ../reference/syntax.md#syntax-vitest-->

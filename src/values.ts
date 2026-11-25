@@ -323,6 +323,10 @@ export class Values {
       case 'MemberExpression': {
         const namespace = this.namespaceMember(expression, scopes);
         if (namespace) return namespace;
+        if (propertyName(expression) === 'name') {
+          const name = this.functionName(expression.object, scopes);
+          if (name) return name;
+        }
         const own = this.ownProperty(expression, scopes);
         if (own) return own;
         const object = this.resolve(expression.object, scopes);
@@ -399,9 +403,62 @@ export class Values {
     return this.calls.findLast((item) => item.fn === binding.declaration)?.parameters.has(name) ?? false;
   }
 
-  /** Whether a name refers to a function or class declared in the file. */
-  isFunction(name: string, scopes: readonly Node[]): boolean {
-    return this.lookup(name, scopes)?.binding.kind === 'function';
+  /** A local function's name. Bun reads a class's declared name even if it overrides the JavaScript name property. */
+  functionName(
+    expression: Expression,
+    scopes: readonly Node[],
+    kind: 'property' | 'declared' = 'property',
+  ): Resolved | null {
+    let node: Node = unwrap(expression);
+    let inferred = '';
+    let modified = false;
+    const seen = new Set<Node>();
+    while (node.type === 'Identifier') {
+      const found = this.lookup(node.name, scopes);
+      if (!found || seen.has(found.binding.declaration)) return null;
+      seen.add(found.binding.declaration);
+      modified ||= this.changedAtLoad(found.scopes[0]).has(node.name);
+      inferred = node.name;
+      scopes = found.scopes;
+      const binding = found.binding;
+      if (binding.kind === 'function') node = binding.declaration;
+      else if (binding.kind === 'const') node = unwrap(binding.init);
+      else return null;
+    }
+    if (node.type === 'ClassDeclaration' || node.type === 'ClassExpression') {
+      if (modified) return UNRESOLVED;
+      const declared = { ok: true as const, value: node.id?.name ?? inferred };
+      if (kind === 'declared') return declared;
+      let field: Resolved | null = null;
+      let method = false;
+      // Class methods are installed before static fields and blocks run in source order.
+      for (const member of node.body.body) {
+        if (member.type === 'StaticBlock') {
+          field = UNRESOLVED;
+          continue;
+        }
+        if (!('key' in member) || !member.static || member.key.type === 'PrivateIdentifier') continue;
+        const key = this.propertyKey(member.key, member.computed, scopes);
+        if (key.ok && key.value !== 'name') continue;
+        if (member.type === 'PropertyDefinition') {
+          field = !key.ok
+            ? UNRESOLVED
+            : member.value
+              ? this.resolveConstant(member.value, scopes)
+              : { ok: true, value: undefined };
+        } else method = true;
+      }
+      return field ?? (method ? UNRESOLVED : declared);
+    }
+    if (
+      node.type === 'FunctionDeclaration' ||
+      node.type === 'FunctionExpression' ||
+      node.type === 'ArrowFunctionExpression'
+    ) {
+      const name = node.type === 'ArrowFunctionExpression' ? inferred : (node.id?.name ?? inferred);
+      return modified ? UNRESOLVED : { ok: true, value: name };
+    }
+    return null;
   }
 
   private propertyKey(key: Node, computed: boolean, scopes: readonly Node[]): Resolved {

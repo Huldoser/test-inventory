@@ -18,3 +18,6 @@ Keep the table declaration and report a warning when Vitest projects sharing a f
 Report when a runtime title-length setting prevents the scan from determining a Vitest case name.
 
 Collect Vitest suites with a function as the title and a separate callback, and report the native title for unnamed functions and classes.
+Follow local function aliases used as titles, including class names overridden by static fields in Vitest and declared names in Bun.
+
+Match Bun callback-only declarations, unnamed titles, invalid descriptors, and skipped or todo declarations with omitted callbacks.

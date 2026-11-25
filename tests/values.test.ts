@@ -14,6 +14,30 @@ function resolve(code: string) {
 const UNRESOLVED = { ok: false, importedFrom: null };
 
 describe('Values', () => {
+  it('uses the final static name field and ignores instance, unrelated and private fields', () => {
+    expect(
+      resolve(`class Desk {
+      name = "paper"; static venue = "closing"; static #name = "reserve";
+    } Desk.name;`),
+    ).toEqual({ ok: true, value: 'Desk' });
+    expect(resolve('class Desk { static name; } Desk.name;')).toEqual({ ok: true, value: undefined });
+    expect(resolve('class Desk { static { register(this); } static name = "late"; } Desk.name;')).toEqual({
+      ok: true,
+      value: 'late',
+    });
+  });
+
+  it('leaves runtime class and function names unresolved after a possible change', () => {
+    for (const code of [
+      'class Desk { static name = "paper"; static { register(this); } } Desk.name;',
+      'class Desk { static [key()] = "night"; } Desk.name;',
+      'class Desk { static get name() { return selectDesk(); } } Desk.name;',
+      'class Desk {} Object.defineProperty(Desk, "name", settings); Desk.name;',
+      'function postOrder() {} Object.defineProperty(postOrder, "name", settings); postOrder.name;',
+    ])
+      expect(resolve(code)).toEqual(UNRESOLVED);
+  });
+
   it.each([
     ["'AAPL';", 'AAPL'],
     ['187.5;', 187.5],

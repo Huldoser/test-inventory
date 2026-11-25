@@ -1153,6 +1153,73 @@ test(void 0, () => {});
     expect(onlyTest(legacy).state).toBe('active');
   });
 
+  it('reads static name fields and the name of a referenced class or function', () => {
+    const result = scanJest(
+      `
+const windowName = "closing auction";
+class Settlement { static ["name"] = windowName; }
+const Desk = Settlement;
+function openWindow() {}
+const post = function postOrder() {};
+test.each([1, 2])(Desk, () => {});
+describe(Desk.name, () => { test(openWindow["name"], () => {}); });
+test(post.name, () => {});
+test((class Intraday {}).name, () => {});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((t) => t.fullName)).toEqual([
+      'closing auction',
+      'closing auction',
+      'closing auction > openWindow',
+      'postOrder',
+      'Intraday',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('distinguishes a class with an empty name field from the empty string property', () => {
+    const definition = 'class Settlement { static name = ""; }';
+    const direct = scanJest(`${definition} test('opens the book', () => {}); test(Settlement, () => {});`);
+    expect(testNamed(direct, 'opens the book').state).toBe('notLoaded');
+    const property = scanJest(`${definition} test(Settlement.name, () => {});`);
+    expect(onlyTest(property)).toMatchObject({ title: '', state: 'active', hasDynamicTitle: false });
+  });
+
+  it('rejects a class with a null name and defers a class name computed at runtime', () => {
+    const rejected = scanJest(
+      "class Desk { static name = null; } test('opens the book', () => {}); test(Desk, () => {});",
+    );
+    expect(testNamed(rejected, 'opens the book').state).toBe('notLoaded');
+    const dynamic = scanJest('class Desk { static get name() { return selectDesk(); } } test(Desk, () => {});');
+    expect(onlyTest(dynamic)).toMatchObject({ state: 'active', hasDynamicTitle: true });
+  });
+
+  it('follows an immutable title alias to its expression and leaves cyclic title aliases unresolved', () => {
+    const result = scanJest('const missing = void 0; const name = missing; test(name, () => {});');
+    expect(onlyTest(result)).toMatchObject({ title: 'undefined', hasDynamicTitle: false });
+    const cycle = scanJest('const left = right; const right = left; test(left, () => {});');
+    expect(onlyTest(cycle).hasDynamicTitle).toBe(true);
+  });
+
+  it('preserves Jest table binding when a class overrides name with a number', () => {
+    const head = 'class Lot { static name = 42; }';
+    const result = scanJest(
+      `${head}
+test.each([1, 2])(Lot, () => {}, 700);
+test.each([1, 2])(Lot.name, () => {}, 800);
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((t) => [t.title, t.timeout])).toEqual([
+      ['42', null],
+      ['42', 800],
+      ['42', 800],
+    ]);
+    const suite = scanJest(`${head} test('opens the book', () => {}); describe.each([1, 2])(Lot, () => {});`);
+    expect(testNamed(suite, 'opens the book').state).toBe('notLoaded');
+  });
+
   it('checks the ordinary describe callback before its title, and the table title before the callback', () => {
     for (const [call, code] of [
       ['describe(["bid"])', 'test-without-body'],

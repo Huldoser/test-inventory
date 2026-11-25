@@ -420,8 +420,7 @@ export class VitestAdapter extends SuiteAdapter {
     const problems: Problem[] = [];
     const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
       stripTags: false,
-      functionNames: true,
-      anonymousFunctionName: '<anonymous>',
+      functionNames: 'vitest',
     });
     if (titleProblem) problems.push(titleProblem);
     // (title, fn, timeout), (title, options, fn) or the removed (title, fn, options)

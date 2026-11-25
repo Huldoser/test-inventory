@@ -1842,4 +1842,21 @@ describe(function () {}, { concurrent: true }, () => {
     expect(result.tests.map((t) => t.fullName)).toEqual(['Settlement > <anonymous>', '<anonymous> > <anonymous>']);
     expect(codes(result)).not.toContain('describe-not-called');
   });
+
+  it('uses the name of an aliased Vitest title function and the static name of a class', () => {
+    const result = scanVitest(`${VITEST_IMPORT}
+class AuctionDesk { static name = "closing auction"; }
+const Desk = AuctionDesk;
+const fill = function bookTrade() {};
+describe(Desk, () => { test(fill, () => {}); });
+test(Desk.name, () => {});
+test(class { static name = ""; }, () => {});
+`);
+    expect(result.tests.map((t) => t.fullName)).toEqual([
+      'closing auction > bookTrade',
+      'closing auction',
+      '<anonymous>',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
 });

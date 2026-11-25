@@ -5,7 +5,7 @@ import type { ApiCall, CallContext, ModuleReader, Problem, StateSetting, TableCa
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { HookCounts } from '../types.ts';
-import type { Value } from '../values.ts';
+import type { Resolved, Value } from '../values.ts';
 import { requiredModule } from './bindings.ts';
 import {
   atLeast,
@@ -178,8 +178,17 @@ export class JestAdapter extends SuiteAdapter {
     scopes: readonly Node[],
     stringsOnly: boolean,
     modern: boolean,
+    functionName: Resolved | null,
   ): string | false | null {
     if (arg.type === 'SpreadElement') return null;
+    if (functionName) {
+      if (stringsOnly) return false;
+      if (!functionName.ok) return null;
+      const value = functionName.value;
+      if (typeof value === 'string') return modern && !value ? false : value;
+      if (typeof value === 'number' && value) return String(value);
+      return false;
+    }
     const resolved = this.file.values.resolve(arg, scopes);
     if (resolved.ok) {
       const value = resolved.value;
@@ -188,26 +197,15 @@ export class JestAdapter extends SuiteAdapter {
       return false;
     }
     let node = unwrap(arg);
-    let inferred = '';
     const seen = new Set<Expression>();
     while (node.type === 'Identifier') {
-      if (this.file.values.isFunction(node.name, scopes)) return stringsOnly ? false : node.name;
       const binding = this.file.values.constantOf(node.name, scopes);
       if (!binding || seen.has(binding.init)) return null;
       seen.add(binding.init);
-      inferred = node.name;
       node = unwrap(binding.init);
       scopes = binding.scopes;
     }
     if (node.type === 'UnaryExpression' && node.operator === 'void') return stringsOnly ? false : 'undefined';
-    if (
-      node.type === 'ArrowFunctionExpression' ||
-      node.type === 'FunctionExpression' ||
-      node.type === 'ClassExpression'
-    ) {
-      const name = node.type === 'ArrowFunctionExpression' ? inferred : (node.id?.name ?? inferred);
-      return stringsOnly || (modern && !name) ? false : name;
-    }
     if (
       node.type === 'ArrayExpression' ||
       node.type === 'ObjectExpression' ||
@@ -225,7 +223,10 @@ export class JestAdapter extends SuiteAdapter {
     const table = links.find((link) => link.name === 'each') ?? null;
     const modern = atLeast(this.file.version, 28, 0);
     const stringsOnly = flags.has('todo') || (!modern && (kind === 'test' || table !== null));
-    const name = args.length ? this.titleName(args[0], context.scopes, stringsOnly, modern) : 'undefined';
+    const argument = args.at(0);
+    const functionName =
+      argument && argument.type !== 'SpreadElement' ? this.file.values.functionName(argument, context.scopes) : null;
+    const name = argument ? this.titleName(argument, context.scopes, stringsOnly, modern, functionName) : 'undefined';
     const invalidName = name === false || (args.length === 0 && stringsOnly);
     const { title, problem: titleProblem } =
       typeof name === 'string'
@@ -237,7 +238,10 @@ export class JestAdapter extends SuiteAdapter {
     const fn = isFunctionNode(body) ? body : null;
     const callback = fn ?? namedFunction(this.file, context.scopes, body);
     const cases = table ? this.tableCases(table, title, context) : null;
-    const titleFailed = cases === 'invalid-title';
+    // A class can replace its name with a number. The table formatter receives that number before Jest stringifies it.
+    const titleFailed =
+      cases === 'invalid-title' ||
+      (table !== null && functionName?.ok === true && typeof functionName.value === 'number');
     const count = table ? this.caseCount(table, context, problems) : null;
     const invalidTable = count === 'invalid-table';
     const resolvedBody =
