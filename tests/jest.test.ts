@@ -389,6 +389,30 @@ jest.retryTimes(...counts);
 });
 
 describe('Jest tables', () => {
+  it('drops the supplied callback and timeout when Jest rejects the table before registering tests', () => {
+    const code = `
+function post() { expect(2).toBe(2); }
+test.each([])('posts a cash leg', post, 700);
+test.concurrent.each({desk:'paper'})('routes an order', () => { expect(9).toBe(9); }, 800);
+test.skip.each\`
+  desk | currency
+  \${'paper'}
+\`('quotes $desk', post, 900);
+test('opens the book', () => {});
+`;
+    for (const expandCases of [false, true]) {
+      const inventory = scanJest(code, { frameworkVersion: '29.7.0', expandCases });
+      expect(
+        inventory.tests.slice(0, 3).map((t) => [t.title, t.caseCount, t.expectCount, t.bodyHash, t.timeout]),
+      ).toEqual([
+        ['posts a cash leg', 1, 0, null, null],
+        ['routes an order', 1, 0, null, null],
+        ['quotes $desk', 1, 0, null, null],
+      ]);
+      expect(testNamed(inventory, 'opens the book').state).toBe('active');
+    }
+  });
+
   it('counts the fallback test when Jest cannot interpolate a row and keeps its unused body out of the inventory', () => {
     const code = `
 const desks = [{desk:{name:'paper'}},{desk:null},{desk:{name:'live'}}];

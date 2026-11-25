@@ -190,7 +190,9 @@ export class JestAdapter extends SuiteAdapter {
     const table = links.find((link) => link.name === 'each') ?? null;
     const cases = table ? this.tableCases(table, title, context) : null;
     const titleFailed = cases === 'invalid-title';
-    const fallbackTest = titleFailed && kind === 'test';
+    const count = table ? this.caseCount(table, context, problems) : null;
+    const invalidTable = count === 'invalid-table';
+    const fallbackTest = kind === 'test' && (titleFailed || invalidTable);
     const line = this.file.source.line(call.start);
     const declared = (given: FunctionNode | null = fn): ApiCall => {
       const base = {
@@ -202,17 +204,20 @@ export class JestAdapter extends SuiteAdapter {
         fn: fallbackTest ? null : given,
         hashed: fallbackTest ? null : (given ?? callback ?? wrappedFunction(body)),
         isParameterized: table !== null,
-        caseCount: titleFailed ? 1 : table ? this.caseCount(table, context, problems) : null,
-        cases: titleFailed
-          ? [
-              {
-                title: {
-                  reason: 'Jest cannot format a case title and registers a single declaration with the original title',
+        caseCount: titleFailed || invalidTable ? 1 : count,
+        cases:
+          titleFailed || invalidTable
+            ? [
+                {
+                  title: {
+                    reason: titleFailed
+                      ? 'Jest cannot format a case title and registers a single declaration with the original title'
+                      : 'Jest rejects the table and registers a single declaration with the original title',
+                  },
+                  args: [],
                 },
-                args: [],
-              },
-            ]
-          : cases,
+              ]
+            : cases,
         problems,
       };
       // With the function given third, after an argument that isn't one, there is no timeout to read.
@@ -243,6 +248,7 @@ export class JestAdapter extends SuiteAdapter {
       const one = declared();
       return { ...one, caseCount: 1, cases: null } as ApiCall;
     }
+    if (fallbackTest) return declared();
     if (!spread && args.length < 2) {
       const what = kind === 'test' ? 'test body' : 'function';
       const refusal = problem(
@@ -271,7 +277,7 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, declared);
     }
-    if (kind === 'describe' && table && this.isInvalidTable(table, context)) {
+    if (kind === 'describe' && invalidTable) {
       const refusal = problem(
         'describe-throws',
         call,
@@ -304,20 +310,6 @@ export class JestAdapter extends SuiteAdapter {
     return declared();
   }
 
-  /** Whether a table makes `describe.each` throw, as jest-each does on an empty array or a value that isn't a table. */
-  private isInvalidTable(table: Link, context: CallContext): boolean {
-    if (table.template) {
-      const headings = templateHeadings(table.template);
-      const values = table.template.expressions.length;
-      return headings === null || values === 0 || values % headings.length !== 0;
-    }
-    const cases = (table.args as Argument[]).at(0);
-    if (!cases) return true;
-    if (cases.type === 'SpreadElement') return false;
-    const resolved = this.file.values.resolve(cases, context.scopes);
-    return resolved.ok ? !Array.isArray(resolved.value) || resolved.value.length === 0 : false;
-  }
-
   /** Jest's order: `todo` and `skip` set the test's mode, `only` runs it, and `failing` applies when it runs. */
   private states(flags: Set<string>, line: number): StateSetting[] {
     const setting = (state: StateSetting['state']): StateSetting[] => [
@@ -332,17 +324,19 @@ export class JestAdapter extends SuiteAdapter {
    * How many tests a table registers. No table, an empty array, or a tagged template whose first line isn't a line of names or
    * whose values don't fill its rows, makes Jest register one test with the title as written, which fails.
    */
-  private caseCount(table: Link, context: CallContext, problems: Problem[]): number | null {
+  private caseCount(table: Link, context: CallContext, problems: Problem[]): number | 'invalid-table' | null {
     if (table.template) {
       const headings = templateHeadings(table.template);
       const values = table.template.expressions.length;
-      return headings === null || values === 0 || values % headings.length !== 0 ? 1 : values / headings.length;
+      return headings === null || values === 0 || values % headings.length !== 0
+        ? 'invalid-table'
+        : values / headings.length;
     }
     const cases = (table.args as Argument[]).at(0);
-    if (!cases) return 1;
+    if (!cases) return 'invalid-table';
     const resolved = cases.type === 'SpreadElement' ? null : this.file.values.resolve(cases, context.scopes);
     // A table that isn't an array makes Jest register one test that fails, as an empty one does.
-    if (resolved?.ok && !Array.isArray(resolved.value)) return 1;
+    if (resolved?.ok && !Array.isArray(resolved.value)) return 'invalid-table';
     const length = this.arrayLength(cases, context);
     if (length === null) {
       const source = snippet(text(this.file, cases));
@@ -350,7 +344,7 @@ export class JestAdapter extends SuiteAdapter {
         problem('unresolved-cases', cases, 'The cases of .each() could not be counted; caseCount is null.', source),
       );
     }
-    return length === 0 ? 1 : length;
+    return length === 0 ? 'invalid-table' : length;
   }
 
   /**
