@@ -1,5 +1,6 @@
 import type { Argument, BlockStatement, CallExpression, Expression, Node, Statement } from 'oxc-parser';
 import { isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
+import { nonIterable } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
@@ -85,8 +86,9 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
     const args = node.arguments;
     if (binding) {
       const helper = argument(callee, scopes);
-      if (!helper || !callback(helper.node) || !args.every((a) => a.type !== 'SpreadElement' && inert(a)))
-        return 'unknown';
+      if (!helper || !callback(helper.node)) return 'unknown';
+      const evaluated = elements(args, scopes, children);
+      if (evaluated !== 'next') return evaluated;
       if (helper.node.async && !helper.node.generator) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
         children.registered ||= 'possible';
@@ -132,8 +134,23 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
     children.registered = true;
     return 'next';
   }
+  function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Exit {
+    for (const item of items) {
+      if (!item) continue;
+      const result = expression(item.type === 'SpreadElement' ? item.argument : item, scopes, children);
+      if (result !== 'next') return result;
+      if (item.type === 'SpreadElement') {
+        if (unwrap(item.argument).type === 'ArrayExpression') continue;
+        const spread = file.values.resolve(item.argument, scopes);
+        if (!spread.ok) return 'unknown';
+        if (nonIterable(spread.value)) return 'throw';
+      }
+    }
+    return 'next';
+  }
   function expression(node: Expression, scopes: readonly Node[], children: Children): Exit {
     const value = unwrap(node);
+    if (value.type === 'ArrayExpression') return elements(value.elements, scopes, children);
     if (value.type === 'CallExpression') return call(value, scopes, children);
     if (value.type === 'Identifier' && argument(value, scopes)) return 'next';
     return completesWithoutThrowing(value) ? 'next' : 'unknown';

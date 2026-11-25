@@ -345,6 +345,65 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('distinguishes successful spreads from noniterable or unreadable spreads in a Jasmine helper call', () => {
+    for (const [arg, recovery] of [
+      ["'BID'", false],
+      ['[10, 12]', false],
+      ['[, 10, ...[12]]', false],
+      ['bids', false],
+      ['10', true],
+      ['null', true],
+      ['{}', true],
+      ['stream', true],
+      ['source()', true],
+      ['[...source()]', true],
+      ['later', true],
+    ] as const) {
+      const result = scanJasmine(`
+const bids = [4, 8];
+const stream = { get [Symbol.iterator]() { throw Error('closed'); } };
+function source() { return stream; }
+async function price() {}
+try { price(...${arg}); } catch { it('recovers the book', () => {}); }
+const later = [3];`);
+      expect(
+        result.tests.some((test) => test.title === 'recovers the book'),
+        arg,
+      ).toBe(recovery);
+    }
+  });
+
+  it('follows local helper arguments when deciding whether Jasmine catches a registration error', () => {
+    const definitions = `
+function bid() { return 10; }
+function quote() { it('records a bid', () => {}); return 10; }
+function closed() { throw Error('closed'); }
+async function price(value) {}`;
+    for (const [call, recovery] of [
+      ['price(bid())', false],
+      ['price(quote())', false],
+      ['price(closed())', true],
+      ['price(...closed())', true],
+      ['describe("closing auction", () => price(quote()))', false],
+      ['describe("closing auction", () => price(closed(), quote()))', false],
+      ['describe("closing auction", () => price(quote(), closed()))', false],
+      ['describe("closing auction", () => price(...closed()))', false],
+      ['describe("closing auction", () => price(...10))', false],
+      ['price(...unknownPrices)', true],
+    ] as const) {
+      const result = scanJasmine(
+        `
+${definitions}
+try { ${call}; } catch { it('recovers the book', () => {}); }`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(
+        result.tests.some((test) => test.title === 'recovers the book'),
+        call,
+      ).toBe(recovery);
+    }
+  });
+
   it('omits a synchronous catch around a local async call that returns a promise', () => {
     for (const [definition, call] of [
       ['async function price() { throw Error("closed"); }', 'price()'],

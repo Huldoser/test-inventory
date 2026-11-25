@@ -247,6 +247,7 @@ For successive statements after `await` in an async helper, the scan resumes col
 An unconditional return or a known rejected await ends the normal path. Awaiting a built-in promise with an empty executor suspends the helper indefinitely, including its cleanup.
 A return from a helper's `try` or `catch` still runs its `finally` block. If a call in the `try` can throw and the `catch` can recover, the scan keeps the specs that follow.
 Calling a local async function returns a promise. Its rejection cannot enter a synchronous `catch` around the call. Evaluating an argument can still throw before the function starts.
+The scan follows known local calls in helper arguments from left to right. A spec they register counts toward the enclosing suite, and a thrown argument prevents the remaining arguments from running.
 Awaiting a primitive literal such as `0` or `null` always fulfills. If the rest of the `try` also succeeds, the scan omits specs declared in its `catch`.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
