@@ -30,7 +30,9 @@ export function functionLength(fn: FunctionNode): number {
   return end === -1 ? params.length : end;
 }
 
-type Exit = 'next' | 'return' | 'throw' | 'unknown';
+type Flow = 'next' | 'throw' | 'unknown';
+type Completion = Flow | { returned: Resolved };
+const omitted: Resolved = { ok: true, value: undefined };
 interface Children {
   registered: boolean | 'possible';
 }
@@ -178,9 +180,14 @@ interface SuiteCall {
   plain: boolean;
 }
 
-/** Check whether a guarded block or a valid suite call completes registration or reaches its caller's catch. */
-export function registrationExit(root: BlockStatement | SuiteCall, outer: readonly Node[], file: FileContext): Exit {
-  const start = 'call' in root ? root.call.start : root.start;
+/** Evaluate the registration path and keep helper return values in their invocation's bindings. */
+function registrationFlow(start: number, outer: readonly Node[], file: FileContext) {
+  const results = new Map<CallExpression, Resolved>();
+  function valueOf(expr: Expression, scopes: readonly Node[]): Resolved {
+    const node = unwrap(expr);
+    const value = node.type === 'CallExpression' ? results.get(node) : undefined;
+    return value ?? file.values.resolve(node, scopes);
+  }
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
   const active: { block: BlockStatement; at: number }[] = [];
@@ -200,8 +207,16 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       const scope = constant.scopes[constant.scopes.length - 1];
       const beforeUse = owner(scopes) === owner(constant.scopes) && constant.init.end < node.start;
       const beforeTry = outer.includes(scope) && owner(outer) === owner(constant.scopes) && constant.init.end < start;
+      // An inline enclosing function could only be created after earlier statements in its block ran.
+      const inner = outer
+        .slice(outer.indexOf(scope) + 1)
+        .find((n) => n.type === 'FunctionDeclaration' || isFunctionNode(n));
+      const beforeClosure = outer.includes(scope) && isFunctionNode(inner) && constant.init.end < inner.start;
       const beforeCall = constant.init.end <= (active.findLast((entry) => entry.block === scope)?.at ?? -1);
-      if ((scope.type === 'Program' || scope.type === 'BlockStatement') && (beforeUse || beforeTry || beforeCall))
+      if (
+        (scope.type === 'Program' || scope.type === 'BlockStatement') &&
+        (beforeUse || beforeTry || beforeClosure || beforeCall)
+      )
         return { node: unwrap(constant.init), scopes: constant.scopes };
     }
     return undefined;
@@ -212,12 +227,13 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
     children: Children,
     args: readonly Resolved[] = [],
     complete = true,
-  ): Exit {
+    site?: CallExpression,
+  ): Flow {
     const body = fn.body;
     const steps = new Map<Node, ParameterStep>();
     const initialized = new Set<string>();
     const inside = [...definition, fn];
-    function bind(node: Node): Exit {
+    function bind(node: Node): Flow {
       const step = steps.get(node);
       if (step === 'throw') return 'throw';
       if (step === null) return 'unknown';
@@ -258,15 +274,20 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       definition,
       () => {
         parameters.push({ fn, initialized });
-        let result: Exit = 'next';
+        let result: Flow = 'next';
         for (const param of fn.params) {
           result = bind(param);
           if (result !== 'next') break;
         }
         if (result === 'next' && !fn.generator) {
-          result =
+          const end =
             body.type === 'BlockStatement' ? statement(body, inside, children) : expression(body, inside, children);
-          if (result === 'return') result = 'next';
+          result = typeof end === 'object' ? 'next' : end;
+          if (site && result === 'next') {
+            const value =
+              typeof end === 'object' ? end.returned : body.type === 'BlockStatement' ? omitted : valueOf(body, inside);
+            results.set(site, value);
+          }
         }
         parameters.pop();
         return result;
@@ -275,7 +296,7 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       steps,
     );
   }
-  function suite(fn: RuntimeFunction, definition: readonly Node[], plain: boolean): Exit {
+  function suite(fn: RuntimeFunction, definition: readonly Node[], plain: boolean): Flow {
     const children: Children = { registered: false };
     const result = invoke(fn, definition, children);
     if (result === 'unknown') return result;
@@ -287,7 +308,7 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       return children.registered === 'possible' ? 'unknown' : 'throw';
     return 'next';
   }
-  function call(node: CallExpression, scopes: readonly Node[], children: Children): Exit {
+  function call(node: CallExpression, scopes: readonly Node[], children: Children): Flow {
     const callee = unwrap(node.callee);
     if (--remaining < 0) return 'unknown';
     const inline = isFunctionNode(callee);
@@ -304,7 +325,7 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
         return 'next';
       }
       const actual = file.values.callArguments(node, scopes, true);
-      return invoke(helper.node, helper.scopes, children, actual.args, actual.complete);
+      return invoke(helper.node, helper.scopes, children, actual.args, actual.complete, node);
     }
     const name = callee.name;
     const spec = ['it', 'xit', 'fit'].includes(name);
@@ -333,14 +354,14 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
     // An unresolved description may run user code when Jasmine formats it.
     // Resolving the callback position has already established the width of preceding spreads.
     if (title) {
-      const value = title.resolved ?? file.values.resolve(title.node as Expression, title.scopes);
+      const value = title.resolved ?? valueOf(title.node as Expression, title.scopes);
       if (!value.ok || (value.value !== null && typeof value.value === 'object')) return 'unknown';
     }
     // Jasmine attaches the suite before running its callback and checking its children.
     children.registered = true;
     return suite(fn, callback.scopes, plain);
   }
-  function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Exit {
+  function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Flow {
     for (const item of items) {
       if (!item) continue;
       const result = expression(item.type === 'SpreadElement' ? item.argument : item, scopes, children);
@@ -355,7 +376,7 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
     }
     return 'next';
   }
-  function expression(node: Expression, scopes: readonly Node[], children: Children): Exit {
+  function expression(node: Expression, scopes: readonly Node[], children: Children): Flow {
     const value = unwrap(node);
     if (value.type === 'ArrayExpression') return elements(value.elements, scopes, children);
     if (value.type === 'CallExpression') return call(value, scopes, children);
@@ -369,14 +390,14 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
     }
     return completesWithoutThrowing(value) ? 'next' : 'unknown';
   }
-  function statement(node: Statement, scopes: readonly Node[], children: Children): Exit {
+  function statement(node: Statement, scopes: readonly Node[], children: Children): Completion {
     if (--remaining < 0) return 'unknown';
     switch (node.type) {
       case 'BlockStatement': {
         const inside = [...scopes, node];
         const entry = { block: node, at: node.start };
         active.push(entry);
-        let result: Exit = 'next';
+        let result: Completion = 'next';
         for (const child of node.body) {
           entry.at = child.start;
           result = statement(child, inside, children);
@@ -391,14 +412,18 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       case 'VariableDeclaration':
         if (node.kind.endsWith('using')) return 'unknown';
         for (const { id, init } of node.declarations) {
-          if (id.type !== 'Identifier' || (init && !completesWithoutThrowing(init))) return 'unknown';
+          if (id.type !== 'Identifier') return 'unknown';
+          if (init) {
+            const outcome = expression(init, scopes, children);
+            if (outcome !== 'next') return outcome;
+          }
         }
         return 'next';
       case 'ExpressionStatement':
         return expression(node.expression, scopes, children);
       case 'ReturnStatement': {
         const result = node.argument ? expression(node.argument, scopes, children) : 'next';
-        return result === 'next' ? 'return' : result;
+        return result === 'next' ? { returned: node.argument ? valueOf(node.argument, scopes) : omitted } : result;
       }
       case 'ThrowStatement':
         if (expression(node.argument, scopes, children) === 'unknown') children.registered ||= 'possible';
@@ -434,5 +459,25 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
         return 'unknown';
     }
   }
-  return 'call' in root ? suite(root.fn, root.definition, root.plain) : statement(root, outer, { registered: false });
+  return { call, statement, suite, valueOf };
+}
+
+export function registrationExit(
+  root: BlockStatement | SuiteCall,
+  outer: readonly Node[],
+  file: FileContext,
+): Flow | 'return' {
+  const flow = registrationFlow('call' in root ? root.call.start : root.start, outer, file);
+  const end =
+    'call' in root
+      ? flow.suite(root.fn, root.definition, root.plain)
+      : flow.statement(root, outer, { registered: false });
+  return typeof end === 'object' ? 'return' : end;
+}
+
+export function jasmineTitleValue(title: JasmineArgument, file: FileContext): Resolved | undefined {
+  if (title.resolved || title.node.type !== 'CallExpression') return title.resolved;
+  const flow = registrationFlow(title.node.start, title.scopes, file);
+  flow.call(title.node, title.scopes, { registered: false });
+  return flow.valueOf(title.node, title.scopes);
 }

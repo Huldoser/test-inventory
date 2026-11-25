@@ -30,3 +30,4 @@ Report rejected Jasmine hooks, exclude them from hook counts and follow registra
 Read Jasmine hook callbacks and timeouts supplied through array or string spreads.
 Track registration and recovery when Jasmine rejects a spec callback or timeout, including pending and spread declarations.
 Collect Jasmine suites and their specs when an array supplies the title and callback, and follow recovery after a rejected callback.
+Read Jasmine test and suite names returned by synchronous local functions and track errors while evaluating those calls.

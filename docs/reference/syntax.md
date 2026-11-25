@@ -239,6 +239,7 @@ that escape its callback. The scan marks subsequent specs in that callback `notL
 through helpers. Earlier specs and sibling suites keep their states. A user-written `catch` can resume collection,
 and `finally` can register specs before the error escapes. The same recovery rules apply to a top-level `try` in the spec file.
 The scan omits a `catch` block when it can establish that the preceding `try` completes normally. Calls with unknown side effects keep recovery specs in the inventory.
+Jasmine test and suite titles can come from local function calls. The scan follows the return reached with the supplied arguments, including a return in a `finally` block that overrides an earlier one. An unresolved title keeps its source text.
 A Jasmine suite reads its first two arguments as the title and callback, including when a literal array or a local constant supplies them through a spread. Named callbacks keep the bindings from their definition.
 When a synchronous helper registers specs while evaluating arguments to a Jasmine declaration, those specs belong to the enclosing suite. If an argument throws, Jasmine skips the remaining arguments and the declaration itself.
 A helper's default parameter initializer runs for a missing or undefined value. The scan follows defaults through literal arrays, objects and known spread arguments.

@@ -345,6 +345,27 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('uses the title returned by a Jasmine helper on the path that completed', () => {
+    for (const [title, expected] of [
+      ['((name = desk) => name)()', 'cash desk'],
+      ["(({ market }) => market)({ market: 'bond desk' })", 'bond desk'],
+      ["(() => { try { return 'auction'; } finally { return 'closing auction'; } })()", 'closing auction'],
+      ['selectDesk(false)', 'risk office'],
+      ["(() => { const desk = 'repo desk'; return desk; })()", 'repo desk'],
+      ['(() => { const label = desk; return label; })()', 'cash desk'],
+      ['(() => selectDesk(true))()', 'cash desk'],
+    ]) {
+      const scan = scanJasmine(`const desk = 'cash desk';
+function selectDesk(cash) { if (cash) return desk; return 'risk office'; }
+try { describe(${title}, () => it(${title}, () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(
+        scan.tests.map((test) => test.fullName),
+        title,
+      ).toEqual([expected + ' > ' + expected]);
+    }
+  });
+
   it('omits recovery after an immediately invoked Jasmine title function completes', () => {
     const scan = scanJasmine(`const deskName = 'cash desk';
 try { it(((title = deskName) => title)(), () => {}); }

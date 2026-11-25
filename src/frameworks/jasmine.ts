@@ -24,6 +24,7 @@ import {
   jasmineArguments,
   jasmineCallback,
   jasmineRegistration,
+  jasmineTitleValue,
   registrationExit,
   type JasmineArgument,
 } from './jasmine-registration.ts';
@@ -160,7 +161,7 @@ export class JasmineAdapter extends SuiteAdapter {
         titleArg.scopes,
         titleArg.node,
         { stripTags: false, functionNames: false },
-        titleArg.resolved,
+        jasmineTitleValue(titleArg, this.file),
       );
       title = read.title;
       if (read.problem) problems.push(read.problem);
