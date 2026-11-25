@@ -14,3 +14,4 @@ Honor synchronous errors from invalid spreads and destructuring in Jasmine decla
 Read string elements and boxed properties in helper parameters so registration defaults and generated titles match the runner.
 Apply argument ordering and parameter binding to direct Jasmine helper calls and immediately invoked functions.
 Attach Jasmine declarations and hooks to the suite left open by their arguments.
+Preserve the current Jasmine suite across the synchronous part of an async registration helper.

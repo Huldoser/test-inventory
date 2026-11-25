@@ -189,6 +189,8 @@ export interface Extraction {
 
 interface Registration {
   stoppedAt?: number;
+  /** The suite an async helper leaves current when it gives control back to the caller. */
+  onAwait?: (scope: Scope | undefined) => void;
   /** Current suite after user code caught an empty-suite error. */
   scope?: Scope;
   /** Suite Jasmine left current as a registration error escaped. */
@@ -748,6 +750,12 @@ class Walker {
     )
       this.collectImport(node, context);
     switch (node.type) {
+      case 'AwaitExpression': {
+        this.visit(node.argument, context);
+        const registration = context.registration;
+        if (!context.skipImports && registration?.stoppedAt === undefined) registration?.onAwait?.(registration.scope);
+        return;
+      }
       case 'CallExpression': {
         if (context.test && !context.quiet) this.expectCall(node, context.test);
         const helper = this.helperCall(node, context);
@@ -1606,21 +1614,32 @@ class Walker {
       args,
       scopes,
       () => {
-        // Async functions turn throws into rejections. Generator calls bind their arguments and defer their body.
-        const registration =
-          registering && fn.async && !fn.generator ? { ...context.registration } : context.registration;
-        this.visitCallback(
-          fn,
-          {
-            ...context,
-            registration,
-            isInFunction: true,
-            declaredIn: null,
-            calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
-            registeredBy: context.registeredBy ?? call,
-          },
-          parameterSteps,
-        );
+        const visitBody = (registration: Context['registration']) => {
+          this.visitCallback(
+            fn,
+            {
+              ...context,
+              registration,
+              isInFunction: true,
+              declaredIn: null,
+              calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
+              registeredBy: context.registeredBy ?? call,
+            },
+            parameterSteps,
+          );
+        };
+        if (registering && context.registration && fn.async && !fn.generator) {
+          // A rejection stays inside the promise. Changes to Jasmine's current suite before suspension are shared.
+          let atAwait: { scope?: Scope } | undefined;
+          const registration: Registration = {
+            ...context.registration,
+            onAwait: (scope) => {
+              atAwait ??= { scope };
+            },
+          };
+          visitBody(registration);
+          context.registration.scope = atAwait ? atAwait.scope : (registration.recoveryScope ?? registration.scope);
+        } else visitBody(context.registration);
       },
       complete,
       parameterSteps,

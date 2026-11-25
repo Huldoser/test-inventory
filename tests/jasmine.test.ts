@@ -345,6 +345,39 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('keeps the Jasmine suite an async helper opens before it returns, rejects or reaches its first await', () => {
+    const reopen = "try { xdescribe('suspended prices', () => {}); } catch {}";
+    for (const [body, skipped] of [
+      [reopen, true],
+      [`${reopen} throw Error('closed');`, true],
+      ["xdescribe('suspended prices', () => {});", true],
+      [`${reopen} await 0;`, true],
+      [`await 0; ${reopen}`, false],
+      [`if (false) await 0; ${reopen}`, true],
+      [`if (true) await 0; ${reopen}`, false],
+      [`await reopenMarket();`, true],
+      [`${reopen} return; await 0;`, true],
+    ] as const) {
+      const result = scanJasmine(
+        `
+function reopenMarket() { ${reopen} return 0; }
+async function checkMarket() { ${body} }
+describe('cash desk', () => {
+  it('records the trade', () => {}, 25, checkMarket().catch(() => {}));
+  it('closes the book', () => {});
+});`,
+        { frameworkVersion: '7.0.2' },
+      );
+      for (const title of ['records the trade', 'closes the book']) {
+        const test = testNamed(result, title);
+        expect([test.fullName, test.state], body).toEqual([
+          skipped ? 'cash desk > suspended prices > ' + title : 'cash desk > ' + title,
+          skipped ? 'skip' : 'active',
+        ]);
+      }
+    }
+  });
+
   it('registers a spec, suite or hook under the current Jasmine suite after evaluating its arguments', () => {
     for (const frameworkVersion of ['4.0.0', '5.13.0', '7.0.2']) {
       const result = scanJasmine(
