@@ -1829,4 +1829,17 @@ describe(2026, () => {
       ['2026 > null', false],
     ]);
   });
+
+  it('runs the suite callback when a function supplies the Vitest title', () => {
+    const result = scanVitest(`${VITEST_IMPORT}
+describe(function Settlement() {}, () => {
+  test(() => {}, () => {});
+});
+describe(function () {}, { concurrent: true }, () => {
+  test(class {}, () => {});
+});
+`);
+    expect(result.tests.map((t) => t.fullName)).toEqual(['Settlement > <anonymous>', '<anonymous> > <anonymous>']);
+    expect(codes(result)).not.toContain('describe-not-called');
+  });
 });

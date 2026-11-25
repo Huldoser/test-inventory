@@ -16,3 +16,5 @@ Report Vitest concurrency from nested suite options, modifiers, tags and the roo
 Keep the table declaration and report a warning when Vitest projects sharing a file generate different case titles.
 
 Report when a runtime title-length setting prevents the scan from determining a Vitest case name.
+
+Collect Vitest suites with a function as the title and a separate callback, and report the native title for unnamed functions and classes.

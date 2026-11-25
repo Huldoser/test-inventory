@@ -273,7 +273,7 @@ export function readTitle(
   file: FileContext,
   scopes: readonly Node[],
   node: Argument,
-  options: { stripTags: boolean; functionNames: boolean },
+  options: { stripTags: boolean; functionNames: boolean; anonymousFunctionName?: string },
 ): { title: Title; problem: Problem | null } {
   const expression = node.type === 'SpreadElement' ? null : node;
   const resolved = expression ? file.values.resolve(expression, scopes) : null;
@@ -292,12 +292,14 @@ export function readTitle(
   }
   // A function or class written in place gives its name, as `describe(function OrderBook() {}, ...)` does.
   const written = expression && unwrap(expression);
+  if (written?.type === 'ArrowFunctionExpression' && options.anonymousFunctionName)
+    value = options.anonymousFunctionName;
   if (
     value === null &&
     options.functionNames &&
     (written?.type === 'FunctionExpression' || written?.type === 'ClassExpression')
   ) {
-    value = written.id?.name ?? '';
+    value = written.id?.name ?? options.anonymousFunctionName ?? '';
   }
   if (value !== null) {
     const withoutTags = options.stripTags ? value.replace(/@\S+/g, ' ').replace(/\s+/g, ' ').trim() : value;

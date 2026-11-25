@@ -406,7 +406,7 @@ export class VitestAdapter extends SuiteAdapter {
     const args = call.arguments;
     const callee = snippet(text(this.file, call.callee));
     if (args.length === 0) return { kind: 'other' };
-    if (kind === 'describe' && isFunctionNode(args[0])) {
+    if (kind === 'describe' && args.length === 1 && isFunctionNode(args[0])) {
       return {
         kind: 'invalid',
         problem: problem(
@@ -421,6 +421,7 @@ export class VitestAdapter extends SuiteAdapter {
     const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
       stripTags: false,
       functionNames: true,
+      anonymousFunctionName: '<anonymous>',
     });
     if (titleProblem) problems.push(titleProblem);
     // (title, fn, timeout), (title, options, fn) or the removed (title, fn, options)

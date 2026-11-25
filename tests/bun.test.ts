@@ -7,6 +7,11 @@ function states(inventory: Inventory): [string, string, string | null][] {
 }
 
 describe('Bun tests', () => {
+  it('keeps the empty name Bun registers for an unnamed class title', () => {
+    const result = scanBun('test(class {}, () => {});');
+    expect(onlyTest(result)).toMatchObject({ title: '', hasDynamicTitle: false });
+  });
+
   it('reads its globals, bun:test imported any way, and @jest/globals and vitest imports, which Bun rewrites', () => {
     const inventory = scanBun(`
 import * as bt from 'bun:test';
