@@ -10,7 +10,7 @@ export interface PropertySource {
 
 export type ArrayChange =
   | MethodWrite
-  | (Omit<MethodWrite, 'object' | 'assigned' | 'name'> & {
+  | (Omit<MethodWrite, 'object' | 'assigned' | 'name' | 'expression'> & {
       name: string;
       call: CallExpression;
     });

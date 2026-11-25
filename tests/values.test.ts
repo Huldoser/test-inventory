@@ -860,6 +860,79 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(early + 'day.label;')).toEqual(UNRESOLVED);
   });
 
+  it('follows a helper replacing the callback in an argument array before collection', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}const args=[read,null,[night]];function prepare(list,fn){list[0]=fn;}';
+    expect(resolve(setup + 'prepare(args,close);Reflect.apply(...args);night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'prepare(args,close);Reflect.apply(...args);day.label;')).toEqual({
+      ok: true,
+      value: 'day',
+    });
+    for (const control of [
+      'Reflect.apply(...args);prepare(args,close);',
+      'prepare([read],close);Reflect.apply(...args);',
+      'prepare(args,close);prepare(args,read);Reflect.apply(...args);',
+      'test("closes the exchange",()=>prepare(args,close));Reflect.apply(...args);',
+    ])
+      expect(resolve(setup + control + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
+  it('orders slot assignments, deletions and array edits made by local setters', () => {
+    const setup =
+      'const desk={label:"day"};function close(row){row.label="closed";}function read(row){return row.label;}const handlers=[read,read];';
+    const insert = 'const replace=list=>(list[0]=close);handlers.unshift(read);replace(handlers);';
+    expect(resolve(setup + insert + 'handlers[0](desk);desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + insert + 'handlers[1](desk);desk.label;')).toEqual({ ok: true, value: 'day' });
+    const remove = 'handlers[0]=close;function drop(list){delete list[0];}drop(handlers);handlers[0]?.(desk);';
+    expect(resolve(setup + remove + 'desk.label;')).toEqual({ ok: true, value: 'day' });
+    const both = 'function replace(list){list[0]=close;list[1]=read;}replace(handlers);';
+    expect(resolve(setup + both + 'handlers[0](desk);desk.label;')).toEqual(UNRESOLVED);
+    const local = 'function replace(list){list=[read];list[0]=close;}replace(handlers);';
+    expect(resolve(setup + local + 'handlers[0](desk);desk.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
+  it('uses the final synchronous replacement and delays an async setter past its await', () => {
+    const setup =
+      'const row={label:"night"},handlers=[];function close(desk){desk.label="closed";}function read(desk){return desk.label;}handlers[0]=read;';
+    for (const setter of [
+      'function set(list){list[0]=close;list[0]=read;}',
+      'async function set(list){await Promise.resolve();list[0]=close;}',
+    ]) {
+      expect(resolve(setup + setter + 'set(handlers);handlers[0](row);row.label;')).toEqual({
+        ok: true,
+        value: 'night',
+      });
+    }
+    const synchronous = 'async function set(list){list[0]=close;await Promise.resolve();}';
+    expect(resolve(setup + synchronous + 'set(handlers);handlers[0](row);row.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('considers delayed slot replacements once module evaluation can resume them', () => {
+    const setup =
+      'const row={label:"night"},handlers=[];function close(desk){desk.label="closed";}function read(desk){return desk.label;}handlers[0]=read;async function set(list){const market=await Promise.resolve();list[0]=close;}';
+    for (const pause of ['await Promise.resolve();', 'for await(const desk of []){}', '{await using desk=null;}']) {
+      expect(resolve(setup + 'set(handlers);' + pause + 'handlers[0](row);row.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + pause + 'set(handlers);handlers[0](row);row.label;')).toEqual({
+        ok: true,
+        value: 'night',
+      });
+    }
+    expect(resolve(setup + 'await using desk=null;set(handlers);handlers[0](row);row.label;')).toEqual({
+      ok: true,
+      value: 'night',
+    });
+  });
+
+  it('uses the first module suspension after an async setter has been called', () => {
+    const setup =
+      'const row={label:"night"},handlers=[];function close(desk){desk.label="closed";}function read(desk){return desk.label;}handlers[0]=read;async function set(list){const chosen=list;await Promise.resolve();chosen[0]=close;}await Promise.resolve();set(handlers);';
+    expect(resolve(setup + 'handlers[0](row);await Promise.resolve();row.label;')).toEqual({
+      ok: true,
+      value: 'night',
+    });
+    expect(resolve(setup + 'await Promise.resolve();handlers[0](row);row.label;')).toEqual(UNRESOLVED);
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

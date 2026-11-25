@@ -31,6 +31,7 @@ export interface MutationCallSite {
 }
 
 export interface MethodWrite {
+  expression: Node;
   name: string | null;
   object: Expression;
   assigned: Expression | null;
@@ -82,6 +83,7 @@ export function mutationCalls(
   program: Node,
   callsByOwner: ReadonlyMap<Node, MutationCallSite[]>,
   methodWrites: readonly MethodWrite[],
+  suspensions: readonly number[],
   values: Values,
   patterns: ReadonlyMap<Node, ReturnType<typeof patternReferences>>,
 ) {
@@ -210,6 +212,100 @@ export function mutationCalls(
           times: [...child.path.map(() => spreadTime(child.value, at, invocationTime)), ...later],
         });
     return choices.flatMap((choice) => reflectSources(choice.source, choice.times, invocationTime, new Set(seen)));
+  };
+  const parameterWrites = Map.groupBy(methodWrites, (write) => write.owner);
+  const schedules = new Map<Node, { straight: Set<Node>; awaitedAt: number }>();
+  const writeSchedule = (body: Node) => {
+    let schedule = schedules.get(body);
+    if (schedule) return schedule;
+    let awaitedAt = Infinity;
+    const straight = new Set<Node>();
+    if (body.type === 'BlockStatement') {
+      let unconditional = true;
+      for (const statement of body.body) {
+        if (statement.type === 'ExpressionStatement') {
+          if (unconditional) straight.add(statement.expression);
+          if (statement.expression.type === 'AwaitExpression') awaitedAt = Math.min(awaitedAt, statement.end);
+        } else if (statement.type === 'VariableDeclaration') {
+          if (statement.declarations.some((decl) => decl.init?.type === 'AwaitExpression'))
+            awaitedAt = Math.min(awaitedAt, statement.end);
+        } else unconditional = false;
+      }
+    } else straight.add(body);
+    schedule = { straight, awaitedAt };
+    schedules.set(body, schedule);
+    return schedule;
+  };
+  const recordArgumentWrites = (frame: HelperInvocation, writes: readonly MethodWrite[]) => {
+    const callee = unwrapChain(frame.call.callee);
+    const definite =
+      frame.statement?.type === 'ExpressionStatement' &&
+      frame.statement.expression === frame.call &&
+      callee.type === 'Identifier' &&
+      values.functionOf(callee.name, frame.scopes) === frame.fn;
+    const body = frame.fn.body as Node;
+    const { straight, awaitedAt } = writeSchedule(body);
+    const rebound = values.assignedIn(body, false);
+    const sources = (expression: Expression, at: readonly Node[]) => {
+      const source = constantValue(expression, at);
+      const name = source.value.type === 'Identifier' ? source.value.name : 'this';
+      const parameter =
+        source.value.type === 'ThisExpression'
+          ? frame.fn.type !== 'ArrowFunctionExpression'
+          : source.value.type === 'Identifier' && values.declarationOf(name, source.scopes) === frame.fn;
+      if (!parameter) return { parameter, choices: [source] };
+      if (rebound.has(name) || values.assignedIn(body).has('arguments')) return { parameter, choices: [] };
+      const choices = frame.parameters
+        .filter((param) => param.name === name && param.ref.rest === undefined)
+        .flatMap((param) =>
+          reflectSources(
+            param,
+            param.ref.path.map(() => frame.call.start),
+            frame.call.start,
+          ),
+        )
+        .filter((param) => !param.ref.path.length)
+        .map((param) => constantValue(param.ref.value, param.ref.capture?.scopes ?? param.scopes));
+      return { parameter, choices };
+    };
+    for (const write of writes) {
+      const containers = sources(write.object, write.scopes);
+      if (!containers.parameter) continue;
+      const replacements = write.assigned
+        ? sources(write.assigned, write.scopes).choices
+        : [{ value: null, scopes: write.scopes }];
+      // Code after an await can only affect the module after its current synchronous evaluation yields.
+      const end =
+        write.expression.start >= awaitedAt
+          ? (suspensions.find((at) => at >= frame.call.end) ?? Infinity)
+          : frame.call.end;
+      const unconditional =
+        definite &&
+        !frame.fn.async &&
+        containers.choices.length === 1 &&
+        replacements.length === 1 &&
+        straight.has(write.expression);
+      for (const { value: array } of containers.choices) {
+        if (array.type !== 'ArrayExpression') continue;
+        const history = objectWrites.get(array) ?? [];
+        for (const replacement of replacements) {
+          const event = {
+            ...write,
+            owner: program,
+            end,
+            unconditional,
+            assigned: replacement.value,
+            scopes: replacement.scopes,
+          };
+          history.push(event);
+          arrayChanges.get(array)?.push(event);
+        }
+        history.sort((a, b) => a.end - b.end);
+        objectWrites.set(array, history);
+        arrayChanges.get(array)?.sort((a, b) => a.end - b.end);
+        arrayReaders.clear();
+      }
+    }
   };
   const returns = new Map<FunctionNode, ReturnType<typeof analyzeReturns>>();
   const returnedBy = (fn: FunctionNode) => {
@@ -566,6 +662,8 @@ export function mutationCalls(
           parameters,
           context: contextFor(helper.fn, functions, helper.factory),
         };
+        const writes = parameterWrites.get(helper.fn);
+        if (writes && caller === root && !helper.fn.generator) recordArgumentWrites(invocation, writes);
         atSite.push(invocation);
       }
       found.push(invocation);

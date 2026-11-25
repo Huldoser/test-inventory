@@ -117,6 +117,7 @@ export class Values {
   private readonly calls: BoundCall[] = [];
   private readonly imports: ImportReader | null;
   private readonly assigned = new WeakMap<Node, Set<string>>();
+  private readonly rebound = new WeakMap<Node, Set<string>>();
   private readonly changed = new WeakMap<Node, Set<string>>();
 
   /** Without `imports`, a value imported from another module is not worked out. */
@@ -172,11 +173,12 @@ export class Values {
     return this.withBound(declarator, names, read);
   }
 
-  assignedIn(body: Node): ReadonlySet<string> {
-    let names = this.assigned.get(body);
+  assignedIn(body: Node, includeMemberWrites = true): ReadonlySet<string> {
+    const cache = includeMemberWrites ? this.assigned : this.rebound;
+    let names = cache.get(body);
     if (!names) {
-      names = assignedNames(body);
-      this.assigned.set(body, names);
+      names = assignedNames(body, includeMemberWrites);
+      cache.set(body, names);
     }
     return names;
   }
@@ -883,7 +885,7 @@ function rootName(node: Node): string | null {
  * Names assigned to or changed anywhere in `body`, its functions included: `x = ...`, `x++`, `[x] = ...`,
  * `for (x of ...)`, `x.push(...)`.
  */
-export function assignedNames(body: Node): Set<string> {
+export function assignedNames(body: Node, includeMemberWrites = true): Set<string> {
   const names = new Set<string>();
   const targets = (target: Node | null): void => {
     switch (target?.type) {
@@ -909,9 +911,11 @@ export function assignedNames(body: Node): Set<string> {
     if (node.type === 'UpdateExpression') targets(node.argument);
     if (node.type === 'ForOfStatement' || node.type === 'ForInStatement') targets(node.left);
     // A parameter whose value the function changes, as in `list.push(...)`, no longer holds the argument's value.
-    const object = mutatedObject(node);
-    const changed = object && rootName(object);
-    if (changed !== null) names.add(changed);
+    if (includeMemberWrites) {
+      const object = mutatedObject(node);
+      const changed = object && rootName(object);
+      if (changed !== null) names.add(changed);
+    }
     for (const child of childNodes(node)) walk(child);
   };
   walk(body);
@@ -1006,6 +1010,7 @@ function changedNames(program: Node, values: Values): Set<string> {
   const declarations: AliasBinding[] = [];
   const callsByOwner = new Map<Node, MutationCallSite[]>();
   const methodWrites: MethodWrite[] = [];
+  const suspensions: number[] = [];
   const accessors = { get: new Set<string | null>(), set: new Set<string | null>() };
   const accesses: {
     assigned?: Expression;
@@ -1032,6 +1037,12 @@ function changedNames(program: Node, values: Values): Set<string> {
       owner = node;
       statement = null;
     } else if (node.type === 'ClassBody') statement = null;
+    if (owner === program) {
+      if (node.type === 'ForOfStatement' && node.await) suspensions.push(node.right.end);
+      if (node.type === 'AwaitExpression') suspensions.push(node.end);
+      if (node.type === 'VariableDeclaration' && node.kind === 'await using')
+        suspensions.push(scopes[scopes.length - 1].end);
+    }
     const target = mutatedObject(node);
     if (target) {
       targets.push({ value: target, scopes, statement, owner });
@@ -1048,6 +1059,7 @@ function changedNames(program: Node, values: Values): Set<string> {
         const name = memberKey(member);
         const unconditional = statement?.type === 'ExpressionStatement' && statement.expression === node;
         methodWrites.push({
+          expression: node,
           name,
           object: unconditional ? previousAliasValue(member.object, before) : member.object,
           assigned: node.type === 'AssignmentExpression' ? node.right : null,
@@ -1132,7 +1144,14 @@ function changedNames(program: Node, values: Values): Set<string> {
       };
       addSite(owner, { ...site, call, accessor });
     }
-  const graph = mutationCalls(program, callsByOwner, methodWrites, values, patterns);
+  const graph = mutationCalls(
+    program,
+    callsByOwner,
+    methodWrites,
+    suspensions.sort((a, b) => a - b),
+    values,
+    patterns,
+  );
   return changedReferences(declarations, targets, graph, (identifier, scopes) => {
     const declaration =
       identifier === 'this'
