@@ -1043,6 +1043,19 @@ catch { it('recovers the outer order', () => {}); }`,
     }
   });
 
+  it('stops at a noniterable helper result before visiting later Jasmine registrations', () => {
+    for (const result of ['7', 'null', 'false', "({desk: 'cash'})", '(async () => 7)()']) {
+      const scan = scanJasmine(`function fees(){return ${result};}
+try {
+  describe([it('records the early fee', () => {}), ...fees(), it('records the later fee', () => {})],
+    () => it('opens the desk', () => {}));
+  it('finishes registration', () => {});
+} catch { it('recovers the market', () => {}); }`);
+      const active = scan.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.title);
+      expect(active, result).toEqual(['records the early fee', 'recovers the market']);
+    }
+  });
+
   it('distinguishes successful spreads from noniterable or unreadable spreads in a Jasmine helper call', () => {
     for (const [arg, recovery] of [
       ["'BID'", false],

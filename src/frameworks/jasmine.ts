@@ -4,6 +4,7 @@ import type { ApiCall, CallContext, ModuleReader, Problem } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { DiagnosticCode, HookCounts } from '../types.ts';
+import { nonIterable } from '../values.ts';
 import {
   atLeast,
   problem,
@@ -25,6 +26,7 @@ import {
   jasmineCallback,
   jasmineRegistration,
   jasmineTitleValue,
+  jasmineValue,
   registrationExit,
   type JasmineArgument,
 } from './jasmine-registration.ts';
@@ -71,6 +73,10 @@ const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
   readonly catchesSuiteErrors = true;
+  rejectsRegistrationSpread(operand: Expression, scopes: readonly Node[]): boolean {
+    const value = jasmineValue(operand, scopes, this.file);
+    return value.ok ? nonIterable(value.value) : value.nonIterable === true;
+  }
   registrationExit(block: Extract<Node, { type: 'BlockStatement' }>, scopes: readonly Node[]) {
     return registrationExit(block, scopes, this.file);
   }

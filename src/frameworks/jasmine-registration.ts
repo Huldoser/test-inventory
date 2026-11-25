@@ -33,6 +33,7 @@ type Flow = 'next' | 'throw' | 'unknown';
 type Completion = Flow | { returned: Resolved };
 const omitted: Resolved = { ok: true, value: undefined };
 const objectResult: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true };
+const promiseResult: Resolved = { ...objectResult, nonIterable: true };
 
 /** Format descriptions whose conversion uses only standard methods, including each element in a nested array. */
 function descriptionText(value: Value): string | undefined {
@@ -355,7 +356,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       if (helper.node.async && !helper.node.generator) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
         children.registered ||= 'possible';
-        results.set(node, objectResult);
+        results.set(node, promiseResult);
         return 'next';
       }
       const actual = file.values.callArguments(node, scopes, true);
@@ -414,6 +415,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       if (item.type === 'SpreadElement') {
         const spread = valueOf(operand, scopes);
         if (!spread.ok) {
+          if (spread.nonIterable) return 'throw';
           if (unwrap(operand).type !== 'ArrayExpression' && file.values.lengthOf(operand, scopes) === null)
             return 'unknown';
           parts = undefined;
@@ -567,16 +569,22 @@ export function registrationExit(
   return typeof end === 'object' ? 'return' : end;
 }
 
+/** Read a value at registration time, including the result of a synchronous local helper. */
+export function jasmineValue(expression: Expression, scopes: readonly Node[], file: FileContext): Resolved {
+  const node = unwrap(expression);
+  const resolved = file.values.resolve(node, scopes);
+  if (!resolved.ok && (node.type === 'ArrayExpression' || node.type === 'CallExpression' || isValueOperation(node))) {
+    const flow = registrationFlow(node.start, scopes, file);
+    if (flow.expression(node, scopes, { registered: false }) === 'next') return flow.valueOf(node, scopes);
+  }
+  return resolved;
+}
+
 /** Specs replace falsy descriptions with an empty string. Suite paths keep false and zero. */
 export function jasmineTitleValue(title: JasmineArgument, file: FileContext, spec: boolean): Resolved | undefined {
   const node = title.node;
   if (node.type === 'SpreadElement') return undefined;
-  let resolved = title.resolved ?? file.values.resolve(node, title.scopes);
-  if (!resolved.ok && (node.type === 'ArrayExpression' || node.type === 'CallExpression' || isValueOperation(node))) {
-    const flow = registrationFlow(node.start, title.scopes, file);
-    flow.expression(node, title.scopes, { registered: false });
-    resolved = flow.valueOf(node, title.scopes);
-  }
+  const resolved = title.resolved ?? jasmineValue(node, title.scopes, file);
   const literal = node.type === 'UnaryExpression' && node.operator === '-' ? unwrap(node.argument) : node;
   if (literal.type === 'Literal' && typeof literal.value === 'bigint') {
     const value = node === literal ? literal.value : -literal.value;

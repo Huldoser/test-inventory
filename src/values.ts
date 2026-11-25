@@ -22,7 +22,7 @@ export type Value = string | number | boolean | null | undefined | Value[] | { [
 /** An unknown value can still have a known array length, be defined, or be a truthy object. */
 export type Resolved =
   | { ok: true; value: Value }
-  | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true; truthy?: true };
+  | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true; truthy?: true; nonIterable?: true };
 
 /** Whether a default runs, a pattern throws or a parameter name becomes initialized. Null denotes uncertainty. */
 export type ParameterStep = boolean | null | 'throw' | 'initialize';

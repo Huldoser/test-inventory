@@ -767,7 +767,12 @@ class Walker {
       if (node.type === 'SpreadElement' && this.parents.at(-2)?.type !== 'ObjectExpression') {
         this.visit(node.argument, context);
         const value = this.frame.values.resolve(node.argument, this.scopes);
-        if (value.ok && nonIterable(value.value)) this.stopRegistration(node, context);
+        if (
+          value.ok
+            ? nonIterable(value.value)
+            : this.frame.adapter.rejectsRegistrationSpread?.(node.argument, this.scopes)
+        )
+          this.stopRegistration(node, context);
         return;
       }
       if (node.type === 'ClassBody') {
