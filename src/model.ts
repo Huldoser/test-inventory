@@ -106,10 +106,8 @@ interface Declaration {
 
 /** One case of a `.each` or `.for` table: the title the runner gives it, and the arguments its callback gets. */
 export interface TableCase {
-  /** Null when the scan can't format it the way the runner does, as for a title that shows an object. */
-  title: string | null;
-  /** The projects that collect this row produce different titles. */
-  projectTitlesDiffer?: boolean;
+  /** Null for an unsupported value, or a reason when the runner's config prevents expansion. */
+  title: string | null | { reason: string };
   args: Value[];
 }
 

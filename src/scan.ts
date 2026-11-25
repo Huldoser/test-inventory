@@ -93,7 +93,7 @@ function versionDiagnostics(
 }
 
 /** The distinct case-title lengths used by the Vitest projects collecting the file. */
-function titleThresholds(placement: Placement, version: [number, number] | null): number[] {
+function titleThresholds(placement: Placement, version: [number, number] | null): (number | null)[] {
   const key = atLeast(version, 5, 0)
     ? ['test', 'taskTitleValueFormatTruncate']
     : ['test', 'chaiConfig', 'truncateThreshold'];
@@ -102,6 +102,7 @@ function titleThresholds(placement: Placement, version: [number, number] | null)
     : [placement.settings];
   const lengths = settings.map((config) => {
     const setting = config && settingAt(config, key);
+    if (setting?.kind === 'unknown') return null;
     return setting?.kind === 'value' && typeof setting.value === 'number' ? setting.value : 40;
   });
   return [...new Set(lengths)];

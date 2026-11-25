@@ -206,13 +206,13 @@ function readsItsFunction(kind: Kind, member: string, version: [number, number] 
 export class VitestAdapter extends SuiteAdapter {
   private warnedAboutTags = false;
 
-  private readonly titleThresholds: readonly number[];
+  private readonly titleThresholds: readonly (number | null)[];
 
   constructor(
     parsed: ParsedFile,
     file: FileContext,
     readModule: ModuleReader | null,
-    titleThresholds: readonly number[] = [40],
+    titleThresholds: readonly (number | null)[] = [40],
   ) {
     super(parsed, file, readModule, VITEST, TEST_MEMBERS);
     this.titleThresholds = titleThresholds;
@@ -794,25 +794,31 @@ export class VitestAdapter extends SuiteAdapter {
       if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
       cases = resolved.value;
     }
-    const [first, ...others] = this.titleThresholds;
-    const row = (items: Value[], index: number, args: Value[]): TableCase => {
-      const format = (length: number) => vitestCaseTitle(title.text, items, index, this.file.version, length);
-      const rendered = title.isDynamic ? null : format(first);
-      return {
-        title: rendered,
-        args,
-        projectTitlesDiffer: rendered !== null && others.some((length) => format(length) !== rendered),
-      };
+    const [first = 40, ...others] = this.titleThresholds.filter((length) => length !== null);
+    const unknownLimit = this.titleThresholds.includes(null);
+    const caseTitle = (items: Value[], index: number): TableCase['title'] => {
+      if (title.isDynamic) return null;
+      const format = (length: number | null) => vitestCaseTitle(title.text, items, index, this.file.version, length);
+      const rendered = format(first);
+      if (rendered === null) return null;
+      if (others.some((length) => format(length) !== rendered)) {
+        return { reason: 'the Vitest projects that run this file give a case different titles' };
+      }
+      if (unknownLimit && format(null) === null) {
+        return { reason: 'a case title depends on a Vitest truncation setting the scan cannot resolve' };
+      }
+      return rendered;
     };
     if (table.name === 'for') {
-      return cases.map((item, index) =>
-        row(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index, [item]),
-      );
+      return cases.map((item, index) => ({
+        title: caseTitle(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index),
+        args: [item],
+      }));
     }
     const arraysOnly = cases.every((item) => Array.isArray(item));
     return cases.map((item, index) => {
       const items = Array.isArray(item) ? item : [item];
-      return row(items, index, arraysOnly ? items : [item]);
+      return { title: caseTitle(items, index), args: arraysOnly ? items : [item] };
     });
   }
 

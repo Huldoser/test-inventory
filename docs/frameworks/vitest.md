@@ -126,7 +126,8 @@ Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%
 when it sets neither. A table stays one record, with a `cases-not-expanded` warning, when the scan can't work out a
 value in it or its title, or the title would show an array or object. A table shared by multiple projects also stays
 as one record when those projects shorten a case title differently. Cases whose titles agree still expand when the
-projects use different length limits.
+projects use different length limits. If the config computes the length at runtime, a table expands only when
+its case titles are independent of that setting.
 
 Loops over `var` are not expanded because the variable holds its last value by the time Vitest runs describes.
 Include source files when scanning in-source tests, and `*.test-d.ts` files for type tests. See the

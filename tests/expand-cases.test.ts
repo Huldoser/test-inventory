@@ -680,6 +680,43 @@ test.for(['buy','sell'])('places a %s order', () => {});`,
     },
   );
 
+  it.each(['4.1.12', '5.1.1'])(
+    'keeps Vitest %s case names that are independent of a runtime title limit',
+    async (version) => {
+      const value = 'Number(process.env.EXAMPLE_TITLE_LENGTH)';
+      const setting =
+        version === '5.1.1' ? `taskTitleValueFormatTruncate: ${value}` : `chaiConfig: { truncateThreshold: ${value} }`;
+      const root = project({
+        'package.json': JSON.stringify({ devDependencies: { vitest: version } }),
+        'vitest.config.ts': `export default {test:{${setting}}};`,
+        'orders.test.ts': `${VITEST_IMPORT}
+const venues = [{venue:'International settlement', rate: 100, side: true}];
+test.each(venues)('opens $venue', () => {});
+test.each(venues)('quotes $rate', () => {});
+test.each(venues)('clears $side', () => {});
+test.for(['International settlement'])('routes to %s', () => {});
+test.for(['International settlement'])('displays %o', () => {});
+test.each([{limit:'…', qty:1}])('posts $limit at quantity $qty', () => {});
+test.each(['…'])('quotes %o', () => {});`,
+      });
+      const result = await scan({ root, framework: 'vitest', expandCases: true });
+      expect(result.tests.map((t) => [t.title, t.caseIndex])).toEqual([
+        ['opens $venue', null],
+        version === '5.1.1' ? ['quotes 100', 0] : ['quotes $rate', null],
+        ['clears true', 0],
+        ['routes to International settlement', 0],
+        version === '5.1.1' ? ['displays %o', null] : ["displays 'International settlement'", 0],
+        version === '5.1.1' ? ['posts … at quantity 1', 0] : ["posts '…' at quantity 1", 0],
+        ["quotes '…'", 0],
+      ]);
+      expect(result.diagnostics.filter((d) => d.code === 'cases-not-expanded').map((d) => d.message)).toEqual(
+        Array(2).fill(
+          'The cases of the table are listed as one record, since a case title depends on a Vitest truncation setting the scan cannot resolve.',
+        ),
+      );
+    },
+  );
+
   it.each([
     ['5.1.0', 'taskTitleValueFormatTruncate: 10', 'settles ACME Hold…'],
     ['4.1.0', 'chaiConfig: { truncateThreshold: 10 }', "settles 'ACME Ho…'"],

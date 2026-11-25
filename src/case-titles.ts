@@ -11,14 +11,14 @@ import type { Value } from './values.ts';
  *
  * `version` is Vitest's `[major, minor]`, null for the newest rules. `truncate` is the length Vitest shortens a value to,
  * 40 unless the config sets `chaiConfig.truncateThreshold` (3 and 4) or `taskTitleValueFormatTruncate` (5); 0 keeps
- * values whole.
+ * values whole. With an unknown length (null), only substitutions independent of the setting can be rendered.
  */
 export function vitestCaseTitle(
   template: string,
   items: readonly Value[],
   index: number,
   version: readonly [number, number] | null,
-  truncate = 40,
+  truncate: number | null = 40,
 ): string | null {
   const rules = version === null || version[0] >= 5 ? 5 : version[0];
   const isFirst3 = version !== null && version[0] === 3 && version[1] === 0;
@@ -128,7 +128,7 @@ function replaceAttributes(text: string, pattern: RegExp, attribute: (key: strin
 }
 
 /** Vitest's `format()` for a template and its arguments, for the values it shows the way the scan does. */
-function printf(template: string, args: readonly Value[], rules: number, truncate: number): string | null {
+function printf(template: string, args: readonly Value[], rules: number, truncate: number | null): string | null {
   let used = 0;
   let output = '';
   let last = 0;
@@ -153,7 +153,7 @@ function printf(template: string, args: readonly Value[], rules: number, truncat
   return output;
 }
 
-function formatValue(placeholder: string, value: Value, rules: number, truncate: number): string | null {
+function formatValue(placeholder: string, value: Value, rules: number, truncate: number | null): string | null {
   switch (placeholder) {
     case '%s':
       if (!isPrimitive(value)) return null;
@@ -177,7 +177,8 @@ function formatValue(placeholder: string, value: Value, rules: number, truncate:
 }
 
 /** A string cut to `length` with an ellipsis, without splitting a surrogate pair; 0 keeps it whole. */
-function shorten(text: string, length: number): string {
+function shorten(text: string, length: number | null): string | null {
+  if (length === null) return text === '…' ? text : null;
   if (length === 0 || text.length <= length) return text;
   let end = length - 1;
   if (isHighSurrogate(text[end - 1])) end -= 1;
@@ -189,10 +190,11 @@ function isHighSurrogate(char: string | undefined): boolean {
 }
 
 /** Vitest 5's `inspect()` of a value, through pretty-format with single quotes. */
-function prettyFormat(value: Value, truncate: number): string | null {
+function prettyFormat(value: Value, truncate: number | null): string | null {
   if (!isPrimitive(value)) return null;
   if (typeof value !== 'string') return Object.is(value, -0) ? '-0' : String(value);
   const quoted = `'${value}'`;
+  if (truncate === null) return value === '…' ? quoted : null;
   if (truncate === 0 || quoted.length <= truncate) return quoted;
   let end = truncate - 1;
   if (end > 0 && isHighSurrogate(quoted[end - 1])) end -= 1;
@@ -214,19 +216,22 @@ const LOUPE_ESCAPES: Record<string, string> = {
 };
 
 /** loupe's `inspect()` of a value, as Vitest 3 and 4 show it, cut to `truncate`. */
-function loupe(value: Value, truncate: number): string | null {
+function loupe(value: Value, truncate: number | null): string | null {
   if (!isPrimitive(value)) return null;
   if (typeof value === 'string') {
     const escaped = value.replace(
       LOUPE_ESCAPED,
       (char) => LOUPE_ESCAPES[char] ?? `\\u${`0000${char.charCodeAt(0).toString(16)}`.slice(-4)}`,
     );
+    if (truncate === null) return escaped.length <= 1 ? `'${escaped}'` : null;
     return `'${loupeTruncate(escaped, truncate - 2)}'`;
   }
   if (typeof value !== 'number') return String(value);
   if (Number.isNaN(value) || !Number.isFinite(value)) return String(value);
   if (value === 0) return Object.is(value, -0) ? '-0' : '+0';
-  return loupeTruncate(String(value), truncate);
+  const text = String(value);
+  if (truncate === null) return text.length <= 1 ? text : null;
+  return loupeTruncate(text, truncate);
 }
 
 function loupeTruncate(text: string, length: number): string {

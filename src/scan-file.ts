@@ -45,7 +45,7 @@ export interface FileSettings {
   /** The interface Mocha's config sets for the tests: `describe` and `it`, or `suite` and `test`. */
   mochaInterface?: MochaInterface;
   /** The distinct case-title truncation settings for this file's Vitest projects. */
-  titleThresholds?: number[];
+  titleThresholds?: (number | null)[];
   /** The framework a WebdriverIO config runs the specs with. */
   webdriverioFramework?: WebdriverIOFramework;
   /** Shared by the files of one scan, so that code many tests reach is read once. */

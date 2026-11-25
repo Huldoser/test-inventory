@@ -1836,10 +1836,9 @@ class Walker {
     if (!declaration.cases) return single("the scan can't work out every value in it");
     const title = declaration.title;
     if (!title || title.isDynamic) return single("the scan can't work out the title");
-    if (declaration.cases.some((item) => item.projectTitlesDiffer)) {
-      return single('the Vitest projects that run this file give a case different titles');
-    }
     const titles = declaration.cases.map((item) => item.title);
+    const problemTitle = titles.find((text) => text !== null && typeof text === 'object');
+    if (problemTitle) return single(problemTitle.reason);
     if (titles.some((text) => text === null)) {
       return single("the title shows a value the scan doesn't format the way the runner does");
     }
