@@ -345,6 +345,13 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('omits recovery after an immediately invoked Jasmine title function completes', () => {
+    const scan = scanJasmine(`const deskName = 'cash desk';
+try { it(((title = deskName) => title)(), () => {}); }
+catch { it('recovers the desk', () => {}); }`);
+    expect(scan.tests.some((test) => test.title === 'recovers the desk')).toBe(false);
+  });
+
   it('stops at a refused Jasmine hook and counts only hooks that completed registration', () => {
     for (const hook of ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const) {
       for (const args of [

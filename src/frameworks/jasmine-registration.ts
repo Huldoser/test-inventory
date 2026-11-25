@@ -289,12 +289,12 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
   }
   function call(node: CallExpression, scopes: readonly Node[], children: Children): Exit {
     const callee = unwrap(node.callee);
-    if (--remaining < 0 || callee.type !== 'Identifier' || assigned.has(callee.name)) return 'unknown';
-    const name = callee.name;
-    const binding = file.values.declarationOf(name, scopes);
+    if (--remaining < 0) return 'unknown';
+    const inline = isFunctionNode(callee);
+    if (!inline && (callee.type !== 'Identifier' || assigned.has(callee.name))) return 'unknown';
     const args = node.arguments;
-    if (binding) {
-      const helper = argument(callee, scopes);
+    if (inline || file.values.declarationOf(callee.name, scopes)) {
+      const helper = inline ? { node: callee, scopes } : argument(callee, scopes);
       if (!helper || !isRuntimeFunction(helper.node)) return 'unknown';
       const evaluated = elements(args, scopes, children);
       if (evaluated !== 'next') return evaluated;
@@ -306,6 +306,7 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       const actual = file.values.callArguments(node, scopes, true);
       return invoke(helper.node, helper.scopes, children, actual.args, actual.complete);
     }
+    const name = callee.name;
     const spec = ['it', 'xit', 'fit'].includes(name);
     if (spec || ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'].includes(name)) {
       const evaluated = elements(args, scopes, children);
