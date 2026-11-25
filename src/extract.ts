@@ -179,9 +179,18 @@ export interface Extraction {
   fileTags: { name: string; span: Span }[];
 }
 
+interface Registration {
+  stoppedAt?: number;
+  /** Current suite after user code caught an empty-suite error. */
+  scope?: Scope;
+  /** Suite Jasmine left current as a registration error escaped. */
+  recoveryScope?: Scope;
+}
+
 interface Context {
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
-  registration?: { stoppedAt?: number };
+  registration?: Registration;
+  emptySuiteAt?: number;
   handlesRegistrationError?: boolean;
   /** Direct declarations are inventoried under guards even where an import cannot execute. */
   skipImports?: boolean;
@@ -661,6 +670,8 @@ class Walker {
   }
 
   private visit(node: Node, context: Context): void {
+    const scope = context.registration?.scope;
+    if (scope && scope !== context.scope) context = { ...context, scope };
     const isScope = isScopeNode(node);
     if (isScope) this.scopes.push(node);
     this.parents.push(node);
@@ -724,11 +735,17 @@ class Walker {
         const attempt = context.registration && { ...context.registration };
         this.visit(node.block, { ...context, registration: attempt, handlesRegistrationError: !!attempt });
         let failure = attempt?.stoppedAt;
+        let scope = attempt?.recoveryScope ?? attempt?.scope;
         if (node.handler) {
           const handler = this.guarded(context, this.catchCondition(node.handler));
+          if (handler.registration) handler.registration.scope = scope;
           this.visit(node.handler, handler);
-          if (failure !== undefined) failure = handler.registration?.stoppedAt;
+          if (failure !== undefined && handler.registration) {
+            failure = handler.registration.stoppedAt;
+            scope = handler.registration.recoveryScope ?? handler.registration.scope;
+          }
         }
+        if (context.registration) context.registration.scope = scope;
         if (node.finalizer) this.visit(node.finalizer, context);
         if (context.registration && failure !== undefined) context.registration.stoppedAt ??= failure;
         return;
@@ -1910,7 +1927,7 @@ class Walker {
     { declaration, index, args }: Case<TestDeclaration>,
     context: Context,
   ): void {
-    const registrationStoppedAt = context.registration?.stoppedAt;
+    const registrationStoppedAt = context.registration?.stoppedAt ?? context.emptySuiteAt;
     if (registrationStoppedAt !== undefined && declaration.isOnly) declaration = { ...declaration, isOnly: false };
     const statement = this.statement(call);
     const empty = emptyTitle(declaration, call);
@@ -2013,7 +2030,7 @@ class Walker {
     { declaration, index, args }: Case<SuiteDeclaration>,
     context: Context,
   ): void {
-    if (context.registration?.stoppedAt !== undefined && declaration.isOnly)
+    if ((context.registration?.stoppedAt !== undefined || context.emptySuiteAt !== undefined) && declaration.isOnly)
       declaration = { ...declaration, isOnly: false };
     for (const item of [...declaration.problems, ...emptyTitle(declaration, call)]) this.report(item);
     const scope: Scope = {
@@ -2053,7 +2070,10 @@ class Walker {
         this.visitCallback(fn, {
           ...context,
           scope,
-          registration: this.frame.adapter.catchesSuiteErrors ? { ...context.registration } : undefined,
+          registration: this.frame.adapter.catchesSuiteErrors
+            ? { stoppedAt: context.registration?.stoppedAt }
+            : undefined,
+          emptySuiteAt: context.emptySuiteAt ?? (declaration.emptySuiteError ? this.lineOf(call) : undefined),
           handlesRegistrationError: false,
           test: null,
           hookScope: null,
@@ -2069,6 +2089,14 @@ class Walker {
         });
       });
     });
+    const error = declaration.emptySuiteError;
+    if (error) {
+      this.report({ ...error.problem, afterLoad: true, scope: context.scope });
+      if (context.registration && !context.skipImports && context.registration.stoppedAt === undefined) {
+        context.registration.stoppedAt = this.lineOf(call);
+        if (error.keepsScope) context.registration.recoveryScope = scope;
+      }
+    }
   }
 
   /** The statement a call forms, such as `test(...);`, or the call itself when it is part of a larger expression. */

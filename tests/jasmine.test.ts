@@ -345,6 +345,59 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('registers recovered specs under the empty suite Jasmine still has open', () => {
+    for (const frameworkVersion of ['4.0.0', '4.4.0', '4.5.0', '5.13.0', '6.3.0', '7.0.2']) {
+      const inventory = scanJasmine(
+        `
+describe('cash desk', () => {
+  const feed = 'closing feed';
+  try { describe(feed, () => { beforeEach(() => {}); }); }
+  catch (error) { it('restores quotes', () => {}); }
+  describe('hedges', () => { it('rolls futures', () => {}); });
+});
+it('closes the market', () => {});
+`,
+        { frameworkVersion },
+      );
+      const kept = !['4.0.0', '4.4.0'].includes(frameworkVersion);
+      const parent = kept ? ['cash desk', 'closing feed'] : ['cash desk'];
+      expect(testNamed(inventory, 'restores quotes'), frameworkVersion).toMatchObject({
+        suitePath: parent,
+        hooks: { beforeEach: kept ? 1 : 0 },
+        state: 'active',
+      });
+      expect(testNamed(inventory, 'rolls futures').suitePath).toEqual([...parent, 'hedges']);
+      expect(testNamed(inventory, 'closes the market').suitePath).toEqual([]);
+      expect(inventory.suites.map((suite) => suite.path)).toContainEqual(['cash desk', 'closing feed']);
+    }
+  });
+
+  it('preserves recovered skipped and focused suites through helpers and finalizers', () => {
+    for (const api of ['xdescribe', 'fdescribe']) {
+      const result = scanJasmine(
+        `
+function loadFeed() { ${api}('closing feed', () => {}); }
+try { loadFeed(); } catch (error) {
+  try { describe('hedge feed', () => {}); } finally { it('restores the hedge', () => {}); }
+}
+`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(testNamed(result, 'restores the hedge')).toMatchObject({
+        suitePath: ['closing feed', 'hedge feed'],
+        state: 'notLoaded',
+      });
+      const recovered = scanJasmine(
+        `try { ${api}('closing feed', () => {}); } catch (error) {} it('restores quotes', () => {});`,
+      );
+      expect(testNamed(recovered, 'restores quotes')).toMatchObject({
+        suitePath: ['closing feed'],
+        state: api === 'xdescribe' ? 'skip' : 'active',
+        isOnly: api === 'fdescribe',
+      });
+    }
+  });
+
   it('keeps a Jasmine file loaded when it catches its own registration error', () => {
     for (const expandCases of [false, true]) {
       const result = scanJasmine(

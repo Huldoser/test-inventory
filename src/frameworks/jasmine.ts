@@ -227,7 +227,7 @@ export class JasmineAdapter extends SuiteAdapter {
         'The describe declares no spec or describe, which Jasmine refuses',
         context,
       );
-      return refused(call, refusal, context, () => declared);
+      return { ...declared, emptySuiteError: { problem: refusal, keepsScope: atLeast(this.file.version, 4, 5) } };
     }
     return declared;
   }

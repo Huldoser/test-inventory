@@ -134,6 +134,8 @@ export interface TestDeclaration extends Declaration {
 
 export interface SuiteDeclaration extends Declaration {
   kind: 'describe';
+  /** Jasmine adds the suite before it checks for children. Since 4.5 a failure leaves it current. */
+  emptySuiteError?: { problem: Problem; keepsScope: boolean };
   isShuffled: boolean;
   /** What the describe passes down to the calls inside it, such as Vitest's `skip` option; null for nothing. */
   passesDown: unknown;
