@@ -394,6 +394,53 @@ catch { it('recovers the order', () => {}); }`,
     }
   });
 
+  it('stops at an empty Jasmine suite when a helper returns without registering a child', () => {
+    for (const [version, form, refused] of [
+      ['3.99.1', 'describe', false],
+      ['4.0.0', 'describe', true],
+      ['4.0.0', 'xdescribe', false],
+      ['7.0.2', 'xdescribe', true],
+      ['7.0.2', 'fdescribe', true],
+    ] as const) {
+      for (const [args, registers] of [
+        ['5', false],
+        ['', true],
+      ] as const) {
+        const result = scanJasmine(
+          `
+function quote() { it('opens the quote book', () => {}); return 5; }
+function price(bid = quote()) { return bid; }
+function collect() { price(${args}); }
+try { ${form}('closing auction', collect); it('continues registration', () => {}); }
+catch { it('recovers the suite', () => {}); }`,
+          { frameworkVersion: version },
+        );
+        const reached = result.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.title);
+        expect(reached.includes('continues registration'), version + form + args).toBe(!refused || registers);
+        expect(reached.includes('recovers the suite'), version + form + args).toBe(refused && !registers);
+      }
+    }
+  });
+
+  it('keeps a Jasmine suite with a child registered before a caught throw or an overriding finally', () => {
+    for (const body of [
+      "try { throw it('opens the book', () => {}); } catch {}",
+      "try { describe('nested book', () => {}); } catch {}",
+      'try { publish(); } finally { return; }',
+      'try { throw publish(); } catch {}',
+    ]) {
+      const result = scanJasmine(
+        `
+function quote() { it('opens the book', () => {}); }
+const publish = [quote].at(0);
+describe('closing auction', () => { ${body} });
+it('continues registration', () => {});`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(testNamed(result, 'continues registration').state, body).toBe('active');
+    }
+  });
+
   it('keeps the caller catch when a generator is passed to Jasmine as a suite callback', () => {
     const result = scanJasmine(`
 function* orders() { it('reads the closing price', () => {}); }

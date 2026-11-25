@@ -227,7 +227,7 @@ rules.
 
 Jasmine 3 accepts empty suites. From 4.0, a plain `describe` that registers no spec or child suite is a `describe-throws` error, including when it declares only hooks. From 4.5 this also applies to `xdescribe` and `fdescribe`. Both accept callbacks with unused positional arguments.
 
-The scan also recognizes an empty suite when its only spec is inside an uncalled function, follows an unconditional return, or sits in a branch guarded by a false literal or local constant. If evaluating an initializer or hook argument could register a spec or throw, the scan leaves the suite's registration open.
+The scan also recognizes an empty suite when its only spec is inside an uncalled function, follows an unconditional return, or sits in a branch guarded by a false literal or local constant. It follows calls to local helpers with the arguments supplied. A spec registered by a parameter default counts as a child, as does a nested suite whose empty-suite error the parent catches. When the scan cannot determine whether a call registered a child, it keeps later registrations in the inventory.
 
 An uncaught registration error at the top level of a file stops Jasmine before it runs any
 spec, in this file or any other, and every test in the file is `notLoaded`. Inside a describe, Jasmine catches errors

@@ -1,5 +1,5 @@
-import type { CallExpression, Expression, Node, Statement } from 'oxc-parser';
-import { isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
+import type { CallExpression, Expression, Node } from 'oxc-parser';
+import { isFunctionNode, unwrap } from '../ast.ts';
 import type { ApiCall, CallContext, ModuleReader, Problem } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
@@ -19,7 +19,7 @@ import {
   wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
-import { functionLength, inert, registrationExit } from './jasmine-registration.ts';
+import { functionLength, isRuntimeFunction, registrationExit } from './jasmine-registration.ts';
 
 const HOOKS = ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
@@ -221,9 +221,13 @@ export class JasmineAdapter extends SuiteAdapter {
       return refused(call, refusal, context, () => declared);
     }
     if (
-      callback &&
+      isRuntimeFunction(callback) &&
       atLeast(this.file.version, 4, plain ? 0 : 5) &&
-      declaresNothing(callback, this.file, binding?.scopes ?? context.scopes)
+      registrationExit(
+        { call, fn: callback, definition: binding?.scopes ?? context.scopes, plain },
+        context.scopes,
+        this.file,
+      ) === 'throw'
     ) {
       const refusal = this.refusal(
         'describe-throws',
@@ -256,84 +260,6 @@ export class JasmineAdapter extends SuiteAdapter {
     const message = `${what}, so the describe around it throws: Jasmine reports it as failed, and registers none of the specs written after this call in it.`;
     return { ...problem(code, node, message, source), afterLoad: true };
   }
-}
-
-/** Prove that the suite returns without registering a child. A thrown exception is a different Jasmine outcome. */
-function declaresNothing(fn: FunctionNode, file: FileContext, outer: readonly Node[]): boolean {
-  if (
-    !fn.body ||
-    !fn.params.every(
-      (p) =>
-        p.type === 'Identifier' ||
-        (p.type === 'RestElement' && p.argument.type === 'Identifier') ||
-        (p.type === 'AssignmentPattern' && p.left.type === 'Identifier' && inert(p.right)),
-    )
-  )
-    return false;
-  const scopes = [...outer, fn];
-  const constants = new Map<Expression, boolean>();
-  const emptyExpression = (expression: Expression): boolean => {
-    const node = unwrap(expression);
-    if (node.type !== 'CallExpression') return inert(node);
-    const callee = unwrap(node.callee);
-    if (
-      callee.type !== 'Identifier' ||
-      !(HOOKS as readonly string[]).includes(callee.name) ||
-      file.values.declarationOf(callee.name, scopes)
-    )
-      return false;
-    const body = node.arguments.at(0);
-    const timeout = node.arguments.at(1);
-    const declared = body?.type === 'Identifier' ? file.values.declarationOf(body.name, scopes) : null;
-    const hook =
-      declared?.type === 'FunctionDeclaration' && declared.start >= fn.start && declared.end <= fn.end
-        ? declared
-        : body;
-    return (
-      (hook?.type === 'FunctionDeclaration' || isFunctionNode(hook)) &&
-      !hook.generator &&
-      node.arguments.length <= 2 &&
-      (!timeout || (timeout.type === 'Literal' && typeof timeout.value === 'number' && timeout.value <= 2147483647))
-    );
-  };
-  const walk = (statement: Statement): 'empty' | 'return' | 'unknown' => {
-    switch (statement.type) {
-      case 'BlockStatement': {
-        scopes.push(statement);
-        let result: ReturnType<typeof walk> = 'empty';
-        for (const child of statement.body) {
-          result = walk(child);
-          if (result !== 'empty') break;
-        }
-        scopes.pop();
-        return result;
-      }
-      case 'EmptyStatement':
-      case 'FunctionDeclaration':
-        return 'empty';
-      case 'ExpressionStatement':
-        return emptyExpression(statement.expression) ? 'empty' : 'unknown';
-      case 'ReturnStatement':
-        return !statement.argument || emptyExpression(statement.argument) ? 'return' : 'unknown';
-      case 'VariableDeclaration':
-        for (const { id, init } of statement.declarations) {
-          if (id.type !== 'Identifier' || (init && !inert(init)) || statement.kind.endsWith('using')) return 'unknown';
-          if (statement.kind === 'const' && init?.type === 'Literal') constants.set(init, Boolean(init.value));
-        }
-        return 'empty';
-      case 'IfStatement': {
-        const test = unwrap(statement.test);
-        const init = test.type === 'Identifier' && file.values.constantOf(test.name, scopes);
-        const truth = test.type === 'Literal' ? Boolean(test.value) : init ? constants.get(init.init) : undefined;
-        if (truth === undefined) return 'unknown';
-        const branch = truth ? statement.consequent : statement.alternate;
-        return branch ? walk(branch) : 'empty';
-      }
-      default:
-        return 'unknown';
-    }
-  };
-  return fn.body.type === 'BlockStatement' ? walk(fn.body) !== 'unknown' : emptyExpression(fn.body);
 }
 
 /** Whether an argument may be a function: anything but a value that can't be one, as a number or an object. */

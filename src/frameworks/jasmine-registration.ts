@@ -4,7 +4,7 @@ import { nonIterable, type ParameterStep, type Resolved } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
-export function inert(expression: Expression): boolean {
+function inert(expression: Expression): boolean {
   const node = unwrap(expression);
   if (node.type === 'ArrayExpression')
     return node.elements.every((value) => !value || (value.type !== 'SpreadElement' && inert(value)));
@@ -39,13 +39,21 @@ interface ArgumentValue {
 type RuntimeFunction = FunctionNode & { body: NonNullable<FunctionNode['body']> };
 const owner = (scopes: readonly Node[]) =>
   scopes.findLast((n) => n.type === 'FunctionDeclaration' || isFunctionNode(n));
-const callback = (node: Node | undefined): node is RuntimeFunction =>
+export const isRuntimeFunction = (node: Node | undefined): node is RuntimeFunction =>
   node?.type === 'FunctionDeclaration' || isFunctionNode(node);
 const timeout = (node: Node | undefined) =>
   node?.type === 'Literal' && typeof node.value === 'number' && node.value <= 2147483647;
 
-/** A call, coercion or await the scan cannot account for keeps the catch reachable. */
-export function registrationExit(block: BlockStatement, outer: readonly Node[], file: FileContext): Exit {
+interface SuiteCall {
+  call: CallExpression;
+  fn: RuntimeFunction;
+  definition: readonly Node[];
+  plain: boolean;
+}
+
+/** Check whether a guarded block or a valid suite call completes registration or reaches its caller's catch. */
+export function registrationExit(root: BlockStatement | SuiteCall, outer: readonly Node[], file: FileContext): Exit {
+  const start = 'call' in root ? root.call.start : root.start;
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
   const active: { block: BlockStatement; at: number }[] = [];
@@ -65,8 +73,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       // A helper can be called before a constant in its enclosing scope has been initialized.
       const scope = constant.scopes[constant.scopes.length - 1];
       const beforeUse = owner(scopes) === owner(constant.scopes) && constant.init.end < node.start;
-      const beforeTry =
-        outer.includes(scope) && owner(outer) === owner(constant.scopes) && constant.init.end < block.start;
+      const beforeTry = outer.includes(scope) && owner(outer) === owner(constant.scopes) && constant.init.end < start;
       const beforeCall = constant.init.end <= (active.findLast((entry) => entry.block === scope)?.at ?? -1);
       if ((scope.type === 'Program' || scope.type === 'BlockStatement') && (beforeUse || beforeTry || beforeCall))
         return { node: unwrap(constant.init), scopes: constant.scopes };
@@ -142,6 +149,18 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       steps,
     );
   }
+  function suite(fn: RuntimeFunction, definition: readonly Node[], plain: boolean): Exit {
+    const children: Children = { registered: false };
+    const result = invoke(fn, definition, children);
+    if (result === 'unknown') return result;
+    if (
+      children.registered !== true &&
+      atLeast(file.version, 4, plain ? 0 : 5) &&
+      !(result === 'throw' && atLeast(file.version, 4, 5))
+    )
+      return children.registered === 'possible' ? 'unknown' : 'throw';
+    return 'next';
+  }
   function call(node: CallExpression, scopes: readonly Node[], children: Children): Exit {
     const callee = unwrap(node.callee);
     if (--remaining < 0 || callee.type !== 'Identifier' || assigned.has(callee.name)) return 'unknown';
@@ -150,7 +169,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
     const args = node.arguments;
     if (binding) {
       const helper = argument(callee, scopes);
-      if (!helper || !callback(helper.node)) return 'unknown';
+      if (!helper || !isRuntimeFunction(helper.node)) return 'unknown';
       const evaluated = elements(args, scopes, children);
       if (evaluated !== 'next') return evaluated;
       if (helper.node.async && !helper.node.generator) {
@@ -165,7 +184,9 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
     const secondArg = argument(args.at(1), scopes);
     const second = secondArg?.node;
     if (['beforeEach', 'afterEach', 'beforeAll', 'afterAll'].includes(name))
-      return callback(first) && !first.generator && (args.length === 1 || (args.length === 2 && timeout(second)))
+      return isRuntimeFunction(first) &&
+        !first.generator &&
+        (args.length === 1 || (args.length === 2 && timeout(second)))
         ? 'next'
         : 'unknown';
     if (first?.type !== 'Literal' || typeof first.value !== 'string') return 'unknown';
@@ -173,7 +194,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       if (
         !(args.length === 1 && name !== 'fit') &&
         !(
-          callback(second) &&
+          isRuntimeFunction(second) &&
           !second.generator &&
           (args.length === 2 || (args.length === 3 && timeout(argument(args[2], scopes)?.node)))
         )
@@ -183,19 +204,13 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       ['describe', 'xdescribe', 'fdescribe'].includes(name) &&
       args.length === 2 &&
       secondArg &&
-      callback(secondArg.node)
+      isRuntimeFunction(secondArg.node)
     ) {
       if (name === 'describe' && functionLength(secondArg.node) > 0) return 'throw';
       if (secondArg.node.async || secondArg.node.generator) return 'throw';
-      const nested: Children = { registered: false };
-      const result = invoke(secondArg.node, secondArg.scopes, nested);
-      if (result === 'unknown') return result;
-      if (
-        nested.registered !== true &&
-        atLeast(file.version, 4, name === 'describe' ? 0 : 5) &&
-        !(result === 'throw' && atLeast(file.version, 4, 5))
-      )
-        return nested.registered === 'possible' ? 'unknown' : 'throw';
+      // Jasmine attaches the suite before running its callback and checking its children.
+      children.registered = true;
+      return suite(secondArg.node, secondArg.scopes, name === 'describe');
     } else return 'unknown';
     children.registered = true;
     return 'next';
@@ -258,6 +273,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
         return result === 'next' ? 'return' : result;
       }
       case 'ThrowStatement':
+        if (expression(node.argument, scopes, children) === 'unknown') children.registered ||= 'possible';
         return 'throw';
       case 'IfStatement': {
         const test = unwrap(node.test);
@@ -280,6 +296,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
           result = statement(node.handler.body, [...scopes, node.handler], children);
         }
         if (node.finalizer) {
+          if (result === 'unknown') children.registered ||= 'possible';
           const end = statement(node.finalizer, scopes, children);
           if (end !== 'next') return end;
         }
@@ -289,5 +306,5 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
         return 'unknown';
     }
   }
-  return statement(block, outer, { registered: false });
+  return 'call' in root ? suite(root.fn, root.definition, root.plain) : statement(root, outer, { registered: false });
 }
