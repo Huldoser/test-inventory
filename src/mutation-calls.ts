@@ -278,6 +278,7 @@ export function mutationCalls(
     repeated?: boolean;
   }
   type Step = ContainerEdit | Boundary;
+  let writeVersion = 0;
   const readTimes = new HelperReadTimes();
   const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
     return (expression, at) => {
@@ -329,7 +330,7 @@ export function mutationCalls(
       record(step);
       result.add(step);
     };
-    const children = new Map<string, Step[]>();
+    const children = new Map<string, { edits: Step[]; version: number }>();
     const sources = invocationSources(frame, parent);
     const { straight, awaitedAt } = writeSchedule(frame.fn.body as Node);
     for (const operation of operations) {
@@ -355,11 +356,11 @@ export function mutationCalls(
               ),
             ]),
           ]);
-          let edits = children.get(key);
-          if (!edits) {
-            edits = invocationEdits(child, when, unique, active, record, sources);
-            children.set(key, edits);
-          }
+          const previous = children.get(key);
+          const edits =
+            previous?.version === writeVersion
+              ? previous.edits
+              : invocationEdits(child, when, unique, active, record, sources);
           for (const edit of edits) {
             if (result.delete(edit)) {
               if ('change' in edit) edit.change.unconditional = false;
@@ -368,6 +369,7 @@ export function mutationCalls(
             }
             result.add(edit);
           }
+          children.set(key, { edits, version: writeVersion });
         }
         append({ owner: frame.fn, position: expression.end, end: when });
         continue;
@@ -418,6 +420,7 @@ export function mutationCalls(
         return;
       }
       const { container, change } = step;
+      writeVersion++;
       change.step = ++index;
       const assignments = objectWrites.get(container) ?? [];
       const changes = arrayChanges.get(container) ?? ('args' in change ? [...assignments] : undefined);

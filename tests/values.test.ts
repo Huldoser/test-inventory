@@ -1087,6 +1087,17 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + restore + 'close(rows[0]);night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('re-reads a forwarded callback when another write separates two calls', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function read(){}function put(list,row){list[0]=row;}function use(h,list,row){h[0](list,row);}';
+    for (const route of [
+      'function run(h,list,row){use(h,list,row);h[0]=put;use(h,list,row);}run([read],rows,night);',
+      'function install(h){h.unshift(put);}function run(h,list,row){use(h,list,row);install(h);use(h,list,row);}run([read],rows,night);',
+    ]) {
+      expect(resolve(setup + route + 'close(rows[0]);night.label;'), route).toEqual(UNRESOLVED);
+    }
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';
