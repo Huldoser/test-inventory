@@ -25,6 +25,7 @@ import {
   type PropertySource,
 } from './mutation-arrays.ts';
 import type { Values } from './values.ts';
+import { compareEdits, HelperReadTimes, visibleAt, type ArrayReadTime } from './mutation-order.ts';
 
 export interface MutationCallSite {
   call: CallExpression;
@@ -37,6 +38,7 @@ export interface MutationCallSite {
 }
 
 export interface MethodWrite {
+  step?: number;
   expression: Node;
   name: string | null;
   object: Expression;
@@ -124,11 +126,11 @@ export function mutationCalls(
     if (writes) writes.push(write);
     else objectWrites.set(value, [write]);
   }
-  const writesAt = (container: Expression, key: string | null, time: number | null) =>
+  const writesAt = (container: Expression, key: string | null, time: ArrayReadTime) =>
     (objectWrites.get(container) ?? []).filter(
       (write) =>
         (key === null || write.name === null || write.name === key) &&
-        (write.owner !== program || time === null || write.end <= time),
+        (write.owner !== program || visibleAt(write, time)),
     );
 
   const arrayChanges = new Map<Expression, ArrayChange[]>();
@@ -155,7 +157,7 @@ export function mutationCalls(
     changes.push(edit);
     arrayChanges.set(value, changes);
   }
-  for (const changes of arrayChanges.values()) changes.sort((a, b) => a.end - b.end);
+  for (const changes of arrayChanges.values()) changes.sort(compareEdits);
   const arrayReaders = new Map<Expression, ReturnType<typeof arrayPropertyReader>>();
   const spreadLength = (source: Expression, scopes: readonly Node[]) => {
     const { value } = constantValue(source, scopes);
@@ -167,7 +169,7 @@ export function mutationCalls(
     value: Expression,
     scopes: readonly Node[],
     key: string | null,
-    time: number | null,
+    time: ArrayReadTime,
   ): PropertySource[] => {
     const changes = arrayChanges.get(value);
     if (changes && value.type === 'ArrayExpression') {
@@ -269,6 +271,14 @@ export function mutationCalls(
     array: Expression;
     change: ArrayChange;
   }
+  interface Boundary {
+    owner: Node;
+    position: number;
+    end: number;
+    repeated?: boolean;
+  }
+  type Step = ArrayEdit | Boundary;
+  const readTimes = new HelperReadTimes();
   const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
     return (expression, at) => {
       const source = constantValue(expression, at);
@@ -307,12 +317,13 @@ export function mutationCalls(
     definite: boolean,
     active: Set<Node>,
     parent?: ArgumentLookup,
-  ): ArrayEdit[] => {
+  ): Step[] => {
+    const entry: Boundary = { owner: frame.fn, position: frame.fn.start, end, repeated: active.has(frame.fn) };
     const operations = bodyOperations.get(frame.fn);
-    if (!operations || active.has(frame.fn) || frame.fn.generator) return [];
+    if (!operations || entry.repeated || frame.fn.generator) return [entry];
     active.add(frame.fn);
-    const result = new Set<ArrayEdit>();
-    const children = new Map<string, ArrayEdit[]>();
+    const result = new Set<Step>([entry]);
+    const children = new Map<string, Step[]>();
     const sources = invocationSources(frame, parent);
     const { straight, awaitedAt } = writeSchedule(frame.fn.body as Node);
     for (const operation of operations) {
@@ -344,10 +355,14 @@ export function mutationCalls(
             children.set(key, edits);
           }
           for (const edit of edits) {
-            if (result.delete(edit)) edit.change.unconditional = false;
+            if (result.delete(edit)) {
+              if ('change' in edit) edit.change.unconditional = false;
+              else edit.repeated = true;
+            }
             result.add(edit);
           }
         }
+        result.add({ owner: frame.fn, position: expression.end, end: when });
         continue;
       }
       const write = operation;
@@ -377,6 +392,7 @@ export function mutationCalls(
         if (array.type !== 'ArrayExpression') continue;
         for (const change of edits) result.add({ array, change });
       }
+      result.add({ owner: frame.fn, position: expression.end, end: when });
     }
     active.delete(frame.fn);
     return [...result];
@@ -386,22 +402,26 @@ export function mutationCalls(
       unique &&
       invocation.statement?.type === 'ExpressionStatement' &&
       invocation.statement.expression === invocation.call;
-    for (const { array, change } of invocationEdits(invocation, invocation.call.end, definite, new Set())) {
+    const trace = invocationEdits(invocation, invocation.call.end, definite, new Set());
+    if (!trace.some((step) => 'change' in step)) return;
+    let index = 0;
+    for (const step of trace) {
+      if (!('change' in step)) {
+        const time = step.end === invocation.call.end ? { end: step.end, step: index } : null;
+        readTimes.add(step.owner, invocation.call.start, step.position, time, !!step.repeated);
+        continue;
+      }
+      const { array, change } = step;
+      change.step = ++index;
       const assignments = objectWrites.get(array) ?? [];
       const changes = arrayChanges.get(array) ?? ('args' in change ? [...assignments] : undefined);
       if (changes) {
         changes.push(change);
-        arrayChanges.set(
-          array,
-          changes.sort((a, b) => a.end - b.end),
-        );
+        arrayChanges.set(array, changes.sort(compareEdits));
       }
       if (!('args' in change)) {
         assignments.push(change);
-        objectWrites.set(
-          array,
-          assignments.sort((a, b) => a.end - b.end),
-        );
+        objectWrites.set(array, assignments.sort(compareEdits));
       }
       arrayReaders.clear();
     }
@@ -797,5 +817,5 @@ export function mutationCalls(
     const previous = callTimes.get(context.owner);
     callTimes.set(context.owner, previous === undefined || previous === time ? time : null);
   }
-  return { calls, callTimes, returnedContexts, memberSources };
+  return { calls, callTimes, returnedContexts, memberSources, readTimes };
 }

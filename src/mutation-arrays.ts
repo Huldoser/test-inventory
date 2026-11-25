@@ -2,6 +2,7 @@ import type { ArrayExpression, CallExpression, Expression, Node } from 'oxc-pars
 import { unwrapChain } from './ast.ts';
 import type { MethodWrite } from './mutation-calls.ts';
 import { literalArguments, property, type Reference } from './mutation-references.ts';
+import { upperBound, visibleAt, type ArrayReadTime } from './mutation-order.ts';
 
 export interface PropertySource {
   ref: Reference | null;
@@ -171,17 +172,6 @@ function possibleSlots(
   return candidates;
 }
 
-function upperBound<T>(items: readonly T[], value: number, offset: (item: T) => number): number {
-  let lo = 0,
-    hi = items.length;
-  while (lo < hi) {
-    const mid = lo + Math.floor((hi - lo) / 2);
-    if (offset(items[mid]) <= value) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
 /** Index the edits once. Read a slot at the requested point in module evaluation. */
 export function arrayPropertyReader(
   array: ArrayExpression,
@@ -226,15 +216,15 @@ export function arrayPropertyReader(
   // Collection can ask about an earlier copy after looking up a later invocation.
   let cachedCount = -1;
   const cache = new Map<number, PropertySource[]>();
-  return (key: string | null, time: number | null): PropertySource[] | null => {
+  return (key: string | null, time: ArrayReadTime): PropertySource[] | null => {
     const index = key === null ? null : indexOf(key);
     if (key !== null && index === null) return null;
-    const count = time !== null && ordered ? upperBound(history, time, (change) => change.end) : history.length;
+    const count = time !== null && ordered ? upperBound(history, (change) => visibleAt(change, time)) : history.length;
     if (count <= firstMethod) return null;
     if (index === null || time === null || count > layouts.length) {
       const changes = ordered
         ? history.slice(0, count)
-        : history.filter((change) => change.owner !== program || time === null || change.end <= time);
+        : history.filter((change) => change.owner !== program || visibleAt(change, time));
       return possibleSlots(array, scopes, changes);
     }
     if (count !== cachedCount) {
@@ -252,7 +242,7 @@ export function arrayPropertyReader(
     let result: PropertySource = missing;
     if (typeof position !== 'number') result = position;
     else if (position < initialLength) {
-      const origin = origins[upperBound(origins, position, (entry) => entry.start) - 1];
+      const origin = origins[upperBound(origins, (entry) => entry.start <= position) - 1];
       result =
         origin.element?.type === 'SpreadElement'
           ? { scopes, ref: { value: origin.element.argument, path: [String(position - origin.start)] } }

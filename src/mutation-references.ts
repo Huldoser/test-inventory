@@ -8,6 +8,7 @@ import type {
   Node,
 } from 'oxc-parser';
 import type { mutationCalls } from './mutation-calls.ts';
+import type { ArrayReadTime } from './mutation-order.ts';
 import { isFunctionNode, propertyKey, propertyName, returnValues, unwrapChain, type FunctionNode } from './ast.ts';
 
 type Key = string | null;
@@ -411,7 +412,7 @@ export function helperParameters(
 export function changedReferences(
   declarations: AliasBinding[],
   targets: MutationTarget[],
-  { calls, callTimes, returnedContexts, memberSources }: ReturnType<typeof mutationCalls>,
+  { calls, callTimes, returnedContexts, memberSources, readTimes }: ReturnType<typeof mutationCalls>,
   bindingKey: (name: string, scopes: readonly Node[]) => string | null,
 ): Set<string> {
   const names = new Set<string>();
@@ -445,7 +446,7 @@ export function changedReferences(
   const returning: { invocation: HelperInvocation; time: number | null; active: Set<Node> }[] = [];
   const follow = (
     ref: Reference,
-    suffix: { key: Key; time: number | null }[],
+    suffix: { key: Key; time: ArrayReadTime }[],
     site: Site,
     context?: CallbackContext,
     factory?: HelperInvocation,
@@ -459,12 +460,13 @@ export function changedReferences(
     const owner = site.scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope));
     const frame = returning.findLast((entry) => entry.invocation.fn === owner);
     const time = site.statement ? ref.value.start : frame ? frame.time : owner ? (callTimes.get(owner) ?? null) : null;
-    const path = [...ref.path.map((key) => ({ key, time })), ...suffix];
+    const slotTime = owner && !site.statement ? readTimes.at(owner, ref.value.start, time) : time;
+    const path = [...ref.path.map((key) => ({ key, time: slotTime })), ...suffix];
     if (ref.rest && suffix[0].key !== null)
       path[ref.path.length] = { ...suffix[0], key: String(Number(suffix[0].key) + ref.rest) };
     let value = ref.value;
     while (value.type === 'MemberExpression') {
-      path.unshift({ key: memberKey(value), time });
+      path.unshift({ key: memberKey(value), time: slotTime });
       value = unwrapChain(value.object);
     }
     if (value.type === 'Identifier' || value.type === 'ThisExpression') {

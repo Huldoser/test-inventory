@@ -1004,6 +1004,35 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + 'twice([day],night);close(rows[0]);night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('reads a helper argument at its place between nested array edits', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function put(list,row){list[0]=row;}function use(list){close(list[0]);}';
+    for (const route of [
+      'put(list,row);close(list[0]);',
+      'put(list,row);close(list[0]);put(list,day);',
+      'put(list,row);const chosen=list[0];put(list,day);close(chosen);',
+      'put(list,row);use(list);',
+      'put(list,row);const edit=close.bind(null,list[0]);put(list,day);edit();',
+    ]) {
+      const source = setup + 'function route(list,row){' + route + '}route(rows,night);';
+      expect(resolve(source + 'night.label;'), route).toEqual(UNRESOLVED);
+      expect(resolve(source + 'day.label;'), route).toEqual({ ok: true, value: 'day' });
+    }
+    const before =
+      setup + 'function route(list,row){const chosen=list[0];put(list,row);close(chosen);}route(rows,night);';
+    expect(resolve(before + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
+  it('finishes reading inside a helper before assigning its return value to an array', () => {
+    const setup = 'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}';
+    const inside = 'function choose(list){list[0]=night;close(rows[0]);return night;}rows[0]=choose([day]);';
+    expect(resolve(setup + inside + 'day.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + inside + 'night.label;')).toEqual({ ok: true, value: 'night' });
+    const after = 'function choose(list){list[0]=night;return day;}rows[0]=choose(rows);close(rows[0]);';
+    expect(resolve(setup + after + 'day.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + after + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';
