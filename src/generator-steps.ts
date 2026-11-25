@@ -1,6 +1,6 @@
 import type { BlockStatement, Expression, Node, Statement, YieldExpression } from 'oxc-parser';
 import { childNodes, isFunctionNode, unwrap } from './ast.ts';
-import type { Resolved, Value } from './values.ts';
+import { usesRightOperand, type Resolved, type Value } from './values.ts';
 
 export type IteratorMethod = 'next' | 'return' | 'throw';
 
@@ -35,36 +35,81 @@ function unknownStep(): GeneratorStep {
   return { position: 'unknown', outcome: 'unknown', value: unresolved };
 }
 
-/** An expression containing a nested suspension cannot be visited atomically. Nested functions run independently. */
-function suspends(node: Node, operands: ReadonlyMap<Node, Resolved>): boolean {
-  if (operands.has(node) || node.type === 'FunctionDeclaration' || isFunctionNode(node)) return false;
-  return node.type === 'YieldExpression' || childNodes(node).some((child) => suspends(child, operands));
+type Evaluation = Resolved | 'throw' | 'unknown' | { receive: YieldExpression; value: Resolved };
+
+function completed(result: Evaluation): result is Resolved {
+  return typeof result === 'object' && 'ok' in result;
 }
 
-/** Only split expressions whose operand order is known. Earlier call arguments run before the suspension. */
-function nextYield(
-  node: Node,
-  operands: ReadonlyMap<Node, Resolved>,
-  prefix: (Expression | string)[],
-): YieldExpression | undefined {
-  if (node.type === 'VariableDeclaration') {
-    const [declaration] = node.declarations;
-    if (node.declarations.length === 1 && declaration.id.type === 'Identifier' && declaration.init)
-      return nextYield(unwrap(declaration.init), operands, prefix);
-  } else if (node.type === 'ExpressionStatement') {
-    return nextYield(unwrap(node.expression), operands, prefix);
-  } else if (node.type === 'YieldExpression' && !node.delegate) {
-    return node.argument && suspends(node.argument, operands)
-      ? nextYield(unwrap(node.argument), operands, prefix)
-      : node;
-  } else if (node.type === 'CallExpression' && !node.optional && node.callee.type === 'Identifier') {
-    prefix.push(node.callee.name);
-    for (const arg of node.arguments) {
-      if (arg.type === 'SpreadElement') break;
-      if (suspends(arg, operands)) return nextYield(unwrap(arg), operands, prefix);
-      if (!operands.has(unwrap(arg))) prefix.push(unwrap(arg));
-    }
+const yielding = new WeakMap<Node, boolean>();
+
+/** A nested function has its own suspensions, even when it shares the enclosing generator's lexical scope. */
+function suspends(node: Node): boolean {
+  const known = yielding.get(node);
+  if (known !== undefined) return known;
+  const result =
+    node.type === 'YieldExpression' ||
+    (node.type !== 'FunctionDeclaration' && !isFunctionNode(node) && childNodes(node).some(suspends));
+  yielding.set(node, result);
+  return result;
+}
+
+/** Completed operands survive a pause. On resumption only the selected, unfinished operands can run. */
+function resumeExpression(
+  expression: Expression,
+  operands: Map<Node, Resolved>,
+  evaluate: (node: Expression) => Resolved | 'throw',
+  enterCall: (name: string) => void,
+): Evaluation {
+  function read(input: Expression): Evaluation {
+    const node = unwrap(input);
+    const known = operands.get(node);
+    if (known) return known;
+    const result = suspends(node) ? resume(node) : evaluate(node);
+    if (completed(result)) operands.set(node, result);
+    return result;
   }
+
+  function resume(node: Expression): Evaluation {
+    if (node.type === 'YieldExpression' && !node.delegate) {
+      const value = node.argument ? read(node.argument) : omitted;
+      return completed(value) ? { receive: node, value } : value;
+    }
+    if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') {
+      const control = read(node.type === 'ConditionalExpression' ? node.test : node.left);
+      if (!completed(control)) return control;
+      if (!control.ok && !control.truthy) return 'unknown';
+      const value = control.ok ? control.value : true;
+      if (node.type === 'ConditionalExpression') return read(value ? node.consequent : node.alternate);
+      return usesRightOperand(node.operator, value) ? read(node.right) : control;
+    }
+    let parts;
+    if (node.type === 'CallExpression' && !node.optional && node.callee.type === 'Identifier') {
+      enterCall(node.callee.name);
+      parts = node.arguments;
+    } else if (node.type === 'BinaryExpression') parts = [node.left, node.right];
+    else if (node.type === 'TemplateLiteral') parts = node.expressions;
+    else if (node.type === 'UnaryExpression') parts = [node.argument];
+    else return 'unknown';
+
+    // The ordinary evaluator can finish the suffix, including a spread after the last suspension.
+    const last = parts.findLastIndex(suspends);
+    for (let i = 0; i <= last; i++) {
+      const part = parts[i];
+      if (part.type === 'SpreadElement' || part.type === 'PrivateIdentifier') return 'unknown';
+      const value = read(part);
+      if (!completed(value)) return value;
+    }
+    return evaluate(node);
+  }
+  return read(expression);
+}
+
+interface GeneratorEnvironment {
+  operands: Map<Node, Resolved>;
+  evaluate: (node: Node, scopes: readonly Node[], read: boolean, handlesThrow: boolean) => Resolved | 'throw';
+  enterCall: (name: string, scopes: readonly Node[]) => void;
+  spreadDelegate?: (operand: Expression, scopes: readonly Node[], handlesThrow: boolean) => GeneratorStep['outcome'];
 }
 
 /** Resume a synchronous generator with its lexical blocks and pending catch/finally handlers intact. */
@@ -73,9 +118,7 @@ export function stepGenerator(
   position: IteratorPosition | undefined,
   method: IteratorMethod,
   argument: Resolved,
-  operands: Map<Node, Resolved>,
-  evaluate: (node: Node, scopes: readonly Node[], read: boolean, handlesThrow: boolean) => Resolved | 'throw',
-  enterCall: (name: string, scopes: readonly Node[]) => void,
+  { operands, evaluate, enterCall, spreadDelegate }: GeneratorEnvironment,
 ): GeneratorStep {
   if (position === 'running') return { position, outcome: 'throw', value: unresolved };
   if (position === 'unknown') return unknownStep();
@@ -128,37 +171,40 @@ export function stepGenerator(
           : node.type === 'IfStatement'
             ? node.test
             : node;
-      if (operand && suspends(operand, operands)) {
-        const prefix: (Expression | string)[] = [];
-        const receive = nextYield(operand, operands, prefix);
-        if (!receive) return unknownStep();
-        for (const earlier of prefix) {
-          if (typeof earlier === 'string') {
-            enterCall(earlier, scopes);
-            continue;
-          }
-          const result = evaluate(earlier, scopes, true, handlesThrow);
-          if (result === 'throw') {
-            method = 'throw';
-            break;
-          }
-          operands.set(earlier, result);
+      let result: Evaluation;
+      if (operand && suspends(operand)) {
+        const declaration =
+          node.type === 'VariableDeclaration' && node.declarations.length === 1 && node.declarations[0];
+        const input =
+          operand !== node
+            ? (operand as Expression)
+            : (expression ?? (declaration && declaration.id.type === 'Identifier' && declaration.init));
+        if (!input) return unknownStep();
+        result = resumeExpression(
+          input,
+          operands,
+          (part) => evaluate(part, scopes, true, handlesThrow),
+          (name) => {
+            enterCall(name, scopes);
+          },
+        );
+        if (result === 'unknown') return unknownStep();
+        if (typeof result === 'object' && 'receive' in result) {
+          push(entry);
+          return { position: { stack, operands, receive: result.receive }, outcome: 'next', value: result.value };
         }
-        if (method === 'throw') continue;
-        const result = receive.argument ? evaluate(receive.argument, scopes, true, handlesThrow) : omitted;
-        if (result === 'throw') {
-          method = 'throw';
-          continue;
-        }
-        push(entry);
-        return { position: { stack, operands, receive }, outcome: 'next', value: result };
-      }
-      const result = operand ? evaluate(operand, scopes, operand !== node, handlesThrow) : omitted;
+      } else result = operand ? evaluate(operand, scopes, operand !== node, handlesThrow) : omitted;
       if (result === 'throw' || node.type === 'ThrowStatement') {
         method = 'throw';
         value = result === 'throw' ? unresolved : result;
       } else if (yieldNode) {
         if (!yieldNode.delegate) return { position: { stack, operands }, outcome: 'next', value: result };
+        if (spreadDelegate) {
+          const outcome = spreadDelegate(yieldNode.argument as Expression, scopes, handlesThrow);
+          if (outcome === 'unknown') return unknownStep();
+          method = outcome;
+          continue;
+        }
         if (!result.ok) return unknownStep();
         if (typeof result.value !== 'string' && !Array.isArray(result.value)) method = 'throw';
         else {

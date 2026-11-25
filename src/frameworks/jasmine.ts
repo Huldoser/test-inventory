@@ -1,5 +1,5 @@
 import type { CallExpression, Expression, Node } from 'oxc-parser';
-import { isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
+import { isFunctionNode, unwrap } from '../ast.ts';
 import type { ApiCall, CallContext, ModuleReader, Problem } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
@@ -21,7 +21,7 @@ import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 import {
   functionLength,
   isRuntimeFunction,
-  iterateJasmineGenerator,
+  jasmineSpread,
   jasmineArguments,
   jasmineCallback,
   jasmineRegistration,
@@ -73,8 +73,8 @@ const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
   readonly catchesSuiteErrors = true;
-  iterateGenerator(fn: FunctionNode, scopes: readonly Node[]) {
-    return iterateJasmineGenerator(fn, scopes, this.file);
+  registrationSpread(operand: Expression, scopes: readonly Node[]) {
+    return jasmineSpread(operand, scopes, this.file);
   }
   registrationValue(operand: Expression, scopes: readonly Node[]) {
     return jasmineValue(operand, scopes, this.file);

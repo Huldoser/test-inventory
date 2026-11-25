@@ -10,7 +10,6 @@ import type {
 import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
 import { literalArguments } from '../mutation-references.ts';
 import {
-  bindingNames,
   type IteratorSpread,
   isValueOperation,
   operationValue,
@@ -231,7 +230,8 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
   const active: { block: BlockStatement; at: number }[] = [];
-  const parameters: { fn: FunctionNode; initialized: Set<string>; yielded?: Collected }[] = [];
+  const parameters: { fn: FunctionNode; initialized: Set<string> }[] = [];
+  let collected: Collected = { values: [], complete: true };
   const assigned = file.values.assignedIn(outer[0], false);
   function argument(arg: Expression, scopes: readonly Node[]): ArgumentValue | undefined {
     const node = unwrap(arg);
@@ -314,7 +314,9 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       args,
       definition,
       () => {
-        parameters.push({ fn, initialized, yielded });
+        parameters.push({ fn, initialized });
+        const previous = collected;
+        collected = yielded ?? previous;
         let result: Flow = 'next';
         for (const param of fn.params) {
           result = bind(param);
@@ -330,6 +332,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
             results.set(site, value);
           }
         }
+        collected = previous;
         parameters.pop();
         return result;
       },
@@ -544,12 +547,10 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     }
     if (value.type === 'CallExpression') return call(value, scopes, children, iteration);
     if (value.type === 'YieldExpression') {
-      // A nested try block can be checked independently of the call that consumes its generator.
-      const yielded = parameters.at(-1)?.yielded ?? { values: [], complete: true };
-      if (value.delegate) return spread(value.argument as Expression, scopes, children, yielded);
+      if (value.delegate) return spread(value.argument as Expression, scopes, children, collected);
       const result = value.argument ? expression(value.argument, scopes, children) : 'next';
       if (result === 'next') {
-        if (yielded.complete) yielded.values.push(value.argument ? valueOf(value.argument, scopes) : omitted);
+        if (collected.complete) collected.values.push(value.argument ? valueOf(value.argument, scopes) : omitted);
         // A synchronous spread advances the iterator without sending a value to the suspended yield.
         results.set(value, omitted);
       }
@@ -641,18 +642,14 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
         return 'unknown';
     }
   }
-  function iterate(fn: FunctionNode, scopes: readonly Node[]): IteratorSpread {
-    const yielded: Collected = { values: [], complete: true };
-    const children: Children = { registered: false };
-    parameters.push({ fn, initialized: new Set(fn.params.flatMap((param) => bindingNames(param))), yielded });
-    const end = statement(fn.body as BlockStatement, [...scopes, fn], children);
-    return { ...yielded, registered: children.registered, outcome: typeof end === 'object' ? 'next' : end };
-  }
-  return { expression, statement, suite, valueOf, iterate };
+  return { expression, statement, suite, valueOf, spread };
 }
 
-export function iterateJasmineGenerator(fn: FunctionNode, scopes: readonly Node[], file: FileContext): IteratorSpread {
-  return registrationFlow(fn.start, scopes, file).iterate(fn, scopes);
+export function jasmineSpread(operand: Expression, scopes: readonly Node[], file: FileContext): IteratorSpread {
+  const yielded: Collected = { values: [], complete: true };
+  const children: Children = { registered: false };
+  const outcome = registrationFlow(operand.start, scopes, file).spread(operand, scopes, children, yielded);
+  return { ...yielded, registered: children.registered, outcome };
 }
 
 export function registrationExit(

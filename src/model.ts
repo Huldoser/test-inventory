@@ -242,8 +242,8 @@ export interface Adapter {
   nestsTests?: boolean;
   /** A suite callback catches registration errors and preserves the children registered before them. */
   catchesSuiteErrors?: boolean;
-  /** Evaluate a synchronous generator body after its parameters have already been initialized. */
-  iterateGenerator?(fn: FunctionNode, scopes: readonly Node[]): IteratorSpread;
+  /** Read the values supplied by a spread operand during registration. */
+  registrationSpread?(operand: Expression, scopes: readonly Node[]): IteratorSpread;
   /** Resolve a value computed during registration, including a local helper return. */
   registrationValue?(operand: Expression, scopes: readonly Node[]): Resolved;
   /** How a synchronous registration block completes, when the runner and local helpers determine its path. */

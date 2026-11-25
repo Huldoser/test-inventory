@@ -46,6 +46,7 @@ import {
   bindingNames,
   isScopeNode,
   nonIterable,
+  usesRightOperand,
   type IteratorSpread,
   type ParameterStep,
   type Resolved,
@@ -810,10 +811,10 @@ class Walker {
       context.registration &&
       !context.skipImports &&
       context.registration.stoppedAt === undefined &&
-      ((node.type === 'SpreadElement' && this.parents.at(-2)?.type !== 'ObjectExpression') ||
-        (node.type === 'YieldExpression' && node.delegate))
+      node.type === 'SpreadElement' &&
+      this.parents.at(-2)?.type !== 'ObjectExpression'
     ) {
-      const operand = node.argument as Expression;
+      const operand = node.argument;
       const use = {
         ...context,
         evaluatingArgument: true,
@@ -895,13 +896,7 @@ class Walker {
         const guard = node.operator === '&&' ? left : node.operator === '||' ? `!(${left})` : `(${left}) == null`;
         this.visit(node.left, context);
         const known = this.known(node.left, context);
-        const right =
-          known &&
-          (node.operator === '&&'
-            ? Boolean(known.value)
-            : node.operator === '||'
-              ? !known.value
-              : known.value === null || known.value === undefined);
+        const right = known && usesRightOperand(node.operator, known.value);
         this.visitBranch(node.right, context, guard, right);
         return;
       }
@@ -1885,7 +1880,7 @@ class Walker {
   private saveIterator(
     { fn, frame }: Callee,
     scopes: readonly Node[],
-    read: (fn: FunctionNode, scopes: readonly Node[]) => IteratorSpread,
+    readSpread: (operand: Expression, scopes: readonly Node[]) => IteratorSpread,
   ): Resolved {
     const token: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true, iterator: true };
     this.iterators.set(
@@ -1897,11 +1892,6 @@ class Walker {
         this.parents.push(fn);
         this.callStack.push(fn);
         try {
-          if (method === 'spread' && position === undefined) {
-            this.visit(fn.body as Node, { ...use, isInFunction: true, declaredIn: null });
-            // Nested spreads have now recorded the elements consumed by delegated yields.
-            return { ...read(fn, scopes), position: 'closed', result: omitted };
-          }
           const caller = use.registration as Registration;
           const registration = { ...caller };
           const context = { ...use, registration, isInFunction: true, declaredIn: null };
@@ -1923,33 +1913,49 @@ class Walker {
             return readValue ? this.readArgument(node as Expression, true) : omitted;
           };
           const body = fn.body as Extract<Node, { type: 'BlockStatement' }>;
-          const yielded: Resolved[] = [];
+          const yielded: { values: Resolved[]; complete: boolean } = { values: [], complete: true };
           const operands = new Map(typeof position === 'object' ? position.operands : []);
           const enterCall = (name: string, around: readonly Node[]) => {
             // If an argument suspends or throws, the helper body cannot register at its declaration.
             const callee = this.functionNamed(name, [...scopes, fn, ...around]);
             if (callee) this.walkedAtCall.add(callee);
           };
+          const spreadDelegate = (operand: Expression, around: readonly Node[], handlesThrow: boolean) => {
+            const inside = [...scopes, fn, ...around];
+            const iterator = frame.values.iteratorOf(operand, inside);
+            const spread = iterator
+              ? this.resumeIterator(
+                  iterator,
+                  { ...context, handlesRegistrationError: handlesThrow || use.handlesRegistrationError },
+                  registration,
+                  'spread',
+                  omitted,
+                )
+              : readSpread(operand, inside);
+            if (yielded.complete) {
+              for (const item of spread.values) yielded.values.push(item);
+              yielded.complete = spread.complete;
+            }
+            return spread.outcome;
+          };
+          const env = {
+            operands,
+            evaluate,
+            enterCall,
+            spreadDelegate: method === 'spread' ? spreadDelegate : undefined,
+          };
           const step = frame.values.withGeneratorOperands(operands, () => {
-            let next = stepGenerator(
-              body,
-              position,
-              method === 'spread' ? 'next' : method,
-              argument,
-              operands,
-              evaluate,
-              enterCall,
-            );
+            let next = stepGenerator(body, position, method === 'spread' ? 'next' : method, argument, env);
             while (method === 'spread' && typeof next.position === 'object') {
-              yielded.push(next.value);
-              next = stepGenerator(body, next.position, 'next', omitted, operands, evaluate, enterCall);
+              if (yielded.complete) yielded.values.push(next.value);
+              next = stepGenerator(body, next.position, 'next', omitted, env);
             }
             return next;
           });
           caller.scope = registration.scope;
           return {
-            values: yielded,
-            complete: step.outcome === 'next',
+            values: yielded.values,
+            complete: yielded.complete && step.outcome !== 'unknown',
             registered: this.tests.length + this.suites.length > before,
             outcome: step.outcome,
             position: step.position,
@@ -2011,8 +2017,12 @@ class Walker {
         if (registering && context.registration && fn.async && !fn.generator)
           this.asyncRegistration(context.registration, fn.body as Node, visitBody);
         else visitBody(context.registration);
-        if (registering && fn.generator && !fn.async && frame.adapter.iterateGenerator) {
-          returned.value = this.saveIterator({ fn, frame }, scopes, frame.adapter.iterateGenerator.bind(frame.adapter));
+        if (registering && fn.generator && !fn.async && frame.adapter.registrationSpread) {
+          returned.value = this.saveIterator(
+            { fn, frame },
+            scopes,
+            frame.adapter.registrationSpread.bind(frame.adapter),
+          );
         } else if (registering && fn.type === 'ArrowFunctionExpression' && fn.body.type !== 'BlockStatement') {
           returned.value = frame.values.iteratorOf(fn.body, [...scopes, fn]);
         }

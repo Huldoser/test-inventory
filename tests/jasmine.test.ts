@@ -1373,6 +1373,87 @@ it(ticks.next('ask').value,()=>{});it(ticks.next('trade').value,()=>{});it(ticks
     ]);
   });
 
+  it('resumes the selected quote expression and preserves the order of its operands', () => {
+    const scan = scanJasmine(`function record(label){it('reads '+label,()=>{});return label;}
+function* quotes(){
+  const price=record('limit')+':'+(yield 'price');
+  const side=(yield 'choose')?(yield 'bid'):(yield 'ask');
+  return price+'/'+side;
+}
+const ticks=quotes();
+it(ticks.next().value,()=>{});it(ticks.next(7).value,()=>{});
+it(ticks.next(false).value,()=>{});it(ticks.next('sold').value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['reads limit', 'price', 'choose', 'ask', 'limit:7/sold']);
+  });
+
+  it('skips unreachable yields and distinguishes a zero quote from a missing quote', () => {
+    const scan = scanJasmine(`function* quotes(){
+  const bid=false&&(yield 'unreachable bid');
+  const ask=(yield 'price')??(yield 'reserve');
+  return 'settles '+bid+'/'+ask;
+}
+const cash=quotes(), futures=quotes();
+it(cash.next().value,()=>{});it(cash.next(0).value,()=>{});
+futures.next();it(futures.next(null).value,()=>{});it(futures.next(5).value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['price', 'settles false/0', 'reserve', 'settles false/5']);
+  });
+
+  it('formats successive yielded template fields and applies unary operations to the sent values', () => {
+    const scan = scanJasmine(`function* prices(){
+  return \`quote \${-(yield 'size')}/\${!(yield 'open')}\`;
+}
+const quotes=prices();it(quotes.next().value,()=>{});it(quotes.next(5).value,()=>{});it(quotes.next(false).value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['size', 'open', 'quote -5/true']);
+  });
+
+  it('spreads a fresh generator through its yielded operands just like a saved iterator', () => {
+    const scan = scanJasmine(`function* prices(book){
+  const side=(yield book+' opens')??(yield book+' reserve');
+  const label=side?'bid':'ask';it(book+' reads '+label,()=>{});yield label;
+}
+function title(...parts){return parts.join('/');}
+const saved=prices('forward');
+try{it(title(...prices('spot')),()=>{});it(title(...saved),()=>{});it(title(...saved,'closed'),()=>{});}
+catch{it('rejects the trade',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'spot reads ask',
+      'spot opens/spot reserve/ask',
+      'forward reads ask',
+      'forward opens/forward reserve/ask',
+      'closed',
+    ]);
+  });
+
+  it('keeps earlier delegated quotes when an outer generator catches an iteration error', () => {
+    const scan = scanJasmine(`function* bids(){yield 'bid';throw 'closed';}
+function* quotes(){try{yield* bids();}catch{yield 'replacement';}yield 'ask';}
+function title(...parts){return parts.join('/');}
+try{it(title(...quotes()),()=>{});}catch{it('rejects the market',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['bid/replacement/ask']);
+  });
+
+  it('selects a quote for a truthy registration result and preserves uncertainty for an unknown reply', () => {
+    const scan = scanJasmine(`function* prices(){return (yield 'choose')?(yield 'book'):'closed';}
+const desk=prices(), other=prices();desk.next();it(desk.next(it('opens the desk',()=>{})).value,()=>{});
+try{other.next();other.next(runtimeReply);}catch{it('recovers the order',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['opens the desk', 'book', 'recovers the order']);
+  });
+
+  it('evaluates later delegates after an opaque quote and keeps recovery possible for an unknown iterator', () => {
+    const scan = scanJasmine(`function* orders(){
+  yield* [it('reads the bid',()=>{})]; yield* [it('reads the ask',()=>{})];
+  yield* runtimeOrders;
+}
+try{[...orders()];}catch{it('recovers the desk',()=>{});}
+it('counts the orders',()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'reads the bid',
+      'reads the ask',
+      'recovers the desk',
+      'counts the orders',
+    ]);
+  });
+
   it('uses a resumed yield as a Jasmine title and as the argument of a returned helper call', () => {
     const scan = scanJasmine(`function title(side){return 'settles '+side;}
 function* prices(){

@@ -105,6 +105,12 @@ export function isValueOperation(node: Expression): node is Operation {
   );
 }
 
+export function usesRightOperand(operator: '&&' | '||' | '??', left: Value): boolean {
+  if (operator === '&&') return Boolean(left);
+  if (operator === '||') return !left;
+  return left === null || left === undefined;
+}
+
 /** Read operands in evaluation order, including only the selected side of a short-circuit expression. */
 export function operationValue(expression: Operation, read: (node: Expression) => Resolved): Resolved {
   switch (expression.type) {
@@ -131,13 +137,7 @@ export function operationValue(expression: Operation, read: (node: Expression) =
     case 'LogicalExpression': {
       const left = read(expression.left);
       if (!left.ok) return left.truthy && expression.operator === '&&' ? read(expression.right) : left;
-      const useLeft =
-        expression.operator === '&&'
-          ? !left.value
-          : expression.operator === '||'
-            ? Boolean(left.value)
-            : left.value !== null && left.value !== undefined;
-      return useLeft ? left : read(expression.right);
+      return usesRightOperand(expression.operator, left.value) ? read(expression.right) : left;
     }
     case 'ConditionalExpression': {
       const test = read(expression.test);

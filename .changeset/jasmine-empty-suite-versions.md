@@ -43,3 +43,5 @@ Follow synchronous generator calls consumed by spreads in Jasmine registration a
 Track the first and repeated consumption of saved synchronous iterators in Jasmine registration arguments.
 Follow explicit synchronous generator steps during Jasmine registration, including yielded and returned values, exhaustion and cleanup.
 Use values sent by `next(value)` when a Jasmine generator resumes and preserve the order of registrations around suspended call arguments.
+Follow yields inside arithmetic, template strings and branching expressions so Jasmine collects the chosen titles in order.
+Apply the same evaluation to fresh generator spreads and retain earlier delegated yields when the generator recovers from an exception.
