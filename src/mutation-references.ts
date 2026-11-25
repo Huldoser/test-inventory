@@ -440,7 +440,7 @@ export function changedReferences(
     }
   }
   const activeRoots = new Set<Node>();
-  const returning: { invocation: HelperInvocation; active: Set<Node> }[] = [];
+  const returning: { invocation: HelperInvocation; time: number | null; active: Set<Node> }[] = [];
   const follow = (
     ref: Reference,
     suffix: { key: Key; time: number | null }[],
@@ -455,7 +455,8 @@ export function changedReferences(
     }
     if (ref.rest !== undefined && suffix.length === 0) return;
     const owner = site.scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope));
-    const time = site.statement ? ref.value.start : owner ? (callTimes.get(owner) ?? null) : null;
+    const frame = returning.findLast((entry) => entry.invocation.fn === owner);
+    const time = site.statement ? ref.value.start : frame ? frame.time : owner ? (callTimes.get(owner) ?? null) : null;
     const path = [...ref.path.map((key) => ({ key, time })), ...suffix];
     if (ref.rest && suffix[0].key !== null)
       path[ref.path.length] = { ...suffix[0], key: String(Number(suffix[0].key) + ref.rest) };
@@ -505,7 +506,7 @@ export function changedReferences(
         if (returning.some((frame) => frame.invocation === invocation)) continue;
         const returns = returnValues(invocation.fn, false, 'ignore');
         if (!returns) continue;
-        returning.push({ invocation, active: new Set() });
+        returning.push({ invocation, time, active: new Set() });
         for (const result of returns)
           follow(
             direct(result.expression),

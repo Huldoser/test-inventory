@@ -87,7 +87,7 @@ variable affects the declaration in its scope. Other declarations can reuse its 
 such as `desk = evening.desk`, a later write through `desk` can change the evening desk. An alias saved before
 the reassignment still points to the earlier desk. A helper can also change a title by writing to an object
 passed as an argument, including through a destructured parameter, a forwarded argument, or a reference
-returned by a synchronous local helper. Nested calls can pass the same object back through several returns.
+returned by a synchronous local helper. Nested calls can pass the same object back through several returns. If a helper returns an array element, calls made before and after an edit can return different objects.
 A local helper invoked with `call`, `apply`, or the global `Reflect.apply` can change its arguments or its explicit
 `this` receiver. An arrow function keeps its enclosing receiver. The target, receiver and arguments of `Reflect.apply` can come from a spread array literal or a local constant that holds the array. The scan follows indexed assignments to those arrays before the call. Array spread copies the slots at the time the spread runs. Nested arrays in those slots keep their original identity. For local arrays, the scan follows edits such as `push`, `shift`, and `splice` when the affected positions are known. An unknown offset or a conditional edit can leave several possible values for a slot.
 When a helper receives an array element, the scan follows the element at the time the argument is evaluated. For example, a bound argument keeps the selected object even if a later edit shifts the array.

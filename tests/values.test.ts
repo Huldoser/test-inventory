@@ -860,6 +860,18 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(early + 'day.label;')).toEqual(UNRESOLVED);
   });
 
+  it('reads a returned array element at the invocation that supplied the changed object', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';
+    for (const read of ['select()', 'forward()']) {
+      const sequence = setup + 'const first=' + read + ';rows.unshift(night);const last=' + read + ';';
+      expect(resolve(sequence + 'close(last);day.label;')).toEqual({ ok: true, value: 'day' });
+      expect(resolve(sequence + 'close(last);night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(sequence + 'close(first);night.label;')).toEqual({ ok: true, value: 'night' });
+      expect(resolve(sequence + 'close(first);day.label;')).toEqual(UNRESOLVED);
+    }
+  });
+
   it('tracks the arguments captured by the bound function that actually runs', () => {
     const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closing";}';
     for (const route of [
