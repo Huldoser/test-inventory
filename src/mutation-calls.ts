@@ -279,7 +279,6 @@ export function mutationCalls(
   }
   type Step = ContainerEdit | Boundary;
   const readTimes = new HelperReadTimes();
-  let pendingWrites = new Set<Expression>();
   const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
     return (expression, at) => {
       const source = constantValue(expression, at);
@@ -317,13 +316,19 @@ export function mutationCalls(
     end: number,
     definite: boolean,
     active: Set<Node>,
+    record: (step: Step, repeated?: boolean) => void,
     parent?: ArgumentLookup,
   ): Step[] => {
     const entry: Boundary = { owner: frame.fn, position: frame.fn.start, end, repeated: active.has(frame.fn) };
+    record(entry);
     const operations = bodyOperations.get(frame.fn);
     if (!operations || entry.repeated || frame.fn.generator) return [entry];
     active.add(frame.fn);
     const result = new Set<Step>([entry]);
+    const append = (step: Step) => {
+      record(step);
+      result.add(step);
+    };
     const children = new Map<string, Step[]>();
     const sources = invocationSources(frame, parent);
     const { straight, awaitedAt } = writeSchedule(frame.fn.body as Node);
@@ -352,18 +357,19 @@ export function mutationCalls(
           ]);
           let edits = children.get(key);
           if (!edits) {
-            edits = invocationEdits(child, when, unique, active, sources);
+            edits = invocationEdits(child, when, unique, active, record, sources);
             children.set(key, edits);
           }
           for (const edit of edits) {
             if (result.delete(edit)) {
               if ('change' in edit) edit.change.unconditional = false;
               else edit.repeated = true;
+              record(edit, true);
             }
             result.add(edit);
           }
         }
-        result.add({ owner: frame.fn, position: expression.end, end: when });
+        append({ owner: frame.fn, position: expression.end, end: when });
         continue;
       }
       const write = operation;
@@ -391,12 +397,9 @@ export function mutationCalls(
       for (const container of containers.choices) {
         const { value } = constantValue(container.value, container.scopes);
         if (value.type !== 'ArrayExpression' && (value.type !== 'ObjectExpression' || 'args' in write)) continue;
-        for (const change of edits) {
-          pendingWrites.add(value);
-          result.add({ container: value, change });
-        }
+        for (const change of edits) append({ container: value, change });
       }
-      result.add({ owner: frame.fn, position: expression.end, end: when });
+      append({ owner: frame.fn, position: expression.end, end: when });
     }
     active.delete(frame.fn);
     return [...result];
@@ -406,32 +409,28 @@ export function mutationCalls(
       unique &&
       invocation.statement?.type === 'ExpressionStatement' &&
       invocation.statement.expression === invocation.call;
-    const previous = pendingWrites;
-    pendingWrites = new Set();
-    const trace = invocationEdits(invocation, invocation.call.end, definite, new Set());
-    pendingWrites = previous;
-    if (!trace.some((step) => 'change' in step)) return;
     let index = 0;
-    for (const step of trace) {
+    // Record each write before resolving the next callee, which may itself come from the edited slot.
+    invocationEdits(invocation, invocation.call.end, definite, new Set(), (step, repeated) => {
       if (!('change' in step)) {
         const time = step.end === invocation.call.end ? { end: step.end, step: index } : null;
         readTimes.add(step.owner, invocation.call.start, step.position, time, !!step.repeated);
-        continue;
+        return;
       }
       const { container, change } = step;
       change.step = ++index;
       const assignments = objectWrites.get(container) ?? [];
       const changes = arrayChanges.get(container) ?? ('args' in change ? [...assignments] : undefined);
       if (changes) {
-        changes.push(change);
+        if (!repeated) changes.push(change);
         arrayChanges.set(container, changes.sort(compareEdits));
       }
       if (!('args' in change)) {
-        assignments.push(change);
+        if (!repeated) assignments.push(change);
         objectWrites.set(container, assignments.sort(compareEdits));
       }
       arrayReaders.clear();
-    }
+    });
   };
   const returns = new Map<FunctionNode, ReturnType<typeof analyzeReturns>>();
   const returnedBy = (fn: FunctionNode) => {
@@ -525,11 +524,7 @@ export function mutationCalls(
     let value = unwrapChain(expression);
     if (path.length && (value.type === 'Identifier' || value.type === 'ThisExpression')) {
       const input = containerFor(value, scopes, context);
-      if (input) {
-        // A second walk reads the completed history after earlier writes in this invocation have been recorded.
-        if (pendingWrites.has(input.value)) return UNKNOWN;
-        return callable(input.value, input.scopes, root, seen, frame, path);
-      }
+      if (input) return callable(input.value, input.scopes, root, seen, frame, path);
     }
     while (value.type === 'Identifier') {
       const constant = values.constantOf(value.name, scopes);

@@ -35,3 +35,4 @@ Follow array edits through nested helper calls in execution order, including for
 Resolve reads inside a helper against writes already made during the same invocation.
 Follow methods installed on a local object by an earlier helper call.
 Follow callbacks selected from a module-level object or array passed to a local helper, including when separate calls supply different containers.
+Track array edits made by a callback installed and invoked during the same collection helper.

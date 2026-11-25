@@ -1069,6 +1069,24 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + restore + 'night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('applies array edits made by the callback selected inside a helper', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function read(){}function set(list,row){list[0]=row;}';
+    for (const route of [
+      'function run(h,list,row){h[0]=set;h[0](list,row);}run([read],rows,night);',
+      'function run(h,list,row){h.unshift(set);h[0](list,row);}run([read],rows,night);',
+      'function run(h,list,row){h.update=set;h.update(list,row);}run({update:read},rows,night);',
+      'function use(h,list,row){h[0](list,row);}function run(h,list,row){h.unshift(set);use(h,list,row);}run([read],rows,night);',
+      'function run(h,list,row){h[0]=set;const change=h[0];h[0]=read;change(list,row);}run([read],rows,night);',
+      'function run(h,list,row){const change=h[0].bind(null,list,row);h[0]=read;change();}run([set],rows,night);',
+    ]) {
+      expect(resolve(setup + route + 'close(rows[0]);night.label;'), route).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'close(rows[0]);day.label;'), route).toEqual({ ok: true, value: 'day' });
+    }
+    const restore = 'function run(h,list,row){h[0]=read;h[0](list,row);}run([set],rows,night);';
+    expect(resolve(setup + restore + 'close(rows[0]);night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';
