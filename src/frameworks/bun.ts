@@ -157,11 +157,13 @@ export class BunAdapter extends SuiteAdapter {
     const titleArg = callbackOnly ? undefined : first;
     const written = titleArg && titleArg.type !== 'SpreadElement' ? unwrap(titleArg) : null;
     const value = written ? this.file.values.resolve(written, context.scopes) : null;
+    const declaredName =
+      written && !value?.ok ? this.file.values.functionName(written, context.scopes, 'declared') : null;
     const unnamed = !titleArg || (value?.ok && (value.value === undefined || value.value === null));
     const defaultName = kind === 'test' ? '(unnamed)' : '';
     const { title, problem: titleProblem } = unnamed
       ? { title: { text: defaultName, withoutTags: defaultName, isDynamic: false }, problem: null }
-      : readTitle(this.file, context.scopes, titleArg, { stripTags: false, functionNames: 'bun' });
+      : readTitle(this.file, context.scopes, titleArg, { stripTags: false, functionNames: { bun: declaredName } });
     if (titleProblem) problems.push(titleProblem);
     const fnSecond =
       third === undefined ||
@@ -204,10 +206,8 @@ export class BunAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, () => declared);
     }
-    // Bun wants a function second or third; a value that can't be one, as options alone, is none.
     if (
-      written?.type === 'ArrowFunctionExpression' ||
-      (written?.type === 'FunctionExpression' && !written.id) ||
+      (declaredName?.ok && declaredName.value === undefined) ||
       (value?.ok && (typeof value.value === 'boolean' || (typeof value.value === 'object' && value.value !== null))) ||
       written?.type === 'ArrayExpression' ||
       written?.type === 'ObjectExpression'

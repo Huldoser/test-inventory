@@ -48,6 +48,28 @@ test('closes the book', () => {});
     expect(codes(result)).toEqual(['nested-test']);
   });
 
+  it('rejects an anonymous computed method as a Bun title while accepting its name string', () => {
+    for (const definition of ['[key]() {}', '[key]: () => {}', '[key]: function () {}']) {
+      const prefix = `const key = 'post'; const book = { ${definition} }; const post = book.post;`;
+      for (const expression of ['post', 'book.post']) {
+        const result = scanBun(`${prefix}
+test('opens the book', () => {});
+describe(${expression}, () => { test('fills the order', () => {}); });
+test('closes the book', () => {});`);
+        expect(result.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded']);
+        expect(codes(result)).toContain('invalid-chain');
+      }
+      const named = scanBun(`${prefix} test(book.post.name, () => {});`);
+      expect(onlyTest(named)).toMatchObject({ title: 'post', state: 'active', hasDynamicTitle: false });
+    }
+    const explicit = scanBun("const book = { ['post']: function routeOrder() {} }; test(book.post, () => {});");
+    expect(onlyTest(explicit)).toMatchObject({ title: 'routeOrder', state: 'active' });
+    const computedClass = scanBun(
+      "const book = { ['post']: class {} }; test(book.post, () => {}); test(book.post.name, () => {});",
+    );
+    expect(computedClass.tests.map((test) => test.title)).toEqual(['', 'post']);
+  });
+
   it('distinguishes missing and invalid callbacks for skipped Bun declarations', () => {
     for (const declaration of ['describe.skip()', 'describe.todo("overnight")', 'test.if(false)("overnight", null)']) {
       const result = scanBun(`test('opens the book', () => {}); ${declaration};`);

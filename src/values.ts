@@ -403,7 +403,7 @@ export class Values {
     return this.calls.findLast((item) => item.fn === binding.declaration)?.parameters.has(name) ?? false;
   }
 
-  /** A local function's name. Bun reads a class's declared name even if it overrides the JavaScript name property. */
+  /** A local function's name. Bun reads the declared name and receives undefined for an unnamed function. */
   functionName(
     expression: Expression,
     scopes: readonly Node[],
@@ -418,7 +418,7 @@ export class Values {
         const own = this.ownProperty(node, scopes);
         if (!own || seen.has(own.value)) return null;
         seen.add(own.value);
-        inferred = own.name;
+        inferred = kind === 'declared' && own.computed ? '' : own.name;
         node = unwrap(own.value);
         scopes = own.scopes;
         continue;
@@ -465,7 +465,7 @@ export class Values {
       node.type === 'ArrowFunctionExpression'
     ) {
       const name = node.type === 'ArrowFunctionExpression' ? inferred : (node.id?.name ?? inferred);
-      return modified ? UNRESOLVED : { ok: true, value: name };
+      return modified ? UNRESOLVED : { ok: true, value: kind === 'declared' && name === '' ? undefined : name };
     }
     return null;
   }
@@ -559,7 +559,7 @@ export class Values {
   private ownProperty(
     expression: Extract<Expression, { type: 'MemberExpression' }>,
     scopes: readonly Node[],
-  ): { name: string; value: Expression; scopes: readonly Node[] } | null {
+  ): { name: string; computed: boolean; value: Expression; scopes: readonly Node[] } | null {
     let object = unwrap(expression.object);
     let objectScopes = scopes;
     const seen = new Set<Expression>();
@@ -583,7 +583,9 @@ export class Values {
       const candidate = this.propertyKey(property.key, property.computed, objectScopes);
       if (!candidate.ok || !isKey(candidate.value)) return null;
       if (String(candidate.value) === name)
-        return property.kind === 'init' ? { name, value: property.value, scopes: objectScopes } : null;
+        return property.kind === 'init'
+          ? { name, computed: property.computed, value: property.value, scopes: objectScopes }
+          : null;
     }
     return null;
   }

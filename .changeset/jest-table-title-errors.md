@@ -9,3 +9,4 @@ Use the titles Jest registers for functions and undefined values, and mark files
 Account for declarations called without arguments, including the tests registered by parameterized tables.
 Read local function and class name properties, including static name fields used in Jest table titles.
 Read titles from methods on local object literals and expand table rows when a final explicit property supplies the title.
+Mark files as not loaded when Bun rejects an anonymous computed method used as a title with a separate callback.

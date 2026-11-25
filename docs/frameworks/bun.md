@@ -83,7 +83,9 @@ uses the value of that property, including a static `name` field.
 
 With a function as the only argument, `test(fn)` registers an `(unnamed)` test and `describe(fn)` collects
 an unnamed suite. When a separate callback is supplied, Bun rejects an unnamed function, boolean, array or
-object used as the title. A null or undefined title gives the test or suite its unnamed label.
+object used as the title. For `const book = { ['post']() {} }`, Bun rejects `book.post` as a title
+and accepts `book.post.name` as the string `post`. An explicitly named function on the same computed
+property keeps its declared name. A null or undefined title gives the test or suite its unnamed label.
 
 <!--@include: ../reference/syntax.md#syntax-bun-->
 

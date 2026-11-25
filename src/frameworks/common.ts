@@ -273,7 +273,7 @@ export function readTitle(
   file: FileContext,
   scopes: readonly Node[],
   node: Argument,
-  options: { stripTags: boolean; functionNames: false | 'bun' | 'vitest' },
+  options: { stripTags: boolean; functionNames: false | 'vitest' | { bun: Resolved | null } },
 ): { title: Title; problem: Problem | null } {
   const expression = node.type === 'SpreadElement' ? null : node;
   const resolved = expression ? file.values.resolve(expression, scopes) : null;
@@ -288,11 +288,8 @@ export function readTitle(
     value = String(other);
   }
   if (value === null && options.functionNames && expression) {
-    const name = file.values.functionName(
-      expression,
-      scopes,
-      options.functionNames === 'bun' ? 'declared' : 'property',
-    );
+    const name =
+      options.functionNames === 'vitest' ? file.values.functionName(expression, scopes) : options.functionNames.bun;
     if (name?.ok) {
       if (!name.value && options.functionNames === 'vitest') value = '<anonymous>';
       else if (typeof name.value === 'string' && unwrap(expression).type !== 'ArrowFunctionExpression')
