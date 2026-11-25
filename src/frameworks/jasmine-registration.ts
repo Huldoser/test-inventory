@@ -12,6 +12,14 @@ export function inert(expression: Expression): boolean {
   return node.type === 'Literal' || isFunctionNode(node);
 }
 
+function completesWithoutThrowing(expression: Expression): boolean {
+  const node = unwrap(expression);
+  if (node.type !== 'AwaitExpression') return inert(node);
+  // Await reads "then" from objects, including regex literals. A primitive literal always fulfills.
+  const operand = unwrap(node.argument);
+  return operand.type === 'Literal' && !('regex' in operand);
+}
+
 /** Runtime function length excludes a TypeScript this parameter and ends at the first default or rest parameter. */
 export function functionLength(fn: FunctionNode): number {
   const params = fn.params.filter((param) => param.type !== 'Identifier' || param.name !== 'this');
@@ -34,7 +42,7 @@ const callback = (node: Node | undefined): node is FunctionNode =>
 const timeout = (node: Node | undefined) =>
   node?.type === 'Literal' && typeof node.value === 'number' && node.value <= 2147483647;
 
-/** Check the synchronous path only. A call or coercion the scan cannot account for keeps the catch reachable. */
+/** A call, coercion or await the scan cannot account for keeps the catch reachable. */
 export function registrationExit(block: BlockStatement, outer: readonly Node[], file: FileContext): Exit {
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
@@ -122,7 +130,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
   function expression(node: Expression, scopes: readonly Node[], children: Children): Exit {
     const value = unwrap(node);
     if (value.type === 'CallExpression') return call(value, scopes, children);
-    return inert(value) ? 'next' : 'unknown';
+    return completesWithoutThrowing(value) ? 'next' : 'unknown';
   }
   function statement(node: Statement, scopes: readonly Node[], children: Children): Exit {
     if (--remaining < 0) return 'unknown';
@@ -146,7 +154,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       case 'VariableDeclaration':
         if (node.kind.endsWith('using')) return 'unknown';
         for (const { id, init } of node.declarations) {
-          if (id.type !== 'Identifier' || (init && !inert(init))) return 'unknown';
+          if (id.type !== 'Identifier' || (init && !completesWithoutThrowing(init))) return 'unknown';
         }
         return 'next';
       case 'ExpressionStatement':

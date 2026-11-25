@@ -345,6 +345,33 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('omits unreachable recovery specs after awaiting a primitive and keeps recovery for thenables', () => {
+    for (const [operand, canReject] of [
+      ['0', false],
+      ["'bid'", false],
+      ['false', false],
+      ['null', false],
+      ['100n', false],
+      ['({ get then() { throw Error("closed"); } })', true],
+      ['({ then(resolve, reject) { reject("closed"); } })', true],
+      ['quotePromise', true],
+      ['/bid/', true],
+    ] as const) {
+      for (const prefix of ['', 'const price = ', 'return ']) {
+        const result = scanJasmine(`
+async function settle() {
+  try { ${prefix}await (${operand}); }
+  catch { it('recovers the quote', () => {}); }
+  finally { it('closes the feed', () => {}); }
+}
+settle();`);
+        const titles = result.tests.map((test) => test.title);
+        expect(titles.includes('recovers the quote'), prefix + operand).toBe(canReject);
+        expect(titles).toContain('closes the feed');
+      }
+    }
+  });
+
   it('stops an async helper at return, a rejected await or a pending promise, preserving caller registrations', () => {
     for (const body of [
       'return;',
