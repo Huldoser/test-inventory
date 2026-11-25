@@ -261,28 +261,32 @@ export function mutationCalls(
       values.functionOf(callee.name, frame.scopes) === frame.fn;
     const body = frame.fn.body as Node;
     const { straight, awaitedAt } = writeSchedule(body);
-    const rebound = values.assignedIn(body, false);
     const sources = (expression: Expression, at: readonly Node[]) => {
       const source = constantValue(expression, at);
       const name = source.value.type === 'Identifier' ? source.value.name : 'this';
-      const parameter =
+      const declared =
         source.value.type === 'ThisExpression'
-          ? frame.fn.type !== 'ArrowFunctionExpression'
-          : source.value.type === 'Identifier' && values.declarationOf(name, source.scopes) === frame.fn;
-      if (!parameter) return { parameter, choices: [{ value: expression, scopes: at }] };
-      if (rebound.has(name) || values.assignedIn(body).has('arguments')) return { parameter, choices: [] };
-      const choices = frame.parameters
+          ? source.scopes.findLast(
+              (scope) => scope.type === 'FunctionDeclaration' || scope.type === 'FunctionExpression',
+            )
+          : source.value.type === 'Identifier' && values.declarationOf(name, source.scopes);
+      const binding = declared && (declared === frame.fn ? frame : enclosingFactory(frame.context, declared));
+      if (!binding) return { parameter: false, choices: [{ value: expression, scopes: at }] };
+      const ownerBody = binding.fn.body as Node;
+      if (values.assignedIn(ownerBody, false).has(name) || values.assignedIn(ownerBody).has('arguments'))
+        return { parameter: true, choices: [] };
+      const choices = binding.parameters
         .filter((param) => param.name === name && param.ref.rest === undefined)
         .flatMap((param) =>
           reflectSources(
             param,
-            param.ref.path.map(() => frame.call.start),
-            frame.call.start,
+            param.ref.path.map(() => binding.call.start),
+            binding.call.start,
           ),
         )
         .filter((param) => !param.ref.path.length)
         .map((param) => ({ value: param.ref.value, scopes: param.ref.capture?.scopes ?? param.scopes }));
-      return { parameter, choices };
+      return { parameter: true, choices };
     };
     for (const write of writes) {
       const containers = sources(write.object, write.scopes);

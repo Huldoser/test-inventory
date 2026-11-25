@@ -951,6 +951,23 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + early + 'night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('follows an array edit through the invocation that created a returned function', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day],other=[night];function close(row){row.label="closed";}';
+    for (const create of [
+      'function later(list,row){return ()=>list.unshift(row);}const unused=later(other,day);later(rows,night)();',
+      'function later(list){return row=>list.unshift(row);}later(rows)(night);',
+      'function later(row){return list=>list.unshift(row);}later(night)(rows);',
+      'function later(row){return ()=>this.unshift(row);}later.call(rows,night)();',
+      'function later(list,row){return {move(){list[0]=row;}};}later(rows,night).move();',
+      'function later(list,row){return ()=>()=>list.unshift(row);}later(rows,night)()();',
+    ])
+      expect(resolve(setup + create + 'close(rows[0]);night.label;'), create).toEqual(UNRESOLVED);
+    const deferred =
+      'function later(list,row){return ()=>list.unshift(row);}const unused=later(rows,night);later(other,day)();close(rows[0]);';
+    expect(resolve(setup + deferred + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

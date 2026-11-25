@@ -29,3 +29,4 @@ Follow writes by functions returned from local helpers when those functions run 
 Use the array element selected when an argument is evaluated, including arguments captured by a bound function and values returned by repeated helper calls.
 Follow a collection-time helper that replaces or deletes a slot in an array supplied by its caller.
 Track array methods invoked on helper parameters during collection, including the caller’s references to inserted elements.
+Follow array edits through parameters and receivers captured by returned local functions.
