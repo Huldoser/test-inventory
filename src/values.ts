@@ -148,6 +148,29 @@ export class Values {
     };
   }
 
+  /** Read arguments in the calling scope, up to the first spread whose length is unknown. */
+  callArguments(
+    call: CallExpression,
+    scopes: readonly Node[],
+    expandSpread: boolean,
+  ): { args: Resolved[]; complete: boolean } {
+    const args: Resolved[] = [];
+    let complete = true;
+    for (const item of call.arguments) {
+      if (item.type !== 'SpreadElement') {
+        args.push(this.resolve(item, scopes));
+        continue;
+      }
+      const list = expandSpread && this.resolve(item.argument, scopes);
+      if (!list || !list.ok || !(Array.isArray(list.value) || typeof list.value === 'string')) {
+        complete = false;
+        break;
+      }
+      for (const value of list.value) args.push({ ok: true, value });
+    }
+    return { args, complete };
+  }
+
   /**
    * Runs `read` with a function's parameters bound to the arguments of one call, worked out where the call is, so that
    * titles and values built from them resolve, as in `test(\`${side} rejects a zero quantity\`)` inside
@@ -254,6 +277,7 @@ export class Values {
           steps.set(pattern, 'throw');
           return;
         }
+        if (value && !value.ok) steps?.set(pattern, null);
         const iterable = value?.ok ? value.value : null;
         const list = typeof iterable === 'string' ? Array.from(iterable) : Array.isArray(iterable) ? iterable : null;
         for (const [index, element] of pattern.elements.entries()) {
@@ -271,6 +295,7 @@ export class Values {
           return;
         }
         if (!value) return;
+        if (!value.ok) steps?.set(pattern, null);
         const object =
           value.ok && value.value !== null && value.value !== undefined
             ? (Object(value.value) as Record<string, Value>)

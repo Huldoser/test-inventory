@@ -345,6 +345,85 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('checks generator parameters at the call and leaves their registration bodies deferred', () => {
+    for (const kind of ['function*', 'async function*']) {
+      for (const [params, args, catches] of [
+        ['', '', false],
+        ['bid', '5', false],
+        ['...bids', '1, 2', false],
+        ['bid = 5', '', false],
+        ['bid = closed()', '7', false],
+        ['bid = closed()', '', true],
+        ['bid = closed()', 'undefined', true],
+        ['bid = quote()', '', false],
+        ['{bid}', '{bid: 7}', false],
+        ['{bid}', 'null', true],
+        ['{bid = closed()} = {}', '', true],
+        ['[bid]', '[7]', false],
+        ['[bid]', '5', true],
+        ['[, bid = 10] = [5]', '', false],
+        ['[, bid = closed()] = [5]', '', true],
+        ['bid = closed()', 'feed()', true],
+        ['{bid}', 'feed()', true],
+        ['[bid]', 'feed()', true],
+        ['{["bid"]: bid} = {bid: 5}', '', false],
+        ['{[closed()]: bid} = {}', '', true],
+        ['{[{toString() { throw Error("closed"); }}]: bid} = {}', '', true],
+        ['{[key]: bid} = {}', '', true],
+        ['bid = 5, ask = bid', '', false],
+        ['ask = bid, bid = 5', '', true],
+        ['bid = bid', '', true],
+      ] as const) {
+        const result = scanJasmine(`
+function closed() { throw Error('closed'); }
+function feed() {}
+const key = { toString: null, valueOf: null };
+function quote() { it('reads the opening quote', () => {}); return 5; }
+${kind} price(${params}) { it('iterates over prices', () => {}); throw Error('closed'); }
+try { price(${args}); } catch { it('recovers the order', () => {}); }`);
+        const titles = result.tests.map((test) => test.title);
+        expect(titles.includes('recovers the order'), kind + params + args).toBe(catches);
+        expect(titles).not.toContain('iterates over prices');
+      }
+    }
+  });
+
+  it('counts a child registered in a generator default when deciding whether the Jasmine suite is empty', () => {
+    for (const [args, catches] of [
+      ['', false],
+      ['7', true],
+    ] as const) {
+      const result = scanJasmine(
+        `
+function quote() { it('reads the opening quote', () => {}); return 5; }
+function* prices(bid = quote()) { it('iterates over prices', () => {}); }
+try { describe('closing auction', () => prices(${args})); } catch { it('recovers the order', () => {}); }`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(
+        result.tests.some((test) => test.title === 'recovers the order'),
+        args,
+      ).toBe(catches);
+    }
+  });
+
+  it('keeps a generator binding failure inside its Jasmine suite callback', () => {
+    for (const declaration of ['function* prices([bid]) {}', 'function* prices({[closed()]:bid} = {}) {}']) {
+      const result = scanJasmine(
+        `
+function closed() { throw Error('closed'); }
+${declaration}
+try { describe('closing auction', () => prices()); }
+catch { it('recovers the outer order', () => {}); }`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(
+        result.tests.some((test) => test.title === 'recovers the outer order'),
+        declaration,
+      ).toBe(false);
+    }
+  });
+
   it('distinguishes successful spreads from noniterable or unreadable spreads in a Jasmine helper call', () => {
     for (const [arg, recovery] of [
       ["'BID'", false],
@@ -944,6 +1023,7 @@ finally { it('closes the ledger', () => {}); }`,
       "const register = () => it('prices a fill', () => {}); register();",
       'function register() { return; } register();',
       'async function update() {} update();',
+      'function* update() {} update();',
       "const title = 'quotes'; function register(){ it(title, () => {}); } register();",
       "function quotes(){ it('prices a fill', () => {}); } describe('quotes', quotes);",
       "try { throw Error('closed'); } catch { it('checks the feed'); }",
@@ -967,7 +1047,6 @@ finally { it('closes the ledger', () => {}); }`,
       'function update(side) {} update(...sides);',
       'function update(side) {} update(readSide());',
       'function update(side = readSide()) {} update();',
-      'function* update() {} update();',
       'function update() { return readQuote(); } update();',
       'function update() {} update = invalidQuote; update();',
       "function publish(run) { it('prices a fill', run); } publish(42);",

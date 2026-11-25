@@ -1721,20 +1721,7 @@ class Walker {
   private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context, registering: boolean): void {
     this.walkedAtCall.add(fn);
     // Arguments are worked out where the call is, in the file and scopes of the caller.
-    const args: Resolved[] = [];
-    let complete = true;
-    for (const item of call.arguments) {
-      if (item.type !== 'SpreadElement') {
-        args.push(this.frame.values.resolve(item, this.scopes));
-        continue;
-      }
-      const list = registering && this.frame.values.resolve(item.argument, this.scopes);
-      if (!list || !list.ok || !(Array.isArray(list.value) || typeof list.value === 'string')) {
-        complete = false;
-        break;
-      }
-      for (const value of list.value) args.push({ ok: true, value });
-    }
+    const { args, complete } = this.frame.values.callArguments(call, this.scopes, registering);
     const parameterSteps = registering ? new Map<Node, ParameterStep>() : undefined;
     const caller = this.frame;
     const site = this.site;

@@ -21,3 +21,4 @@ Exclude unreachable Jasmine recovery specs after awaiting a primitive literal.
 Honor returns through Jasmine async helpers’ try, catch and finally blocks when collecting subsequent specs.
 Distinguish a rejected async helper from an exception thrown while evaluating its arguments in a Jasmine spec file.
 Account for registrations and exceptions from calls inside arguments to local Jasmine helpers when checking a catch.
+Check generator parameter defaults and destructuring at the call, including specs registered while binding a default.

@@ -1,6 +1,6 @@
 import type { Argument, BlockStatement, CallExpression, Expression, Node, Statement } from 'oxc-parser';
-import { isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
-import { nonIterable } from '../values.ts';
+import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
+import { nonIterable, type ParameterStep } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
@@ -48,6 +48,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
   const active: { block: BlockStatement; at: number }[] = [];
+  const parameters: { fn: FunctionNode; initialized: Set<string> }[] = [];
   const assigned = file.values.assignedIn(outer[0], false);
   function argument(arg: Argument | undefined, scopes: readonly Node[]): ArgumentValue | undefined {
     if (!arg || arg.type === 'SpreadElement') return undefined;
@@ -78,6 +79,70 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       fn.body.type === 'BlockStatement' ? statement(fn.body, inside, children) : expression(fn.body, inside, children);
     return outcome === 'return' ? 'next' : outcome;
   }
+  function generatorCall(
+    fn: FunctionNode,
+    definition: readonly Node[],
+    site: CallExpression,
+    scopes: readonly Node[],
+    children: Children,
+  ): Exit {
+    const { args, complete } = file.values.callArguments(site, scopes, true);
+    const steps = new Map<Node, ParameterStep>();
+    const initialized = new Set<string>();
+    const inside = [...definition, fn];
+    function bind(node: Node): Exit {
+      const step = steps.get(node);
+      if (step === 'throw') return 'throw';
+      if (step === null) return 'unknown';
+      if (node.type === 'Identifier') {
+        initialized.add(node.name);
+        return 'next';
+      }
+      if (node.type === 'AssignmentPattern') {
+        const outcome = step ? expression(node.right, inside, children) : 'next';
+        return outcome === 'next' ? bind(node.left) : outcome;
+      }
+      if (node.type === 'Property') {
+        if (node.computed) {
+          const computed = node.key as Expression;
+          const outcome = expression(computed, inside, children);
+          if (outcome !== 'next') return outcome;
+          const key = file.values.resolve(computed, inside);
+          if (!key.ok || (key.value !== null && typeof key.value === 'object')) return 'unknown';
+        }
+        return bind(node.value);
+      }
+      const parts =
+        node.type === 'ObjectPattern'
+          ? node.properties
+          : node.type === 'ArrayPattern'
+            ? node.elements
+            : childNodes(node);
+      for (const part of parts) {
+        if (!part) continue;
+        const result = bind(part);
+        if (result !== 'next') return result;
+      }
+      return 'next';
+    }
+    return file.values.withArguments(
+      fn,
+      args,
+      definition,
+      () => {
+        parameters.push({ fn, initialized });
+        let result: Exit = 'next';
+        for (const param of fn.params) {
+          result = bind(param);
+          if (result !== 'next') break;
+        }
+        parameters.pop();
+        return result;
+      },
+      complete,
+      steps,
+    );
+  }
   function call(node: CallExpression, scopes: readonly Node[], children: Children): Exit {
     const callee = unwrap(node.callee);
     if (--remaining < 0 || callee.type !== 'Identifier' || assigned.has(callee.name)) return 'unknown';
@@ -89,7 +154,8 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       if (!helper || !callback(helper.node)) return 'unknown';
       const evaluated = elements(args, scopes, children);
       if (evaluated !== 'next') return evaluated;
-      if (helper.node.async && !helper.node.generator) {
+      if (helper.node.generator) return generatorCall(helper.node, helper.scopes, node, scopes, children);
+      if (helper.node.async) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
         children.registered ||= 'possible';
         return 'next';
@@ -152,7 +218,12 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
     const value = unwrap(node);
     if (value.type === 'ArrayExpression') return elements(value.elements, scopes, children);
     if (value.type === 'CallExpression') return call(value, scopes, children);
-    if (value.type === 'Identifier' && argument(value, scopes)) return 'next';
+    if (value.type === 'Identifier') {
+      const declaration = file.values.declarationOf(value.name, scopes);
+      const binding = parameters.findLast((entry) => entry.fn === declaration);
+      if (binding) return binding.initialized.has(value.name) ? 'next' : 'throw';
+      if ((!declaration && value.name === 'undefined') || argument(value, scopes)) return 'next';
+    }
     return completesWithoutThrowing(value) ? 'next' : 'unknown';
   }
   function statement(node: Statement, scopes: readonly Node[], children: Children): Exit {
