@@ -247,8 +247,8 @@ export function changedReferences(
       }
     }
   }
-  const active = new Set<Node>();
-  const returning: HelperInvocation[] = [];
+  const activeRoots = new Set<Node>();
+  const returning: { invocation: HelperInvocation; active: Set<Node> }[] = [];
   const follow = (ref: Reference, suffix: Key[], site: Site): void => {
     if (ref.rest !== undefined && suffix.length === 0) return;
     const path = [...ref.path, ...suffix];
@@ -263,6 +263,7 @@ export function changedReferences(
       if (key === null) return;
       names.add(key);
       const sources = bindings.get(key);
+      const active = returning.at(-1)?.active ?? activeRoots;
       if (!sources || active.has(value)) return;
       active.add(value);
       // Only an unconditional module-level assignment rules out earlier top-level sources.
@@ -279,7 +280,7 @@ export function changedReferences(
           continue;
         const invocation = source.invocation;
         if (invocation) {
-          const frame = returning.findLast((call) => call.fn === invocation.fn);
+          const frame = returning.findLast((frame) => frame.invocation.fn === invocation.fn)?.invocation;
           if (frame && frame !== invocation) continue;
         }
         follow(source.ref, path, source);
@@ -287,18 +288,16 @@ export function changedReferences(
       active.delete(value);
     } else if (value.type === 'CallExpression') {
       const invocation = calls.get(value);
-      if (!invocation || active.has(value)) return;
-      const returns = returnValues(invocation.fn);
+      if (!invocation || returning.some((frame) => frame.invocation === invocation)) return;
+      const returns = returnValues(invocation.fn, false, 'ignore');
       if (!returns) return;
-      active.add(value);
-      returning.push(invocation);
+      returning.push({ invocation, active: new Set() });
       for (const result of returns)
         follow(direct(result.expression), path, {
           scopes: [...invocation.parameterScopes, ...result.around],
           statement: null,
         });
       returning.pop();
-      active.delete(value);
     } else if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
       for (const source of selected(value)) follow(direct(source), path, site);
     } else if (value.type === 'SequenceExpression') {

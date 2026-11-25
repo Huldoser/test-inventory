@@ -61,9 +61,14 @@ export interface ReturnValue {
 /**
  * The values a function returns; null when it may return no value, as with `return;` or no `return` at all, and for
  * an async function or a generator, which returns a promise or an iterator whatever its `return` says. With `awaited`,
- * an async function's values are those its promise resolves to. A `return` in a function inside it is that function's.
+ * an async function's values are those its promise resolves to. A bare return can be ignored when looking for
+ * objects that might be returned. A nested function's returns belong to the nested function.
  */
-export function returnValues(fn: FunctionNode, awaited = false): ReturnValue[] | null {
+export function returnValues(
+  fn: FunctionNode,
+  awaited = false,
+  bare: 'unknown' | 'ignore' = 'unknown',
+): ReturnValue[] | null {
   if ((fn.async && !awaited) || fn.generator) return null;
   // Only declarations of overloads have no body.
   const body = fn.body as Node;
@@ -73,7 +78,8 @@ export function returnValues(fn: FunctionNode, awaited = false): ReturnValue[] |
   const around: Node[] = [];
   const visit = (node: Node): void => {
     if (node.type === 'ReturnStatement') {
-      values.push(node.argument ? { expression: node.argument, around: [...around] } : null);
+      if (node.argument) values.push({ expression: node.argument, around: [...around] });
+      else if (bare === 'unknown') values.push(null);
       return;
     }
     if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) return;

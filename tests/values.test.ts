@@ -548,6 +548,27 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     }
   });
 
+  it('tracks distinct nested calls that return through the same parameter declaration', () => {
+    const code =
+      'const opening={label:"opening"}; const evening={label:"evening"}; function select(desk){return desk;}';
+    const write = 'select(opening); select(select(evening)).label="closing";';
+    expect(resolve(code + write + 'evening.label;')).toEqual(UNRESOLVED);
+    expect(resolve(code + write + 'opening.label;')).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('tracks a possible returned object when another branch returns without a value', () => {
+    const code = 'const book={label:"opening"}; function choose(desk,flag){if(flag)return desk;return;}';
+    expect(
+      resolve(code + 'const selection=choose(book,true); if(selection)selection.label="closing"; book.label;'),
+    ).toEqual(UNRESOLVED);
+  });
+
+  it('terminates on recursive calls while following the object returned by the base case', () => {
+    const code =
+      'const book={label:"opening"}; function select(desk,depth){if(depth===0)return desk;return select(desk,depth-1);}';
+    expect(resolve(code + 'select(book,2).label="closing";book.label;')).toEqual(UNRESOLVED);
+  });
+
   it('tracks objects selected by an expression and preserves titles when their branch cannot supply the alias', () => {
     const prefix = 'const book={desk:{label:"opening auction"}};';
     for (const expression of [
