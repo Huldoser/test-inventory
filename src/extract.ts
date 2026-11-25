@@ -736,7 +736,11 @@ class Walker {
         this.visit(node.block, { ...context, registration: attempt, handlesRegistrationError: !!attempt });
         let failure = attempt?.stoppedAt;
         let scope = attempt?.recoveryScope ?? attempt?.scope;
-        if (node.handler) {
+        const exit =
+          node.handler && attempt && failure === undefined
+            ? this.frame.adapter.registrationExit?.(node.block, this.scopes)
+            : undefined;
+        if (node.handler && exit !== 'next' && exit !== 'return') {
           const handler = this.guarded(context, this.catchCondition(node.handler));
           if (handler.registration) handler.registration.scope = scope;
           this.visit(node.handler, handler);
@@ -746,7 +750,11 @@ class Walker {
           }
         }
         if (context.registration) context.registration.scope = scope;
-        if (node.finalizer) this.visit(node.finalizer, context);
+        if (node.finalizer) {
+          this.visit(node.finalizer, context);
+          if (failure !== undefined && this.frame.adapter.registrationExit?.(node.finalizer, this.scopes) === 'return')
+            failure = undefined;
+        }
         if (context.registration && failure !== undefined) context.registration.stoppedAt ??= failure;
         return;
       }

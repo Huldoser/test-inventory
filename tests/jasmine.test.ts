@@ -345,6 +345,126 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('omits a recovery spec when the preceding Jasmine registrations complete normally', () => {
+    for (const frameworkVersion of ['3.99.1', '4.0.0', '5.13.0', '7.0.2']) {
+      for (const [api, refused] of [
+        ['describe', frameworkVersion !== '3.99.1'],
+        ['xdescribe', !['3.99.1', '4.0.0'].includes(frameworkVersion)],
+      ] as const) {
+        const result = scanJasmine(
+          `
+function collectMarket() { ${api}('closing auction', () => { beforeEach(() => {}); }); }
+try { collectMarket(); } catch (error) { it('recovers auction prices', () => {}); }
+try { describe('settlement', () => { it('settles a fill', () => {}); }); }
+catch (error) { it('recovers settlement', () => {}); }
+finally { it('closes the ledger', () => {}); }`,
+          { frameworkVersion },
+        );
+        expect(result.tests.some((test) => test.title === 'recovers auction prices')).toBe(refused);
+        expect(result.tests.some((test) => test.title === 'recovers settlement')).toBe(false);
+        expect(testNamed(result, 'closes the ledger').state).toBe(api === 'xdescribe' && refused ? 'skip' : 'active');
+      }
+    }
+  });
+
+  it('keeps recovery specs when evaluating a runner argument, helper, or binding can throw', () => {
+    for (const body of [
+      "it('settles a fill', () => {}, timeout());",
+      "describe(feed.title, () => { it('prices a trade', () => {}); });",
+      "it('settles a fill', getCallback());",
+      "const { quote } = feed; it('prices a trade', () => {});",
+      'loadMarket(); function loadMarket() { readExternalFeed(); }',
+      'loadMarket(); const loadMarket = () => {};',
+      "describe('closing auction', () => {});",
+    ]) {
+      const result = scanJasmine(`try { ${body} } catch (error) { it('recovers the book', () => {}); }`);
+      expect(
+        result.tests.some((test) => test.title === 'recovers the book'),
+        body,
+      ).toBe(true);
+    }
+  });
+
+  it('follows synchronous helpers, literal conditions and nested recovery before omitting a catch', () => {
+    for (const body of [
+      "; const market = 'open'; let quote; if (market) it('prices a fill');",
+      "if (false) { quote(); } else { it('settles a fill', () => {}, 1000); }",
+      "if (false) { throw Error('closed'); }",
+      'function check() {} beforeEach(check, 1000); afterEach(() => {});',
+      "function register() { return it('prices a fill', () => {}); } register([1]);",
+      "const register = () => it('prices a fill', () => {}); register();",
+      'function register() { return; } register();',
+      "const title = 'quotes'; function register(){ it(title, () => {}); } register();",
+      "function quotes(){ it('prices a fill', () => {}); } describe('quotes', quotes);",
+      "try { throw Error('closed'); } catch { it('checks the feed'); }",
+      "try { throw Error('closed'); } catch (error) {} finally { it('closes the book'); }",
+      "try { describe('auction', () => {}); } catch { it('recovers the auction', () => {}); }",
+      "try { describe('quotes', (done) => {}); } catch { it('recovers the feed', () => {}); }",
+      "function load() { try { throw Error('closed'); } finally { return 2; } } load();",
+      "describe('closing desk', () => { throw Error('closed'); });",
+    ]) {
+      const scan = scanJasmine(`try { ${body} } catch (error) { it('restores market data', () => {}); }`);
+      expect(
+        scan.tests.some((t) => t.title === 'restores market data'),
+        body,
+      ).toBe(false);
+    }
+  });
+
+  it('retains a catch when scope, invocation or control flow makes completion uncertain', () => {
+    for (const body of [
+      'const update = 2; update();',
+      'function update(side) {} update(...sides);',
+      'function update(side) {} update(readSide());',
+      'function update(side = readSide()) {} update();',
+      'async function update() {} update();',
+      'function* update() {} update();',
+      'function update() { return readQuote(); } update();',
+      'function update() {} update = invalidQuote; update();',
+      "function publish(run) { it('prices a fill', run); } publish(42);",
+      'book.publish();',
+      "report('closing auction');",
+      'const tick = quote();',
+      'using feed = null;',
+      'while (marketOpen) quote();',
+      'if (isOpen) quote();',
+      'const update = () => update(); update();',
+      ';'.repeat(300),
+      'beforeEach(...hooks);',
+      'beforeEach(42);',
+      'beforeEach(function* quotes() {});',
+      "beforeEach(() => {}, 'slow');",
+      'beforeEach(() => {}, 10, 20);',
+      "it('quotes', function* ticks() {});",
+      "it('quotes', () => {}, 2147483648);",
+      "it('quotes', () => {}, 1, 2);",
+      "describe('quotes', () => { externalFeed(); });",
+      "describe('quotes', getCallback());",
+      "try { throw Error('closed'); } catch ({ message }) { it('reports the outage'); }",
+    ]) {
+      const scan = scanJasmine(`try { ${body} } catch (error) { it('restores market data', () => {}); }`);
+      expect(
+        scan.tests.some((t) => t.title === 'restores market data'),
+        body,
+      ).toBe(true);
+    }
+  });
+
+  it('checks when a captured title is initialized relative to the call that reads it', () => {
+    const before = scanJasmine(`
+const market = 'spot orders';
+function register() { it(market, () => {}); }
+try { register(); } catch { it('recovers the feed', () => {}); }
+`);
+    expect(before.tests.some((test) => test.title === 'recovers the feed')).toBe(false);
+    const after = scanJasmine(`
+function register() { it(market, () => {}); }
+try { register(); } catch { it('recovers the feed', () => {}); }
+const market = 'spot orders';
+`);
+    expect(testNamed(after, 'recovers the feed').state).toBe('active');
+  });
+
   it('registers recovered specs under the empty suite Jasmine still has open', () => {
     for (const frameworkVersion of ['4.0.0', '4.4.0', '4.5.0', '5.13.0', '6.3.0', '7.0.2']) {
       const inventory = scanJasmine(

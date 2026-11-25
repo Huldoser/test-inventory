@@ -19,6 +19,7 @@ import {
   wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
+import { functionLength, inert, registrationExit } from './jasmine-registration.ts';
 
 const HOOKS = ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
@@ -62,6 +63,9 @@ const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
   readonly catchesSuiteErrors = true;
+  registrationExit(block: Extract<Node, { type: 'BlockStatement' }>, scopes: readonly Node[]) {
+    return registrationExit(block, scopes, this.file);
+  }
   /** What the runner does with a call it refuses at the top level of a file, as the end of a sentence. */
   protected readonly refusedEffect: string = 'Jasmine stops before it runs any spec';
   /** Whether a number after a spec's timeout is a retry count, as WebdriverIO reads it. */
@@ -254,16 +258,6 @@ export class JasmineAdapter extends SuiteAdapter {
   }
 }
 
-/** Constructing these values cannot call user code or throw during registration. */
-function inert(expression: Expression): boolean {
-  const node = unwrap(expression);
-  if (node.type === 'ArrayExpression')
-    return node.elements.every((value) => !value || (value.type !== 'SpreadElement' && inert(value)));
-  if (node.type === 'ObjectExpression')
-    return node.properties.every((p) => p.type === 'Property' && !p.computed && inert(p.value));
-  return node.type === 'Literal' || isFunctionNode(node);
-}
-
 /** Prove that the suite returns without registering a child. A thrown exception is a different Jasmine outcome. */
 function declaresNothing(fn: FunctionNode, file: FileContext, outer: readonly Node[]): boolean {
   if (
@@ -346,14 +340,4 @@ function declaresNothing(fn: FunctionNode, file: FileContext, outer: readonly No
 function isFunctionLike(node: CallExpression['arguments'][number]): boolean {
   const value = unwrap(node as Expression);
   return !['Literal', 'ObjectExpression', 'ArrayExpression', 'TemplateLiteral'].includes(value.type);
-}
-
-/**
- * A function's `length`, which Jasmine checks: its parameters before the first with a default value or a rest, without
- * TypeScript's `this`, which is no parameter at run time.
- */
-function functionLength(fn: FunctionNode): number {
-  const params = fn.params.filter((param) => param.type !== 'Identifier' || param.name !== 'this');
-  const end = params.findIndex((param) => param.type === 'AssignmentPattern' || param.type === 'RestElement');
-  return end === -1 ? params.length : end;
 }

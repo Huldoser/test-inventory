@@ -242,6 +242,11 @@ export interface Adapter {
   nestsTests?: boolean;
   /** A suite callback catches registration errors and preserves the children registered before them. */
   catchesSuiteErrors?: boolean;
+  /** How a synchronous registration block completes, when the runner and local helpers determine its path. */
+  registrationExit?(
+    block: Extract<Node, { type: 'BlockStatement' }>,
+    scopes: readonly Node[],
+  ): 'next' | 'return' | 'throw' | 'unknown';
   classify(call: CallExpression, context: CallContext): ApiCall | null;
   /**
    * The test or describe function a value holds, in the adapter's own terms, as `it.skip` in `return it.skip`; null
