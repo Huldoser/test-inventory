@@ -1033,6 +1033,23 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + after + 'night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('calls the object method installed by a helper during collection', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    const setter = 'function set(book,fn){book.update=fn;}';
+    for (const route of [
+      'const book={update:read};set(book,close);book.update(night);',
+      'const book={};function forward(book,fn){set(book,fn);}forward(book,close);book.update(night);',
+      'const book={update:read};function install(fn){this.update=fn;}install.call(book,close);book.update(night);',
+      'const book={update:read};set(book,close);book.update(night);set(book,read);book.update(day);',
+    ]) {
+      expect(resolve(setup + setter + route + 'night.label;'), route).toEqual(UNRESOLVED);
+      expect(resolve(setup + setter + route + 'day.label;'), route).toEqual({ ok: true, value: 'day' });
+    }
+    const restore = 'const book={update:close};set(book,read);book.update(night);';
+    expect(resolve(setup + setter + restore + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

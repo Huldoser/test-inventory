@@ -33,3 +33,4 @@ Follow array edits through parameters and receivers captured by returned local f
 Keep untouched test titles exact when a returned setter is the only possible function, and retain both possibilities when its factory is uncertain.
 Follow array edits through nested helper calls in execution order, including forwarded callbacks.
 Resolve reads inside a helper against writes already made during the same invocation.
+Follow methods installed on a local object by an earlier helper call.

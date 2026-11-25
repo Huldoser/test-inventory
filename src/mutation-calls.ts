@@ -267,8 +267,8 @@ export function mutationCalls(
     parameter: boolean;
     choices: { value: Expression; scopes: readonly Node[] }[];
   };
-  interface ArrayEdit {
-    array: Expression;
+  interface ContainerEdit {
+    container: Expression;
     change: ArrayChange;
   }
   interface Boundary {
@@ -277,7 +277,7 @@ export function mutationCalls(
     end: number;
     repeated?: boolean;
   }
-  type Step = ArrayEdit | Boundary;
+  type Step = ContainerEdit | Boundary;
   const readTimes = new HelperReadTimes();
   const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
     return (expression, at) => {
@@ -388,9 +388,9 @@ export function mutationCalls(
           });
       }
       for (const container of containers.choices) {
-        const { value: array } = constantValue(container.value, container.scopes);
-        if (array.type !== 'ArrayExpression') continue;
-        for (const change of edits) result.add({ array, change });
+        const { value } = constantValue(container.value, container.scopes);
+        if (value.type !== 'ArrayExpression' && (value.type !== 'ObjectExpression' || 'args' in write)) continue;
+        for (const change of edits) result.add({ container: value, change });
       }
       result.add({ owner: frame.fn, position: expression.end, end: when });
     }
@@ -411,17 +411,17 @@ export function mutationCalls(
         readTimes.add(step.owner, invocation.call.start, step.position, time, !!step.repeated);
         continue;
       }
-      const { array, change } = step;
+      const { container, change } = step;
       change.step = ++index;
-      const assignments = objectWrites.get(array) ?? [];
-      const changes = arrayChanges.get(array) ?? ('args' in change ? [...assignments] : undefined);
+      const assignments = objectWrites.get(container) ?? [];
+      const changes = arrayChanges.get(container) ?? ('args' in change ? [...assignments] : undefined);
       if (changes) {
         changes.push(change);
-        arrayChanges.set(array, changes.sort(compareEdits));
+        arrayChanges.set(container, changes.sort(compareEdits));
       }
       if (!('args' in change)) {
         assignments.push(change);
-        objectWrites.set(array, assignments.sort(compareEdits));
+        objectWrites.set(container, assignments.sort(compareEdits));
       }
       arrayReaders.clear();
     }
