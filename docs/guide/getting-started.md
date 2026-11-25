@@ -1,26 +1,43 @@
 ---
-description: Install test-inventory and list the tests of a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test or Bun suite as JSON, without running them.
+description: Try test-inventory without installing, scan a Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test or Bun suite, and query skipped or affected tests.
 ---
 
 # Getting started
 
-test-inventory reads JavaScript and TypeScript test files and lists the tests in them as JSON. It parses the code
-and never runs it. You need no browsers, build or additional runner setup. This walkthrough scans an existing
-project, checks the result and lists tests marked skip or fixme.
+test-inventory reads JavaScript and TypeScript test files and configs from source without running the suite. You need
+Node.js 22.12 or newer (Linux, macOS or Windows, x64 or Arm) and an existing test suite.
 
-You need Node.js 22.12 or newer and an existing JavaScript or TypeScript test suite. The scanner runs on Linux, macOS
-and Windows, on x64 and Arm. For an AI client, use the [MCP setup](/guide/agents) instead.
+Looking for another entry point? Use the [GitHub Action](/guide/ci#comment-on-pull-requests) for automatic pull request
+comments or the [MCP server](/guide/agents) for AI coding clients.
+
+## Try it without installing
+
+From your project folder (where `package.json` lives), list tests marked skip or fixme with their conditions and reasons:
+
+```sh
+npx test-inventory --state skip --state fixme --fields fullName,state,condition,reason --pretty
+```
+
+Or print the runner command for tests affected by files changed on your branch:
+
+```sh
+git diff --name-only origin/main... | npx test-inventory --related - --format commands
+```
+
+`npx` may ask to download the package on first run. The scanner detects your runner and reads its config automatically.
+If your project uses several runners, add `--framework <name>`.
 
 ## Choose your framework
 
-Start with a guide for your test runner. Each includes installation, a scan command, a real example and relevant
-limitations. Using two runners? Open each guide separately; they share the same output format.
+For runner-specific commands, examples, syntax and limits, jump straight to your runner's guide:
 
 [Playwright](/frameworks/playwright) · [Vitest](/frameworks/vitest) · [Jest](/frameworks/jest) · [Mocha](/frameworks/mocha) · [Jasmine](/frameworks/jasmine) · [Cypress](/frameworks/cypress) · [WebdriverIO](/frameworks/webdriverio) · [node:test](/frameworks/node) · [Bun](/frameworks/bun)
 
-[All framework guides](/frameworks/) also explains mixed-runner projects. The common steps follow below.
+[All framework guides](/frameworks/) also covers mixed-runner repositories.
 
 ## Install
+
+Add `test-inventory` as a dev dependency when you want reproducible scans in CI, package scripts or Node.js code:
 
 <!-- #region install -->
 
@@ -30,17 +47,16 @@ npm install --save-dev test-inventory
 
 <!-- #endregion install -->
 
-## Scan your project
+## Save a full inventory
 
-From the folder containing the project's `package.json`, run:
+To save the full inventory to disk for querying, diffing or CI checks:
 
 ```sh
 npx test-inventory --pretty --output inventory.json
 ```
 
-The scanner detects the runner and reads supported config settings to choose files. If the project has several
-runners, pass `--framework`. You can also provide quoted globs to choose files explicitly. The [framework guides](/frameworks/) provide explicit commands for each runner.
-For example, a Playwright project with specs in `tests/`:
+You can also pass quoted globs and `--framework` to pick files explicitly. For example, a Playwright project with specs
+in `tests/`:
 
 <!-- scan: trading-web -->
 
@@ -48,55 +64,38 @@ For example, a Playwright project with specs in `tests/`:
 npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
 ```
 
-To try the package without installing it first, run either command with `npx`; it may ask to download the package.
-The scan writes `inventory.json`, replacing an existing output file once the new output is complete. It does not run
-the tests or change their source files.
+The scan replaces `inventory.json` once the new output is complete. It never runs your tests or changes source files.
 
 ## Check the result
 
 <!-- #region check-result -->
 
-Print the counts and diagnostics from the saved file:
+Print the summary counts and any diagnostics from the saved file:
 
 ```sh
 node -e "const i = require('./inventory.json'); console.log(i.summary); console.log(i.diagnostics)"
 ```
 
-For matching tests, `summary.fileCount` and `summary.testCount` should be greater than zero. Review diagnostics
-even when the command exits with 0: errors can mean tests are missing. If the result is empty or unexpected,
-use [troubleshooting](/guide/troubleshooting).
+Before acting on the numbers:
 
-The inventory describes source declarations, not execution results. Conditional skips are not proof that a run
-skipped the test. Loops and tables are one record by default; supported cases can be expanded with `--expand-cases`.
-Expected-to-fail tests execute and check for failure; they are not disabled tests.
-
-Tests created by unreadable helpers can be missing without a diagnostic. A dependency hash does not prove complete
-coverage of runtime dependencies. Read the [shared limits](/guide/limits) before using scans to make CI decisions.
+- **Check `diagnostics` even when the command exits with 0:** errors mean files failed to parse, imports could not be
+  followed, or config settings were unreadable, so tests may be missing. Use [troubleshooting](/guide/troubleshooting)
+  if counts look empty or unexpected.
+- **Declarations are not execution results:** a conditional skip keeps its condition as source text and does not prove
+  a run skipped the test. `expectedToFail` tests still run.
+- **Loops and tables count as one record by default:** pass `--expand-cases` to list each known case separately. Read
+  [key concepts](/guide/concepts) and [shared limits](/guide/limits) before gating CI on a scan.
 
 <!-- #endregion check-result -->
 
-## Scan a Playwright suite
-
-Continue with the [Playwright guide](/frameworks/playwright), including fixtures and conditional fixme states.
-
-### Gherkin features with playwright-bdd
-
-Use the [generated-feature example](/frameworks/playwright#gherkin-features-with-playwright-bdd).
-
-## Scan a Vitest suite
-
-Continue with the [Vitest guide](/frameworks/vitest), including in-source tests, tables and config limits.
-
-## Scan a Jest suite
-
-Continue with the [Jest guide](/frameworks/jest), including config presets and tests generated by helpers.
+<span id="scan-a-playwright-suite"></span><span id="gherkin-features-with-playwright-bdd"></span><span id="scan-a-vitest-suite"></span><span id="scan-a-jest-suite"></span>
 
 ## Supported runners
 
-These are minimum supported versions. [Compared with the runners](/guide/runners#checked-in-ci) lists the specific
-versions checked in CI; it does not claim every later release has been tested.
+Minimum supported versions (see [checked in CI](/guide/runners#checked-in-ci) for the exact versions compared against
+real runners on every pull request):
 
-- [Playwright](/frameworks/playwright): Playwright 1.31 or newer.
+- [Playwright](/frameworks/playwright): Playwright 1.31 or newer (includes [Gherkin features with playwright-bdd](/frameworks/playwright#gherkin-features-with-playwright-bdd)).
 - [Vitest](/frameworks/vitest): Vitest 1.0 or newer.
 - [Jest](/frameworks/jest): Jest 27.0 or newer.
 - [Mocha](/frameworks/mocha): Mocha 10.0 or newer.
@@ -108,12 +107,8 @@ versions checked in CI; it does not claim every later release has been tested.
 
 ## Next
 
-- [One task, three interfaces](/guide/workflows): a complete downloadable script, CLI query and MCP workflow.
-
-- [Examples](/guide/examples) for end-to-end tests, a Node service, React, Vue, browser mode, a monorepo, Jest, Mocha,
-  Jasmine, Cypress, WebdriverIO, node:test, Bun and Puppeteer.
-- The [command line](/guide/cli) options.
-- [Query recipes](/guide/recipes) and [CI recipes](/guide/ci).
-- The [MCP server and other ways in](/guide/agents) for AI agents.
-- Every key in the [output](/reference/output).
-- The [diagnostics](/reference/diagnostics): what the scan could not read, and why.
+- [One task, three interfaces](/guide/workflows): run the same query through the CLI, a library script and MCP.
+- [Query recipes](/guide/recipes) and [CI recipes](/guide/ci) (including the [GitHub Action](/guide/ci#comment-on-pull-requests)).
+- [Compare inventories](/guide/diff): diff saved scans across commits or pull requests.
+- [AI agents](/guide/agents): connect `test-inventory-mcp` to Claude Code, Cursor or VS Code.
+- [Examples](/guide/examples) across all 9 runners, [command line reference](/guide/cli), [output reference](/reference/output) and [diagnostics](/reference/diagnostics).

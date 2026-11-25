@@ -1,47 +1,59 @@
 # <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Huldoser/test-inventory/main/docs/public/logo-dark.svg"><img src="https://raw.githubusercontent.com/Huldoser/test-inventory/main/docs/public/logo-light.svg" alt="test-inventory" height="48"></picture>
 
-List tests, their declared states and skip reasons without running the suite.
+Find skipped tests, catch pull requests that weaken your test suite, and get the runner commands for tests a git diff can affect, without running the suite.
 
-test-inventory reads Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun files and writes
-JSON. Each test record includes its title, location, suite, tags, annotations and state. Conditional states keep the
-condition as source text; they do not establish what happened in a particular run.
+test-inventory parses Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun test files and configs from source. It needs no browsers, no build and no runner setup. CI checks the output against all 9 runners and scans 24 public repositories (69,127 tests across 7,095 files) on every pull request with zero parse errors: see [real projects](https://huldoser.github.io/test-inventory/guide/real-projects) and [runner comparisons](https://huldoser.github.io/test-inventory/guide/runners).
 
-Stable ids and code hashes help compare revisions and find tests a change can affect. The scanner reads supported
-runner configs and project imports without executing them. It needs no browsers, build or additional runner setup.
-Check diagnostics before treating a scan as complete; [known limits](https://huldoser.github.io/test-inventory/guide/limits)
-describes what static analysis can miss.
+Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/) · [Framework guides](https://huldoser.github.io/test-inventory/frameworks/)
 
-Compare saved scans with `test-inventory diff old.json new.json`: additions, removals, renames and moves, changes to
-code, dependencies, state and tags, as JSON or Markdown. See [Compare inventories](https://huldoser.github.io/test-inventory/guide/diff).
+## Three ways to use it
 
-Documentation: [huldoser.github.io/test-inventory](https://huldoser.github.io/test-inventory/)
+| Tool                                                                                           | Best for                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **CLI and library** (`test-inventory`)                                                         | Audit skipped tests, get runner commands for a git diff, compare saved scans, or read test metadata as JSON. |
+| **GitHub Action** ([test-inventory-action](https://github.com/Huldoser/test-inventory-action)) | Comment on pull requests when tests won't run, get turned off, are removed, or lose their assertions.        |
+| **MCP server** ([test-inventory-mcp](https://github.com/Huldoser/test-inventory-mcp))          | Let Claude Code, Cursor, VS Code and other AI clients query tests and get run commands without running them. |
 
-For a focused walkthrough, choose a [framework guide](https://huldoser.github.io/test-inventory/frameworks/).
-Each covers its runner's scan commands, examples, syntax and limitations.
+## Try it in 5 seconds
 
-## Install
+Run directly in any JavaScript or TypeScript project with Node.js 22.12 or newer. No install needed, and the scanner detects the runner and reads its config automatically.
 
-```sh
-npm install --save-dev test-inventory
-```
-
-Node.js 22.12 or newer, on Linux, macOS or Windows. Playwright 1.31 or newer, Vitest 1.0 or newer, Jest 27.0 or newer,
-Mocha 10.0 or newer, Jasmine 3.0 or newer, Cypress 10.0 or newer, WebdriverIO 7.0 or newer, node:test 22.0 or newer,
-Bun 1.2.23 or newer.
-
-## Command line
-
-<!-- scan: trading-web -->
+List skipped and fixme tests with their conditions and reasons:
 
 ```sh
-npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
+npx test-inventory --state skip --state fixme --fields fullName,state,condition,reason --pretty
 ```
 
-Without the glob, the test files are those the project's Playwright, Vitest, Jest, Mocha, Jasmine, Cypress or
-WebdriverIO configs run, or for node:test and Bun the files `node --test` and `bun test` run. A package script running
-`playwright test` can also discover specs without a config. During discovery, simple file arguments in Jest, Vitest
-and Playwright package scripts narrow the files collected by those commands. Without `--framework`, the
-scan takes the runner the project uses, and asks for `--framework` when it uses several.
+Print the exact runner command for tests affected by your current branch:
+
+```sh
+git diff --name-only origin/main... | npx test-inventory --related - --format commands
+```
+
+```text
+npx playwright test tests/orders/limit-orders.spec.ts tests/orders/market-orders.spec.ts tests/orders/order-lifecycle.spec.ts tests/portfolio.spec.ts --config playwright.config.ts --project chromium webkit
+```
+
+Compare two saved scans to track additions, removals, renames, moves and newly skipped tests:
+
+```sh
+npx test-inventory diff base.json head.json --format markdown
+```
+
+In a project with several runners, pass `--framework <name>`. Pass quoted globs to select specific files instead of reading runner configs, or see your [framework guide](https://huldoser.github.io/test-inventory/frameworks/).
+
+## Pull request comments (GitHub Action)
+
+[Test changes by test-inventory](https://github.com/marketplace/actions/test-changes-by-test-inventory) compares a pull request's base and head from source and comments when tests need a look before merging. It needs no project install, works on pull requests from forks and never fails a check.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Huldoser/test-inventory-action/main/docs/comment-dark.png">
+  <img alt="Pull request comment showing 5 tests that need a look: 2 won't run, 1 is turned off, 1 was removed and 1 has no assertions left, each linked to its line" src="https://raw.githubusercontent.com/Huldoser/test-inventory-action/main/docs/comment-light.png" width="820">
+</picture>
+
+Setup uses two short workflows in [test-inventory-action](https://github.com/Huldoser/test-inventory-action#usage).
+
+## What the JSON looks like
 
 For this spec from a trading app's UI tests, `tests/alerts.spec.ts`:
 
@@ -67,7 +79,15 @@ test.describe('price alerts', () => {
 });
 ```
 
-the first test's record includes:
+Running a scan:
+
+<!-- scan: trading-web -->
+
+```sh
+npx test-inventory "tests/**/*.spec.ts" --framework playwright --output inventory.json
+```
+
+produces a deterministic record for each test, including:
 
 <!-- output: trading-web -->
 
@@ -87,42 +107,46 @@ the first test's record includes:
 }
 ```
 
-The output also has a `summary` with counts, a record for each describe, and `diagnostics` that point at code the
-scan could not read and values it could not work out. Filters such as `--state skip`, `--tag @smoke` and
-`--grep "limit order"` keep only some tests, `--fields fullName,reason` keeps only some keys, `--format jsonl`
-writes one record per line, and `--format commands` prints the command lines that run the tests kept.
+Each scan also includes `summary` counts, `suites`, `configs`, `files` and `diagnostics`. Ids stay stable when tests move lines, and `bodyHash` / `dependencyHash` support [inventory diffs](https://huldoser.github.io/test-inventory/guide/diff) and `--related` filtering. Use `--state`, `--tag`, `--grep`, `--fields` and `--format jsonl` or `--format commands` to narrow the output; see the [CLI reference](https://huldoser.github.io/test-inventory/guide/cli).
 
-## Library
+## Install and library
+
+For CI, scripts or programmatic use, install as a dev dependency:
+
+```sh
+npm install --save-dev test-inventory
+```
 
 ```ts
-import { scan } from 'test-inventory';
+import { filterInventory, runCommands, scan } from 'test-inventory';
 
 const inventory = await scan({ patterns: ['tests/**/*.test.ts'], framework: 'vitest' });
 const todo = inventory.tests.filter((test) => test.isTodo).map((test) => test.fullName);
+const commands = runCommands(filterInventory(inventory, { related: ['src/orders/pricing.ts'] }));
 ```
 
-`scanSource()` scans the code of one file without touching the disk. The JSON Schema of the output is exported as
-`test-inventory/schema/v1.json`, so a reader can pin the version of the format it understands.
+`scanSource()` scans one file in memory without reading from disk, and `diffInventories()` compares two saved scans. JSON Schemas are exported as `test-inventory/schema/v1.json` and `test-inventory/schema/diff-v1.json`.
 
-## AI agents
+**Requirements:** Node.js 22.12 or newer on Linux, macOS or Windows. Supports Playwright 1.31+, Vitest 1.0+, Jest 27.0+, Mocha 10.0+, Jasmine 3.0+, Cypress 10.0+, WebdriverIO 7.0+, node:test 22.0+ and Bun 1.2.23+.
 
-[test-inventory-mcp](https://github.com/Huldoser/test-inventory-mcp) is an MCP server built on test-inventory: agents
-in Claude Code, Cursor, VS Code and other MCP clients ask it which tests a project has without running them. The
-[AI agents](https://huldoser.github.io/test-inventory/guide/agents) page has the setup and the other ways in.
+## AI agents (MCP)
+
+[test-inventory-mcp](https://github.com/Huldoser/test-inventory-mcp) gives coding agents structured tools to summarize tests, inspect skip reasons and get run commands for changed files.
+
+In Claude Code, from your project folder:
+
+```sh
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@latest
+```
+
+Setup for Cursor, VS Code and other clients is in [test-inventory-mcp](https://github.com/Huldoser/test-inventory-mcp#setup) and the [AI agents guide](https://huldoser.github.io/test-inventory/guide/agents).
 
 ## Limits
 
-- Config files are read as code, never run, and only in part: settings computed at run time, as from `process.env`,
-  can't be worked out. Settings such as `workers` and config `use` are not interpreted as test record settings.
-  For Playwright and Vitest project lists built at runtime, discovery keeps candidates from readable top-level file settings,
-  with `projects: null` and an error that says tests may be missing. Project overrides can include or exclude files.
-- Values from installed packages are not worked out; values from the project's own files are. A tag or title that
-  comes from a package gets a diagnostic that names the module. A custom `test` object is followed through as many files as it takes, through relative
-  paths, config and tsconfig path aliases, `#` imports in package.json and workspace packages; one that can't be followed gets
-  an error. Tests declared in helper functions are listed at each call, also for helpers imported from other files.
-- A test in a loop or a `.each` table is one record, with `isInLoop` or `caseCount`; the runner creates one test per
-  iteration or case. `--expand-cases` lists each case whose values the scan can work out as its own record.
-- Conditions such as `browserName === 'webkit'` are kept as source text, not evaluated.
+- **Static declarations, not execution results:** the scanner reads code and configs without running them, so runtime conditions like `browserName === 'webkit'` are kept as source text and runtime-computed configs can leave values unknown.
+- **Project imports only:** local files, tsconfig/config aliases, `#` imports and workspace packages are followed; installed packages in `node_modules` are not.
+- **Declarations by default:** loops and `.each` tables are one record with `caseCount` unless you pass `--expand-cases`.
+- **Check `diagnostics`:** errors indicate parse failures, unresolved imports or unreadable config settings where tests may be missing. See [known limits](https://huldoser.github.io/test-inventory/guide/limits).
 
 ## Support
 

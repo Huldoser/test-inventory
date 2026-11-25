@@ -26,14 +26,15 @@ before scanning private code.
 In Claude Code, from the project folder:
 
 ```sh
-claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@latest --framework playwright
+claude mcp add --scope project test-inventory -- npx -y test-inventory-mcp@latest
 ```
 
-`--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. It scans the test
-files the project's configs run, with the runner `--framework` names: `playwright`, `vitest`, `jest`, `mocha`,
-`jasmine`, `cypress`, `webdriverio`, `node` or `bun`. Without `--framework`, it uses the runner the project uses, and an
-agent names one when the project has several. Globs pick the files instead, as on the [command line](/guide/cli). The
-setup for Cursor and VS Code, the options and the security notes are in the server's [README](https://github.com/Huldoser/test-inventory-mcp#setup).
+`--scope project` saves the server in `.mcp.json`, so everyone who works on the project gets it. By default it detects
+the runner your project uses (`playwright`, `vitest`, `jest`, `mocha`, `jasmine`, `cypress`, `webdriverio`, `node` or
+`bun`) and scans the files its configs run. In a project with several runners, pass `--framework <name>` or let the
+agent specify `framework` per call. Globs pick files explicitly, as on the [command line](/guide/cli). The setup for
+Cursor and VS Code, the options and the security notes are in the server's
+[README](https://github.com/Huldoser/test-inventory-mcp#setup).
 
 ### Verify and try it
 
@@ -44,6 +45,8 @@ Open the client's MCP server list and confirm that `test-inventory` is connected
 The agent should call `test_summary` and report counts for the intended project and framework. Next, try:
 
 > List tests marked skip or fixme, with their conditions and reasons.
+
+> Which tests should I run after changing `pages/orders-blotter.ts`?
 
 Conditional states do not prove a test was skipped in a run, and expected-to-fail tests execute. See
 [key concepts](/guide/concepts) before treating these counts as execution results. If tools are missing or a path is
@@ -56,9 +59,7 @@ refused, use the server's [troubleshooting steps](https://github.com/Huldoser/te
 | `get_tests`        | Every key of up to 20 tests by id, with the diagnostics about them; as many as fit in one answer, and the other ids in `remaining`.              |
 | `scan_diagnostics` | What the scan could not read, such as a file that failed to parse.                                                                               |
 | `diff_inventories` | Changes between two complete saved JSON scans: additions, removals, renames, moves, states, tags, code and dependencies, with matching evidence. |
-
-With MCP 0.12.0 or later, call `get_run_commands` with `{"related":["pages/orders-blotter.ts"]}` to get the runner command, config, projects and test files for that change.
-On MCP 0.11, use `find_tests` with the same `related` list to see the affected tests.
+| `get_run_commands` | Runner commands for the test files a change (`related`) can affect, with their configs, projects, files and runner caveats.                      |
 
 The tests have the keys of the [output](/reference/output). Each scan-tool call reads the files again, so answers follow the
 agent's edits. `related` takes the files a change touches, as `git diff --name-only` writes them, and keeps the tests

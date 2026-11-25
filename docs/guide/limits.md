@@ -80,26 +80,10 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 });
 ```
 
-A value from an installed package, or built with any other call, is not. Nor is a constant the module changes while
-it loads, as in `WATCHED.push('MSFT')`. Writes through a property alias or a destructured binding also count,
-including optional chains and references selected by conditional or logical expressions. A write to a local
-variable affects the declaration in its scope. Other declarations can reuse its name. For a top-level reassignment
-such as `desk = evening.desk`, a later write through `desk` can change the evening desk. An alias saved before
-the reassignment still points to the earlier desk. A helper can also change a title by writing to an object
-passed as an argument, including through a destructured parameter, a forwarded argument, or a reference
-returned by a synchronous local helper. Nested calls can pass the same object back through several returns. If a helper returns an array element, calls made before and after an edit can return different objects.
-A local helper invoked with `call`, `apply`, or the global `Reflect.apply` can change its arguments or its explicit
-`this` receiver. An arrow function keeps its enclosing receiver. The target, receiver and arguments of `Reflect.apply` can come from a spread array literal or a local constant that holds the array. The scan follows indexed assignments to those arrays before the call, including assignments made when a module-level call passes an array through local helpers. A forwarded setter uses the array and row from the same outer call. A helper can also install or replace a method on an object supplied by its caller. Later calls on that object use the replacement. When a helper calls a function held in a module-level object or array supplied as an argument, the scan pairs that function with the other arguments from the same call. If the helper replaces that callback before calling it, edits the replacement makes to another supplied array also count. Two calls to the same forwarding helper can select different callbacks when a write separates them. This includes a callback replacing itself on the first call. A helper that saves a row before a slot is replaced keeps its reference to the earlier row. When a helper assigns twice to the same slot in sequence, the last assignment supplies the value. If it first waits at an `await`, a later assignment can affect a read once module evaluation has yielded. Array spread copies the slots at the time the spread runs. Nested arrays in those slots keep their original identity. For local arrays, the scan follows edits such as `push`, `shift`, and `splice` when the affected positions are known. This includes a helper moving or inserting elements in the array passed to it. An unknown offset or a conditional edit can leave several possible values for a slot.
-When a helper receives an array element, the scan follows the element at the time the argument is evaluated. For example, a bound argument keeps the selected object even if a later edit shifts the array.
-A bound local function keeps its first receiver and prepends the arguments supplied to `bind` when it runs.
-When a local helper returns a function, a collection-time call to that function uses the bindings from the helper invocation that created it. A returned function can edit an array supplied to that invocation, including through the enclosing receiver of an arrow function. If a factory could be an unknown function, the scan keeps the earlier contents of the array as another possibility. The scan also follows local methods selected by property name, array index, or constant destructuring. Reading a local getter or assigning to a local setter can change the object used for a title.
-Calls through a local constant such as `const publish = register` use the original helper and its declaration scope.
-If a local helper invokes a function passed to it, the scan pairs that function with the arguments from the same call. A callback selected by a conditional
-can have several possible targets. If the selected value could be `undefined`, the parameter default can run too.
-For a shallow copy, changing a shared child can affect the source, while replacing a property on the copy leaves
-the source value intact. A function parameter or loop variable the code assigns to also stays unknown, since the
-declared value may not be the one the runner reads. The record then keeps what it can and a
-diagnostic says so, naming the module when the value comes from an import:
+A value from an installed package, built with an unsupported call, or mutated while the module loads (such as
+`WATCHED.push('MSFT')`, a reassigned loop variable or parameter, or a helper mutating an object passed to it) stays
+unknown, since the declared value may not match what the runner reads. The record keeps what it can and reports a
+diagnostic naming the module when the value comes from an import:
 
 ```ts
 import { TAGS } from '@trading/qa-tags';
@@ -108,6 +92,40 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
   // listed without the tag, with an unresolved-tag warning
 });
 ```
+
+::: details Collection-time mutations, aliases and callbacks
+
+- **Aliases, scopes and shallow copies:** Writes through a property alias or destructured binding count, including
+  optional chains and references selected by conditional or logical expressions. A write to a local variable affects the
+  declaration in its scope; other declarations can reuse its name. For a top-level reassignment such as
+  `desk = evening.desk`, a later write through `desk` can change `evening.desk`, while an alias saved before the
+  reassignment still points to the earlier desk. For a shallow copy, changing a shared child can affect the source,
+  while replacing a property on the copy leaves the source value intact.
+- **Helpers, receivers and `Reflect.apply`:** A helper can change a title by writing to an object passed as an argument
+  (including through a destructured parameter, a forwarded argument, or a reference returned by a synchronous local
+  helper, across nested returns). Calls through a local constant such as `const publish = register` use the original
+  helper and its declaration scope. A local helper invoked with `call`, `apply`, or `Reflect.apply` can change its
+  arguments or its explicit `this` receiver; an arrow function keeps its enclosing receiver. The target, receiver and
+  arguments of `Reflect.apply` can come from a spread array literal or a local constant holding the array, including
+  indexed assignments made before the call or through local helpers. A bound local function keeps its first receiver and
+  prepends arguments supplied to `bind`.
+- **Arrays and element timing:** For local arrays, the scan follows edits such as `push`, `shift`, `splice` and slot
+  replacements when affected positions are known (including through helper calls). An unknown offset or conditional edit
+  can leave several possible values for a slot. Array spread copies slots at spread time while nested arrays keep their
+  original identity. When a helper receives or returns an array element, the scan tracks the element at argument
+  evaluation time (for example, a bound argument keeps its selected object even if a later edit shifts the array). When
+  a helper assigns twice to the same slot in sequence, the last assignment wins; if it yields at `await` first, a later
+  assignment can affect the read.
+- **Callbacks, getters, setters and returned functions:** A helper can install or replace a method on a caller-supplied
+  object; later calls use the replacement. When a local helper invokes a callback passed to it or held in a supplied
+  module-level object or array, the scan pairs that function with the arguments from the same call, tracks edits made by
+  replaced callbacks (including self-replacing callbacks and parameter defaults when the selection can be `undefined`),
+  and preserves earlier references saved before a slot replacement. When a local helper returns a function, a
+  collection-time call uses the bindings from the invocation that created it (retaining earlier array contents if the
+  factory could be unknown). The scan also follows local methods selected by property name, array index or constant
+  destructuring, as well as local getters and setters.
+
+:::
 
 Values, a custom `test` object, and a function that declares tests, as described under
 [tests in helper functions](#tests-in-helper-functions), are followed through imports found through:
