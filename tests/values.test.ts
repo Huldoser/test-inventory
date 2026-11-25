@@ -127,6 +127,8 @@ describe('Values', () => {
     ['Object.keys({ buy: 1, sell: 2 });', ['buy', 'sell']],
     ["Object.values({ buy: 'B', sell: 'S' });", ['B', 'S']],
     ['Object.entries({ buy: 1 });', [['buy', 1]]],
+    ["Object.keys({ ...{ ['__proto__']: null }, desk: 'cash' });", ['__proto__', 'desk']],
+    ["Object.keys({ __proto__: 'desk', fee: 7 });", ['fee']],
     ["JSON.stringify({ symbol: 'AAPL', qty: 10 });", '{"symbol":"AAPL","qty":10}'],
     ['String(42.5);', '42.5'],
     ["'buy'.toUpperCase() + 'SELL'.toLowerCase() + ' gtc '.trim();", 'BUYsellgtc'],

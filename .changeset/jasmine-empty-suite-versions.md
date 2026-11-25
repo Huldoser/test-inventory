@@ -37,3 +37,4 @@ Choose the correct title branch when a Jasmine registration returns a suite, spe
 Format Jasmine array titles containing known primitive values or nested arrays.
 Preserve holes and evaluated helper or spread elements in Jasmine array descriptions.
 Follow standard string, array and object methods returned from Jasmine registration helpers.
+Format ordinary object descriptions in Jasmine, including data objects inside arrays and object spreads.

@@ -12,23 +12,14 @@ import { literalArguments } from '../mutation-references.ts';
 import { isValueOperation, operationValue, type ParameterStep, type Resolved, type Value } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
-/** Constructing these values cannot call user code or throw during registration. */
-function inert(expression: Expression): boolean {
-  const node = unwrap(expression);
+function completesWithoutThrowing(node: Expression): boolean {
   if (node.type === 'ClassExpression') return !node.superClass && !node.decorators.length && !node.body.body.length;
-  if (node.type === 'ArrayExpression')
-    return node.elements.every((value) => !value || (value.type !== 'SpreadElement' && inert(value)));
-  if (node.type === 'ObjectExpression')
-    return node.properties.every((p) => p.type === 'Property' && !p.computed && inert(p.value));
+  if (node.type === 'AwaitExpression') {
+    // Await reads "then" from objects, including regex literals. A primitive literal always fulfills.
+    const operand = unwrap(node.argument);
+    return operand.type === 'Literal' && !('regex' in operand);
+  }
   return node.type === 'Literal' || isFunctionNode(node);
-}
-
-function completesWithoutThrowing(expression: Expression): boolean {
-  const node = unwrap(expression);
-  if (node.type !== 'AwaitExpression') return inert(node);
-  // Await reads "then" from objects, including regex literals. A primitive literal always fulfills.
-  const operand = unwrap(node.argument);
-  return operand.type === 'Literal' && !('regex' in operand);
 }
 
 /** Runtime function length excludes a TypeScript this parameter and ends at the first default or rest parameter. */
@@ -43,10 +34,10 @@ type Completion = Flow | { returned: Resolved };
 const omitted: Resolved = { ok: true, value: undefined };
 const objectResult: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true };
 
-/** Nested arrays of primitives use the standard comma-separated description without calling user code. */
+/** Format descriptions whose conversion uses only standard methods, including each element in a nested array. */
 function descriptionText(value: Value): string | undefined {
   if (value === null || typeof value !== 'object') return String(value ?? '');
-  if (!Array.isArray(value)) return undefined;
+  if (!Array.isArray(value)) return value.toString === Object.prototype.toString ? '[object Object]' : undefined;
   const parts: string[] = [];
   for (const element of value) {
     const text = descriptionText(element);
@@ -458,6 +449,27 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   function expression(node: Expression, scopes: readonly Node[], children: Children): Flow {
     const value = unwrap(node);
     if (value.type === 'ArrayExpression') return elements(value, scopes, children);
+    if (value.type === 'ObjectExpression') {
+      for (const property of value.properties) {
+        if (property.type === 'SpreadElement') {
+          const outcome = expression(property.argument, scopes, children);
+          if (outcome !== 'next') return outcome;
+          // Copying a property may invoke a getter on a source whose contents are unknown.
+          if (!valueOf(property.argument, scopes).ok) return 'unknown';
+        } else {
+          if (property.computed) {
+            const key = property.key as Expression;
+            const outcome = expression(key, scopes, children);
+            if (outcome !== 'next') return outcome;
+            const resolved = valueOf(key, scopes);
+            if (!resolved.ok || (resolved.value !== null && typeof resolved.value === 'object')) return 'unknown';
+          }
+          const outcome = expression(property.value, scopes, children);
+          if (outcome !== 'next') return outcome;
+        }
+      }
+      return 'next';
+    }
     if (value.type === 'CallExpression') return call(value, scopes, children);
     if (value.type === 'UnaryExpression' && value.operator === 'void')
       return expression(value.argument, scopes, children);

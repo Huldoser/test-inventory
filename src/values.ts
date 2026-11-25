@@ -424,12 +424,14 @@ export class Values {
       }
       case 'ObjectExpression': {
         const object: Record<string, Value> = {};
+        const define = (key: string, value: Value) =>
+          Object.defineProperty(object, key, { value, enumerable: true, configurable: true, writable: true });
         for (const property of expression.properties) {
           if (property.type === 'SpreadElement') {
             const spread = this.resolve(property.argument, scopes);
             if (!spread.ok) return spread;
             if (!isPlainObject(spread.value)) return UNRESOLVED;
-            Object.assign(object, spread.value);
+            for (const [key, value] of Object.entries(spread.value)) define(key, value);
             continue;
           }
           if (property.kind !== 'init' || property.method) return UNRESOLVED;
@@ -438,7 +440,10 @@ export class Values {
           if (!isKey(key.value)) return UNRESOLVED;
           const value = this.resolve(property.value, scopes);
           if (!value.ok) return value;
-          object[String(key.value)] = value.value;
+          // Only an ordinary __proto__: initializer sets the prototype. Computed keys and spreads define own data.
+          if (key.value === '__proto__' && !property.computed && !property.shorthand) {
+            if (value.value === null || typeof value.value === 'object') Object.setPrototypeOf(object, value.value);
+          } else define(String(key.value), value.value);
         }
         return { ok: true, value: object };
       }

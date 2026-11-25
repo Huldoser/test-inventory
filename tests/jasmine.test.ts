@@ -416,6 +416,44 @@ catch { it('recovers the market', () => {}); }`);
     expect(invalid.tests.map((test) => test.title)).toContain('recovers the market');
   });
 
+  it('formats Jasmine descriptions that inherit ordinary object conversion', () => {
+    for (const [title, expected] of [
+      ["({desk: 'cash'})", '[object Object]'],
+      ["({__proto__: {desk: 'cash'}})", '[object Object]'],
+      ["({['__proto__']: null})", '[object Object]'],
+      ["({...{desk:'cash'}})", '[object Object]'],
+      ['[{}, {valueOf: null}]', '[object Object],[object Object]'],
+    ]) {
+      const scan = scanJasmine(`function title(){return ${title};}
+try { describe(title(), () => it(${title}, () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(
+        scan.tests.map((t) => t.fullName),
+        title,
+      ).toEqual([expected + ' > ' + expected]);
+    }
+  });
+
+  it('keeps Jasmine recovery when building an object description can throw', () => {
+    for (const title of [
+      "({ ...{get fee(){ throw Error('closed'); }} })",
+      '({ [closed()]: 7 })',
+      '({ fee: closed() })',
+      '({ ...closed() })',
+    ]) {
+      const scan = scanJasmine(`function closed(){throw Error('closed');}
+try { describe(${title}, () => it('opens the desk', () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(testNamed(scan, 'recovers the market').state, title).toBe('active');
+    }
+    for (const title of ['({[closed()]: 7})', '({fee: closed()})']) {
+      const scan = scanJasmine(`function closed(){throw Error('closed');}
+function title(){try { return ${title}; } catch { return 'closed market'; }}
+it(title(), () => {});`);
+      expect(onlyTest(scan).title, title).toBe('closed market');
+    }
+  });
+
   it('uses standard method results returned from a Jasmine title helper', () => {
     for (const [title, expected] of [
       ["['cash', 'desk'].join(' ')", 'cash desk'],
