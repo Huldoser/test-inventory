@@ -345,6 +345,65 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('stops at a refused Jasmine hook and counts only hooks that completed registration', () => {
+    for (const hook of ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const) {
+      for (const args of [
+        '',
+        '42',
+        'null',
+        '{}',
+        'function* quotes() {}',
+        'async function* quotes() {}',
+        '() => {}, 2147483648',
+        "it('records a quote', () => {})",
+      ]) {
+        const scan = scanJasmine(
+          `try { ${hook}(${args}); it('continues registration', () => {}); }
+          catch { it('recovers the feed', () => {}); }`,
+          { frameworkVersion: '7.0.2' },
+        );
+        expect(testNamed(scan, 'continues registration').state, hook + args).toBe('notLoaded');
+        const recovery = testNamed(scan, 'recovers the feed');
+        expect([recovery.state, recovery.hooks[hook]]).toEqual(['active', 0]);
+        expect(codes(scan)).toContain('invalid-hook');
+        if (args.startsWith('it(')) expect(testNamed(scan, 'records a quote').state).toBe('active');
+      }
+    }
+  });
+
+  it('accepts Jasmine hook callbacks with ignored extra arguments and checks timeouts from Jasmine 3.10', () => {
+    for (const [version, args, rejected] of [
+      ['3.9.0', '() => {}, 2147483648', false],
+      ['3.10.0', '() => {}, 2147483648', true],
+      ['7.0.2', 'async () => {}, "slow", 5', false],
+      ['7.0.2', 'class Quotes {}', false],
+      ['7.0.2', '() => {}, 0, it("registers a quote", () => {})', false],
+    ] as const) {
+      const scan = scanJasmine(
+        `try { beforeEach(${args}); it('continues registration', () => {}); }
+        catch { it('recovers the feed', () => {}); }`,
+        { frameworkVersion: version },
+      );
+      const next = testNamed(scan, 'continues registration');
+      expect(next.state, version + args).toBe(rejected ? 'notLoaded' : 'active');
+      expect(next.hooks.beforeEach).toBe(rejected ? 0 : 1);
+      expect(scan.tests.some((test) => test.title === 'recovers the feed')).toBe(rejected);
+    }
+  });
+
+  it('preserves the caller catch when a Jasmine hook timeout can throw during iteration or coercion', () => {
+    for (const limit of ['...readTimeouts()', '{ valueOf() { throw Error("quote unavailable"); } }']) {
+      const result = scanJasmine(`try { beforeEach(() => {}, ${limit}); }
+        catch { it('recovers the feed', () => {}); }`);
+      expect(testNamed(result, 'recovers the feed').state, limit).toBe('active');
+      expect(codes(result)).not.toContain('invalid-hook');
+    }
+    const result = scanJasmine(`try { beforeEach(() => {}, null); }
+      catch { it('recovers the feed', () => {}); } it('opens the desk', () => {});`);
+    expect(onlyTest(result).title).toBe('opens the desk');
+    expect(onlyTest(result).hooks.beforeEach).toBe(1);
+  });
+
   it('checks the parameters and body of each ordinary Jasmine helper call before collecting its catch', () => {
     for (const [parameters, body, args, recovery] of [
       ['bid = 5', 'return bid;', '', false],
@@ -1179,6 +1238,8 @@ finally { it('closes the ledger', () => {}); }`,
       "if (false) { quote(); } else { it('settles a fill', () => {}, 1000); }",
       "if (false) { throw Error('closed'); }",
       'function check() {} beforeEach(check, 1000); afterEach(() => {});',
+      "beforeEach(() => {}, 'slow');",
+      'beforeEach(() => {}, 10, 20);',
       "function register() { return it('prices a fill', () => {}); } register([1]);",
       "const register = () => it('prices a fill', () => {}); register();",
       'function register() { return; } register();',
@@ -1221,8 +1282,6 @@ finally { it('closes the ledger', () => {}); }`,
       'beforeEach(...hooks);',
       'beforeEach(42);',
       'beforeEach(function* quotes() {});',
-      "beforeEach(() => {}, 'slow');",
-      'beforeEach(() => {}, 10, 20);',
       "it('quotes', function* ticks() {});",
       "it('quotes', () => {}, 2147483648);",
       "it('quotes', () => {}, 1, 2);",

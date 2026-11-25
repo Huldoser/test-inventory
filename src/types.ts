@@ -61,6 +61,7 @@ export type DiagnosticCode =
   | 'duplicate-title'
   | 'duplicate-id'
   | 'internal-error'
+  | 'invalid-hook'
   | 'invalid-chain'
   | 'skip-without-body'
   | 'test-without-body'

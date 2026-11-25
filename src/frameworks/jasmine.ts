@@ -6,7 +6,6 @@ import { snippet } from '../source.ts';
 import type { DiagnosticCode, HookCounts } from '../types.ts';
 import {
   atLeast,
-  hookFunction,
   problem,
   readChain,
   readCount,
@@ -19,7 +18,7 @@ import {
   wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
-import { functionLength, isRuntimeFunction, registrationExit } from './jasmine-registration.ts';
+import { functionLength, isRuntimeFunction, jasmineHook, registrationExit } from './jasmine-registration.ts';
 
 const HOOKS = ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
@@ -85,7 +84,11 @@ export class JasmineAdapter extends SuiteAdapter {
   }
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
-    const fn = hookFunction(this.file, context.scopes, call.arguments);
+    const { status, fn } = jasmineHook(call.arguments, context.scopes, this.file);
+    if (status === 'callback' || status === 'timeout') {
+      const reason = status === 'callback' ? 'requires a non-generator function' : 'refuses a timeout above 2147483647';
+      return { kind: 'invalid', problem: this.refusal('invalid-hook', call, `${name}() ${reason}`, context) };
+    }
     // In `beforeAll` and `afterAll`, `pending()` is an error of the describe, and the specs keep the state they get.
     const testContext = name === 'beforeEach' || name === 'afterEach' ? IN_SPEC : null;
     return { kind: 'hook', name, fn, testContext, fixtures: [], takesAllFixtures: false };
