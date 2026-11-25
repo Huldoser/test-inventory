@@ -205,20 +205,21 @@ export class JasmineAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, () => declared);
     }
-    if (callback && declaresNothing(callback)) {
-      const refusal = this.refusal(
-        'describe-throws',
-        callback,
-        'The describe declares no spec or describe, which Jasmine refuses',
-        context,
-      );
-      return refused(call, refusal, context, () => declared);
-    }
-    if (callback && functionLength(callback) > 0) {
+    const plain = flags.size === 0;
+    if (callback && plain && functionLength(callback) > 0) {
       const refusal = this.refusal(
         'describe-throws',
         callback,
         'The describe callback takes arguments, which Jasmine refuses',
+        context,
+      );
+      return refused(call, refusal, context, () => declared);
+    }
+    if (callback && atLeast(this.file.version, 4, plain ? 0 : 5) && declaresNothing(callback)) {
+      const refusal = this.refusal(
+        'describe-throws',
+        callback,
+        'The describe declares no spec or describe, which Jasmine refuses',
         context,
       );
       return refused(call, refusal, context, () => declared);

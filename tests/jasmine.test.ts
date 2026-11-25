@@ -203,6 +203,36 @@ describe('greeks', () => {
     ]);
   });
 
+  it('applies the empty suite rule for the installed Jasmine version and suite form', () => {
+    for (const [frameworkVersion, refused] of [
+      ['3.99.1', []],
+      ['4.0.0', ['describe']],
+      ['4.4.0', ['describe']],
+      ['4.5.0', ['describe', 'xdescribe', 'fdescribe']],
+      ['7.0.2', ['describe', 'xdescribe', 'fdescribe']],
+    ] as const) {
+      for (const api of ['describe', 'xdescribe', 'fdescribe']) {
+        const scan = scanJasmine(
+          `const group = ${api}; group('closing auction', () => { beforeEach(() => {}); }); it('settles', () => {});`,
+          { frameworkVersion },
+        );
+        expect(codes(scan), `${frameworkVersion} ${api}`).toEqual(
+          refused.some((name) => name === api) ? ['describe-throws'] : [],
+        );
+      }
+    }
+  });
+
+  it('accepts an unused callback argument on a skipped or focused Jasmine suite', () => {
+    for (const api of ['xdescribe', 'fdescribe']) {
+      const result = scanJasmine(`${api}('closing auction', (venue) => {it('fills the order', () => {});});`);
+      expect(codes(result), api).toEqual([]);
+      expect(onlyTest(result).state).toBe(api === 'xdescribe' ? 'skip' : 'active');
+    }
+    const plain = scanJasmine("describe('closing auction', (venue) => {});");
+    expect(plain.diagnostics[0].message).toContain('takes arguments');
+  });
+
   it('reports a describe that declares nothing, which Jasmine refuses, but not one that calls a helper', () => {
     const inventory = scanJasmine(`
 describe('stress tests', () => {
