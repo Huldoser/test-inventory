@@ -8,7 +8,7 @@ import {
   unwrapChain,
   type FunctionNode,
 } from './ast.ts';
-import { changedReferences } from './mutation-references.ts';
+import { changedReferences, type ScopedValue } from './mutation-references.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -443,7 +443,7 @@ export class Values {
       const found = this.lookup(node.name, scopes);
       if (!found || seen.has(found.binding.declaration)) return null;
       seen.add(found.binding.declaration);
-      modified ||= this.changedAtLoad(found.scopes[0]).has(node.name);
+      modified ||= this.changedAtLoad(found.scopes[0], found.binding, node.name);
       inferred = node.name;
       scopes = found.scopes;
       const binding = found.binding;
@@ -545,7 +545,8 @@ export class Values {
     // `const fees = require('./fees')` holds the module's exports, as `import * as fees` does.
     const required = binding.imported === 'default' && binding.declaration.type === 'VariableDeclarator';
     if (binding.imported !== null && !required) return null;
-    if (required && this.changedAtLoad(scopes[0]).has(object.name)) return { ok: false, importedFrom: binding.source };
+    if (required && this.changedAtLoad(scopes[0], binding, object.name))
+      return { ok: false, importedFrom: binding.source };
     const key = expression.computed
       ? this.resolve(expression.property, scopes)
       : { ok: true as const, value: propertyName(expression) };
@@ -571,7 +572,11 @@ export class Values {
     for (;;) {
       if (object.type === 'Identifier') {
         const found = this.lookup(object.name, scopes);
-        if (!found || this.changedAtLoad(found.scopes[0]).has(object.name) || seen.has(found.binding.declaration))
+        if (
+          !found ||
+          this.changedAtLoad(found.scopes[0], found.binding, object.name) ||
+          seen.has(found.binding.declaration)
+        )
           return null;
         seen.add(found.binding.declaration);
         inferredName = object.name;
@@ -683,7 +688,8 @@ export class Values {
     if (resolved.ok) return Array.isArray(resolved.value) ? resolved.value.length : null;
     const binding = this.lookup(name, scopes)?.binding;
     if (binding?.kind === 'import') return resolved.arrayLength ?? null;
-    if (binding?.kind !== 'const' || seen.has(name) || this.changedAtLoad(binding.scopes[0]).has(name)) return null;
+    if (binding?.kind !== 'const' || seen.has(name) || this.changedAtLoad(binding.scopes[0], binding, name))
+      return null;
     return this.lengthOf(binding.init, binding.scopes, new Set([...seen, name]));
   }
 
@@ -693,7 +699,7 @@ export class Values {
     if (expression.type === 'Identifier') {
       const binding = this.lookup(expression.name, scopes)?.binding;
       if (binding?.kind !== 'const' || seen.has(expression.name)) return null;
-      if (this.changedAtLoad(binding.scopes[0]).has(expression.name)) return null;
+      if (this.changedAtLoad(binding.scopes[0], binding, expression.name)) return null;
       return this.keyCount(binding.init, binding.scopes, new Set([...seen, expression.name]));
     }
     if (expression.type !== 'ObjectExpression') return null;
@@ -713,12 +719,12 @@ export class Values {
     const { binding } = found;
     switch (binding.kind) {
       case 'const':
-        if (this.changedAtLoad(binding.scopes[0]).has(name)) return UNRESOLVED;
+        if (this.changedAtLoad(binding.scopes[0], binding, name)) return UNRESOLVED;
         return this.resolveConstant(binding.init, binding.scopes);
       case 'enum':
         return { ok: true, value: this.enumMembers(binding.node, binding.scopes) };
       case 'import':
-        if (this.changedAtLoad(scopes[0]).has(name)) return { ok: false, importedFrom: binding.source };
+        if (this.changedAtLoad(scopes[0], binding, name)) return { ok: false, importedFrom: binding.source };
         return this.imported(binding.source, binding.imported);
       case 'function':
         return UNRESOLVED;
@@ -734,13 +740,16 @@ export class Values {
   }
 
   /** Names the module changes while it loads, as in `WATCHED.push('MSFT')`, whose declared value isn't the one used. */
-  private changedAtLoad(program: Node): Set<string> {
+  private changedAtLoad(program: Node, binding: Binding, name: string): boolean {
     let names = this.changed.get(program);
     if (!names) {
-      names = changedNames(program);
+      names = changedNames(program, (identifier, scopes) => {
+        const declaration = this.declarationOf(identifier, scopes);
+        return declaration && mutationKey(declaration, identifier);
+      });
       this.changed.set(program, names);
     }
-    return names;
+    return names.has(mutationKey(binding.declaration, name));
   }
 
   private resolveConstant(init: Expression, scopes: readonly Node[]): Resolved {
@@ -964,27 +973,34 @@ function mutatedObject(node: Node): Expression | null {
  * `const all = SIDES`. The callbacks of tests, hooks and steps run after the runner has read titles and tables, so
  * what they change doesn't count.
  */
-function changedNames(program: Node): Set<string> {
-  const targets: Expression[] = [];
-  const declarations: { id: VariableDeclarator['id']; init: Expression }[] = [];
-  const walk = (node: Node, later: boolean): void => {
-    if (!later) {
-      const target = mutatedObject(node);
-      if (target) targets.push(target);
-      if (node.type === 'VariableDeclarator' && node.init) declarations.push({ id: node.id, init: node.init });
-    }
+function changedNames(
+  program: Node,
+  bindingKey: (name: string, scopes: readonly Node[]) => string | null,
+): Set<string> {
+  const targets: ScopedValue<Expression>[] = [];
+  const declarations: ScopedValue<{ id: VariableDeclarator['id']; init: Expression }>[] = [];
+  const walk = (node: Node, ancestors: readonly Node[]): void => {
+    const scopes = isScopeNode(node) ? [...ancestors, node] : ancestors;
+    const target = mutatedObject(node);
+    if (target) targets.push({ value: target, scopes });
+    if (node.type === 'VariableDeclarator' && node.init)
+      declarations.push({ value: { id: node.id, init: node.init }, scopes });
     if (node.type === 'CallExpression') {
       const callee = calleeNames(node.callee);
-      const runsLater =
-        !later && callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
-      walk(node.callee, later);
-      for (const argument of node.arguments) walk(argument, later || (runsLater && isFunctionNode(argument)));
+      const runsLater = callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
+      walk(node.callee, scopes);
+      for (const argument of node.arguments) if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes);
       return;
     }
-    for (const child of childNodes(node)) walk(child, later);
+    for (const child of childNodes(node)) walk(child, scopes);
   };
-  walk(program, false);
-  return changedReferences(declarations, targets);
+  walk(program, []);
+  return changedReferences(declarations, targets, bindingKey);
+}
+
+/** A declaration can bind several names in a parameter list or destructuring pattern. */
+function mutationKey(declaration: Node, name: string): string {
+  return `${declaration.start}:${name}`;
 }
 
 function isPlainObject(value: Value): value is Record<string, Value> {

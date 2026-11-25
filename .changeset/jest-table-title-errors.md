@@ -15,3 +15,4 @@ Use the Bun version to determine whether a static field gives an anonymous funct
 Expand rows titled by inherited methods and use the derived class when the title is its prototype constructor.
 Flag titles and table data changed through aliases or shared children of shallow copies, so the inventory does not report stale values.
 Track writes and deletes through optional chains and aliases selected by conditional, logical and sequence expressions.
+Keep a title readable when a write changes a separate declaration with the same name.

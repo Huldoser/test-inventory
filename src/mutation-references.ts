@@ -2,6 +2,10 @@ import type { BindingPattern, Expression, Node, VariableDeclarator } from 'oxc-p
 import { propertyKey, propertyName, unwrapChain } from './ast.ts';
 
 type Key = string | null;
+export interface ScopedValue<T> {
+  value: T;
+  scopes: readonly Node[];
+}
 interface Reference {
   value: Expression;
   path: Key[];
@@ -96,20 +100,25 @@ function bind(pattern: BindingPattern, ref: Reference | null, add: (name: string
 
 /** Follow the container of each write. Replacing a copy's property and mutating a shared child have different owners. */
 export function changedReferences(
-  declarations: { id: VariableDeclarator['id']; init: Expression }[],
-  targets: Expression[],
+  declarations: ScopedValue<{ id: VariableDeclarator['id']; init: Expression }>[],
+  targets: ScopedValue<Expression>[],
+  bindingKey: (name: string, scopes: readonly Node[]) => string | null,
 ): Set<string> {
   const names = new Set<string>();
   if (!targets.length) return names;
-  const bindings = new Map<string, Reference[]>();
-  const add = (name: string, ref: Reference) => {
-    const previous = bindings.get(name);
-    if (previous) previous.push(ref);
-    else bindings.set(name, [ref]);
-  };
-  for (const declaration of declarations) bind(declaration.id, direct(declaration.init), add);
+  const bindings = new Map<string, ScopedValue<Reference>[]>();
+  for (const { value, scopes } of declarations) {
+    bind(value.id, direct(value.init), (name, ref) => {
+      const key = bindingKey(name, scopes);
+      if (key === null) return;
+      const source = { value: ref, scopes };
+      const previous = bindings.get(key);
+      if (previous) previous.push(source);
+      else bindings.set(key, [source]);
+    });
+  }
   const active = new Set<string>();
-  const follow = (ref: Reference, suffix: Key[]): void => {
+  const follow = (ref: Reference, suffix: Key[], scopes: readonly Node[]): void => {
     if (ref.rest !== undefined && suffix.length === 0) return;
     const path = [...ref.path, ...suffix];
     if (ref.rest && suffix[0] !== null) path[ref.path.length] = String(Number(suffix[0]) + ref.rest);
@@ -120,21 +129,22 @@ export function changedReferences(
       value = unwrapChain(value.object);
     }
     if (value.type === 'Identifier') {
-      const name = value.name;
-      names.add(name);
-      const sources = bindings.get(name);
-      if (!sources || active.has(name)) return;
-      active.add(name);
-      for (const source of sources) follow(source, path);
-      active.delete(name);
+      const key = bindingKey(value.name, scopes);
+      if (key === null) return;
+      names.add(key);
+      const sources = bindings.get(key);
+      if (!sources || active.has(key)) return;
+      active.add(key);
+      for (const source of sources) follow(source.value, path, source.scopes);
+      active.delete(key);
     } else if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
-      for (const source of selected(value)) follow(direct(source), path);
+      for (const source of selected(value)) follow(direct(source), path, scopes);
     } else if (value.type === 'SequenceExpression') {
-      follow(direct(value.expressions[value.expressions.length - 1]), path);
+      follow(direct(value.expressions[value.expressions.length - 1]), path, scopes);
     } else if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
-      for (const child of property(direct(value), path[0])) if (child) follow(child, path.slice(1));
+      for (const child of property(direct(value), path[0])) if (child) follow(child, path.slice(1), scopes);
     }
   };
-  for (const target of targets) follow(direct(target), []);
+  for (const target of targets) follow(direct(target.value), [], target.scopes);
   return names;
 }

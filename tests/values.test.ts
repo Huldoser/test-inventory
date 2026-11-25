@@ -399,6 +399,24 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     });
   });
 
+  it('tracks the declaration a mutated alias belongs to when nested scopes reuse a name', () => {
+    const prefix = 'const morning={desk:{label:"opening auction"}}; const evening={desk:{label:"midday auction"}};';
+    const update = '{const desk=morning.desk; void desk;} {const desk=evening.desk; desk.label="closing auction";}';
+    expect(resolve(prefix + update + 'morning.desk.label;')).toEqual({ ok: true, value: 'opening auction' });
+    expect(resolve(prefix + update + 'evening.desk.label;')).toEqual(UNRESOLVED);
+    for (const body of [
+      '{const morning={desk:{label:"paper"}}; morning.desk.label="closing auction";}',
+      'function adjust(morning){morning.label="closing auction";} adjust(evening.desk);',
+      'const desk=morning.desk; function adjust(){if(true){var desk=evening.desk;} desk.label="closing auction";} adjust();',
+    ])
+      expect(resolve(prefix + body + 'morning.desk.label;')).toEqual({ ok: true, value: 'opening auction' });
+  });
+
+  it('keeps an ambient literal declaration out of runtime mutation tracking', () => {
+    const code = 'declare const auctionPhase = "opening"; const display = {label:auctionPhase};';
+    expect(resolve(code + 'Object.assign(globalThis, {auctionPhase:"closing"}); display.label;')).toEqual(UNRESOLVED);
+  });
+
   it('tracks objects selected by an expression and preserves titles when their branch cannot supply the alias', () => {
     const prefix = 'const book={desk:{label:"opening auction"}};';
     for (const expression of [
