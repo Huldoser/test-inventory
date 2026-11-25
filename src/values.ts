@@ -19,9 +19,10 @@ import { mutationCalls, type MethodWrite, type MutationCallSite } from './mutati
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
-/** An unknown value can still have a known array length or be known to differ from undefined. */
+/** An unknown value can still have a known array length, be defined, or be a truthy object. */
 export type Resolved =
-  { ok: true; value: Value } | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true };
+  | { ok: true; value: Value }
+  | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true; truthy?: true };
 
 /** Whether a default runs, a pattern throws or a parameter name becomes initialized. Null denotes uncertainty. */
 export type ParameterStep = boolean | null | 'throw' | 'initialize';
@@ -94,7 +95,7 @@ export function operationValue(expression: Operation, read: (node: Expression) =
       let text = expression.quasis[0].value.cooked as string;
       for (const [index, part] of expression.expressions.entries()) {
         const resolved = read(part);
-        if (!resolved.ok) return resolved;
+        if (!resolved.ok) return { ok: false, importedFrom: resolved.importedFrom };
         if (!isPrimitive(resolved.value)) return UNRESOLVED;
         text += String(resolved.value) + (expression.quasis[index + 1].value.cooked as string);
       }
@@ -103,15 +104,15 @@ export function operationValue(expression: Operation, read: (node: Expression) =
     case 'BinaryExpression': {
       if (!BINARY.has(expression.operator)) return UNRESOLVED;
       const left = read(expression.left as Expression);
-      if (!left.ok) return left;
+      if (!left.ok) return { ok: false, importedFrom: left.importedFrom };
       const right = read(expression.right);
-      if (!right.ok) return right;
+      if (!right.ok) return { ok: false, importedFrom: right.importedFrom };
       if (!isPrimitive(left.value) || !isPrimitive(right.value)) return UNRESOLVED;
       return binary(expression.operator, left.value, right.value);
     }
     case 'LogicalExpression': {
       const left = read(expression.left);
-      if (!left.ok) return left;
+      if (!left.ok) return left.truthy && expression.operator === '&&' ? read(expression.right) : left;
       const useLeft =
         expression.operator === '&&'
           ? !left.value
@@ -122,14 +123,17 @@ export function operationValue(expression: Operation, read: (node: Expression) =
     }
     case 'ConditionalExpression': {
       const test = read(expression.test);
-      if (!test.ok) return test;
+      if (!test.ok) return test.truthy ? read(expression.consequent) : test;
       return read(test.value ? expression.consequent : expression.alternate);
     }
     case 'UnaryExpression': {
       if (expression.operator === 'void') return { ok: true, value: undefined };
       if (expression.operator !== '!' && expression.operator !== '-' && expression.operator !== '+') return UNRESOLVED;
       const argument = read(expression.argument);
-      if (!argument.ok) return argument;
+      if (!argument.ok) {
+        if (argument.truthy && expression.operator === '!') return { ok: true, value: false };
+        return { ok: false, importedFrom: argument.importedFrom };
+      }
       if (expression.operator === '!') return { ok: true, value: !argument.value };
       if (!isPrimitive(argument.value)) return UNRESOLVED;
       const number = Number(argument.value);

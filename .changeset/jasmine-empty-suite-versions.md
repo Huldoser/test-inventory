@@ -33,3 +33,4 @@ Collect Jasmine suites and their specs when an array supplies the title and call
 Read Jasmine test and suite names returned by synchronous local functions and track errors while evaluating those calls.
 Match the names Jasmine reports for primitive spec and suite descriptions, including zero and false.
 Read Jasmine titles built from helper results and follow evaluated operands during registration.
+Choose the correct title branch when a Jasmine registration returns a suite, spec or hook result.

@@ -40,6 +40,7 @@ export function functionLength(fn: FunctionNode): number {
 type Flow = 'next' | 'throw' | 'unknown';
 type Completion = Flow | { returned: Resolved };
 const omitted: Resolved = { ok: true, value: undefined };
+const objectResult: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true };
 interface Children {
   registered: boolean | 'possible';
 }
@@ -192,7 +193,18 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   const results = new Map<Expression, Resolved>();
   function valueOf(expr: Expression, scopes: readonly Node[]): Resolved {
     const node = unwrap(expr);
-    return results.get(node) ?? file.values.resolve(node, scopes);
+    const result = results.get(node) ?? file.values.resolve(node, scopes);
+    if (
+      !result.ok &&
+      (node.type === 'ObjectExpression' ||
+        node.type === 'ArrayExpression' ||
+        node.type === 'ClassExpression' ||
+        isFunctionNode(node) ||
+        (node.type === 'Literal' && 'regex' in node))
+    ) {
+      return objectResult;
+    }
+    return result;
   }
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
@@ -328,10 +340,13 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       if (helper.node.async && !helper.node.generator) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
         children.registered ||= 'possible';
+        results.set(node, objectResult);
         return 'next';
       }
       const actual = file.values.callArguments(node, scopes, true);
-      return invoke(helper.node, helper.scopes, children, actual.args, actual.complete, node);
+      const result = invoke(helper.node, helper.scopes, children, actual.args, actual.complete, node);
+      if (helper.node.generator && result === 'next') results.set(node, objectResult);
+      return result;
     }
     const name = callee.name;
     const spec = ['it', 'xit', 'fit'].includes(name);
@@ -345,6 +360,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       if (status === 'unknown') return 'unknown';
       if (status !== 'valid') return 'throw';
       if (spec) children.registered = true;
+      results.set(node, spec ? objectResult : omitted);
       return 'next';
     }
     if (!['describe', 'xdescribe', 'fdescribe'].includes(name)) return 'unknown';
@@ -365,7 +381,9 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     }
     // Jasmine attaches the suite before running its callback and checking its children.
     children.registered = true;
-    return suite(fn, callback.scopes, plain);
+    const result = suite(fn, callback.scopes, plain);
+    if (result === 'next') results.set(node, objectResult);
+    return result;
   }
   function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Flow {
     for (const item of items) {
@@ -397,7 +415,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
         return { ok: false, importedFrom: null };
       });
       results.set(value, computed);
-      return computed.ok ? 'next' : failure;
+      return computed.ok || computed.truthy ? 'next' : failure;
     }
     if (value.type === 'Identifier') {
       const declaration = file.values.declarationOf(value.name, scopes);

@@ -395,6 +395,36 @@ catch { it('recovers the market', () => {}); }`);
     }
   });
 
+  it('chooses a Jasmine title from the result of registering a spec, suite or hook', () => {
+    for (const [title, expected] of [
+      ["it('records a fee') ? 'cash desk' : closed()", 'cash desk'],
+      ["describe('fee desk', () => it('records a fee', () => {})) && 'risk office'", 'risk office'],
+      ["beforeEach(() => {}) ?? 'cash desk'", 'cash desk'],
+      ["(() => !it('records a fee', () => {}))()", ''],
+    ]) {
+      const scan = scanJasmine(`function closed(){ throw Error('market closed'); }
+try { it(${title}, () => {}); } catch { it('recovers the market', () => {}); }`);
+      const names = scan.tests.map((test) => test.fullName);
+      expect(names, title).toContain(expected);
+      expect(names, title).not.toContain('recovers the market');
+    }
+  });
+
+  it('tests an object used in a Jasmine title without coercing it', () => {
+    for (const guard of [
+      "({toString(){ throw Error('closed'); }})",
+      '[() => {}]',
+      '(() => {})',
+      '(class Desk {})',
+      '/quotes/',
+      '(function*(){})()',
+      '(async () => false)()',
+    ]) {
+      const scan = scanJasmine(`it((${guard} || 'risk office') ? 'cash desk' : 'risk office', () => {});`);
+      expect(onlyTest(scan).title, guard).toBe('cash desk');
+    }
+  });
+
   it('uses the title returned by a Jasmine helper on the path that completed', () => {
     for (const [title, expected] of [
       ['((name = desk) => name)()', 'cash desk'],
