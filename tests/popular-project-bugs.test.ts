@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scan } from '../src/index.ts';
-import { codes, scanJasmine, scanJest, scanMocha, scanNode, scanPlaywright, scanVitest } from './helpers.ts';
+import { codes, scanJasmine, scanJest, scanMocha, scanNode, scanPlaywright, scanVitest, testNamed } from './helpers.ts';
 import { PLAYWRIGHT_PACKAGE, project } from './project.ts';
 
 describe('real-project declaration regressions', () => {
@@ -154,7 +154,8 @@ marketThemes().forEach(() => {
 (process.env.MARKET_CLOSED ? it.skip : it)(['buy'])('routes a limit order', () => {});
 it('retains the order book', () => {});`);
     expect(result.tests.some(({ title }) => title === 'routes a limit order')).toBe(false);
-    expect(codes(result)).toEqual(['test-without-body']);
+    expect(testNamed(result, 'retains the order book').state).toBe('notLoaded');
+    expect(codes(result)).toEqual(['invalid-chain']);
   });
 
   it('does not diagnose destructured generated utilities as unresolved Playwright imports', async () => {

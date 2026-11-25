@@ -113,6 +113,15 @@ value such as a number lets Jest register every row with its timeout, and invoki
 
 ## Supported syntax
 
+From Jest 28, a test or suite title can be a string, a number, `undefined`, or a named function or class.
+Jest uses the function's name even when the declaration passes it through a local alias. An invalid title prevents
+the entire file from loading, including when its declaration is skipped. `test.todo` requires a string in every
+supported version. In Jest 27 ordinary tests and table titles also require strings.
+
+Calling `test()`, `test.todo()`, or `describe()` with no arguments prevents the file from loading.
+From Jest 28, `test.each([1, 2])()` registers one failing test named `undefined`.
+The concurrent and failing variants register both rows with that name.
+
 <!--@include: ../reference/syntax.md#syntax-jest-->
 
 The [shared syntax rules](/reference/syntax#in-every-runner) also apply.

@@ -172,27 +172,76 @@ export class JestAdapter extends SuiteAdapter {
     return refused(call, refusal, context, () => this.declaration(call, kind, [], context));
   }
 
+  /** The title Jest registers, false for a rejected descriptor, or null when the value is unknown. */
+  private titleName(
+    arg: Argument,
+    scopes: readonly Node[],
+    stringsOnly: boolean,
+    modern: boolean,
+  ): string | false | null {
+    if (arg.type === 'SpreadElement') return null;
+    const resolved = this.file.values.resolve(arg, scopes);
+    if (resolved.ok) {
+      const value = resolved.value;
+      if (typeof value === 'string') return value;
+      if (!stringsOnly && (typeof value === 'number' || value === undefined)) return String(value);
+      return false;
+    }
+    let node = unwrap(arg);
+    let inferred = '';
+    const seen = new Set<Expression>();
+    while (node.type === 'Identifier') {
+      if (this.file.values.isFunction(node.name, scopes)) return stringsOnly ? false : node.name;
+      const binding = this.file.values.constantOf(node.name, scopes);
+      if (!binding || seen.has(binding.init)) return null;
+      seen.add(binding.init);
+      inferred = node.name;
+      node = unwrap(binding.init);
+      scopes = binding.scopes;
+    }
+    if (node.type === 'UnaryExpression' && node.operator === 'void') return stringsOnly ? false : 'undefined';
+    if (
+      node.type === 'ArrowFunctionExpression' ||
+      node.type === 'FunctionExpression' ||
+      node.type === 'ClassExpression'
+    ) {
+      const name = node.type === 'ArrowFunctionExpression' ? inferred : (node.id?.name ?? inferred);
+      return stringsOnly || (modern && !name) ? false : name;
+    }
+    if (
+      node.type === 'ArrayExpression' ||
+      node.type === 'ObjectExpression' ||
+      (node.type === 'Literal' && ('regex' in node || 'bigint' in node))
+    )
+      return false;
+    return null;
+  }
+
   private declaration(call: CallExpression, kind: Kind, links: Link[], context: CallContext): ApiCall {
     const args = call.arguments;
-    if (args.length === 0) return { kind: 'other' };
     const callee = snippet(text(this.file, call.callee));
     const flags = new Set(links.map((link) => link.name));
     const problems: Problem[] = [];
-    const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
-      stripTags: false,
-      functionNames: true,
-    });
-    if (titleProblem) problems.push(titleProblem);
+    const table = links.find((link) => link.name === 'each') ?? null;
+    const modern = atLeast(this.file.version, 28, 0);
+    const stringsOnly = flags.has('todo') || (!modern && (kind === 'test' || table !== null));
+    const name = args.length ? this.titleName(args[0], context.scopes, stringsOnly, modern) : 'undefined';
+    const invalidName = name === false || (args.length === 0 && stringsOnly);
+    const { title, problem: titleProblem } =
+      typeof name === 'string'
+        ? { title: { text: name, withoutTags: name, isDynamic: false }, problem: null }
+        : readTitle(this.file, context.scopes, args[0], { stripTags: false, functionNames: false });
+    if (titleProblem && name !== false) problems.push(titleProblem);
     const spread = args.some((arg) => arg.type === 'SpreadElement');
     const body = spread ? undefined : (args.at(1) as Expression | undefined);
     const fn = isFunctionNode(body) ? body : null;
     const callback = fn ?? namedFunction(this.file, context.scopes, body);
-    const table = links.find((link) => link.name === 'each') ?? null;
     const cases = table ? this.tableCases(table, title, context) : null;
     const titleFailed = cases === 'invalid-title';
     const count = table ? this.caseCount(table, context, problems) : null;
     const invalidTable = count === 'invalid-table';
-    const resolvedBody = table && body && !callback ? this.file.values.resolve(body, context.scopes) : null;
+    const resolvedBody =
+      (table || kind === 'describe') && body && !callback ? this.file.values.resolve(body, context.scopes) : null;
     const nullishBody =
       !spread &&
       (body === undefined || (resolvedBody?.ok && (resolvedBody.value === null || resolvedBody.value === undefined)));
@@ -241,6 +290,17 @@ export class JestAdapter extends SuiteAdapter {
       if (kind === 'describe') return { kind: 'describe', ...base, isShuffled: false, passesDown: null };
       return { kind: 'test', ...base, testContext: null, fixtures: [], takesAllFixtures: false, usesBench: false };
     };
+    // Ordinary describe validates its callback first. The table binder validates its title before binding any row.
+    if (invalidName && !(kind === 'describe' && !table && (nullishBody || nonCallable))) {
+      const expected = stringsOnly ? 'a string title' : 'a string, number, undefined, or a named function or class';
+      const refusal = problem(
+        'invalid-chain',
+        args[0] ?? call,
+        `${callee}() requires ${expected}. Jest fails to load the file.`,
+        callee,
+      );
+      return refused(call, refusal, context, declared);
+    }
     if (flags.has('todo')) {
       if (args.length === 1 && !spread) return declared();
       const refusal = problem(

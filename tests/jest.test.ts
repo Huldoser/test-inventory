@@ -241,10 +241,30 @@ test('charges the minimum fee again', checksFees);
     const inventory = scanJest(`
 const args = ['books the cash leg', () => {}];
 test(...args);
-test();
 `);
     expect(inventory.tests).toHaveLength(1);
     expect(inventory.diagnostics.map((item) => item.code)).toEqual(['dynamic-title']);
+  });
+
+  it('fails the file for an empty declaration and registers undefined titles for test tables', () => {
+    for (const [declaration, code] of [
+      ['test()', 'test-without-body'],
+      ['test.todo()', 'invalid-chain'],
+      ['describe()', 'test-without-body'],
+      ['describe.each([1, 2])()', 'test-without-body'],
+    ]) {
+      const result = scanJest(`test('opens the book', () => {});\n${declaration};`);
+      expect(testNamed(result, 'opens the book').state).toBe('notLoaded');
+      expect(codes(result)).toContain(code);
+    }
+    for (const [api, count] of [
+      ['test', 1],
+      ['test.concurrent', 2],
+      ['test.failing', 2],
+    ] as const) {
+      const result = scanJest(`${api}.each([1, 2])();`, { frameworkVersion: '30.5.2', expandCases: true });
+      expect(result.tests.map((t) => t.title)).toEqual(Array.from({ length: count }, () => 'undefined'));
+    }
   });
 
   it('counts hooks, imported or global', () => {
@@ -1057,15 +1077,92 @@ const HANDLERS = { onSubmit: () => submit() };
     ).toEqual([null, null, null, null, null, null, null, 1]);
   });
 
-  it('titles a describe or test by a function or class written in place, as Jest and Vitest do (TI-74)', () => {
+  it('titles a describe or test by a named function or class written in place (TI-74)', () => {
     const inventory = scanJest(`
 describe(function OrderBook() {}, () => {
   test(class Matcher {}, () => {});
-  test(function () {}, () => {});
 });
 `);
-    expect(inventory.tests.map((test) => test.fullName)).toEqual(['OrderBook > Matcher', 'OrderBook > ']);
-    expect(codes(inventory)).toEqual(['empty-title']);
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(['OrderBook > Matcher']);
+    expect(codes(inventory)).toEqual([]);
+  });
+
+  it.each([
+    'false',
+    'null',
+    '({venue: "paper"})',
+    '["paper"]',
+    '({venue: quote()})',
+    '[quote()]',
+    '/settlement/',
+    '42n',
+    'function () {}',
+    'class {}',
+    '() => {}',
+  ])('marks the file as not loaded when Jest rejects title %s', (title) => {
+    for (const callee of ['test', 'describe.skip.each(["bid", "ask"])']) {
+      const result = scanJest(`test('opens the market', () => {});\n${callee}(${title}, () => {});`);
+      expect(testNamed(result, 'opens the market').state).toBe('notLoaded');
+      expect(codes(result)).toContain('invalid-chain');
+    }
+  });
+
+  it('expands Jest titles using the declared function name, its inferred name, or undefined', () => {
+    const result = scanJest(
+      `
+function settle() {}
+const alias = settle;
+const named = function postOrder() {};
+const inferred = () => {};
+const empty = undefined;
+test.each([1, 2])(alias, () => {});
+test(named, () => {});
+describe.each([1, 2])(inferred, () => { test('settles the order', () => {}); });
+test.each([1, 2])(empty, () => {});
+test(void 0, () => {});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((t) => t.fullName)).toEqual([
+      'settle',
+      'settle',
+      'postOrder',
+      'inferred > settles the order',
+      'inferred > settles the order',
+      'undefined',
+      'undefined',
+      'undefined',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('requires a string title for Jest todo declarations and Jest 27 tests', () => {
+    for (const [version, declaration] of [
+      ['30.5.2', 'test.todo(42)'],
+      ['30.5.2', 'function Orders() {} test.todo(Orders)'],
+      ['30.5.2', 'test.todo(void 0)'],
+      ['27.5.1', 'test(42, () => {})'],
+      ['27.5.1', 'describe.each([1,2])(function Trades() {}, () => {})'],
+    ]) {
+      const result = scanJest(`test('opens the market', () => {});\n${declaration};`, { frameworkVersion: version });
+      expect(testNamed(result, 'opens the market').state).toBe('notLoaded');
+    }
+    const legacy = scanJest("describe(function () {}, () => { test('posts the order', () => {}); });", {
+      frameworkVersion: '27.5.1',
+    });
+    expect(onlyTest(legacy).state).toBe('active');
+  });
+
+  it('checks the ordinary describe callback before its title, and the table title before the callback', () => {
+    for (const [call, code] of [
+      ['describe(["bid"])', 'test-without-body'],
+      ['describe(["bid"], 7)', 'test-without-body'],
+      ['describe.each(["bid"])(false)', 'invalid-chain'],
+    ]) {
+      const result = scanJest(`test('opens the market', () => {});\n${call};`);
+      expect(codes(result)).toEqual([code]);
+      expect(testNamed(result, 'opens the market').state).toBe('notLoaded');
+    }
   });
 });
 
