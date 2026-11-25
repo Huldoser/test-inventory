@@ -106,6 +106,11 @@ Its original callback and timeout are unused. With `describe.each` the same erro
 For example, on Jest 29 a title containing `$desk.name` fails to format if a row sets `desk` to `null`.
 Jest 30 renders that value as `null`.
 
+On a valid table, ordinary `test.each` registers one fallback test if the callback is missing or null.
+Concurrent and failing tests register each row and invoke the callback when the row runs. Skipped tables
+use the ordinary binding from Jest 28. In Jest 27 they use the concurrent binding. A non-null, non-callable
+value such as a number lets Jest register every row with its timeout, and invoking that value throws.
+
 ## Supported syntax
 
 <!--@include: ../reference/syntax.md#syntax-jest-->

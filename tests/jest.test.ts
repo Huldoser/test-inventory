@@ -389,6 +389,68 @@ jest.retryTimes(...counts);
 });
 
 describe('Jest tables', () => {
+  it('keeps Jest table tests registered when their callback is a non-callable value', () => {
+    const result = scanJest(
+      `
+const sides = ['bid','ask'];
+const missing = null;
+test.each(sides)('prices %s', missing, 510);
+test.each(sides)('routes %s', 42, 610);
+test.concurrent.each(sides)('submits %s', undefined, 710);
+test.failing.each(sides)('rejects %s');
+test('closes the book',()=>{});
+`,
+      { frameworkVersion: '29.7.0', expandCases: true },
+    );
+    expect(result.tests.map((t) => [t.title, t.state, t.timeout])).toEqual([
+      ['prices %s', 'active', null],
+      ['routes bid', 'active', 610],
+      ['routes ask', 'active', 610],
+      ['submits bid', 'active', 710],
+      ['submits ask', 'active', 710],
+      ['rejects bid', 'expectedToFail', null],
+      ['rejects ask', 'expectedToFail', null],
+      ['closes the book', 'active', null],
+    ]);
+    expect(result.diagnostics.filter((d) => d.code === 'test-without-body').every((d) => d.level === 'warning')).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ['27.5.1', 2],
+    ['28.1.3', 1],
+    ['30.5.2', 1],
+  ] as const)('counts missing callbacks on skipped tables in Jest %s', (version, skippedCount) => {
+    const inventory = scanJest(
+      `
+test.skip.each([1,2])('checks %i lots');
+test.concurrent.skip.each([1,2])('holds %i lots');
+test.concurrent.only.each([1,2])('clears %i lots');
+`,
+      { frameworkVersion: version },
+    );
+    expect(inventory.tests.map((t) => [t.title, t.caseCount])).toEqual([
+      ['checks %i lots', skippedCount],
+      ['holds %i lots', skippedCount],
+      ['clears %i lots', 2],
+    ]);
+  });
+
+  it('rejects a Jest suite table whose named callback resolves to undefined', () => {
+    const inventory = scanJest(
+      `
+const setupDesk = undefined;
+test('opens the market',()=>{});
+describe.each(['bid','ask'])('routes %s', setupDesk);
+test('closes the market',()=>{});
+`,
+      { frameworkVersion: '30.5.2' },
+    );
+    expect(inventory.tests.map((t) => t.state)).toEqual(['notLoaded', 'notLoaded']);
+    expect(codes(inventory)).toContain('test-without-body');
+  });
+
   it('drops the supplied callback and timeout when Jest rejects the table before registering tests', () => {
     const code = `
 function post() { expect(2).toBe(2); }
@@ -411,6 +473,13 @@ test('opens the book', () => {});
       ]);
       expect(testNamed(inventory, 'opens the book').state).toBe('active');
     }
+  });
+
+  it('reports the rejected table before checking a missing callback', () => {
+    const inventory = scanJest("test.each([])('posts a cash leg', undefined, 700);", { expandCases: true });
+    expect(onlyTest(inventory)).toMatchObject({ caseCount: 1, timeout: null, bodyHash: null, state: 'active' });
+    expect(codes(inventory)).toEqual(['cases-not-expanded']);
+    expect(inventory.diagnostics[0].message).toContain('Jest rejects the table');
   });
 
   it('counts the fallback test when Jest cannot interpolate a row and keeps its unused body out of the inventory', () => {

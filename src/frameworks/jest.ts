@@ -184,7 +184,7 @@ export class JestAdapter extends SuiteAdapter {
     });
     if (titleProblem) problems.push(titleProblem);
     const spread = args.some((arg) => arg.type === 'SpreadElement');
-    const body = spread ? undefined : args.at(1);
+    const body = spread ? undefined : (args.at(1) as Expression | undefined);
     const fn = isFunctionNode(body) ? body : null;
     const callback = fn ?? namedFunction(this.file, context.scopes, body);
     const table = links.find((link) => link.name === 'each') ?? null;
@@ -192,7 +192,17 @@ export class JestAdapter extends SuiteAdapter {
     const titleFailed = cases === 'invalid-title';
     const count = table ? this.caseCount(table, context, problems) : null;
     const invalidTable = count === 'invalid-table';
-    const fallbackTest = kind === 'test' && (titleFailed || invalidTable);
+    const resolvedBody = table && body && !callback ? this.file.values.resolve(body, context.scopes) : null;
+    const nullishBody =
+      !spread &&
+      (body === undefined || (resolvedBody?.ok && (resolvedBody.value === null || resolvedBody.value === undefined)));
+    const nonCallable = body !== undefined && (isNotFunction(body) || resolvedBody?.ok === true);
+    // Jest 27 installs its concurrent skip binding on test.skip itself. Later versions share the ordinary skip binding.
+    const readsArity =
+      !flags.has('failing') && (flags.has('skip') ? atLeast(this.file.version, 28, 0) : !flags.has('concurrent'));
+    const missingBodyFallback = table !== null && kind === 'test' && nullishBody && readsArity;
+    const single = titleFailed || invalidTable || missingBodyFallback;
+    const fallbackTest = kind === 'test' && single;
     const line = this.file.source.line(call.start);
     const declared = (given: FunctionNode | null = fn): ApiCall => {
       const base = {
@@ -204,20 +214,21 @@ export class JestAdapter extends SuiteAdapter {
         fn: fallbackTest ? null : given,
         hashed: fallbackTest ? null : (given ?? callback ?? wrappedFunction(body)),
         isParameterized: table !== null,
-        caseCount: titleFailed || invalidTable ? 1 : count,
-        cases:
-          titleFailed || invalidTable
-            ? [
-                {
-                  title: {
-                    reason: titleFailed
-                      ? 'Jest cannot format a case title and registers a single declaration with the original title'
-                      : 'Jest rejects the table and registers a single declaration with the original title',
-                  },
-                  args: [],
+        caseCount: single ? 1 : count,
+        cases: single
+          ? [
+              {
+                title: {
+                  reason: titleFailed
+                    ? 'Jest cannot format a case title and registers a single declaration with the original title'
+                    : invalidTable
+                      ? 'Jest rejects the table and registers a single declaration with the original title'
+                      : 'Jest registers a single fallback test when it cannot read the callback arity',
                 },
-              ]
-            : cases,
+                args: [],
+              },
+            ]
+          : cases,
         problems,
       };
       // With the function given third, after an argument that isn't one, there is no timeout to read.
@@ -241,12 +252,14 @@ export class JestAdapter extends SuiteAdapter {
       return refused(call, refusal, context, declared);
     }
     const head = snippet(text(this.file, eachHead(call)));
-    if (!spread && args.length < 2 && table && kind === 'test') {
-      // jest-each fails on the missing body inside its own try, and registers one test that throws instead.
-      const message = `${head}() has no test body, so Jest registers one test titled '${title.text}' that always fails.`;
-      problems.push({ ...problem('test-without-body', call, message, head), level: 'warning' });
-      const one = declared();
-      return { ...one, caseCount: 1, cases: null } as ApiCall;
+    if (table && kind === 'test' && (nullishBody || nonCallable)) {
+      if (!titleFailed && !invalidTable) {
+        const message = missingBodyFallback
+          ? `${head}() has no test body, so Jest registers one test titled '${title.text}' that always fails.`
+          : `${head}() has no callable test body. Jest registers each row, which throws if its body runs.`;
+        problems.push({ ...problem('test-without-body', call, message, head), level: 'warning' });
+      }
+      return declared();
     }
     if (fallbackTest) return declared();
     if (!spread && args.length < 2) {
@@ -259,7 +272,7 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, declared);
     }
-    if (body !== undefined && isNotFunction(body)) {
+    if (nonCallable) {
       const refusal = problem(
         'test-without-body',
         call,
