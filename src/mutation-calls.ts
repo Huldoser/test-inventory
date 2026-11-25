@@ -1,11 +1,13 @@
 import type { CallExpression, Expression, Node } from 'oxc-parser';
-import { isFunctionNode, unwrapChain } from './ast.ts';
+import { isFunctionNode, propertyName, unwrapChain } from './ast.ts';
 import {
   helperParameters,
   referenceOperands,
   type CallbackChoice,
   type CallbackContext,
   type HelperInvocation,
+  type InvocationMode,
+  type ScopedFunction,
 } from './mutation-references.ts';
 import type { Values } from './values.ts';
 
@@ -16,6 +18,22 @@ export interface MutationCallSite {
   runsLater: boolean;
 }
 
+export interface MethodWrite {
+  name: 'call' | 'apply';
+  object: Expression;
+  assigned: Expression | null;
+  scopes: readonly Node[];
+  owner: Node;
+  end: number;
+  unconditional: boolean;
+}
+
+interface Target {
+  helper: ScopedFunction;
+  mode: InvocationMode;
+  methodOwner?: Expression;
+}
+
 const UNKNOWN: CallbackChoice = { targets: [], definite: false };
 
 function alternatives(choices: CallbackChoice[]): CallbackChoice {
@@ -24,7 +42,12 @@ function alternatives(choices: CallbackChoice[]): CallbackChoice {
 }
 
 /** Calls with the same callback arguments share a walk of the helper body, including when it calls itself. */
-export function mutationCalls(program: Node, callsByOwner: ReadonlyMap<Node, MutationCallSite[]>, values: Values) {
+export function mutationCalls(
+  program: Node,
+  callsByOwner: ReadonlyMap<Node, MutationCallSite[]>,
+  methodWrites: readonly MethodWrite[],
+  values: Values,
+) {
   const calls = new Map<CallExpression, HelperInvocation[]>();
   const contexts = new Map<Node, Map<string, CallbackContext>>();
   const times = new Map<CallbackContext, number | null>();
@@ -82,10 +105,54 @@ export function mutationCalls(program: Node, callsByOwner: ReadonlyMap<Node, Mut
       return callable(value.right, scopes, context, seen);
     return UNKNOWN;
   };
+  const targetsFor = (site: MutationCallSite, caller: CallbackContext, time: number | null): Target[] => {
+    const { call, scopes } = site;
+    const callee = unwrapChain(call.callee);
+    if (callee.type !== 'MemberExpression')
+      return callable(callee, scopes, caller).targets.map((helper) => ({ helper, mode: 'direct' }));
+    const name = propertyName(callee);
+    if (name !== 'call' && name !== 'apply') return [];
+    const object = unwrapChain(callee.object);
+    if (
+      name === 'apply' &&
+      object.type === 'Identifier' &&
+      object.name === 'Reflect' &&
+      !values.declarationOf('Reflect', scopes)
+    ) {
+      const fn = call.arguments.at(0);
+      return fn && fn.type !== 'SpreadElement'
+        ? callable(fn, scopes, caller).targets.map((helper) => ({ helper, mode: 'reflect' }))
+        : [];
+    }
+    const targets: Target[] = [];
+    for (const helper of callable(object, scopes, caller).targets) {
+      const inherited: Target = { helper, mode: name };
+      let possible = [inherited];
+      for (const write of methodWrites) {
+        if (write.name !== name || (write.owner === program && time !== null && write.end > time)) continue;
+        const owners = callable(write.object, write.scopes, caller);
+        if (!owners.targets.some((target) => target.fn === helper.fn)) continue;
+        if (write.unconditional && time !== null && owners.definite && owners.targets.length === 1) possible = [];
+        if (write.assigned)
+          possible.push(
+            ...callable(write.assigned, write.scopes, caller).targets.map((fn) => ({
+              helper: fn,
+              mode: 'own' as const,
+              methodOwner: object,
+            })),
+          );
+        else possible.push(inherited);
+      }
+      targets.push(...possible);
+    }
+    return targets;
+  };
   activate(contextFor(program, new Map()), null);
   for (const caller of pending) {
-    for (const { call, scopes, statement, runsLater } of callsByOwner.get(caller.owner) ?? []) {
-      const helpers = callable(call.callee, scopes, caller).targets;
+    for (const callSite of callsByOwner.get(caller.owner) ?? []) {
+      const { call, scopes, statement, runsLater } = callSite;
+      const time = statement ? call.start : (times.get(caller) ?? null);
+      const helpers = targetsFor(callSite, caller, time);
       if (!helpers.length && !runsLater) {
         for (const arg of call.arguments) {
           if (arg.type === 'SpreadElement') continue;
@@ -93,15 +160,25 @@ export function mutationCalls(program: Node, callsByOwner: ReadonlyMap<Node, Mut
             activate(contextFor(callback.fn, new Map()), null);
         }
       }
-      for (const helper of helpers) {
+      for (const { helper, mode, methodOwner } of helpers) {
         let atSite = calls.get(call);
         if (!atSite) {
           atSite = [];
           calls.set(call, atSite);
         }
-        let invocation = atSite.find((entry) => entry.caller === caller && entry.fn === helper.fn);
+        let invocation = atSite.find(
+          (entry) => entry.caller === caller && entry.fn === helper.fn && entry.mode === mode,
+        );
         if (!invocation) {
-          const site = { call, scopes, statement, fn: helper.fn, parameterScopes: [...helper.scopes, helper.fn] };
+          const site = {
+            call,
+            scopes,
+            statement,
+            mode,
+            methodOwner,
+            fn: helper.fn,
+            parameterScopes: [...helper.scopes, helper.fn],
+          };
           const parameters = helperParameters(site, (expr) => callable(expr, scopes, caller).definite);
           const choices = new Map<string, CallbackChoice[]>();
           for (const param of parameters) {
@@ -124,7 +201,6 @@ export function mutationCalls(program: Node, callsByOwner: ReadonlyMap<Node, Mut
           invocation = { ...site, caller, parameters, context: contextFor(helper.fn, functions) };
           atSite.push(invocation);
         }
-        const time = statement ? call.start : (times.get(caller) ?? null);
         activate(invocation.context, helper.fn.async || helper.fn.generator ? null : time);
       }
     }

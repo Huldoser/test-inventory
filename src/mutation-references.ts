@@ -23,7 +23,10 @@ export interface AliasBinding extends Site {
   end: number;
   replaces: boolean;
 }
+export type InvocationMode = 'direct' | 'call' | 'apply' | 'reflect' | 'own';
 export interface HelperSite extends Site {
+  mode: InvocationMode;
+  methodOwner?: Expression;
   call: CallExpression;
   fn: FunctionNode;
   parameterScopes: readonly Node[];
@@ -245,9 +248,23 @@ export function helperParameters(site: HelperSite, isCallable: (expression: Expr
     });
   };
   const defined = (ref: Reference) => (!ref.path.length && isCallable(ref.value)) || suppliedMember(ref, site);
-  for (const [index, parameter] of fn.params.entries()) {
-    if (parameter.type === 'RestElement') bind(parameter.argument, { ...args, rest: index }, add);
-    else for (const source of property(args, String(index))) bind(parameter, source, add, defined);
+  const receiverIndex = site.mode === 'reflect' ? 1 : 0;
+  if (fn.type !== 'ArrowFunctionExpression') {
+    if (site.methodOwner) add('this', direct(site.methodOwner));
+    else if (site.mode !== 'direct') {
+      for (const receiver of property(args, String(receiverIndex))) if (receiver) add('this', receiver);
+    }
+  }
+  const lists = site.mode === 'apply' || site.mode === 'reflect' ? property(args, String(receiverIndex + 1)) : [args];
+  const offset = site.mode === 'call' ? 1 : 0;
+  for (const list of lists) {
+    for (const [index, parameter] of fn.params.entries()) {
+      if (parameter.type === 'RestElement') {
+        if (list) bind(parameter.argument, { ...list, rest: index + offset }, add);
+      } else if (list) {
+        for (const source of property(list, String(index + offset))) bind(parameter, source, add, defined);
+      } else bind(parameter, null, add, defined);
+    }
   }
   return parameters;
 }
@@ -298,8 +315,8 @@ export function changedReferences(
       path.unshift(memberKey(value));
       value = unwrapChain(value.object);
     }
-    if (value.type === 'Identifier') {
-      const key = bindingKey(value.name, site.scopes);
+    if (value.type === 'Identifier' || value.type === 'ThisExpression') {
+      const key = bindingKey(value.type === 'ThisExpression' ? 'this' : value.name, site.scopes);
       if (key === null) return;
       names.add(key);
       const sources = bindings.get(key);

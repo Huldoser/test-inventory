@@ -9,7 +9,7 @@ import {
   type FunctionNode,
 } from './ast.ts';
 import { changedReferences, type AliasBinding, type MutationTarget } from './mutation-references.ts';
-import { mutationCalls, type MutationCallSite } from './mutation-calls.ts';
+import { mutationCalls, type MethodWrite, type MutationCallSite } from './mutation-calls.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -973,6 +973,25 @@ function mutatedObject(node: Node): Expression | null {
   }
 }
 
+/** A consecutive declaration or assignment fixes the identity of a mutable alias at a method write. */
+function methodOwnerAtWrite(object: Expression, previous: Node | null): Expression {
+  if (object.type !== 'Identifier') return object;
+  if (previous?.type === 'VariableDeclaration') {
+    const last = previous.declarations[previous.declarations.length - 1];
+    if (last.id.type === 'Identifier' && last.id.name === object.name && last.init) return last.init;
+  } else if (previous?.type === 'ExpressionStatement') {
+    const assign = previous.expression;
+    if (
+      assign.type === 'AssignmentExpression' &&
+      assign.operator === '=' &&
+      assign.left.type === 'Identifier' &&
+      assign.left.name === object.name
+    )
+      return assign.right;
+  }
+  return object;
+}
+
 /**
  * Names whose value the module changes while it loads, as describe callbacks and helpers run then: a member assigned
  * or deleted, a mutating method such as `push()`, or `Object.assign()`, also through an alias such as
@@ -983,6 +1002,8 @@ function changedNames(program: Node, values: Values): Set<string> {
   const targets: MutationTarget[] = [];
   const declarations: AliasBinding[] = [];
   const callsByOwner = new Map<Node, MutationCallSite[]>();
+  const methodWrites: MethodWrite[] = [];
+  let previousTop: Node | null = null;
   const walk = (node: Node, ancestors: readonly Node[], statement: Node | null, owner: Node): void => {
     const scopes = isScopeNode(node) ? [...ancestors, node] : ancestors;
     if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) {
@@ -990,7 +1011,30 @@ function changedNames(program: Node, values: Values): Set<string> {
       statement = null;
     } else if (node.type === 'ClassBody') statement = null;
     const target = mutatedObject(node);
-    if (target) targets.push({ value: target, scopes, statement });
+    if (target) {
+      targets.push({ value: target, scopes, statement });
+      const member =
+        node.type === 'AssignmentExpression' && node.operator === '='
+          ? node.left
+          : node.type === 'UnaryExpression'
+            ? unwrapChain(node.argument)
+            : null;
+      if (member?.type === 'MemberExpression') {
+        const name = propertyName(member);
+        if (name === 'call' || name === 'apply') {
+          const unconditional = statement?.type === 'ExpressionStatement' && statement.expression === node;
+          methodWrites.push({
+            name,
+            object: unconditional ? methodOwnerAtWrite(member.object, previousTop) : member.object,
+            assigned: node.type === 'AssignmentExpression' ? node.right : null,
+            scopes,
+            owner,
+            end: node.end,
+            unconditional,
+          });
+        }
+      }
+    }
     if (node.type === 'VariableDeclarator' && node.init)
       declarations.push({ pattern: node.id, source: node.init, scopes, statement, end: node.end, replaces: false });
     if (node.type === 'AssignmentExpression' && node.operator === '=')
@@ -1022,13 +1066,18 @@ function changedNames(program: Node, values: Values): Set<string> {
     for (const child of childNodes(node)) {
       const top = node === program && (child.type === 'VariableDeclaration' || child.type === 'ExpressionStatement');
       walk(child, scopes, top ? child : statement, owner);
+      if (node === program) previousTop = child;
     }
   };
   walk(program, [], null, program);
   if (!targets.length) return new Set();
-  const { calls, callTimes } = mutationCalls(program, callsByOwner, values);
+  const { calls, callTimes } = mutationCalls(program, callsByOwner, methodWrites, values);
   return changedReferences(declarations, targets, calls, callTimes, (identifier, scopes) => {
-    const declaration = values.declarationOf(identifier, scopes);
+    const declaration =
+      identifier === 'this'
+        ? (scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || scope.type === 'FunctionExpression') ??
+          null)
+        : values.declarationOf(identifier, scopes);
     return declaration && mutationKey(declaration, identifier);
   });
 }

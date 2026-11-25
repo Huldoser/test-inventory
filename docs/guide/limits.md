@@ -88,6 +88,8 @@ such as `desk = evening.desk`, a later write through `desk` can change the eveni
 the reassignment still points to the earlier desk. A helper can also change a title by writing to an object
 passed as an argument, including through a destructured parameter, a forwarded argument, or a reference
 returned by a synchronous local helper. Nested calls can pass the same object back through several returns.
+A local helper invoked with `call`, `apply`, or the global `Reflect.apply` can change its arguments or its explicit
+`this` receiver. An arrow function keeps its enclosing receiver.
 Calls through a local constant such as `const publish = register` use the original helper and its declaration scope.
 If a local helper invokes a function passed to it, the scan pairs that function with the arguments from the same call. A callback selected by a conditional
 can have several possible targets. If the selected value could be `undefined`, the parameter default can run too.

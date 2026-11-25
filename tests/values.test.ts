@@ -552,6 +552,90 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(code + 'day.label;')).toEqual({ ok: true, value: 'day' });
   });
 
+  it('tracks the arguments of local functions invoked with call, apply and Reflect.apply', () => {
+    const setup =
+      'const day={label:"day"};const night={label:"night"};function close(row){row.label="closing";}function read(row){return row.label;}';
+    for (const invocation of [
+      'close.call(null,night);',
+      'close.apply(undefined,[night]);',
+      'Reflect.apply(close,null,[night]);',
+      'const entries=[night];close.apply(null,entries);',
+      'function apply(fn,row){fn.call(null,row);}apply(read,day);apply(close,night);',
+      'function apply(fn,...rows){fn.call(null,...rows);}apply(read,day);apply(close,night);',
+      'function closeSecond(first,row){row.label="closing";}closeSecond.apply(null,[,night]);',
+    ]) {
+      expect(resolve(setup + invocation + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + invocation + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    expect(resolve(setup + '{const Reflect={apply:()=>{}};Reflect.apply(close,null,[night]);}night.label;')).toEqual({
+      ok: true,
+      value: 'night',
+    });
+  });
+
+  it('follows the explicit receiver and objects returned by call and apply', () => {
+    const setup =
+      'const desk={label:"opening"};function pick(row){return row;}function update(){this.label="closing";}';
+    for (const call of [
+      'pick.call(null,desk).label="closing";',
+      'pick.apply(null,[desk]).label="closing";',
+      'update.call(desk);',
+      'Reflect.apply(update,desk,[]);',
+    ])
+      expect(resolve(setup + call + 'desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'const receiver=()=>this;receiver.call(desk).label="closing"; desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+  });
+
+  it('honors a function’s own call method and restores the inherited method after deletion', () => {
+    const setup =
+      'const desk={label:"opening"};function close(row){row.label="closing";}function read(row){return row.label;}';
+    const idle = 'const alias=close;alias.call=()=>{};';
+    expect(resolve(setup + idle + 'close.call(null,desk);desk.label;')).toEqual({ ok: true, value: 'opening' });
+    expect(resolve(setup + idle + 'delete close.call;close.call(null,desk);desk.label;')).toEqual(UNRESOLVED);
+    expect(
+      resolve(setup + 'read.call=(receiver,row)=>{row.label="closing";};read.call(null,desk);desk.label;'),
+    ).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'close.call(null,desk);close.call=()=>{};desk.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('uses the identity of a mutable function alias when its own method is set before reassignment', () => {
+    const setup =
+      'const desk={label:"opening"};function close(row){row.label="closing";}function read(row){return row.label;}';
+    expect(resolve(setup + 'let alias=close;alias.call=()=>{};alias=read;close.call(null,desk);desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+    expect(resolve(setup + 'let alias=close;alias=read;alias.call=()=>{};close.call(null,desk);desk.label;')).toEqual(
+      UNRESOLVED,
+    );
+  });
+
+  it('keeps method alternatives when a write may replace either of two functions', () => {
+    const setup =
+      'const desk={label:"opening"};function close(row){row.label="closing";}function read(row){return row.label;}';
+    for (const override of [
+      '(globalThis.fast?close:read).call=()=>{};',
+      'if(globalThis.fast)close.call=()=>{};',
+      'const other=read;other.call=()=>{};',
+    ])
+      expect(resolve(setup + override + 'close.call(null,desk);desk.label;')).toEqual(UNRESOLVED);
+    const own = 'const other=close;read.call=function(receiver,row){row.label="closing";};';
+    expect(resolve(setup + own + 'read.call(null,desk);desk.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('applies defaults and empty rest parameters when an invocation omits its argument list', () => {
+    const setup = 'const desk={label:"opening"};function update(row=desk,...others){row.label="closing";}';
+    expect(resolve(setup + 'update.apply();desk.label;')).toEqual(UNRESOLVED);
+    const read = 'function inspect(...rows){return rows.length;}inspect.call();inspect.apply();';
+    expect(resolve(setup + read + 'try {Reflect.apply();} catch {} desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+  });
+
   it('flags titles changed through helper arguments resolved in the calling scope', () => {
     const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
     for (const route of [
