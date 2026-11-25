@@ -31,6 +31,13 @@ export function functionLength(fn: FunctionNode): number {
 
 type Flow = 'next' | 'throw' | 'unknown';
 type Completion = Flow | { returned: Resolved };
+interface Collected {
+  values: Resolved[];
+  complete: boolean;
+}
+interface Iteration {
+  yielded?: Collected;
+}
 const omitted: Resolved = { ok: true, value: undefined };
 const objectResult: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true };
 const nonIterableObject: Resolved = { ...objectResult, nonIterable: true };
@@ -216,7 +223,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   // Helpers may recurse or call each other repeatedly. Exhausting this proof budget keeps the catch in the inventory.
   let remaining = 256;
   const active: { block: BlockStatement; at: number }[] = [];
-  const parameters: { fn: FunctionNode; initialized: Set<string> }[] = [];
+  const parameters: { fn: FunctionNode; initialized: Set<string>; yielded?: Collected }[] = [];
   const assigned = file.values.assignedIn(outer[0], false);
   function argument(arg: Expression, scopes: readonly Node[]): ArgumentValue | undefined {
     const node = unwrap(arg);
@@ -253,6 +260,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     args: readonly Resolved[] = [],
     complete = true,
     site?: CallExpression,
+    yielded?: Collected,
   ): Flow {
     const body = fn.body;
     const steps = new Map<Node, ParameterStep>();
@@ -298,13 +306,13 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       args,
       definition,
       () => {
-        parameters.push({ fn, initialized });
+        parameters.push({ fn, initialized, yielded });
         let result: Flow = 'next';
         for (const param of fn.params) {
           result = bind(param);
           if (result !== 'next') break;
         }
-        if (result === 'next' && !fn.generator) {
+        if (result === 'next' && (!fn.generator || yielded)) {
           const end =
             body.type === 'BlockStatement' ? statement(body, inside, children) : expression(body, inside, children);
           result = typeof end === 'object' ? 'next' : end;
@@ -333,7 +341,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       return children.registered === 'possible' ? 'unknown' : 'throw';
     return 'next';
   }
-  function call(node: CallExpression, scopes: readonly Node[], children: Children): Flow {
+  function call(node: CallExpression, scopes: readonly Node[], children: Children, iteration?: Iteration): Flow {
     const callee = unwrap(node.callee);
     if (--remaining < 0) return 'unknown';
     if (
@@ -351,7 +359,8 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     if (inline || file.values.declarationOf(callee.name, scopes)) {
       const helper = inline ? { node: callee, scopes } : argument(callee, scopes);
       if (!helper || !isRuntimeFunction(helper.node)) return 'unknown';
-      const evaluated = elements(args, scopes, children);
+      const actual: Collected = { values: [], complete: true };
+      const evaluated = elements(args, scopes, children, actual);
       if (evaluated !== 'next') return evaluated;
       if (helper.node.async && !helper.node.generator) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
@@ -359,8 +368,16 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
         results.set(node, nonIterableObject);
         return 'next';
       }
-      const actual = file.values.callArguments(node, scopes, true);
-      const result = invoke(helper.node, helper.scopes, children, actual.args, actual.complete, node);
+      if (iteration && helper.node.generator && !helper.node.async) iteration.yielded = { values: [], complete: true };
+      const result = invoke(
+        helper.node,
+        helper.scopes,
+        children,
+        actual.values,
+        actual.complete,
+        node,
+        iteration?.yielded,
+      );
       if (helper.node.generator && result === 'next')
         results.set(node, helper.node.async ? nonIterableObject : objectResult);
       return result;
@@ -402,35 +419,55 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     if (result === 'next') results.set(node, nonIterableObject);
     return result;
   }
-  function elements(list: readonly Argument[] | ArrayExpression, scopes: readonly Node[], children: Children): Flow {
+  function spread(operand: Expression, scopes: readonly Node[], children: Children, out: Collected): Flow {
+    const iteration: Iteration = {};
+    const result = expression(operand, scopes, children, iteration);
+    if (result !== 'next') return result;
+    if (iteration.yielded) {
+      if (out.complete) {
+        for (const item of iteration.yielded.values) out.values.push(item);
+        out.complete = iteration.yielded.complete;
+      }
+      return 'next';
+    }
+    const source = valueOf(operand, scopes);
+    if (source.ok) {
+      if (!Array.isArray(source.value) && typeof source.value !== 'string') return 'throw';
+      if (out.complete) for (const item of source.value) out.values.push({ ok: true, value: item });
+    } else {
+      if (source.nonIterable) return 'throw';
+      if (unwrap(operand).type !== 'ArrayExpression' && file.values.lengthOf(operand, scopes) === null)
+        return 'unknown';
+      out.complete = false;
+    }
+    return 'next';
+  }
+  function elements(
+    list: readonly Argument[] | ArrayExpression,
+    scopes: readonly Node[],
+    children: Children,
+    out: Collected = { values: [], complete: true },
+  ): Flow {
     const array = 'elements' in list;
-    let parts: Value[] | undefined = array ? [] : undefined;
     for (const item of array ? list.elements : list) {
       if (!item) {
-        parts?.push(undefined);
-        continue;
-      }
-      const operand = item.type === 'SpreadElement' ? item.argument : item;
-      const result = expression(operand, scopes, children);
-      if (result !== 'next') return result;
-      if (item.type === 'SpreadElement') {
-        const spread = valueOf(operand, scopes);
-        if (!spread.ok) {
-          if (spread.nonIterable) return 'throw';
-          if (unwrap(operand).type !== 'ArrayExpression' && file.values.lengthOf(operand, scopes) === null)
-            return 'unknown';
-          parts = undefined;
-        } else {
-          if (!Array.isArray(spread.value) && typeof spread.value !== 'string') return 'throw';
-          if (parts) for (const element of spread.value) parts.push(element);
-        }
-      } else if (parts) {
-        const element = valueOf(operand, scopes);
-        if (element.ok) parts.push(element.value);
-        else parts = undefined;
+        if (out.complete) out.values.push(omitted);
+      } else if (item.type === 'SpreadElement') {
+        const result = spread(item.argument, scopes, children, out);
+        if (result !== 'next') return result;
+      } else {
+        const result = expression(item, scopes, children);
+        if (result !== 'next') return result;
+        if (out.complete) out.values.push(valueOf(item, scopes));
       }
     }
-    if (array) results.set(list, parts ? { ok: true, value: parts } : objectResult);
+    if (array)
+      results.set(
+        list,
+        out.complete && out.values.every((v) => v.ok)
+          ? { ok: true, value: out.values.map((v) => v.value) }
+          : objectResult,
+      );
     return 'next';
   }
   function evaluate(
@@ -449,7 +486,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     results.set(node, computed);
     return computed.ok || computed.truthy ? 'next' : failure;
   }
-  function expression(node: Expression, scopes: readonly Node[], children: Children): Flow {
+  function expression(node: Expression, scopes: readonly Node[], children: Children, iteration?: Iteration): Flow {
     const value = unwrap(node);
     if (value.type === 'ArrayExpression') return elements(value, scopes, children);
     if (value.type === 'ObjectExpression') {
@@ -473,7 +510,19 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       }
       return 'next';
     }
-    if (value.type === 'CallExpression') return call(value, scopes, children);
+    if (value.type === 'CallExpression') return call(value, scopes, children, iteration);
+    if (value.type === 'YieldExpression') {
+      // A nested try block can be checked independently of the call that consumes its generator.
+      const yielded = parameters.at(-1)?.yielded ?? { values: [], complete: true };
+      if (value.delegate) return spread(value.argument as Expression, scopes, children, yielded);
+      const result = value.argument ? expression(value.argument, scopes, children) : 'next';
+      if (result === 'next') {
+        if (yielded.complete) yielded.values.push(value.argument ? valueOf(value.argument, scopes) : omitted);
+        // A synchronous spread advances the iterator without sending a value to the suspended yield.
+        results.set(value, omitted);
+      }
+      return result;
+    }
     if (value.type === 'UnaryExpression' && value.operator === 'void')
       return expression(value.argument, scopes, children);
     if (isValueOperation(value)) return evaluate(value, scopes, children, (read) => operationValue(value, read));

@@ -220,6 +220,8 @@ interface InitializingParameters {
 interface Context {
   /** Evaluating an argument to a runner API at collection time, before the runner receives it. */
   evaluatingArgument?: boolean;
+  /** The operand currently consumed by a synchronous spread or delegated yield. */
+  iterated?: Expression;
   parameters?: InitializingParameters;
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
   registration?: Registration;
@@ -764,14 +766,14 @@ class Walker {
           return;
         }
       }
-      if (node.type === 'SpreadElement' && this.parents.at(-2)?.type !== 'ObjectExpression') {
-        this.visit(node.argument, context);
-        const value = this.frame.values.resolve(node.argument, this.scopes);
-        if (
-          value.ok
-            ? nonIterable(value.value)
-            : this.frame.adapter.rejectsRegistrationSpread?.(node.argument, this.scopes)
-        )
+      if (
+        (node.type === 'SpreadElement' && this.parents.at(-2)?.type !== 'ObjectExpression') ||
+        (node.type === 'YieldExpression' && node.delegate)
+      ) {
+        const operand = node.argument as Expression;
+        this.visit(operand, { ...context, iterated: unwrap(operand) });
+        const value = this.frame.values.resolve(operand, this.scopes);
+        if (value.ok ? nonIterable(value.value) : this.frame.adapter.rejectsRegistrationSpread?.(operand, this.scopes))
           this.stopRegistration(node, context);
         return;
       }
@@ -1273,7 +1275,12 @@ class Walker {
   }
 
   /** Visits the body of a callback the framework or a loop calls, rather than a plain function. */
-  private visitCallback(fn: FunctionNode, context: Context, parameterSteps?: ReadonlyMap<Node, ParameterStep>): void {
+  private visitCallback(
+    fn: FunctionNode,
+    context: Context,
+    parameterSteps?: ReadonlyMap<Node, ParameterStep>,
+    iterate = false,
+  ): void {
     this.scopes.push(fn);
     this.parents.push(fn);
     const bindings = parameterSteps
@@ -1290,7 +1297,7 @@ class Walker {
       : context;
     for (const parameter of fn.params) this.visit(parameter, bindings);
     // Function expressions and arrows always have a body; only declarations of overloads don't.
-    if (!parameterSteps || (!fn.generator && bindings.registration?.stoppedAt === undefined))
+    if (!parameterSteps || ((!fn.generator || iterate) && bindings.registration?.stoppedAt === undefined))
       this.visit(fn.body as Node, context);
     if (context.registration?.returned) context.registration.returned = false;
     this.parents.pop();
@@ -1792,6 +1799,7 @@ class Walker {
               registeredBy: context.registeredBy ?? call,
             },
             parameterSteps,
+            context.iterated === call && !fn.async,
           );
         };
         if (registering && context.registration && fn.async && !fn.generator)

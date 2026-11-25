@@ -1072,6 +1072,66 @@ try {
     }
   });
 
+  it('registers specs between generator yields when Jasmine consumes the iterator as a spread', () => {
+    const scan = scanJasmine(`function* prices(side) {
+  yield side;
+  it('records the fee', () => {});
+  yield* ['quote'];
+  return 'ignored';
+}
+function title(side, trade) { return side + ' ' + trade; }
+try { it(title(...prices('bid')), () => {}); it('finishes registration', () => {}); }
+catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.fullName)).toEqual(['records the fee', 'bid quote', 'finishes registration']);
+  });
+
+  it('keeps earlier registrations when generator iteration throws in a Jasmine spread', () => {
+    for (const failure of [
+      "throw Error('closed');",
+      'yield* 7;',
+      "try { yield 2; } finally { throw Error('closed'); }",
+    ]) {
+      const scan = scanJasmine(`function* prices() { yield it('quotes a fill', () => {}); ${failure} }
+function title() { return 'cash order'; }
+try { it(title(...prices(), it('records the fee', () => {})), () => {}); it('finishes registration', () => {}); }
+catch { it('recovers the market', () => {}); }`);
+      expect(
+        scan.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.title),
+        failure,
+      ).toEqual(['quotes a fill', 'recovers the market']);
+    }
+  });
+
+  it('resumes a bare yield without taking the catch inside the consumed Jasmine generator', () => {
+    const scan = scanJasmine(`function title(...fields) { return fields.join('/'); }
+function* prices() {
+  try { yield; } catch { it('recovers the price', () => {}); }
+  yield 'bid';
+}
+try { it(title(...prices()), () => {}); } catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['/bid']);
+  });
+
+  it('visits later generator spreads and holes after a Jasmine registration yields an opaque value', () => {
+    const scan = scanJasmine(`function* fields() {yield* [it('records the fee', () => {})]; yield 'bid';}
+function title() {return 'settles the auction';}
+try {
+  it(title(...[...[it('opens the book', () => {})], , ...fields()]), () => {});
+} catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.fullName)).toEqual([
+      'opens the book',
+      'records the fee',
+      'settles the auction',
+    ]);
+  });
+
+  it('preserves Jasmine recovery when destructuring an iterator whose first advance throws', () => {
+    const scan = scanJasmine(`function* prices() { throw Error('closed'); }
+function title([price]) {return price;}
+try { it(title(prices()), () => {}); } catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.title)).toContain('recovers the market');
+  });
+
   it('distinguishes successful spreads from noniterable or unreadable spreads in a Jasmine helper call', () => {
     for (const [arg, recovery] of [
       ["'BID'", false],
