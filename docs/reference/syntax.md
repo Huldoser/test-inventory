@@ -241,6 +241,7 @@ Array patterns read strings one Unicode code point at a time. Object patterns ca
 If a known value cannot be destructured or spread into a call or array, the scan keeps specs registered before the failure. An async function returns a rejected promise for a parameter binding error. An invalid spread in the caller throws before the async function starts.
 These rules also apply when the file or a suite calls a helper directly. Calling a generator binds its parameters immediately and defers its body until iteration.
 From Jasmine 4.5, an empty-suite error leaves that suite open. Specs registered by a `catch` or `finally` then belong to the empty suite and inherit its hooks and focus or skip settings.
+If a helper catches that error while evaluating a declaration argument, the declaration itself also belongs to the suite that is open when Jasmine receives the call.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
 `hooks`.

@@ -680,13 +680,16 @@ class Walker {
     };
   }
 
-  private visit(node: Node, context: Context): void {
+  private currentScope(context: Context): Context {
     const scope = context.registration?.scope;
-    if (scope && scope !== context.scope) context = { ...context, scope };
+    return scope && scope !== context.scope ? { ...context, scope } : context;
+  }
+
+  private visit(node: Node, context: Context): void {
     const isScope = isScopeNode(node);
     if (isScope) this.scopes.push(node);
     this.parents.push(node);
-    this.visitNode(node, context);
+    this.visitNode(node, this.currentScope(context));
     this.parents.pop();
     if (isScope) this.scopes.pop();
   }
@@ -1248,7 +1251,7 @@ class Walker {
     });
     if (!api) return false;
     if (this.registrationArguments(call, context)) return true;
-    return this.handle(call, api, context);
+    return this.handle(call, api, this.currentScope(context));
   }
 
   /** Whether argument evaluation stopped a call during collection, or null outside live Jasmine registration. */

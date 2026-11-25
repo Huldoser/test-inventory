@@ -345,6 +345,32 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('registers a spec, suite or hook under the current Jasmine suite after evaluating its arguments', () => {
+    for (const frameworkVersion of ['4.0.0', '5.13.0', '7.0.2']) {
+      const result = scanJasmine(
+        `
+function reopen() { try { xdescribe('suspended feed', () => {}); } catch {} return 25; }
+describe('cash desk', () => {
+  it('accepts the trade', () => {}, reopen());
+  beforeEach(() => {}, reopen());
+  describe('closing auction', () => { it('prices a fill', () => {}); }, reopen());
+});`,
+        { frameworkVersion },
+      );
+      const parents = (times: number) => [
+        'cash desk',
+        ...Array<string>(frameworkVersion === '4.0.0' ? 0 : times).fill('suspended feed'),
+      ];
+      const trade = testNamed(result, 'accepts the trade'),
+        fill = testNamed(result, 'prices a fill');
+      expect(trade.fullName).toBe([...parents(1), 'accepts the trade'].join(' > '));
+      expect(fill.fullName).toBe([...parents(3), 'closing auction', 'prices a fill'].join(' > '));
+      expect(trade.hooks.beforeEach).toBe(frameworkVersion === '4.0.0' ? 1 : 0);
+      expect(fill.hooks.beforeEach).toBe(1);
+      expect(fill.state).toBe(frameworkVersion === '4.0.0' ? 'active' : 'skip');
+    }
+  });
+
   it('binds standalone helper calls in the enclosing suite and stops later registrations when a binding throws', () => {
     const result = scanJasmine(`
 function request({price}, side = it('loads the side', () => {})) { it('requests a trade', () => {}); }
