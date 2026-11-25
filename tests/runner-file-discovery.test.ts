@@ -24,6 +24,56 @@ async function expectFiles(root: string, expected: string[]) {
 
 describe('Playwright project dependencies with a package-script file filter', () => {
   it.each([
+    { second: '', topProjects: [] },
+    { second: 'playwright test', topProjects: null },
+    { second: 'playwright test orders checks', topProjects: null },
+    { second: 'playwright test spec', topProjects: [] },
+    { second: 'playwright test balances', topProjects: [] },
+  ])(
+    'combines location filters without a Playwright config, with a second script "$second"',
+    async ({ second, topProjects }) => {
+      const root = project({
+        'package.json': JSON.stringify({
+          devDependencies: { '@playwright/test': '1.65.1' },
+          scripts: { orders: 'playwright test orders', ledger: second },
+        }),
+        'tests/orders.spec.js': `const {test}=require('@playwright/test'); const {check}=require('./checks.cjs');
+        check('settles an order'); test.describe('settlement desk', () => check('records a ledger entry'));`,
+        'tests/checks.cjs': "const {test}=require('@playwright/test'); exports.check = title => test(title, () => {});",
+      });
+      const { tests } = await scan({ root });
+      expect(tests.map((test) => [test.title, test.projects])).toEqual([
+        ['settles an order', topProjects],
+        ['records a ledger entry', null],
+      ]);
+    },
+  );
+
+  it.each([
+    { usage: "check('top');", expected: [] },
+    { usage: "test.describe('orders desk', () => check('nested'));", expected: ['nested', 'seed'] },
+    { usage: "check('top'); test.describe('orders desk', () => check('nested'));", expected: ['nested', 'seed'] },
+    { usage: "check('top'); test('local', () => {});", expected: ['local', 'seed', 'top'] },
+  ])('uses the suite and declaration locations for a filtered entry: $usage', async ({ usage, expected }) => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test orders'),
+      'playwright.config.cjs': `module.exports = {testDir:'tests', projects:[
+        {name:'seed',testMatch:'**/*.seed.js'}, {name:'ui',testMatch:'**/*.ui.js',dependencies:['seed']}]};`,
+      'tests/orders.ui.js': "const {test}=require('@playwright/test'); const {check}=require('./checks.cjs'); " + usage,
+      'tests/checks.cjs':
+        "const {test}=require('@playwright/test'); exports.check = title => test.describe('order ledger', () => test(title, () => {}));",
+      'tests/session.seed.js': "const {test}=require('@playwright/test'); test('seed', () => {});",
+    });
+    const inventory = await scan({ root });
+    expect(
+      inventory.tests
+        .filter((test) => test.projects?.length)
+        .map((test) => test.title)
+        .sort(),
+    ).toEqual(expected);
+  });
+
+  it.each([
     { selected: 'module.exports = {};', seed: false },
     { selected: "import { test } from '@playwright/test';", seed: false },
     { selected: "const {test} = require('@playwright/test'); test.beforeEach(() => {});", seed: false },

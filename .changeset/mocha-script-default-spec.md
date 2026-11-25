@@ -13,3 +13,5 @@ Match Mocha's glob character classes and extension-list spacing. Omit Playwright
 Honor shell `true` and `false` in conditional directory changes. Apply Playwright project title filters before selecting setup, recognize imports that only export data, and match Mocha ignore character classes and extended patterns.
 
 Collect tests registered by a helper called directly on a CommonJS import, such as `require('./checks').validateOrder()`.
+
+Follow Playwright tests registered when local modules load. Honor Playwright's file filtering when tests originate in a helper with a different extension, including matching enclosing describes.

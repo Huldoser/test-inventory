@@ -136,6 +136,7 @@ export interface Placement {
   candidate?: boolean;
   /** The projects of the config that run the file, which a Playwright `grep` may narrow per test; null when unknown. */
   projects: ProjectAbout[] | null;
+  testFilters?: Map<ProjectAbout, RecordFilter>;
   /** The tags Playwright's config `tag` gives every test; null when the scan can't work them out. */
   tags: string[] | null;
 }
@@ -159,12 +160,15 @@ const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypr
  * A config a package.json script starts the runner with, null for the runner's defaults, the folder it runs from, and
  * for Mocha its command line.
  */
+type RecordFilter = (test: TestRecord, suites: SuiteRecord[]) => boolean;
+
 interface Route {
   config: ConfigFile | null;
   root: string;
   mocha?: MochaArguments;
   launchConfig?: ConfigFile | null;
   selects?: (file: string, project: Project) => boolean;
+  testFilter?: (file: string, project: Project) => RecordFilter | null;
 }
 /** A route, or, as `unknown`, why the scan can't tell what a script runs. */
 type ScriptRoute = Route | { manifest: string; unknown: string };
@@ -228,6 +232,38 @@ function playwrightMatcher(list: (string | RegExp)[]): (file: string) => boolean
   return (file) => {
     const unix = posix(file);
     return isMatch(unix) || expressions.some((expression) => matches(expression, file) || matches(expression, unix));
+  };
+}
+
+/** Playwright moves a file suite when all declarations come from one other file with a different extension.
+ * When that file misses the CLI filter, a matching enclosing describe can still select its descendants. */
+function playwrightLocationFilter(
+  file: string,
+  root: string,
+  records: FileRecords | null,
+  matches: (file: string) => boolean,
+): RecordFilter | null {
+  const source = records?.tests[0]?.declaredAt?.relativeFilePath;
+  if (
+    !source ||
+    path.extname(source) === path.extname(file) ||
+    !records.tests.every((test) => test.declaredAt?.relativeFilePath === source) ||
+    matches(path.resolve(root, source))
+  )
+    return null;
+  const collections = new WeakMap<SuiteRecord[], Map<string, SuiteRecord>>();
+  return (test, suites) => {
+    let byId = collections.get(suites);
+    if (!byId) {
+      byId = new Map(suites.map((suite) => [suite.id, suite]));
+      collections.set(suites, byId);
+    }
+    for (let id = test.suiteId; id !== null;) {
+      const suite = byId.get(id) as SuiteRecord;
+      if (matches(path.resolve(root, suite.declaredAt?.relativeFilePath ?? suite.relativeFilePath))) return true;
+      id = suite.parentId;
+    }
+    return false;
   };
 }
 
@@ -451,7 +487,36 @@ export class ConfigRuns {
       if (running.length > 0) {
         const [{ project, runs }] = running;
         const config = route.config && project.config;
-        return { config, settings: project.settings, runs, projects: running.map((item) => item.project.about) };
+        const testFilters = new Map<ProjectAbout, RecordFilter>();
+        if (this.findsFiles && route.testFilter) {
+          for (const item of running) {
+            const first = route.testFilter(file, item.project);
+            if (!first) continue;
+            const alternatives = [first];
+            for (const other of this.scriptRoutesAbove(file)) {
+              if (other === route || 'unknown' in other || other.config !== route.config) continue;
+              if (!this.projectsOfRoute(other).includes(item.project) || other.selects?.(file, item.project) === false)
+                continue;
+              const filter = other.testFilter?.(file, item.project);
+              if (!filter) {
+                alternatives.length = 0;
+                break;
+              }
+              alternatives.push(filter);
+            }
+            if (alternatives.length)
+              testFilters.set(item.project.about, (test, suites) =>
+                alternatives.some((filter) => filter(test, suites)),
+              );
+          }
+        }
+        return {
+          config,
+          settings: project.settings,
+          runs,
+          projects: running.map((item) => item.project.about),
+          testFilters,
+        };
       }
       const unknownProject = projects.find((project) => project.unknown);
       if (unknownProject?.unknown) {
@@ -548,6 +613,13 @@ export class ConfigRuns {
         patterns.push(pattern);
       }
       const matchesFile = playwrightMatcher(patterns);
+      const locations = new Map<string, RecordFilter | null>();
+      const locationFilter = (file: string) => {
+        if (!locations.has(file)) {
+          locations.set(file, playwrightLocationFilter(file, this.configs.root, this.selectedTests(file), matchesFile));
+        }
+        return locations.get(file) as RecordFilter | null;
+      };
       const projects = this.projectsOfRoute(route);
       const required = new Set<Project>();
       const visit = (project: Project) => {
@@ -569,12 +641,23 @@ export class ConfigRuns {
           if (!records) return true;
           const tags = this.configTags(project.config);
           return records.tests.some(
-            (test) => projectsRunning([project.about], test, records.suites, file, tags)?.length !== 0,
+            (test) =>
+              locationFilter(file)?.(test, records.suites) !== false &&
+              projectsRunning([project.about], test, records.suites, file, tags)?.length !== 0,
           );
         });
         if (hasTests) visit(project);
       }
-      return (file, project) => matchesFile(file) || required.has(project);
+      route.testFilter = (file, project) => (required.has(project) ? null : locationFilter(file));
+      return (file, project) => {
+        if (required.has(project)) return true;
+        if (!matchesFile(file)) return false;
+        if (!project.runs?.(file)) return true;
+        const filter = locationFilter(file);
+        if (!filter) return true;
+        const records = this.selectedTests(file) as FileRecords;
+        return records.tests.some((test) => filter(test, records.suites));
+      };
     }
     return (file, project) => {
       const dir = project.about.testDir;
@@ -2281,13 +2364,26 @@ export function fileConfig(
     // Without a config, Vitest defines no tags and keeps strictTags on.
     const tags = vitestTags(null, null, null, atLeast(version, 5, 0));
     const forbidOnly = onlyRule(framework, null);
+    if (placement.testFilters?.size) {
+      const filters = [...placement.testFilters.values()];
+      return {
+        forbidOnly,
+        tags,
+        configTags: [],
+        forTest: (test, suites) =>
+          filters.some((filter) => filter(test, suites)) ? NO_CONFIG : { projects: [], defaults: null },
+      };
+    }
     return framework === 'vitest' ? { forbidOnly, forTest: () => NO_CONFIG, tags, configTags: [] } : null;
   }
   return {
     forbidOnly: projectOnlyRule(framework, config.settings, projects),
     forTest(test, suites) {
       if (projects === null) return { projects: null, defaults: UNKNOWN_DEFAULTS };
-      const running = projectsRunning(projects, test, suites, file, placement.tags);
+      const eligible = placement.testFilters?.size
+        ? projects.filter((project) => placement.testFilters?.get(project)?.(test, suites) !== false)
+        : projects;
+      const running = projectsRunning(eligible, test, suites, file, placement.tags);
       // A grep the scan can't match leaves the projects that run the file, which may still agree.
       return {
         projects: running?.map(({ name }) => name) ?? null,

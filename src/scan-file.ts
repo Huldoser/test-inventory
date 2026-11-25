@@ -1,11 +1,8 @@
-import { isBuiltin } from 'node:module';
-import type { Node } from 'oxc-parser';
-import { childNodes } from './ast.ts';
 import type { RunsWith } from './config-dependencies.ts';
 import { DependencyGraph, fileDependencies, type Place, type SnapshotFiles } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
 import { extract, noHooks, type Frame } from './extract.ts';
-import { importsFrom, parseModule, requiredModule } from './frameworks/bindings.ts';
+import { parseModule } from './frameworks/bindings.ts';
 import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
@@ -59,6 +56,7 @@ export interface FileSettings {
 }
 
 export interface FileResult extends FileRecords {
+  unknownRegistration?: boolean;
   usesGlobals: boolean;
 }
 
@@ -105,73 +103,14 @@ export function noRecords(relativeFilePath: string): Omit<FileRecords, 'diagnost
 /** Playwright starts dependencies after collecting a test in the filtered project. Imported modules can register
  * tests as a side effect, even when the spec has no declarations of its own. */
 export function playwrightSelection(module: ModuleSource, version: FileSettings['version']): FileRecords | null {
-  const parsed = parseModule(module);
-  if (parsed.error) return null;
-  const canRegisterOnImport = (name: string) => {
-    if (isBuiltin(name) || name === '@playwright/test' || name === 'playwright/test') return false;
-    const imported = module.readModule(name);
-    if ('reason' in imported) return true;
-    return !onlyExportsData(imported);
-  };
-  if (importsFrom(parsed.program, canRegisterOnImport)) return null;
-  const loadsDynamically = (node: Node): boolean =>
-    node.type === 'ImportExpression' ||
-    (node.type === 'CallExpression' &&
-      node.callee.type === 'Identifier' &&
-      node.callee.name === 'require' &&
-      requiredModule(node) === null) ||
-    childNodes(node).some(loadsDynamically);
-  if (loadsDynamically(parsed.program)) return null;
-  const records = scanFile(parsed, module.relativeFilePath, {
+  const records = scanFile(parseModule(module), module.relativeFilePath, {
     framework: 'playwright',
     version,
     readModule: module.readModule,
     comments: 'none',
     root: null,
   });
-  return records.diagnostics.length ? null : records;
-}
-
-/** A local module consisting of data declarations and exports has no calls or imports that could register tests. */
-const DATA_NODES = new Set<Node['type']>([
-  'Program',
-  'VariableDeclaration',
-  'VariableDeclarator',
-  'ExportNamedDeclaration',
-  'ExportDefaultDeclaration',
-  'ExpressionStatement',
-  'AssignmentExpression',
-  'MemberExpression',
-  'Identifier',
-  'Literal',
-  'ObjectExpression',
-  'Property',
-  'ArrayExpression',
-  'UnaryExpression',
-  'EmptyStatement',
-]);
-
-function dataOnly(node: Node): boolean {
-  return DATA_NODES.has(node.type) && childNodes(node).every(dataOnly);
-}
-
-function onlyExportsData(module: ModuleSource): boolean {
-  const modules = new Set([module]);
-  for (const current of modules) {
-    const parsed = parseModule(current);
-    if (parsed.error) return false;
-    for (const statement of parsed.program.body) {
-      if (
-        (statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportAllDeclaration') &&
-        statement.source
-      ) {
-        const next = current.readModule(statement.source.value);
-        if ('reason' in next) return false;
-        modules.add(next);
-      } else if (!dataOnly(statement)) return false;
-    }
-  }
-  return true;
+  return records.diagnostics.length || records.unknownRegistration ? null : records;
 }
 
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
@@ -204,7 +143,11 @@ export function scanFile(code: string | ParsedFile, relativeFilePath: string, se
         const helper = parseModule(module);
         return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
       },
-      { expandCases: settings.expandCases ?? false, version: settings.version },
+      {
+        expandCases: settings.expandCases ?? false,
+        version: settings.version,
+        collectImports: settings.framework === 'playwright',
+      },
     );
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
     const unfollowed: Place[] = [];
@@ -241,6 +184,7 @@ export function scanFile(code: string | ParsedFile, relativeFilePath: string, se
         ...unfollowed.map((place) => toDiagnostic(place.problem, place.relativeFilePath, place.source)),
       ],
       usesGlobals: extraction.usesGlobals,
+      unknownRegistration: extraction.unknownRegistration,
     };
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error);

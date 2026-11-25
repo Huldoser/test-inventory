@@ -1,3 +1,4 @@
+import { isBuiltin } from 'node:module';
 import type {
   CallExpression,
   CatchClause,
@@ -77,7 +78,7 @@ export interface PendingSuite {
   /** The file the describe is written in. */
   frame: Frame;
   /** The outermost helper call in the scanned file that declares the describe; null when the file declares it. */
-  registeredBy: CallExpression | null;
+  registeredBy: Node | null;
   /** Where the scanned file registers the describe: its own call, or the outermost helper call that declares it. */
   order: number;
   /** Statements of the tests and describes directly inside, left out of the describe's body hash. */
@@ -101,7 +102,7 @@ export interface PendingTest {
   /** The file the test is written in. */
   frame: Frame;
   /** The outermost helper call in the scanned file that declares the test; null when the file declares it. */
-  registeredBy: CallExpression | null;
+  registeredBy: Node | null;
   /** Where the scanned file registers the test: its own call, or the outermost helper call that declares it. */
   order: number;
   /** States from the declaration, then from calls in the body such as `test.skip(condition)`. */
@@ -140,6 +141,8 @@ export interface Frame {
 
 /** How the walk lists tables and loops. */
 export interface ExtractOptions {
+  /** Follow modules loaded while a Playwright spec registers its tests. */
+  collectImports?: boolean;
   /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
   expandCases: boolean;
   /** Vitest's `[major, minor]`, whose rules give each case its title; null for the newest rules. */
@@ -156,6 +159,7 @@ interface Callee {
 }
 
 export interface Extraction {
+  unknownRegistration: boolean;
   suites: PendingSuite[];
   tests: PendingTest[];
   /** Problems not tied to one test. */
@@ -213,7 +217,7 @@ interface Context {
    */
   quiet: boolean;
   /** The outermost helper call being walked from the file or a describe; null outside one. */
-  registeredBy: CallExpression | null;
+  registeredBy: Node | null;
 }
 
 /** A function with a name, waiting to be walked where it is written once the calls in the file are known. */
@@ -436,7 +440,10 @@ class Walker {
   /** The file whose code is being walked: the scanned file, or the module of an imported helper. */
   private frame: Frame;
   /** While an imported helper is walked, the call in the scanned file that walks it; records and problems point there. */
-  private site: CallExpression | null = null;
+  private site: Node | null = null;
+  private readonly loaded = new Set<string>();
+  private importDepth = 0;
+  private unknownRegistration = false;
   private readonly openModule: OpenModule;
   private readonly frames = new Map<ModuleSource, Frame | null>();
   /** Problems of helper modules' own imports, reported once, at the first call that walks the module. */
@@ -482,6 +489,7 @@ class Walker {
   constructor(main: Frame, openModule: OpenModule, options: ExtractOptions) {
     this.options = options;
     this.main = main;
+    this.loaded.add(main.relativeFilePath);
     this.frame = main;
     this.openModule = openModule;
     const { adapter } = main;
@@ -538,6 +546,7 @@ class Walker {
       problems: [...this.main.adapter.problems, ...this.problems],
       hooks: this.fileScope.hooks,
       usesGlobals: this.main.adapter.usesGlobals,
+      unknownRegistration: this.unknownRegistration,
       fileTags: this.main.adapter.fileTags.map((name, index) => ({
         name,
         span: this.main.adapter.fileTagSpans[index],
@@ -559,6 +568,8 @@ class Walker {
   }
 
   private visitNode(node: Node, context: Context): void {
+    if (this.options.collectImports && !context.test && !context.hookScope && !context.helper && !context.quiet)
+      this.collectImport(node, context);
     switch (node.type) {
       case 'CallExpression': {
         if (context.test && !context.quiet) this.expectCall(node, context.test);
@@ -664,7 +675,8 @@ class Walker {
         const helper = context.test || context.hookScope ? null : node;
         const named = helper !== null && this.isNamed(node);
         // In an imported helper's module, a function runs only when it is called, and is walked then.
-        if (named && this.frame !== this.main) return;
+        if (this.frame !== this.main && (named || (this.importDepth > 0 && !context.test && !context.hookScope)))
+          return;
         if (named && !this.isDeferred.has(node)) {
           // Its calls decide where its tests are registered, and a call may come after it, so it waits.
           this.written.set(node, { ...this.placement(context), declaredIn: context.declaredIn });
@@ -683,6 +695,49 @@ class Walker {
       }
     }
     this.visitChildren(node, context);
+  }
+
+  /** Static module loads run once during collection. Keep the location of the import in the entry spec and
+   * the declaration's own location in the loaded module, just as for a helper invoked at a call site. */
+  private collectImport(node: Node, context: Context): void {
+    let source: string | null;
+    if (node.type === 'ImportDeclaration' && node.importKind !== 'type') source = node.source.value;
+    else if (
+      (node.type === 'ExportAllDeclaration' || node.type === 'ExportNamedDeclaration') &&
+      node.source &&
+      node.exportKind !== 'type'
+    )
+      source = node.source.value;
+    else if (
+      node.type === 'CallExpression' &&
+      node.callee.type === 'Identifier' &&
+      node.callee.name === 'require' &&
+      !this.frame.values.declarationOf('require', this.scopes)
+    )
+      source = requiredModule(node);
+    else if (node.type === 'ImportExpression') source = null;
+    else return;
+    if (source !== null && (source === '@playwright/test' || source === 'playwright/test' || isBuiltin(source))) return;
+    const frame = source !== null ? this.openFrom(this.frame, source) : null;
+    if (!frame || this.importDepth >= MAX_DEPTH) {
+      this.unknownRegistration = true;
+      return;
+    }
+    if (this.loaded.has(frame.relativeFilePath)) return;
+    this.loaded.add(frame.relativeFilePath);
+    const caller = this.frame;
+    const site = this.site;
+    const scopes = this.scopes.splice(0);
+    const parents = this.parents.splice(0);
+    this.frame = frame;
+    this.site ??= node;
+    this.importDepth++;
+    this.visit(frame.parsed.program, { ...context, registeredBy: context.registeredBy ?? node });
+    this.importDepth--;
+    this.scopes.push(...scopes);
+    this.parents.push(...parents);
+    this.site = site;
+    this.frame = caller;
   }
 
   /** Whether a function has a name it can be called by: `function name() {}` or `const name = () => {}`. */

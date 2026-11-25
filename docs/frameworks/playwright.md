@@ -81,6 +81,11 @@ Empty specs, hook-only specs and imports that only provide data do not activate 
 `grepInvert` also apply before setup is selected. Discovery retains setup when a selected spec may load tests from
 another module or its contents cannot be read. See [package script file filters](/reference/output#configs) for the supported arguments.
 
+A spec can load test declarations through a local import, `require()`, or a re-export. The entry in the inventory points
+to the spec that loads the tests. Its `declaredAt` field gives the declaration in the imported file. When every test in
+the spec comes from one file with a different extension, Playwright checks the file argument against that source.
+A matching enclosing `test.describe` can still select tests it contains.
+
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it, or one the scan can't read. A config named
 only in a CI workflow isn't read. A config built by a function the project writes, such as `configureE2e({ port: 3002 })`

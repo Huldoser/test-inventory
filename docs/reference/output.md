@@ -399,6 +399,8 @@ substrings and `playwright test` matches regular expressions against full file p
 select their combined set. Playwright file filters also collect prerequisite projects and teardown for a project whose selected
 files contain tests admitted by the project's title filters or may load tests from another module. An empty spec,
 a hook by itself, or a module that only exports constants does not activate setup.
+When a Playwright file filter matches only an enclosing describe, the matching tests keep their projects. Other
+tests in the same file have an empty `projects` list unless another package script selects them.
 A literal shell directory change such as `cd desk && jest --runTestsByPath tests/orders.spec.js` resolves the runner's paths from `desk`.
 A command without filters keeps the full selection for that config. An independent
 config can also select a file, and explicit scan globs can select files outside the commands' filters.

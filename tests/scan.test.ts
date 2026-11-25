@@ -1152,6 +1152,46 @@ export function venueTests() {
     ).toEqual([['buy order settles', 'tests/orders.spec.cjs', 'checks/ledger.cjs']]);
   });
 
+  it('collects Playwright tests registered by loading a local module once per spec', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.cjs': "require('./ledger.cjs');\nrequire('./ledger.cjs');\nrequire('./fees.cjs');",
+      'tests/ledger.cjs': `require('./orders.spec.cjs');
+        const {test}=require('@playwright/test');
+        test('settles an order', () => { require('./never.cjs'); });`,
+      'tests/fees.cjs': "const {test}=require('@playwright/test'); test('records a fee', () => {});",
+      'tests/never.cjs': "const {test}=require('@playwright/test'); test('checks the pending balance', () => {});",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.cjs'] });
+    expect(
+      inventory.tests.map((test) => [
+        test.title,
+        test.relativeFilePath,
+        test.lineStart,
+        test.declaredAt?.relativeFilePath,
+      ]),
+    ).toEqual([
+      ['settles an order', 'tests/orders.spec.cjs', 1, 'tests/ledger.cjs'],
+      ['records a fee', 'tests/orders.spec.cjs', 3, 'tests/fees.cjs'],
+    ]);
+  });
+
+  it('follows side-effect imports and re-exports that register Playwright tests during collection', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.mjs': "import './desk.mjs';\nimport './ledger.mjs';",
+      'tests/desk.mjs': "export * from './ledger.mjs';",
+      'tests/ledger.mjs': `import { test } from '@playwright/test';
+        export const fee = 2;
+        export const registerLater = () => test('checks a later order', () => {});
+        test.describe('settlement desk', () => test('settles a sale', () => {}));`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.mjs'] });
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart, test.declaredAt?.relativeFilePath])).toEqual([
+      ['settlement desk > settles a sale', 1, 'tests/ledger.mjs'],
+    ]);
+  });
+
   it('follows a helper called as a member of the module, through a namespace import or require', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { mocha: '12.0.3' } }),
