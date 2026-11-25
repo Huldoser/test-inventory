@@ -28,11 +28,18 @@ export type InvocationMode = 'direct' | 'call' | 'apply' | 'reflect' | 'own';
 export interface HelperSite extends Site {
   mode: InvocationMode;
   methodOwner?: Expression;
+  bound?: CapturedCall[];
   call: CallExpression;
   fn: FunctionNode;
   parameterScopes: readonly Node[];
 }
+export interface CapturedCall extends Site {
+  repeated?: boolean;
+  call: CallExpression;
+  caller: CallbackContext;
+}
 export interface ScopedFunction {
+  bound?: CapturedCall[];
   fn: FunctionNode;
   scopes: readonly Node[];
 }
@@ -44,6 +51,8 @@ export interface CallbackChoice {
 export interface CallbackContext {
   owner: Node;
   functions: Map<string, CallbackChoice>;
+  id: number;
+  ancestors: Map<CallExpression, CallbackContext>;
 }
 export interface ParameterSource extends Site {
   name: string;
@@ -51,6 +60,7 @@ export interface ParameterSource extends Site {
   fromDefault: boolean;
 }
 export interface HelperInvocation extends HelperSite {
+  key: string;
   caller: CallbackContext;
   context: CallbackContext;
   parameters: ParameterSource[];
@@ -65,8 +75,16 @@ interface AliasSource extends Site {
 interface Reference {
   value: Expression;
   path: Key[];
+  capture?: CapturedCall;
+  parts?: ArgumentPart[];
   /** A rest binding is a shallow copy. Array rest starts at this index in the original array. */
   rest?: number;
+}
+
+interface ArgumentPart {
+  list: Reference;
+  offset: number;
+  size: number | null;
 }
 
 const direct = (value: Expression): Reference => ({ value: unwrapChain(value), path: [] });
@@ -105,7 +123,27 @@ export function referenceOperands(
 
 /** Possible references at a property, including a missing value when destructuring could use its default. */
 function* property(ref: Reference, key: Key): Generator<Reference | null, void> {
+  for (const source of propertySources(ref, key)) {
+    yield source && ref.capture ? { ...source, capture: ref.capture } : source;
+  }
+}
+
+function* propertySources(ref: Reference, key: Key): Generator<Reference | null, void> {
   const value = ref.value;
+  if (ref.parts) {
+    let position = key === null ? null : Number(key);
+    for (const { list, offset, size } of ref.parts) {
+      const repeats = list.capture?.repeated && size !== null && size > 0;
+      if (position === null || size === null || position < size || repeats) {
+        const at = position !== null && repeats ? position % size : position;
+        yield* property(list, at === null ? null : String(at + offset));
+        if (position !== null && size !== null && position < size) return;
+      }
+      position = repeats || position === null || size === null ? null : position - size;
+    }
+    yield null;
+    return;
+  }
   if (ref.path.length || (value.type !== 'ObjectExpression' && value.type !== 'ArrayExpression')) {
     yield { value, path: [...ref.path, key] };
     return;
@@ -245,8 +283,24 @@ export function* literalArguments(
   }
 }
 
+function argumentPart(list: Reference, offset: number): ArgumentPart {
+  const array = list.value;
+  if (list.path.length || array.type !== 'ArrayExpression') return { list, offset, size: null };
+  const elements = [...literalArguments(array.elements)];
+  if (elements.slice(0, offset).some((item) => item?.type === 'SpreadElement')) return { list, offset, size: null };
+  const rest = elements.slice(offset);
+  return {
+    list: { ...list, value: { ...array, elements: rest } },
+    offset: 0,
+    size: rest.some((item) => item?.type === 'SpreadElement') ? null : rest.length,
+  };
+}
+
 /** Bind positional, rest and default references once for both callback discovery and write tracking. */
-export function helperParameters(site: HelperSite, isCallable: (expression: Expression) => boolean): ParameterSource[] {
+export function helperParameters(
+  site: HelperSite,
+  isCallable: (expression: Expression, capture?: CapturedCall) => boolean,
+): ParameterSource[] {
   const { call, fn, scopes, statement, parameterScopes } = site;
   const elements = site.mode === 'reflect' ? [...literalArguments(call.arguments)] : call.arguments;
   const args = direct({ type: 'ArrayExpression', elements, start: call.start, end: call.end });
@@ -260,22 +314,41 @@ export function helperParameters(site: HelperSite, isCallable: (expression: Expr
       statement: fromDefault ? null : statement,
     });
   };
-  const defined = (ref: Reference) => (!ref.path.length && isCallable(ref.value)) || suppliedMember(ref, site);
+  const defined = (ref: Reference) =>
+    (!ref.path.length && isCallable(ref.value, ref.capture)) || suppliedMember(ref, site);
+  const bound = (site.bound ?? []).map((capture) => ({
+    ...direct({
+      type: 'ArrayExpression',
+      elements: [...literalArguments(capture.call.arguments)],
+      start: capture.call.start,
+      end: capture.call.end,
+    }),
+    capture,
+  }));
   const receiverIndex = site.mode === 'reflect' ? 1 : 0;
   if (fn.type !== 'ArrowFunctionExpression') {
-    if (site.methodOwner) add('this', direct(site.methodOwner));
+    if (bound.length) {
+      for (const receiver of property(bound[0], '0')) if (receiver) add('this', receiver);
+    } else if (site.methodOwner) add('this', direct(site.methodOwner));
     else if (site.mode !== 'direct') {
       for (const receiver of property(args, String(receiverIndex))) if (receiver) add('this', receiver);
     }
   }
   const lists = site.mode === 'apply' || site.mode === 'reflect' ? property(args, String(receiverIndex + 1)) : [args];
   const offset = site.mode === 'call' ? 1 : 0;
-  for (const list of lists) {
+  for (const supplied of lists) {
+    const list = bound.length
+      ? {
+          ...args,
+          parts: [...bound.map((ref) => argumentPart(ref, 1)), ...(supplied ? [argumentPart(supplied, offset)] : [])],
+        }
+      : supplied;
+    const start = bound.length ? 0 : offset;
     for (const [index, parameter] of fn.params.entries()) {
       if (parameter.type === 'RestElement') {
-        if (list) bind(parameter.argument, { ...list, rest: index + offset }, add);
+        if (list) bind(parameter.argument, { ...list, rest: index + start }, add);
       } else if (list) {
-        for (const source of property(list, String(index + offset))) bind(parameter, source, add, defined);
+        for (const source of property(list, String(index + start))) bind(parameter, source, add, defined);
       } else bind(parameter, null, add, defined);
     }
   }
@@ -320,6 +393,10 @@ export function changedReferences(
   const activeRoots = new Set<Node>();
   const returning: { invocation: HelperInvocation; active: Set<Node> }[] = [];
   const follow = (ref: Reference, suffix: Key[], site: Site, context?: CallbackContext): void => {
+    if (ref.capture) {
+      site = ref.capture;
+      context = ref.capture.caller;
+    }
     if (ref.rest !== undefined && suffix.length === 0) return;
     const path = [...ref.path, ...suffix];
     if (ref.rest && suffix[0] !== null) path[ref.path.length] = String(Number(suffix[0]) + ref.rest);
@@ -350,7 +427,12 @@ export function changedReferences(
           continue;
         const invocation = source.invocation;
         if (invocation) {
-          if (context?.owner === invocation.fn && context !== invocation.context) continue;
+          if (
+            context?.owner === invocation.fn &&
+            context !== invocation.context &&
+            !(ref.capture?.repeated && invocation.context.ancestors.has(ref.capture.call))
+          )
+            continue;
           const frame = returning.findLast((frame) => frame.invocation.fn === invocation.fn)?.invocation;
           if (frame && frame !== invocation) continue;
         }
@@ -380,7 +462,8 @@ export function changedReferences(
     } else if (value.type === 'AssignmentExpression' && value.operator === '=') {
       follow(direct(value.right), path, site, context);
     } else if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
-      for (const child of property(direct(value), path[0])) if (child) follow(child, path.slice(1), site, context);
+      for (const child of property({ value, path: [], parts: ref.parts }, path[0]))
+        if (child) follow(child, path.slice(1), site, context);
     }
   };
   for (const target of targets) follow(direct(target.value), [], target);

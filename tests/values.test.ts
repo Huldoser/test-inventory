@@ -655,6 +655,114 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     });
   });
 
+  it('tracks the arguments captured by the bound function that actually runs', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closing";}';
+    for (const route of [
+      'const unused=close.bind(null,day);const edit=close.bind(null,night);edit();',
+      'let row=night;const edit=close.bind(null,row);row=day;edit();',
+      'function write(first,...rows){rows[0].label="closing";}const edit=write.bind(null,day);edit(night);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('retains the first bound receiver when a caller supplies a different one', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(){this.label="closing";}';
+    const route = 'let desk=night;const edit=close.bind(desk);desk=day;edit.call(desk);';
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
+  it('uses the function selected immediately before binding within the same statement', () => {
+    const setup =
+      'const desk={label:"opening"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const capture of [
+      'const change=(fn=OP,fn.bind(null,desk));',
+      'const next=(fn=OP),change=fn.bind(null,desk);',
+    ]) {
+      expect(resolve(setup + 'let fn=close;' + capture.replace('OP', 'read') + 'change();desk.label;')).toEqual({
+        ok: true,
+        value: 'opening',
+      });
+      expect(resolve(setup + 'let fn=read;' + capture.replace('OP', 'close') + 'change();desk.label;')).toEqual(
+        UNRESOLVED,
+      );
+    }
+  });
+
+  it('waits for invocation before following a callback supplied as a bound argument', () => {
+    const setup =
+      'const desk={label:"opening"};function close(row){row.label="closed";}function mark(){close(desk);}function use(fn){fn();}';
+    expect(resolve(setup + 'const unused=use.bind(null,mark);desk.label;')).toEqual({ ok: true, value: 'opening' });
+    expect(resolve(setup + 'const edit=use.bind(null,mark);edit();desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'let keep=use;const unused=keep.bind(null,mark);desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+  });
+
+  it('checks a bound callback default in the scope that supplied its argument', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    const route =
+      'function work(fn=()=>close(day)){fn(night);}function invoke(effect){effect();}function choose(fn){invoke(work.bind(null,fn));}choose(read);choose(close);';
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('keeps the bound receiver outside a rest parameter with an unknown index', () => {
+    const setup =
+      'const receiver={label:"receiver"},open={label:"opening"},late={label:"evening"};function close(...rows){rows[slot].label="closing";}';
+    const route = 'const slot=1;close.bind(receiver,open)(late);';
+    expect(resolve(setup + route + 'receiver.label;')).toEqual({ ok: true, value: 'receiver' });
+    expect(resolve(setup + route + 'late.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('follows recursively forwarded bound functions and keeps overridden bind methods separate', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    const routes = [
+      'function route(fn,n){if(n)route(fn.bind(null,night),n-1);else fn();}route(close,2);',
+      'function route(fn,n){if(n)route(close.bind(null,night),n-1);else fn();}route(read.bind(null,day),2);',
+      'close.bind=()=>()=>{};close.bind(null,day)();delete close.bind;close.bind(null,night)();',
+      'const edit=close.bind(null,night);close.call=()=>{};edit.call(null);',
+      'const edit=close.bind();edit.apply(null,[night]);',
+    ];
+    for (const route of routes) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('tracks rest arguments combined from bound spreads and an applied list', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(...rows){rows[1].label="closed";}';
+    for (const route of [
+      'const list=[night];close.bind(null,day).apply(null,list);',
+      'const prefix=[day];close.bind(null,...prefix)(night);',
+      'const prefix=[null,day];close.bind(...prefix)(night);',
+      'close.bind(null,day,night).apply();',
+    ])
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('retains arguments appended on repeated visits to a recursive binding site', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function extend(fn,n,row){if(n)extend(fn.bind(null,row),n-1,night);else fn();}';
+    for (const route of [
+      'function close(first,second){second.label="closed";}extend(close,2,day);',
+      'function close(first,second,third){third.label="closed";}extend(close,3,day);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    expect(
+      resolve(
+        'const desk={label:"opening"};function close(row){row.label="closed";}function run(){close.bind(null,desk)();}[0].forEach(run);desk.label;',
+      ),
+    ).toEqual(UNRESOLVED);
+  });
+
   it('flags titles changed through helper arguments resolved in the calling scope', () => {
     const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
     for (const route of [

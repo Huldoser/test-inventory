@@ -17,10 +17,11 @@ export interface MutationCallSite {
   scopes: readonly Node[];
   statement: Node | null;
   runsLater: boolean;
+  bindOwner?: Expression;
 }
 
 export interface MethodWrite {
-  name: 'call' | 'apply';
+  name: 'call' | 'apply' | 'bind';
   object: Expression;
   assigned: Expression | null;
   scopes: readonly Node[];
@@ -31,14 +32,21 @@ export interface MethodWrite {
 
 interface Target {
   helper: ScopedFunction;
-  mode: InvocationMode;
+  mode: InvocationMode | 'bind';
   methodOwner?: Expression;
 }
 
 const UNKNOWN: CallbackChoice = { targets: [], definite: false };
 
+function functionKey(target: ScopedFunction): string {
+  if (!target.bound) return String(target.fn.start);
+  return JSON.stringify([target.fn.start, ...target.bound.map((capture) => [capture.call.start, capture.caller.id])]);
+}
+
 function alternatives(choices: CallbackChoice[]): CallbackChoice {
-  const targets = new Map(choices.flatMap((choice) => choice.targets.map((target) => [target.fn, target] as const)));
+  const targets = new Map(
+    choices.flatMap((choice) => choice.targets.map((target) => [functionKey(target), target] as const)),
+  );
   return { targets: [...targets.values()], definite: choices.every((choice) => choice.definite) };
 }
 
@@ -53,6 +61,10 @@ export function mutationCalls(
   const contexts = new Map<Node, Map<string, CallbackContext>>();
   const times = new Map<CallbackContext, number | null>();
   const pending: CallbackContext[] = [];
+  const bindSites = new Map<CallExpression, MutationCallSite>();
+  for (const sites of callsByOwner.values())
+    for (const site of sites) if (site.bindOwner) bindSites.set(site.call, site);
+  let nextContext = 0;
   const contextFor = (owner: Node, functions: Map<string, CallbackChoice>): CallbackContext => {
     let groups = contexts.get(owner);
     if (!groups) {
@@ -60,11 +72,18 @@ export function mutationCalls(
       contexts.set(owner, groups);
     }
     const signature = JSON.stringify(
-      [...functions].map(([name, choice]) => [name, choice.definite, choice.targets.map((target) => target.fn.start)]),
+      [...functions].map(([name, choice]) => [name, choice.definite, choice.targets.map(functionKey)]),
     );
     let context = groups.get(signature);
     if (!context) {
-      context = { owner, functions };
+      const ancestors = new Map<CallExpression, CallbackContext>();
+      for (const choice of functions.values())
+        for (const fn of choice.targets)
+          for (const capture of fn.bound ?? []) {
+            for (const [call, ancestor] of capture.caller.ancestors) ancestors.set(call, ancestor);
+            if (!ancestors.has(capture.call)) ancestors.set(capture.call, capture.caller);
+          }
+      context = { owner, functions, id: nextContext++, ancestors };
       groups.set(signature, context);
     }
     return context;
@@ -75,6 +94,7 @@ export function mutationCalls(
     times.set(context, previous === undefined ? time : null);
     pending.push(context);
   };
+  const root = contextFor(program, new Map());
   const callable = (
     expression: Expression,
     scopes: readonly Node[],
@@ -91,10 +111,42 @@ export function mutationCalls(
           return context.functions.get(value.name) ?? UNKNOWN;
         return UNKNOWN;
       }
-      if (seen.has(constant.init)) return UNKNOWN;
-      seen.add(constant.init);
+      if (seen.has(value)) return UNKNOWN;
+      seen.add(value);
       scopes = constant.scopes;
       value = unwrapChain(constant.init);
+    }
+    if (value.type === 'CallExpression' && !seen.has(value)) {
+      const site = bindSites.get(value);
+      if (site?.bindOwner) {
+        seen.add(value);
+        // Re-entering the same bind site while forwarding a callback must reach a finite set of contexts.
+        const caller = site.statement ? root : (context.ancestors.get(value) ?? context);
+        const capture = { call: value, scopes: site.scopes, statement: site.statement, caller };
+        const original = callable(site.bindOwner, site.scopes, site.statement ? root : context, seen);
+        const targets: ScopedFunction[] = [];
+        let definite = original.definite;
+        for (const helper of original.targets) {
+          const options = methodChoices(
+            helper,
+            'bind',
+            caller,
+            site.statement ? value.start : (times.get(caller) ?? null),
+            seen,
+          );
+          if (options.includes(null)) {
+            const bound = helper.bound ?? [];
+            const previous = bound.findLast((entry) => entry.call === value);
+            if (previous?.repeated) targets.push(helper);
+            else {
+              const next = previous ? { ...capture, caller: context, repeated: true } : capture;
+              targets.push({ ...helper, bound: [...bound, next] });
+            }
+          }
+          if (options.length !== 1 || options[0] !== null) definite = false;
+        }
+        return { targets, definite };
+      }
     }
     if (isFunctionNode(value)) return { targets: [{ fn: value, scopes }], definite: true };
     if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
@@ -106,13 +158,31 @@ export function mutationCalls(
       return callable(value.right, scopes, context, seen);
     return UNKNOWN;
   };
+  const methodChoices = (
+    helper: ScopedFunction,
+    name: MethodWrite['name'],
+    caller: CallbackContext,
+    time: number | null,
+    seen = new Set<Node>(),
+  ) => {
+    let possible: (ScopedFunction | null)[] = [null];
+    for (const write of methodWrites) {
+      if (write.name !== name || (write.owner === program && time !== null && write.end > time)) continue;
+      const owners = callable(write.object, write.scopes, caller, new Set(seen));
+      if (!owners.targets.some((owner) => functionKey(owner) === functionKey(helper))) continue;
+      if (write.unconditional && time !== null && owners.definite && owners.targets.length === 1) possible = [];
+      if (write.assigned) possible.push(...callable(write.assigned, write.scopes, caller, new Set(seen)).targets);
+      else possible.push(null);
+    }
+    return possible;
+  };
   const targetsFor = (site: MutationCallSite, caller: CallbackContext, time: number | null): Target[] => {
     const { call, scopes } = site;
     const callee = unwrapChain(call.callee);
     if (callee.type !== 'MemberExpression')
       return callable(callee, scopes, caller).targets.map((helper) => ({ helper, mode: 'direct' }));
     const name = propertyName(callee);
-    if (name !== 'call' && name !== 'apply') return [];
+    if (name !== 'call' && name !== 'apply' && name !== 'bind') return [];
     const object = unwrapChain(callee.object);
     if (
       name === 'apply' &&
@@ -126,29 +196,15 @@ export function mutationCalls(
         : [];
     }
     const targets: Target[] = [];
-    for (const helper of callable(object, scopes, caller).targets) {
-      const inherited: Target = { helper, mode: name };
-      let possible = [inherited];
-      for (const write of methodWrites) {
-        if (write.name !== name || (write.owner === program && time !== null && write.end > time)) continue;
-        const owners = callable(write.object, write.scopes, caller);
-        if (!owners.targets.some((target) => target.fn === helper.fn)) continue;
-        if (write.unconditional && time !== null && owners.definite && owners.targets.length === 1) possible = [];
-        if (write.assigned)
-          possible.push(
-            ...callable(write.assigned, write.scopes, caller).targets.map((fn) => ({
-              helper: fn,
-              mode: 'own' as const,
-              methodOwner: object,
-            })),
-          );
-        else possible.push(inherited);
+    for (const helper of callable(site.bindOwner ?? object, scopes, caller).targets) {
+      for (const own of methodChoices(helper, name, caller, time)) {
+        if (own) targets.push({ helper: own, mode: 'own', methodOwner: object });
+        else targets.push({ helper, mode: name });
       }
-      targets.push(...possible);
     }
     return targets;
   };
-  activate(contextFor(program, new Map()), null);
+  activate(root, null);
   for (const caller of pending) {
     for (const callSite of callsByOwner.get(caller.owner) ?? []) {
       const { call, scopes, statement, runsLater } = callSite;
@@ -162,14 +218,14 @@ export function mutationCalls(
         }
       }
       for (const { helper, mode, methodOwner } of helpers) {
+        if (mode === 'bind') continue;
         let atSite = calls.get(call);
         if (!atSite) {
           atSite = [];
           calls.set(call, atSite);
         }
-        let invocation = atSite.find(
-          (entry) => entry.caller === caller && entry.fn === helper.fn && entry.mode === mode,
-        );
+        const key = functionKey(helper);
+        let invocation = atSite.find((entry) => entry.caller === caller && entry.key === key && entry.mode === mode);
         if (!invocation) {
           const site = {
             call,
@@ -177,18 +233,27 @@ export function mutationCalls(
             statement,
             mode,
             methodOwner,
+            bound: helper.bound,
+            key,
             fn: helper.fn,
             parameterScopes: [...helper.scopes, helper.fn],
           };
-          const parameters = helperParameters(site, (expr) => callable(expr, scopes, caller).definite);
+          const parameters = helperParameters(
+            site,
+            (expr, capture) => callable(expr, capture?.scopes ?? scopes, capture?.caller ?? caller).definite,
+          );
           const choices = new Map<string, CallbackChoice[]>();
           for (const param of parameters) {
             const choice =
               param.ref.path.length || param.ref.rest !== undefined
                 ? UNKNOWN
-                : callable(param.ref.value, param.scopes, caller);
+                : callable(
+                    param.ref.value,
+                    param.ref.capture?.scopes ?? param.scopes,
+                    param.ref.capture?.caller ?? caller,
+                  );
             // A property selected by destructuring may also be absent, even when one candidate is a function.
-            const direct = param.fromDefault || call.arguments.includes(param.ref.value);
+            const direct = param.fromDefault || (param.ref.capture?.call ?? call).arguments.includes(param.ref.value);
             const possible = { targets: choice.targets, definite: direct && choice.definite };
             const previous = choices.get(param.name);
             if (previous) previous.push(possible);

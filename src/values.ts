@@ -973,23 +973,20 @@ function mutatedObject(node: Node): Expression | null {
   }
 }
 
-/** A consecutive declaration or assignment fixes the identity of a mutable alias at a method write. */
-function methodOwnerAtWrite(object: Expression, previous: Node | null): Expression {
+/** The immediately preceding initializer or assignment can identify a mutable function alias. */
+function previousAliasValue(object: Expression, previous: Node | null): Expression {
   if (object.type !== 'Identifier') return object;
-  if (previous?.type === 'VariableDeclaration') {
-    const last = previous.declarations[previous.declarations.length - 1];
-    if (last.id.type === 'Identifier' && last.id.name === object.name && last.init) return last.init;
-  } else if (previous?.type === 'ExpressionStatement') {
-    const assign = previous.expression;
-    if (
-      assign.type === 'AssignmentExpression' &&
-      assign.operator === '=' &&
-      assign.left.type === 'Identifier' &&
-      assign.left.name === object.name
-    )
-      return assign.right;
-  }
-  return object;
+  if (previous?.type === 'VariableDeclaration') previous = previous.declarations[previous.declarations.length - 1];
+  if (previous?.type === 'VariableDeclarator') {
+    if (previous.id.type === 'Identifier' && previous.id.name === object.name && previous.init) return previous.init;
+    previous = previous.init;
+  } else if (previous?.type === 'ExpressionStatement') previous = previous.expression;
+  return previous?.type === 'AssignmentExpression' &&
+    previous.operator === '=' &&
+    previous.left.type === 'Identifier' &&
+    previous.left.name === object.name
+    ? previous.right
+    : object;
 }
 
 /**
@@ -1003,8 +1000,13 @@ function changedNames(program: Node, values: Values): Set<string> {
   const declarations: AliasBinding[] = [];
   const callsByOwner = new Map<Node, MutationCallSite[]>();
   const methodWrites: MethodWrite[] = [];
-  let previousTop: Node | null = null;
-  const walk = (node: Node, ancestors: readonly Node[], statement: Node | null, owner: Node): void => {
+  const walk = (
+    node: Node,
+    ancestors: readonly Node[],
+    statement: Node | null,
+    owner: Node,
+    before: Node | null = null,
+  ): void => {
     const scopes = isScopeNode(node) ? [...ancestors, node] : ancestors;
     if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) {
       owner = node;
@@ -1021,11 +1023,11 @@ function changedNames(program: Node, values: Values): Set<string> {
             : null;
       if (member?.type === 'MemberExpression') {
         const name = propertyName(member);
-        if (name === 'call' || name === 'apply') {
+        if (name === 'call' || name === 'apply' || name === 'bind') {
           const unconditional = statement?.type === 'ExpressionStatement' && statement.expression === node;
           methodWrites.push({
             name,
-            object: unconditional ? methodOwnerAtWrite(member.object, previousTop) : member.object,
+            object: unconditional ? previousAliasValue(member.object, before) : member.object,
             assigned: node.type === 'AssignmentExpression' ? node.right : null,
             scopes,
             owner,
@@ -1055,7 +1057,12 @@ function changedNames(program: Node, values: Values): Set<string> {
       const callee = calleeNames(node.callee);
       const runsLater = callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
       const sites = callsByOwner.get(owner);
-      const site = { call: node, scopes, statement, runsLater };
+      const member = unwrapChain(node.callee);
+      const bindOwner =
+        member.type === 'MemberExpression' && propertyName(member) === 'bind'
+          ? previousAliasValue(member.object, before)
+          : undefined;
+      const site = { call: node, scopes, statement, runsLater, bindOwner };
       if (sites) sites.push(site);
       else callsByOwner.set(owner, [site]);
       walk(node.callee, scopes, statement, owner);
@@ -1063,10 +1070,21 @@ function changedNames(program: Node, values: Values): Set<string> {
         if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes, statement, owner);
       return;
     }
+    const sequence =
+      node === program ||
+      node.type === 'BlockStatement' ||
+      node.type === 'VariableDeclaration' ||
+      node.type === 'SequenceExpression';
+    let previous = before;
     for (const child of childNodes(node)) {
       const top = node === program && (child.type === 'VariableDeclaration' || child.type === 'ExpressionStatement');
-      walk(child, scopes, top ? child : statement, owner);
-      if (node === program) previousTop = child;
+      const prior = sequence
+        ? previous
+        : node.type === 'ExpressionStatement' || node.type === 'VariableDeclarator'
+          ? before
+          : null;
+      walk(child, scopes, top ? child : statement, owner, prior);
+      previous = child;
     }
   };
   walk(program, [], null, program);

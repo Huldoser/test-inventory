@@ -24,3 +24,4 @@ Track possible writes through callbacks passed to local helpers, keeping each ca
 Follow callback parameters through local aliases and selection expressions, including defaults when a supplied callback could be missing.
 Track writes by local functions invoked through `call`, `apply`, or `Reflect.apply`, including writes to the receiver.
 Follow literal argument spreads when `Reflect.apply` invokes a helper during collection.
+Track receiver and argument writes made when a bound local function runs during collection.

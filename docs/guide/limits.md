@@ -90,6 +90,7 @@ passed as an argument, including through a destructured parameter, a forwarded a
 returned by a synchronous local helper. Nested calls can pass the same object back through several returns.
 A local helper invoked with `call`, `apply`, or the global `Reflect.apply` can change its arguments or its explicit
 `this` receiver. An arrow function keeps its enclosing receiver. The target and receiver of `Reflect.apply` can come from a spread array literal.
+A bound local function keeps its first receiver and prepends the arguments supplied to `bind` when it runs.
 Calls through a local constant such as `const publish = register` use the original helper and its declaration scope.
 If a local helper invokes a function passed to it, the scan pairs that function with the arguments from the same call. A callback selected by a conditional
 can have several possible targets. If the selected value could be `undefined`, the parameter default can run too.
