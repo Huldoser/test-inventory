@@ -19,3 +19,4 @@ Collect successive statements after a Jasmine helper suspends in microtask order
 Omit unreachable Jasmine registrations after an async return, a rejected await or a promise that remains pending.
 Exclude unreachable Jasmine recovery specs after awaiting a primitive literal.
 Honor returns through Jasmine async helpers’ try, catch and finally blocks when collecting subsequent specs.
+Distinguish a rejected async helper from an exception thrown while evaluating its arguments in a Jasmine spec file.

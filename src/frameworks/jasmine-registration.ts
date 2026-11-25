@@ -29,7 +29,7 @@ export function functionLength(fn: FunctionNode): number {
 
 type Exit = 'next' | 'return' | 'throw' | 'unknown';
 interface Children {
-  registered: boolean;
+  registered: boolean | 'possible';
 }
 interface ArgumentValue {
   node: Expression | FunctionNode;
@@ -87,6 +87,11 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       const helper = argument(callee, scopes);
       if (!helper || !callback(helper.node) || !args.every((a) => a.type !== 'SpreadElement' && inert(a)))
         return 'unknown';
+      if (helper.node.async && !helper.node.generator) {
+        // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
+        children.registered ||= 'possible';
+        return 'next';
+      }
       return invoke(helper.node, helper.scopes, children);
     }
     const first = argument(args.at(0), scopes)?.node;
@@ -114,15 +119,15 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       callback(secondArg.node)
     ) {
       if (name === 'describe' && functionLength(secondArg.node) > 0) return 'throw';
-      const nested = { registered: false };
+      const nested: Children = { registered: false };
       const result = invoke(secondArg.node, secondArg.scopes, nested);
       if (result === 'unknown') return result;
       if (
-        !nested.registered &&
+        nested.registered !== true &&
         atLeast(file.version, 4, name === 'describe' ? 0 : 5) &&
         !(result === 'throw' && atLeast(file.version, 4, 5))
       )
-        return 'throw';
+        return nested.registered === 'possible' ? 'unknown' : 'throw';
     } else return 'unknown';
     children.registered = true;
     return 'next';

@@ -345,6 +345,45 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('omits a synchronous catch around a local async call that returns a promise', () => {
+    for (const [definition, call] of [
+      ['async function price() { throw Error("closed"); }', 'price()'],
+      ['const price = async () => { await 0; throw Error("closed"); };', 'price()'],
+      ['async function price(value = missingQuote()) {}', 'price()'],
+      ['async function price({ value }) {}', 'price(null)'],
+      ['async function price() {} function settle() { price(); }', 'settle()'],
+      ['async function price() { it("reads quote", () => {}); }', 'price()'],
+    ]) {
+      const result = scanJasmine(`
+${definition}
+try { ${call}; it('closes the desk', () => {}); } catch { it('recovers the call', () => {}); }`);
+      const titles = result.tests.map((test) => test.title);
+      expect(titles, definition).toContain('closes the desk');
+      expect(titles, definition).not.toContain('recovers the call');
+    }
+  });
+
+  it('keeps a catch for async call argument errors, generator defaults and possibly empty Jasmine suites', () => {
+    for (const [definition, call] of [
+      ['async function price(value) {}', 'price(missingQuote())'],
+      ['function* price(value = missingQuote()) {}', 'price()'],
+      ['async function* price(value = missingQuote()) {}', 'price()'],
+      ['async function price() { await 0; it("reads quote", () => {}); }', 'describe("closing quotes", () => price())'],
+      ['async function price() {}', 'describe("closing quotes", () => price())'],
+    ]) {
+      const result = scanJasmine(
+        `
+${definition}
+try { ${call}; } catch { it('recovers the call', () => {}); }`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(
+        result.tests.map((test) => test.title),
+        call,
+      ).toContain('recovers the call');
+    }
+  });
+
   it('stops a Jasmine registration helper when a return leaves its try or its selected catch', () => {
     for (const body of [
       'try { return 5; } catch {}',
@@ -836,7 +875,7 @@ finally { it('closes the ledger', () => {}); }`,
     }
   });
 
-  it('follows synchronous helpers, literal conditions and nested recovery before omitting a catch', () => {
+  it('follows local calls, literal conditions and nested recovery before omitting a catch', () => {
     for (const body of [
       "; const market = 'open'; let quote; if (market) it('prices a fill');",
       "if (false) { quote(); } else { it('settles a fill', () => {}, 1000); }",
@@ -845,6 +884,7 @@ finally { it('closes the ledger', () => {}); }`,
       "function register() { return it('prices a fill', () => {}); } register([1]);",
       "const register = () => it('prices a fill', () => {}); register();",
       'function register() { return; } register();',
+      'async function update() {} update();',
       "const title = 'quotes'; function register(){ it(title, () => {}); } register();",
       "function quotes(){ it('prices a fill', () => {}); } describe('quotes', quotes);",
       "try { throw Error('closed'); } catch { it('checks the feed'); }",
@@ -868,7 +908,6 @@ finally { it('closes the ledger', () => {}); }`,
       'function update(side) {} update(...sides);',
       'function update(side) {} update(readSide());',
       'function update(side = readSide()) {} update();',
-      'async function update() {} update();',
       'function* update() {} update();',
       'function update() { return readQuote(); } update();',
       'function update() {} update = invalidQuote; update();',
