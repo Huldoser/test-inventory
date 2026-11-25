@@ -7,6 +7,7 @@ import type {
   Expression,
   Node,
 } from 'oxc-parser';
+import type { mutationCalls } from './mutation-calls.ts';
 import { isFunctionNode, propertyKey, propertyName, returnValues, unwrapChain, type FunctionNode } from './ast.ts';
 
 type Key = string | null;
@@ -408,9 +409,7 @@ export function helperParameters(
 export function changedReferences(
   declarations: AliasBinding[],
   targets: MutationTarget[],
-  calls: ReadonlyMap<CallExpression, HelperInvocation[]>,
-  callTimes: ReadonlyMap<Node, number | null>,
-  returnedContexts: ReadonlyMap<Node, CallbackContext[]>,
+  { calls, callTimes, returnedContexts, memberSources }: ReturnType<typeof mutationCalls>,
   bindingKey: (name: string, scopes: readonly Node[]) => string | null,
 ): Set<string> {
   const names = new Set<string>();
@@ -444,7 +443,7 @@ export function changedReferences(
   const returning: { invocation: HelperInvocation; active: Set<Node> }[] = [];
   const follow = (
     ref: Reference,
-    suffix: Key[],
+    suffix: { key: Key; time: number | null }[],
     site: Site,
     context?: CallbackContext,
     factory?: HelperInvocation,
@@ -455,11 +454,14 @@ export function changedReferences(
       factory = ref.capture.factory;
     }
     if (ref.rest !== undefined && suffix.length === 0) return;
-    const path = [...ref.path, ...suffix];
-    if (ref.rest && suffix[0] !== null) path[ref.path.length] = String(Number(suffix[0]) + ref.rest);
+    const owner = site.scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope));
+    const time = site.statement ? ref.value.start : owner ? (callTimes.get(owner) ?? null) : null;
+    const path = [...ref.path.map((key) => ({ key, time })), ...suffix];
+    if (ref.rest && suffix[0].key !== null)
+      path[ref.path.length] = { ...suffix[0], key: String(Number(suffix[0].key) + ref.rest) };
     let value = ref.value;
     while (value.type === 'MemberExpression') {
-      path.unshift(memberKey(value));
+      path.unshift({ key: memberKey(value), time });
       value = unwrapChain(value.object);
     }
     if (value.type === 'Identifier' || value.type === 'ThisExpression') {
@@ -471,8 +473,7 @@ export function changedReferences(
       if (!sources || active.has(value)) return;
       active.add(value);
       // Only an unconditional module-level assignment rules out earlier top-level sources.
-      const owner = site.scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope));
-      const readAt = site.statement ? value.start : owner && callTimes.get(owner);
+      const readAt = time;
       let replacedAt = 0;
       if (typeof readAt === 'number') {
         for (const source of sources)
@@ -522,8 +523,16 @@ export function changedReferences(
     } else if (value.type === 'AssignmentExpression' && value.operator === '=') {
       follow(direct(value.right), path, site, context, factory);
     } else if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
-      for (const child of property({ value, path: [], parts: ref.parts }, path[0]))
-        if (child) follow(child, path.slice(1), site, context, factory);
+      const [{ key, time }, ...rest] = path;
+      const sources =
+        value.type === 'ArrayExpression' && !ref.parts
+          ? memberSources(value, site.scopes, key, time)
+          : Array.from(property({ value, path: [], parts: ref.parts }, key), (child) => ({
+              ref: child,
+              scopes: site.scopes,
+            }));
+      for (const child of sources)
+        if (child.ref) follow(child.ref, rest, { ...site, scopes: child.scopes }, context, factory);
     }
   };
   for (const target of targets) {

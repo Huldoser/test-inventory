@@ -1132,8 +1132,8 @@ function changedNames(program: Node, values: Values): Set<string> {
       };
       addSite(owner, { ...site, call, accessor });
     }
-  const { calls, callTimes, returnedContexts } = mutationCalls(program, callsByOwner, methodWrites, values, patterns);
-  return changedReferences(declarations, targets, calls, callTimes, returnedContexts, (identifier, scopes) => {
+  const graph = mutationCalls(program, callsByOwner, methodWrites, values, patterns);
+  return changedReferences(declarations, targets, graph, (identifier, scopes) => {
     const declaration =
       identifier === 'this'
         ? (scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || scope.type === 'FunctionExpression') ??

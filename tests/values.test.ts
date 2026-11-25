@@ -838,6 +838,28 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     }
   });
 
+  it('follows edits to argument arrays in direct, applied, bound and returned calls', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}const rows=[day];rows.unshift(night);';
+    for (const route of [
+      'close(rows[0]);',
+      'close.call(null,rows[0]);',
+      'close.apply(null,rows);',
+      'const chosen=rows[0];close(chosen);',
+      'function choose(){return rows[0];}close(choose());',
+      'function edit(){this.label="closed";}edit.call(rows[0]);',
+      'const edit=close.bind(null,rows[0]);rows.shift();edit();',
+      'function invoke(fn,row){fn(row);}invoke(close,rows[0]);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    const early =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}const rows=[day],edit=close.bind(null,rows[0]);rows.unshift(night);edit();';
+    expect(resolve(early + 'night.label;')).toEqual({ ok: true, value: 'night' });
+    expect(resolve(early + 'day.label;')).toEqual(UNRESOLVED);
+  });
+
   it('tracks the arguments captured by the bound function that actually runs', () => {
     const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closing";}';
     for (const route of [

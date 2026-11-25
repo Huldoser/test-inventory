@@ -590,5 +590,5 @@ export function mutationCalls(
     const previous = callTimes.get(context.owner);
     callTimes.set(context.owner, previous === undefined || previous === time ? time : null);
   }
-  return { calls, callTimes, returnedContexts };
+  return { calls, callTimes, returnedContexts, memberSources };
 }
