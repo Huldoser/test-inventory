@@ -36,3 +36,4 @@ Read Jasmine titles built from helper results and follow evaluated operands duri
 Choose the correct title branch when a Jasmine registration returns a suite, spec or hook result.
 Format Jasmine array titles containing known primitive values or nested arrays.
 Preserve holes and evaluated helper or spread elements in Jasmine array descriptions.
+Follow standard string, array and object methods returned from Jasmine registration helpers.

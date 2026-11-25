@@ -416,6 +416,27 @@ catch { it('recovers the market', () => {}); }`);
     expect(invalid.tests.map((test) => test.title)).toContain('recovers the market');
   });
 
+  it('uses standard method results returned from a Jasmine title helper', () => {
+    for (const [title, expected] of [
+      ["['cash', 'desk'].join(' ')", 'cash desk'],
+      ["((parts) => parts.join('-'))(['cash', 'desk'])", 'cash-desk'],
+      ['desk().trim().toUpperCase()', 'CASH DESK'],
+      ["['cash', 'desk'].join(separator())", 'cash desk'],
+      ["Object.keys({bid: 4, ask: 6}).join('/')", 'bid/ask'],
+      ['String(7)', '7'],
+      ['JSON.stringify({bid: 7})', '{"bid":7}'],
+    ]) {
+      const scan = scanJasmine(`function desk(){return ' cash desk ';} function separator(){return ' ';}
+function title(){return ${title};}
+try { describe(title(), () => it(title(), () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(
+        scan.tests.map((t) => t.fullName),
+        title,
+      ).toEqual([expected + ' > ' + expected]);
+    }
+  });
+
   it('uses array elements as they are evaluated when Jasmine registers a title', () => {
     for (const [array, title] of [
       ['[, desk(), , fee()]', ',cash desk,,7'],

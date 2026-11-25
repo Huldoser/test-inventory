@@ -344,6 +344,15 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   function call(node: CallExpression, scopes: readonly Node[], children: Children): Flow {
     const callee = unwrap(node.callee);
     if (--remaining < 0) return 'unknown';
+    if (
+      callee.type === 'MemberExpression' ||
+      (callee.type === 'Identifier' &&
+        callee.name === 'String' &&
+        !assigned.has('String') &&
+        !file.values.declarationOf('String', scopes))
+    ) {
+      return evaluate(node, scopes, children, (read) => file.values.builtinCall(node, scopes, read));
+    }
     const inline = isFunctionNode(callee);
     if (!inline && (callee.type !== 'Identifier' || assigned.has(callee.name))) return 'unknown';
     const args = node.arguments;
@@ -430,23 +439,29 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     if (array) results.set(list, parts ? { ok: true, value: parts } : objectResult);
     return 'next';
   }
+  function evaluate(
+    node: Expression,
+    scopes: readonly Node[],
+    children: Children,
+    compute: (read: (operand: Expression) => Resolved) => Resolved,
+  ): Flow {
+    let failure: Flow = 'unknown';
+    const computed = compute((operand) => {
+      const outcome = expression(operand, scopes, children);
+      if (outcome === 'next') return valueOf(operand, scopes);
+      failure = outcome;
+      return { ok: false, importedFrom: null };
+    });
+    results.set(node, computed);
+    return computed.ok || computed.truthy ? 'next' : failure;
+  }
   function expression(node: Expression, scopes: readonly Node[], children: Children): Flow {
     const value = unwrap(node);
     if (value.type === 'ArrayExpression') return elements(value, scopes, children);
     if (value.type === 'CallExpression') return call(value, scopes, children);
     if (value.type === 'UnaryExpression' && value.operator === 'void')
       return expression(value.argument, scopes, children);
-    if (isValueOperation(value)) {
-      let failure: Flow = 'unknown';
-      const computed = operationValue(value, (part) => {
-        const outcome = expression(part, scopes, children);
-        if (outcome === 'next') return valueOf(part, scopes);
-        failure = outcome;
-        return { ok: false, importedFrom: null };
-      });
-      results.set(value, computed);
-      return computed.ok || computed.truthy ? 'next' : failure;
-    }
+    if (isValueOperation(value)) return evaluate(value, scopes, children, (read) => operationValue(value, read));
     if (value.type === 'Identifier') {
       const declaration = file.values.declarationOf(value.name, scopes);
       const binding = parameters.findLast((entry) => entry.fn === declaration);

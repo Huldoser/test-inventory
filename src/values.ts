@@ -405,7 +405,7 @@ export class Values {
       case 'Literal':
         return 'regex' in expression || 'bigint' in expression ? UNRESOLVED : { ok: true, value: expression.value };
       case 'CallExpression':
-        return this.call(expression, scopes);
+        return this.builtinCall(expression, scopes, (operand) => this.resolve(operand, scopes));
       case 'ArrayExpression': {
         const items: Value[] = [];
         for (const element of expression.elements) {
@@ -602,7 +602,7 @@ export class Values {
    * `JSON.stringify()` with one argument, `String()`, and a string's `toUpperCase()`, `toLowerCase()` and `trim()` and
    * an array's `join()`.
    */
-  private call(expression: Extract<Expression, { type: 'CallExpression' }>, scopes: readonly Node[]): Resolved {
+  builtinCall(expression: CallExpression, scopes: readonly Node[], read: (operand: Expression) => Resolved): Resolved {
     const callee = unwrap(expression.callee);
     if (expression.optional || expression.arguments.some((item) => item.type === 'SpreadElement')) return UNRESOLVED;
     const args = expression.arguments as Expression[];
@@ -612,20 +612,20 @@ export class Values {
       args.length === 1 &&
       this.isGlobal('String', scopes)
     ) {
-      const value = this.resolve(args[0], scopes);
+      const value = read(args[0]);
       return value.ok && isPrimitive(value.value)
         ? { ok: true, value: String(value.value) }
         : value.ok
           ? UNRESOLVED
-          : value;
+          : { ok: false, importedFrom: value.importedFrom };
     }
     if (callee.type !== 'MemberExpression' || callee.computed) return UNRESOLVED;
     const method = propertyName(callee) as string;
     const target = unwrap(callee.object);
     if (target.type === 'Identifier' && (target.name === 'Object' || target.name === 'JSON')) {
       if (!this.isGlobal(target.name, scopes) || args.length !== 1) return UNRESOLVED;
-      const value = this.resolve(args[0], scopes);
-      if (!value.ok) return value;
+      const value = read(args[0]);
+      if (!value.ok) return { ok: false, importedFrom: value.importedFrom };
       if (target.name === 'JSON')
         return method === 'stringify' ? { ok: true, value: JSON.stringify(value.value) } : UNRESOLVED;
       if (!isPlainObject(value.value) && !Array.isArray(value.value)) return UNRESOLVED;
@@ -633,8 +633,8 @@ export class Values {
       if (method === 'values') return { ok: true, value: Object.values(value.value) };
       return method === 'entries' ? { ok: true, value: Object.entries(value.value) } : UNRESOLVED;
     }
-    const object = this.resolve(callee.object, scopes);
-    if (!object.ok) return object;
+    const object = read(callee.object);
+    if (!object.ok) return { ok: false, importedFrom: object.importedFrom };
     const text = object.value;
     if (typeof text === 'string' && args.length === 0 && STRING_METHODS.has(method)) {
       return {
@@ -643,8 +643,8 @@ export class Values {
       };
     }
     if (!Array.isArray(text) || method !== 'join' || args.length > 1 || !text.every(isPrimitive)) return UNRESOLVED;
-    const separator = args.length === 0 ? { ok: true as const, value: ',' } : this.resolve(args[0], scopes);
-    if (!separator.ok) return separator;
+    const separator = args.length === 0 ? { ok: true as const, value: ',' } : read(args[0]);
+    if (!separator.ok) return { ok: false, importedFrom: separator.importedFrom };
     return typeof separator.value === 'string' ? { ok: true, value: text.join(separator.value) } : UNRESOLVED;
   }
 
