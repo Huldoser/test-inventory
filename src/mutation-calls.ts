@@ -2,6 +2,7 @@ import type { CallExpression, Expression, Node } from 'oxc-parser';
 import { isFunctionNode, propertyName, unwrapChain } from './ast.ts';
 import {
   helperParameters,
+  literalArguments,
   referenceOperands,
   type CallbackChoice,
   type CallbackContext,
@@ -119,7 +120,7 @@ export function mutationCalls(
       object.name === 'Reflect' &&
       !values.declarationOf('Reflect', scopes)
     ) {
-      const fn = call.arguments.at(0);
+      const fn = literalArguments(call.arguments).next().value;
       return fn && fn.type !== 'SpreadElement'
         ? callable(fn, scopes, caller).targets.map((helper) => ({ helper, mode: 'reflect' }))
         : [];

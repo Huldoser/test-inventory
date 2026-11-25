@@ -23,3 +23,4 @@ Follow local constant aliases of functions when collecting tests or tracking wri
 Track possible writes through callbacks passed to local helpers, keeping each callback paired with its own arguments.
 Follow callback parameters through local aliases and selection expressions, including defaults when a supplied callback could be missing.
 Track writes by local functions invoked through `call`, `apply`, or `Reflect.apply`, including writes to the receiver.
+Follow literal argument spreads when `Reflect.apply` invokes a helper during collection.

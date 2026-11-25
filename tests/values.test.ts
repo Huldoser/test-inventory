@@ -636,6 +636,25 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     });
   });
 
+  it('selects the Reflect.apply target and receiver from literal argument spreads', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'Reflect.apply(...[close,null,[night]]);',
+      'Reflect.apply(...[],...[...[],close],null,[night]);',
+      'function update(){this.label="closed";}Reflect.apply(...[update,night,[]]);',
+      'function dispatch(fn,row){Reflect.apply(...[fn,null,[row]]);}dispatch(read,day);dispatch(close,night);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    expect(resolve(setup + 'Reflect.apply(...[read],close,[day]);day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + 'try {Reflect.apply(...[,close,null,[day]]);} catch {} day.label;')).toEqual({
+      ok: true,
+      value: 'day',
+    });
+  });
+
   it('flags titles changed through helper arguments resolved in the calling scope', () => {
     const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
     for (const route of [

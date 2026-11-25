@@ -1,4 +1,5 @@
 import type {
+  ArrayExpression,
   AssignmentTarget,
   AssignmentTargetMaybeDefault,
   BindingPattern,
@@ -233,10 +234,22 @@ function bind(
   }
 }
 
+/** Reflect.apply takes its target and receiver from the same expanded list as its argument array. */
+export function* literalArguments(
+  elements: ArrayExpression['elements'],
+): Generator<ArrayExpression['elements'][number], void> {
+  for (const element of elements) {
+    const spread = element?.type === 'SpreadElement' && unwrapChain(element.argument);
+    if (spread && spread.type === 'ArrayExpression') yield* literalArguments(spread.elements);
+    else yield element;
+  }
+}
+
 /** Bind positional, rest and default references once for both callback discovery and write tracking. */
 export function helperParameters(site: HelperSite, isCallable: (expression: Expression) => boolean): ParameterSource[] {
   const { call, fn, scopes, statement, parameterScopes } = site;
-  const args = direct({ type: 'ArrayExpression', elements: call.arguments, start: call.start, end: call.end });
+  const elements = site.mode === 'reflect' ? [...literalArguments(call.arguments)] : call.arguments;
+  const args = direct({ type: 'ArrayExpression', elements, start: call.start, end: call.end });
   const parameters: ParameterSource[] = [];
   const add = (name: string, ref: Reference, fromDefault = false) => {
     parameters.push({
