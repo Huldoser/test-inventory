@@ -11,4 +11,4 @@ Follow Vitest's nested focus selection from 4.0.17 when reporting `isOnly` on si
 Honor nested `fails: false` options and version-specific tag precedence when reporting expected failures.
 Preserve a test's failure expectation when a focus tag makes it run.
 
-Report Vitest concurrency from nested suite options, modifiers, tags and the selected project's default, including the change to `concurrent: false` in 4.1.6 and the removal of the `sequential` option in Vitest 5.
+Report Vitest concurrency from nested suite options, modifiers, tags and the root scheduling default through Vitest 4 and the selected project's default from Vitest 5, including the change to `concurrent: false` in 4.1.6 and the removal of the `sequential` option in Vitest 5.

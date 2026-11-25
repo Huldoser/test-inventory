@@ -1892,7 +1892,13 @@ export class ConfigRuns {
       : [];
     projects.push(...matches.flatMap((match) => this.vitestPath(config, path.resolve(match), container)));
     this.expanding.delete(config);
-    return projects;
+    if (atLeast(this.version, 5, 0)) return projects;
+    // Before Vitest 5 the runner sends the root sequence.concurrent to every project's workers.
+    const parallel = settingAt(config.settings, ['test', 'sequence', 'concurrent']);
+    return projects.map((project) => ({
+      ...project,
+      about: { ...project.about, defaults: { ...project.about.defaults, parallel } },
+    }));
   }
 
   /**

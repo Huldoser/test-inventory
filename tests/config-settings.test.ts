@@ -348,6 +348,41 @@ describe.sequential('halted venue',()=>{
     ]);
   });
 
+  it.each(['3.2.7', '4.1.12', '5.1.1'])(
+    'reads the scheduling default from the active Vitest %s config',
+    async (version) => {
+      for (const rootParallel of [false, true]) {
+        const inventory = await scanned(
+          {
+            'package.json': JSON.stringify({ devDependencies: { vitest: version } }),
+            'vitest.config.ts': `export default {test:{sequence:{concurrent:${rootParallel}},projects:[
+            {test:{name:'paper',include:['tests/paper.test.ts','tests/shared.test.ts'],sequence:{concurrent:${!rootParallel}}}},
+            './vitest.config.live.ts'
+          ]}};`,
+            'vitest.config.live.ts': `export default {root:'./',test:{name:'live',include:['tests/live.test.ts','tests/shared.test.ts'],sequence:{concurrent:false}}};`,
+            'tests/paper.test.ts': `${VITEST_IMPORT}test('routes a paper order',()=>{});`,
+            'tests/live.test.ts': `${VITEST_IMPORT}test('routes a live order',()=>{});`,
+            'tests/shared.test.ts': `${VITEST_IMPORT}test('prices an order',()=>{});`,
+          },
+          'vitest',
+          ['tests/*.test.ts'],
+        );
+        expect(testNamed(inventory, 'routes a paper order')).toMatchObject({
+          projects: ['paper'],
+          isParallel: version === '5.1.1' ? !rootParallel : rootParallel,
+        });
+        expect(testNamed(inventory, 'routes a live order')).toMatchObject({
+          projects: ['live'],
+          isParallel: version === '5.1.1' ? false : rootParallel,
+        });
+        expect(testNamed(inventory, 'prices an order')).toMatchObject({
+          projects: ['paper', 'live'],
+          isParallel: version === '5.1.1' ? false : rootParallel,
+        });
+      }
+    },
+  );
+
   it('runs tests in parallel with fullyParallel or sequence.concurrent, unless the file sets the mode', async () => {
     const playwright = await scanned(
       {

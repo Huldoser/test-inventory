@@ -71,7 +71,8 @@ When a focus tag makes a skipped or todo test run, its own `.fails` or `fails: t
 
 `isParallel` follows the runner's scheduling options. Before Vitest 4.1.6, a test with
 `concurrent: false` can still run concurrently when `sequence.concurrent` is enabled.
-From 4.1.6 that test setting takes precedence over the project default. Vitest 5 ignores the
+From 4.1.6 that test setting takes precedence over the default. Through Vitest 4, all projects use the root config's `sequence.concurrent`. From Vitest 5,
+each project supplies its own default. Vitest 5 ignores the
 `sequential` option and reads `concurrent: false` to turn concurrency off.
 
 ## Example
