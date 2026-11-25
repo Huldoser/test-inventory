@@ -933,6 +933,24 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + 'await Promise.resolve();handlers[0](row);row.label;')).toEqual(UNRESOLVED);
   });
 
+  it('applies array methods to the argument and values from the same helper invocation', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},books=[day],other=[night];function close(row){row.label="closed";}';
+    for (const prepare of [
+      'function add(list,row){list.unshift(row);}add(other,day);add(books,night);',
+      'function add(list,offset,row){list.splice(offset,0,row);}add(books,0,night);',
+      'function set(list,row){const chosen=list;chosen.fill(row);}set(books,night);',
+      'books.push(night);function move(list){list.copyWithin(0,1);}move(books);',
+      'books.push(night);function move(list){list.reverse();}move(books);',
+      'function replace(list,row){list.unshift(day);list[0]=row;}replace(books,night);',
+    ]) {
+      expect(resolve(setup + prepare + 'close(books[0]);night.label;'), prepare).toEqual(UNRESOLVED);
+      expect(resolve(setup + prepare + 'close(books[0]);day.label;'), prepare).toEqual({ ok: true, value: 'day' });
+    }
+    const early = 'const before=books[0];function add(list){list.unshift(night);}add(books);close(before);';
+    expect(resolve(setup + early + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

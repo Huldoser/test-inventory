@@ -17,7 +17,13 @@ import {
   type ScopedFunction,
 } from './mutation-references.ts';
 import { analyzeReturns, capturedResult, conditionArgument, markReturnedLocals } from './mutation-returns.ts';
-import { arrayPropertyReader, type ArrayChange, type PropertySource } from './mutation-arrays.ts';
+import {
+  arrayArguments,
+  arrayPropertyReader,
+  type ArrayChange,
+  type ArrayMethod,
+  type PropertySource,
+} from './mutation-arrays.ts';
 import type { Values } from './values.ts';
 
 export interface MutationCallSite {
@@ -126,20 +132,27 @@ export function mutationCalls(
     );
 
   const arrayChanges = new Map<Expression, ArrayChange[]>();
+  const helperEdits: ArrayChange[] = methodWrites.filter((write) => write.owner !== program);
   for (const { site, owner } of sites.values()) {
     if (!site.arrayMethod) continue;
     const member = unwrapChain(site.call.callee) as MemberExpression;
     const { value } = constantValue(member.object, site.scopes);
-    if (value.type !== 'ArrayExpression') continue;
-    const changes = arrayChanges.get(value) ?? [...(objectWrites.get(value) ?? [])];
-    changes.push({
-      call: site.call,
+    const edit: ArrayMethod = {
+      expression: site.call,
+      object: member.object,
+      args: arrayArguments(site.call, site.scopes),
       name: site.arrayMethod,
       scopes: site.scopes,
       owner,
       end: site.call.end,
       unconditional: site.statement?.type === 'ExpressionStatement' && site.statement.expression === site.call,
-    });
+    };
+    if (value.type !== 'ArrayExpression') {
+      if (owner !== program) helperEdits.push(edit);
+      continue;
+    }
+    const changes = arrayChanges.get(value) ?? [...(objectWrites.get(value) ?? [])];
+    changes.push(edit);
     arrayChanges.set(value, changes);
   }
   for (const changes of arrayChanges.values()) changes.sort((a, b) => a.end - b.end);
@@ -213,7 +226,10 @@ export function mutationCalls(
         });
     return choices.flatMap((choice) => reflectSources(choice.source, choice.times, invocationTime, new Set(seen)));
   };
-  const parameterWrites = Map.groupBy(methodWrites, (write) => write.owner);
+  const parameterWrites = Map.groupBy(
+    helperEdits.sort((a, b) => a.end - b.end),
+    (write) => write.owner,
+  );
   const schedules = new Map<Node, { straight: Set<Node>; awaitedAt: number }>();
   const writeSchedule = (body: Node) => {
     let schedule = schedules.get(body);
@@ -236,7 +252,7 @@ export function mutationCalls(
     schedules.set(body, schedule);
     return schedule;
   };
-  const recordArgumentWrites = (frame: HelperInvocation, writes: readonly MethodWrite[]) => {
+  const recordArgumentWrites = (frame: HelperInvocation, writes: readonly ArrayChange[]) => {
     const callee = unwrapChain(frame.call.callee);
     const definite =
       frame.statement?.type === 'ExpressionStatement' &&
@@ -253,7 +269,7 @@ export function mutationCalls(
         source.value.type === 'ThisExpression'
           ? frame.fn.type !== 'ArrowFunctionExpression'
           : source.value.type === 'Identifier' && values.declarationOf(name, source.scopes) === frame.fn;
-      if (!parameter) return { parameter, choices: [source] };
+      if (!parameter) return { parameter, choices: [{ value: expression, scopes: at }] };
       if (rebound.has(name) || values.assignedIn(body).has('arguments')) return { parameter, choices: [] };
       const choices = frame.parameters
         .filter((param) => param.name === name && param.ref.rest === undefined)
@@ -265,44 +281,55 @@ export function mutationCalls(
           ),
         )
         .filter((param) => !param.ref.path.length)
-        .map((param) => constantValue(param.ref.value, param.ref.capture?.scopes ?? param.scopes));
+        .map((param) => ({ value: param.ref.value, scopes: param.ref.capture?.scopes ?? param.scopes }));
       return { parameter, choices };
     };
     for (const write of writes) {
       const containers = sources(write.object, write.scopes);
       if (!containers.parameter) continue;
-      const replacements = write.assigned
-        ? sources(write.assigned, write.scopes).choices
-        : [{ value: null, scopes: write.scopes }];
       // Code after an await can only affect the module after its current synchronous evaluation yields.
       const end =
         write.expression.start >= awaitedAt
           ? (suspensions.find((at) => at >= frame.call.end) ?? Infinity)
           : frame.call.end;
       const unconditional =
-        definite &&
-        !frame.fn.async &&
-        containers.choices.length === 1 &&
-        replacements.length === 1 &&
-        straight.has(write.expression);
-      for (const { value: array } of containers.choices) {
-        if (array.type !== 'ArrayExpression') continue;
-        const history = objectWrites.get(array) ?? [];
-        for (const replacement of replacements) {
-          const event = {
+        definite && !frame.fn.async && containers.choices.length === 1 && straight.has(write.expression);
+      const timing = { owner: program, end, unconditional };
+      const edits: ArrayChange[] = [];
+      if ('args' in write) {
+        const args = arrayArguments(write.expression, write.scopes, (expr) => sources(expr, write.scopes).choices);
+        edits.push({ ...write, ...timing, args });
+      } else {
+        const replacements = write.assigned
+          ? sources(write.assigned, write.scopes).choices
+          : [{ value: null, scopes: write.scopes }];
+        for (const replacement of replacements)
+          edits.push({
             ...write,
-            owner: program,
-            end,
-            unconditional,
+            ...timing,
+            unconditional: unconditional && replacements.length === 1,
             assigned: replacement.value,
             scopes: replacement.scopes,
-          };
-          history.push(event);
-          arrayChanges.get(array)?.push(event);
+          });
+      }
+      for (const container of containers.choices) {
+        const { value: array } = constantValue(container.value, container.scopes);
+        if (array.type !== 'ArrayExpression') continue;
+        const assignments = objectWrites.get(array) ?? [];
+        const changes = arrayChanges.get(array) ?? ('args' in write ? [...assignments] : undefined);
+        for (const edit of edits) {
+          changes?.push(edit);
+          if (!('args' in edit)) assignments.push(edit);
         }
-        history.sort((a, b) => a.end - b.end);
-        objectWrites.set(array, history);
-        arrayChanges.get(array)?.sort((a, b) => a.end - b.end);
+        if (changes)
+          arrayChanges.set(
+            array,
+            changes.sort((a, b) => a.end - b.end),
+          );
+        objectWrites.set(
+          array,
+          assignments.sort((a, b) => a.end - b.end),
+        );
         arrayReaders.clear();
       }
     }

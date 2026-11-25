@@ -8,12 +8,26 @@ export interface PropertySource {
   scopes: readonly Node[];
 }
 
-export type ArrayChange =
-  | MethodWrite
-  | (Omit<MethodWrite, 'object' | 'assigned' | 'name' | 'expression'> & {
-      name: string;
-      call: CallExpression;
-    });
+export interface ArrayMethod extends Omit<MethodWrite, 'assigned' | 'expression' | 'name'> {
+  name: string;
+  expression: CallExpression;
+  args: { spread: boolean; choices: PropertySource[] }[];
+}
+export type ArrayChange = MethodWrite | ArrayMethod;
+
+export function arrayArguments(
+  call: CallExpression,
+  scopes: readonly Node[],
+  resolve?: (expression: Expression) => { value: Expression; scopes: readonly Node[] }[],
+): ArrayMethod['args'] {
+  return Array.from(literalArguments(call.arguments), (argument) => {
+    const spread = argument?.type === 'SpreadElement';
+    const value = spread ? argument.argument : argument;
+    const choices =
+      value && resolve ? resolve(value).map((source) => slot(source.value, source.scopes)) : [slot(value, scopes)];
+    return { spread, choices };
+  });
+}
 
 function slot(value: Expression | null, scopes: readonly Node[]): PropertySource {
   return { ref: value && { value, path: [] }, scopes };
@@ -61,16 +75,16 @@ function splice(length: number, start: number, count: number, inserted: Property
   };
 }
 
-function applyMethod(length: number, event: Extract<ArrayChange, { call: CallExpression }>): Layout | null {
-  const { name, scopes } = event;
-  const args = [...literalArguments(event.call.arguments)];
-  if (!args.every((arg) => arg?.type !== 'SpreadElement')) return null;
-  const inserted = (start: number) => args.slice(start).map((arg) => slot(arg, scopes));
+function applyMethod(length: number, event: ArrayMethod): Layout | null {
+  const { name } = event;
+  if (event.args.some((arg) => arg.spread || arg.choices.length !== 1)) return null;
+  const slots = event.args.map((arg) => arg.choices[0]);
+  const args = slots.map((source) => source.ref?.value);
   switch (name) {
     case 'push':
-      return splice(length, length, 0, inserted(0));
+      return splice(length, length, 0, slots);
     case 'unshift':
-      return splice(length, 0, 0, inserted(0));
+      return splice(length, 0, 0, slots);
     case 'shift':
       return splice(length, 0, 1, []);
     case 'pop':
@@ -82,7 +96,7 @@ function applyMethod(length: number, event: Extract<ArrayChange, { call: CallExp
       const count = numberAt(args[1], args.length === 1 ? length : 0);
       return begin === null || count === null
         ? null
-        : splice(length, relative(begin, length), Math.max(count, 0), inserted(2));
+        : splice(length, relative(begin, length), Math.max(count, 0), slots.slice(2));
     }
     case 'fill': {
       const begin = numberAt(args[1], 0),
@@ -90,7 +104,7 @@ function applyMethod(length: number, event: Extract<ArrayChange, { call: CallExp
       if (begin === null || end === null) return null;
       const start = relative(begin, length),
         stop = relative(end, length),
-        element = slot(args[0] ?? null, scopes);
+        element = slots[0] ?? slot(null, event.scopes);
       return { length, at: (index) => (index >= start && index < stop ? element : index) };
     }
     case 'copyWithin': {
@@ -138,21 +152,21 @@ function possibleSlots(
 ): PropertySource[] {
   const candidates = Array.from(property({ value: array, path: [] }, null), (ref) => ({ ref, scopes }));
   for (const change of changes) {
-    if (!('call' in change)) {
+    if (!('args' in change)) {
       if (change.assigned && (change.name === null || indexOf(change.name) !== null))
         candidates.push(slot(change.assigned, change.scopes));
       continue;
     }
-    let args = [...literalArguments(change.call.arguments)];
+    let args = change.args;
     if (change.name === 'splice') {
-      if (!args.slice(0, 2).some((arg) => arg?.type === 'SpreadElement')) args = args.slice(2);
+      if (!args.slice(0, 2).some((arg) => arg.spread)) args = args.slice(2);
     } else if (change.name === 'fill') args = args.slice(0, 1);
     else if (change.name !== 'push' && change.name !== 'unshift') continue;
-    for (const arg of args) {
-      if (arg?.type === 'SpreadElement')
-        candidates.push({ ref: { value: arg.argument, path: [null] }, scopes: change.scopes });
-      else candidates.push(slot(arg, change.scopes));
-    }
+    for (const arg of args)
+      for (const source of arg.choices)
+        candidates.push(
+          arg.spread && source.ref ? { ref: { ...source.ref, path: [null] }, scopes: source.scopes } : source,
+        );
   }
   return candidates;
 }
@@ -198,7 +212,7 @@ export function arrayPropertyReader(
     for (const change of history) {
       if (!change.unconditional) break;
       const next =
-        'call' in change
+        'args' in change
           ? own.has(change.name)
             ? { length }
             : applyMethod(length, change)
@@ -208,7 +222,7 @@ export function arrayPropertyReader(
       length = next.length;
     }
   }
-  const firstMethod = history.findIndex((change) => 'call' in change);
+  const firstMethod = history.findIndex((change) => 'args' in change);
   // Collection can ask about an earlier copy after looking up a later invocation.
   let cachedCount = -1;
   const cache = new Map<number, PropertySource[]>();

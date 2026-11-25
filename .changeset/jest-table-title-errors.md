@@ -28,3 +28,4 @@ Track receiver and argument writes made when a bound local function runs during 
 Follow writes by functions returned from local helpers when those functions run during collection, including local methods selected from objects and arrays. Account for writes made by local getters and setters.
 Use the array element selected when an argument is evaluated, including arguments captured by a bound function and values returned by repeated helper calls.
 Follow a collection-time helper that replaces or deletes a slot in an array supplied by its caller.
+Track array methods invoked on helper parameters during collection, including the caller’s references to inserted elements.
