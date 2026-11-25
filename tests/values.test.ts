@@ -476,6 +476,47 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(new Values().functionOf('first', [cycle.program])).toBeNull();
   });
 
+  it('pairs the function passed to a dispatcher with the data from that call', () => {
+    const setup =
+      'const day={label:"day"}; const night={label:"night"}; function inspect(desk){return desk.label;} function close(desk){desk.label="closing";}';
+    for (const calls of [
+      'function run(fn,desk){fn(desk);}run(inspect,day);run(close,night);',
+      'function run({fn,desk}){fn(desk);}run({fn:close,desk:night});run({fn:inspect,desk:day});',
+      'function run(desk,fn=close){fn(desk);}run(day,inspect);run(night);',
+      'function apply(fn,desk){fn(desk);}function run(fn,desk){apply(fn,desk);}run(close,night);run(inspect,day);',
+      'function run(fn,desk){fn(desk);}run(desk=>{desk.label="closing";},night);',
+    ]) {
+      expect(resolve(setup + calls + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + calls + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    const deferred = 'function run(fn,desk){test("late close",()=>fn(desk));}run(close,day);';
+    expect(resolve(setup + deferred + 'day.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
+  it('includes every possible callback when a computed property can override a named one', () => {
+    const setup =
+      'const desk={label:"opening"}; function close(row){row.label="closing";} function inspect(row){return row.label;} function run({task},row){task(row);}';
+    for (const options of [
+      '{task:inspect,[getKey()]:close}',
+      '{task:close,[getKey()]:inspect}',
+      '{task:close,[getKey()]:close}',
+    ])
+      expect(resolve(setup + 'run(' + options + ',desk);desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'run({[getKey()]:close,task:inspect},desk);desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+  });
+
+  it('traces a returned callback result through the dispatcher that provided its function', () => {
+    const setup = 'const day={label:"day"};const night={label:"night"};function run(fn,desk){return fn(desk);}';
+    const code =
+      setup +
+      'function pick(desk){return desk;} function fallback(){return day;} run(fallback,day);run(pick,night).label="closing";';
+    expect(resolve(code + 'night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(code + 'day.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
   it('flags titles changed through helper arguments resolved in the calling scope', () => {
     const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
     for (const route of [

@@ -20,3 +20,4 @@ Follow aliases assigned after declaration, including destructuring, and keep ear
 Flag possible changes to titles through the arguments of local helpers called during test collection.
 Follow possible returned objects even when the same helper is called inside its own argument or another branch returns no value.
 Follow local constant aliases of functions when collecting tests or tracking writes through helper arguments.
+Track possible writes through callbacks passed to local helpers, keeping each callback paired with its own arguments.

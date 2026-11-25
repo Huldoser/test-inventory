@@ -8,12 +8,8 @@ import {
   unwrapChain,
   type FunctionNode,
 } from './ast.ts';
-import {
-  changedReferences,
-  type AliasBinding,
-  type HelperInvocation,
-  type MutationTarget,
-} from './mutation-references.ts';
+import { changedReferences, type AliasBinding, type MutationTarget } from './mutation-references.ts';
+import { mutationCalls, type MutationCallSite } from './mutation-calls.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -986,10 +982,7 @@ function mutatedObject(node: Node): Expression | null {
 function changedNames(program: Node, values: Values): Set<string> {
   const targets: MutationTarget[] = [];
   const declarations: AliasBinding[] = [];
-  const callsByOwner = new Map<
-    Node,
-    { call: CallExpression; scopes: readonly Node[]; statement: Node | null; runsLater: boolean }[]
-  >();
+  const callsByOwner = new Map<Node, MutationCallSite[]>();
   const walk = (node: Node, ancestors: readonly Node[], statement: Node | null, owner: Node): void => {
     const scopes = isScopeNode(node) ? [...ancestors, node] : ancestors;
     if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) {
@@ -1033,37 +1026,7 @@ function changedNames(program: Node, values: Values): Set<string> {
   };
   walk(program, [], null, program);
   if (!targets.length) return new Set();
-  const calls = new Map<CallExpression, HelperInvocation>();
-  const callable = (expression: Expression, scopes: readonly Node[]) => {
-    const callee = unwrapChain(expression);
-    if (isFunctionNode(callee)) return { fn: callee, scopes };
-    return callee.type === 'Identifier' ? values.functionWithScopes(callee.name, scopes) : null;
-  };
-  // A single synchronous invocation gives reads of captured module variables a known point in module order.
-  const callTimes = new Map<Node, number | null>([[program, null]]);
-  const pending = [program];
-  const activate = (fn: FunctionNode, time: number | null) => {
-    const previous = callTimes.get(fn);
-    if (previous === null || previous === time) return;
-    callTimes.set(fn, previous === undefined ? time : null);
-    pending.push(fn);
-  };
-  for (const owner of pending) {
-    for (const { call, scopes, statement, runsLater } of callsByOwner.get(owner) ?? []) {
-      const helper = callable(call.callee, scopes);
-      if (helper) {
-        const time = statement ? call.start : (callTimes.get(owner) ?? null);
-        activate(helper.fn, helper.fn.async || helper.fn.generator ? null : time);
-        calls.set(call, { call, fn: helper.fn, parameterScopes: [...helper.scopes, helper.fn], scopes, statement });
-      } else if (!runsLater) {
-        for (const arg of call.arguments) {
-          if (arg.type === 'SpreadElement') continue;
-          const callback = callable(arg, scopes);
-          if (callback) activate(callback.fn, null);
-        }
-      }
-    }
-  }
+  const { calls, callTimes } = mutationCalls(program, callsByOwner, values);
   return changedReferences(declarations, targets, calls, callTimes, (identifier, scopes) => {
     const declaration = values.declarationOf(identifier, scopes);
     return declaration && mutationKey(declaration, identifier);
