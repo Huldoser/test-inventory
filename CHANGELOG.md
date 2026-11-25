@@ -1,5 +1,140 @@
 # test-inventory
 
+## 0.12.2
+
+### Patch Changes
+
+- [#159](https://github.com/Huldoser/test-inventory/pull/159) [`dbae2c9`](https://github.com/Huldoser/test-inventory/commit/dbae2c91bb77d900e711cceda2f0709ace1c8d60) - Match Bun's table titles for indexed and nested fields, missing fields followed by punctuation, and row values that contain placeholder text.
+  Mark a file or suite as not loaded when a Bun table title reads a property through an explicitly null or undefined field.
+  Handle array arguments in named placeholders and match Bun when the initial placeholder key begins with a digit.
+
+- [#159](https://github.com/Huldoser/test-inventory/pull/159) [`dbae2c9`](https://github.com/Huldoser/test-inventory/commit/dbae2c91bb77d900e711cceda2f0709ace1c8d60) - Apply Jasmine's empty-suite rules by version and allow unused callback arguments on focused and skipped suites.
+  Recognize suites whose spec declarations cannot run, and account for code evaluated in hook arguments.
+  Mark specs registered after a nested Jasmine declaration error as not loaded, with their earlier siblings and recovery paths preserved.
+  Keep Jasmine files runnable when they catch their own registration errors.
+  Assign recovery specs to the suite Jasmine leaves open after it rejects an empty suite.
+  Omit Jasmine recovery specs when the guarded registrations and local helpers complete without throwing.
+  Collect specs declared while evaluating Jasmine runner arguments in call order, stopping at a synchronous exception.
+  Use supplied helper arguments when deciding which parameter defaults register specs.
+  Honor synchronous errors from invalid spreads and destructuring in Jasmine declaration arguments.
+  Read string elements and boxed properties in helper parameters so registration defaults and generated titles match the runner.
+  Apply argument ordering and parameter binding to direct Jasmine helper calls and immediately invoked functions.
+  Attach Jasmine declarations and hooks to the suite left open by their arguments.
+  Preserve the current Jasmine suite across the synchronous part of an async registration helper.
+  Collect successive statements after a Jasmine helper suspends in microtask order, with their captured parameters.
+  Omit unreachable Jasmine registrations after an async return, a rejected await or a promise that remains pending.
+  Exclude unreachable Jasmine recovery specs after awaiting a primitive literal.
+  Honor returns through Jasmine async helpers’ try, catch and finally blocks when collecting subsequent specs.
+  Distinguish a rejected async helper from an exception thrown while evaluating its arguments in a Jasmine spec file.
+  Account for registrations and exceptions from calls inside arguments to local Jasmine helpers when checking a catch.
+  Check generator parameter defaults and destructuring at the call, including specs registered while binding a default.
+  Stop registration at a parameter read before initialization while preserving reads deferred inside a closure.
+  Use the arguments supplied to ordinary Jasmine helpers when checking whether a default or the function body reaches the caller's catch.
+  Mark suites with a generator callback as refused by Jasmine and keep recovery with the handler that catches the refusal.
+  Check the children registered through local helpers before collecting specs after a Jasmine suite.
+  Report rejected Jasmine hooks, exclude them from hook counts and follow registration into the caller's catch.
+  Read Jasmine hook callbacks and timeouts supplied through array or string spreads.
+  Track registration and recovery when Jasmine rejects a spec callback or timeout, including pending and spread declarations.
+  Collect Jasmine suites and their specs when an array supplies the title and callback, and follow recovery after a rejected callback.
+  Read Jasmine test and suite names returned by synchronous local functions and track errors while evaluating those calls.
+  Match the names Jasmine reports for primitive spec and suite descriptions, including zero and false.
+  Read Jasmine titles built from helper results and follow evaluated operands during registration.
+  Choose the correct title branch when a Jasmine registration returns a suite, spec or hook result.
+  Format Jasmine array titles containing known primitive values or nested arrays.
+  Preserve holes and evaluated helper or spread elements in Jasmine array descriptions.
+  Follow standard string, array and object methods returned from Jasmine registration helpers.
+  Format ordinary object descriptions in Jasmine, including data objects inside arrays and object spreads.
+  Stop Jasmine argument evaluation when it spreads a noniterable helper result, async generator object, or Jasmine spec or suite result.
+  Follow synchronous generator calls consumed by spreads in Jasmine registration arguments.
+  Track the first and repeated consumption of saved synchronous iterators in Jasmine registration arguments.
+  Follow explicit synchronous generator steps during Jasmine registration, including yielded and returned values, exhaustion and cleanup.
+  Use values sent by `next(value)` when a Jasmine generator resumes and preserve the order of registrations around suspended call arguments.
+  Follow yields inside arithmetic, template strings and branching expressions so Jasmine collects the chosen titles in order.
+  Apply the same evaluation to fresh generator spreads and retain earlier delegated yields when the generator recovers from an exception.
+  Forward explicit iterator methods through Jasmine generator delegation and use the inner generator's completion value in titles.
+  Use caught values in Jasmine generator titles and preserve their lexical bindings across yields.
+
+- [#159](https://github.com/Huldoser/test-inventory/pull/159) [`dbae2c9`](https://github.com/Huldoser/test-inventory/commit/dbae2c91bb77d900e711cceda2f0709ace1c8d60) - Count the single fallback test when Jest cannot format a table title, and report the file as not loaded when it happens in a parameterized suite.
+  Ignore the supplied callback and timeout when Jest rejects an empty or malformed table.
+  Count the rows that Jest registers when a valid table has a missing or non-callable test callback.
+  Use the titles Jest registers for functions and undefined values, and mark files with rejected test or suite titles as not loaded.
+  Account for declarations called without arguments, including the tests registered by parameterized tables.
+  Read local function and class name properties, including static name fields used in Jest table titles.
+  Read titles from methods on local object literals and expand table rows when a final explicit property supplies the title.
+  Mark files as not loaded when Bun rejects an anonymous computed method used as a title with a separate callback.
+  Resolve titles from local class methods, prototype methods and static fields in initialization order.
+  Use the Bun version to determine whether a static field gives an anonymous function its test title.
+  Expand rows titled by inherited methods and use the derived class when the title is its prototype constructor.
+  Flag titles and table data changed through aliases or shared children of shallow copies, so the inventory does not report stale values.
+  Track writes and deletes through optional chains and aliases selected by conditional, logical and sequence expressions.
+  Keep a title readable when a write changes a separate declaration with the same name.
+  Follow aliases assigned after declaration, including destructuring, and keep earlier captures tied to their original objects.
+  Flag possible changes to titles through the arguments of local helpers called during test collection.
+  Follow possible returned objects even when the same helper is called inside its own argument or another branch returns no value.
+  Follow local constant aliases of functions when collecting tests or tracking writes through helper arguments.
+  Track possible writes through callbacks passed to local helpers, keeping each callback paired with its own arguments.
+  Follow callback parameters through local aliases and selection expressions, including defaults when a supplied callback could be missing.
+  Track writes by local functions invoked through `call`, `apply`, or `Reflect.apply`, including writes to the receiver.
+  Follow literal and named array spreads when `Reflect.apply` invokes a helper during collection. Track indexed assignments that replace its target, receiver, or arguments before the call, including when a spread copies the array. Follow collection-time array edits that move or replace these values.
+  Track receiver and argument writes made when a bound local function runs during collection.
+  Follow writes by functions returned from local helpers when those functions run during collection, including local methods selected from objects and arrays. Account for writes made by local getters and setters.
+  Use the array element selected when an argument is evaluated, including arguments captured by a bound function and values returned by repeated helper calls.
+  Follow a collection-time helper that replaces or deletes a slot in an array supplied by its caller.
+  Track array methods invoked on helper parameters during collection, including the caller’s references to inserted elements.
+  Follow array edits through parameters and receivers captured by returned local functions.
+  Keep untouched test titles exact when a returned setter is the only possible function, and retain both possibilities when its factory is uncertain.
+  Follow array edits through nested helper calls in execution order, including forwarded callbacks.
+  Resolve reads inside a helper against writes already made during the same invocation.
+  Follow methods installed on a local object by an earlier helper call.
+  Follow callbacks selected from a module-level object or array passed to a local helper, including when separate calls supply different containers.
+  Track array edits made by a callback installed and invoked during the same collection helper.
+  Re-read a forwarded callback after an intervening write, including writes made inside another local helper.
+  Follow the replacement when a callback changes its own entry before a repeated helper call.
+
+- [#159](https://github.com/Huldoser/test-inventory/pull/159) [`dbae2c9`](https://github.com/Huldoser/test-inventory/commit/dbae2c91bb77d900e711cceda2f0709ace1c8d60) - Respect a root Mocha script's file selection during discovery. A script that names its specs no longer picks up unrelated files directly under `test/` through Mocha's default spec.
+
+  Combine Mocha's configured specs, extensions, ignores and preloads with the command line, honor `--no-recursive`, and prefer existing literal spec paths to glob expansion. During discovery, apply simple package-script file filters from Jest, Vitest and Playwright, including Playwright commands in packages without a config.
+
+  Follow literal working-directory changes before runner commands and include Playwright project prerequisites and teardown when filtering files. Match Mocha's ignore paths, config aliases, comma-separated settings, preload resolution and extensionless spec lookup.
+
+  Match Mocha's glob character classes and extension-list spacing. Omit Playwright setup and teardown selected only by empty or hook-only specs.
+
+  Honor shell `true` and `false` in conditional directory changes. Apply Playwright project title filters before selecting setup, recognize imports that only export data, and match Mocha ignore character classes and extended patterns.
+
+  Collect tests registered by a helper called directly on a CommonJS import, such as `require('./checks').validateOrder()`.
+
+  Follow Playwright tests registered when local modules load. Honor Playwright's file filtering when tests originate in a helper with a different extension, including matching enclosing describes.
+
+  Honor TypeScript import removal when collecting Playwright registrations, including imports used only in type annotations and imports retained for JSX.
+
+  Assign a shared Playwright module's top-level tests to the first spec that loads it in each command, including when deciding whether a setup project runs.
+
+  Follow immediately invoked functions during Playwright collection and skip module initialization in branches ruled out by a known condition.
+
+  Keep shared Playwright registrations in the spec that reaches the import when a loop is empty or a statement exits early.
+
+  Discover extensionless Mocha preloads under linked project roots and preserve Vitest file filters that contain Windows short directory names.
+
+- [#159](https://github.com/Huldoser/test-inventory/pull/159) [`dbae2c9`](https://github.com/Huldoser/test-inventory/commit/dbae2c91bb77d900e711cceda2f0709ace1c8d60) - Match Vitest's version-specific handling of inherited only, skip and todo options, including their precedence over configured tags in Vitest 4.1. Report the suite that supplied a test's todo state when nested suites have different modes.
+
+  Report forbidden focus from a configured tag and check it before a test body or hook can skip.
+
+  Follow Vitest's nested focus selection from 4.0.17 when reporting `isOnly` on siblings.
+
+  Honor nested `fails: false` options and version-specific tag precedence when reporting expected failures.
+  Preserve a test's failure expectation when a focus tag makes it run.
+
+  Report Vitest concurrency from nested suite options, modifiers, tags and the root scheduling default through Vitest 4 and the selected project's default from Vitest 5, including the change to `concurrent: false` in 4.1.6 and the removal of the `sequential` option in Vitest 5.
+
+  Keep the table declaration and report a warning when Vitest projects sharing a file generate different case titles.
+
+  Report when a runtime title-length setting prevents the scan from determining a Vitest case name.
+
+  Collect Vitest suites with a function as the title and a separate callback, and report the native title for unnamed functions and classes.
+  Follow local function aliases used as titles, including class names overridden by static fields in Vitest and declared names in Bun.
+
+  Match Bun callback-only declarations, unnamed titles, invalid descriptors, and skipped or todo declarations with omitted callbacks.
+
 ## 0.12.1
 
 ### Patch Changes
