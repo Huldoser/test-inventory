@@ -114,8 +114,10 @@ value such as a number lets Jest register every row with its timeout, and invoki
 ## Supported syntax
 
 From Jest 28, a test or suite title can be a string, a number, `undefined`, or a named function or class.
-Jest uses the function's name even when the declaration passes it through a local alias. The scanner reads a
-local class's static `name` field and a function or class's `.name` property. An invalid title prevents
+Jest uses the function's name even when the declaration passes it through a local alias. For a title such as
+`book.post`, a local object method `post() {}` gives the title `post`, while `post: function routeOrder() {}`
+gives `routeOrder`. The scanner also reads a local class's static `name` field and a function or class's
+`.name` property. An invalid title prevents
 the entire file from loading, including when its declaration is skipped. `test.todo` requires a string in every
 supported version. In Jest 27 ordinary tests and table titles also require strings.
 

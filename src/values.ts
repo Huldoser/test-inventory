@@ -328,7 +328,7 @@ export class Values {
           if (name) return name;
         }
         const own = this.ownProperty(expression, scopes);
-        if (own) return own;
+        if (own) return this.resolveConstant(own.value, own.scopes);
         const object = this.resolve(expression.object, scopes);
         if (!object.ok) return object;
         const key = expression.computed
@@ -413,7 +413,16 @@ export class Values {
     let inferred = '';
     let modified = false;
     const seen = new Set<Node>();
-    while (node.type === 'Identifier') {
+    while (node.type === 'Identifier' || node.type === 'MemberExpression') {
+      if (node.type === 'MemberExpression') {
+        const own = this.ownProperty(node, scopes);
+        if (!own || seen.has(own.value)) return null;
+        seen.add(own.value);
+        inferred = own.name;
+        node = unwrap(own.value);
+        scopes = own.scopes;
+        continue;
+      }
       const found = this.lookup(node.name, scopes);
       if (!found || seen.has(found.binding.declaration)) return null;
       seen.add(found.binding.declaration);
@@ -544,34 +553,39 @@ export class Values {
   }
 
   /**
-   * A property of an object written out in a constant the module keeps, worked out alone, as `TITLES.fill` in
-   * `const TITLES = { fill: 'fills a limit order', format: (venue) => venue }`, whatever its other values are. Null when
-   * a spread, a key the scan can't work out, or a getter or method of that name may hold it.
+   * The last definition of an own data property, in the scope where the object was created. A later spread,
+   * unknown key or accessor can hide its value.
    */
   private ownProperty(
     expression: Extract<Expression, { type: 'MemberExpression' }>,
     scopes: readonly Node[],
-  ): Resolved | null {
-    const object = unwrap(expression.object);
-    if (object.type !== 'Identifier') return null;
-    const binding = this.lookup(object.name, scopes)?.binding;
-    if (binding?.kind !== 'const' || this.changedAtLoad(binding.scopes[0]).has(object.name)) return null;
-    const init = unwrap(binding.init);
-    if (init.type !== 'ObjectExpression') return null;
+  ): { name: string; value: Expression; scopes: readonly Node[] } | null {
+    let object = unwrap(expression.object);
+    let objectScopes = scopes;
+    const seen = new Set<Expression>();
+    while (object.type === 'Identifier') {
+      const binding = this.lookup(object.name, objectScopes)?.binding;
+      if (binding?.kind !== 'const' || this.changedAtLoad(binding.scopes[0]).has(object.name) || seen.has(binding.init))
+        return null;
+      seen.add(binding.init);
+      object = unwrap(binding.init);
+      objectScopes = binding.scopes;
+    }
+    if (object.type !== 'ObjectExpression') return null;
     const key = expression.computed
       ? this.resolve(expression.property, scopes)
       : { ok: true as const, value: propertyName(expression) };
     if (!key.ok || !isKey(key.value)) return null;
-    let found: Expression | null = null;
-    for (const property of init.properties) {
+    const name = String(key.value);
+    for (let index = object.properties.length - 1; index >= 0; index--) {
+      const property = object.properties[index];
       if (property.type === 'SpreadElement') return null;
-      const name = this.propertyKey(property.key, property.computed, binding.scopes);
-      if (!name.ok || !isKey(name.value)) return null;
-      if (String(name.value) !== String(key.value)) continue;
-      if (property.kind !== 'init' || property.method) return null;
-      found = property.value;
+      const candidate = this.propertyKey(property.key, property.computed, objectScopes);
+      if (!candidate.ok || !isKey(candidate.value)) return null;
+      if (String(candidate.value) === name)
+        return property.kind === 'init' ? { name, value: property.value, scopes: objectScopes } : null;
     }
-    return found && this.resolve(found, binding.scopes);
+    return null;
   }
 
   private imported(source: string, name: string | null): Resolved {

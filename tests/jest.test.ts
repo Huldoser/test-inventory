@@ -1178,6 +1178,61 @@ test((class Intraday {}).name, () => {});
     expect(codes(result)).not.toContain('dynamic-title');
   });
 
+  it('names Jest table rows from local methods, computed keys and aliased functions', () => {
+    const result = scanJest(
+      `
+const key = 'post';
+const settings = JSON.parse(process.env.MARKET_SETTINGS || '{}');
+function routeOrder() {}
+const book = {
+  ...settings,
+  [key]() {}, "price at close"() {}, 7() {}, settle: () => {},
+  clear: function clearOrder() {}, route: routeOrder,
+};
+const alias = book;
+const post = alias.post;
+describe('closing auction', () => {
+  const key = 'clear';
+  test.each([1, 2])(post, () => {});
+  test(alias[key].name, () => {});
+  test(book['price at close'], () => {});
+  test(book[7], () => {});
+  test(book.settle, () => {});
+  test(book.route, () => {});
+  test(({ crossOrder() {} }).crossOrder, () => {});
+});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((test) => test.title)).toEqual([
+      'post',
+      'post',
+      'clearOrder',
+      'price at close',
+      '7',
+      'settle',
+      'routeOrder',
+      'crossOrder',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('keeps Jest method titles dynamic after a mutation or a possible override', () => {
+    const result = scanJest(`
+const live = { settle() {} };
+const alias = live;
+const settings = JSON.parse(process.env.MARKET_SETTINGS || '{}');
+function selectMethod() { return function settleAtClose() {}; }
+alias.settle = selectMethod();
+const guessed = { settle() {}, ...settings };
+const getter = { get settle() { return selectMethod(); } };
+test(live.settle, () => {});
+test(guessed.settle, () => {});
+test(getter.settle, () => {});
+`);
+    expect(result.tests.map((test) => test.hasDynamicTitle)).toEqual([true, true, true]);
+  });
+
   it('distinguishes a class with an empty name field from the empty string property', () => {
     const definition = 'class Settlement { static name = ""; }';
     const direct = scanJest(`${definition} test('opens the book', () => {}); test(Settlement, () => {});`);
