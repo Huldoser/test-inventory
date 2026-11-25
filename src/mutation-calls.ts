@@ -17,6 +17,7 @@ import {
   type ScopedFunction,
 } from './mutation-references.ts';
 import { analyzeReturns, capturedResult, conditionArgument, markReturnedLocals } from './mutation-returns.ts';
+import { arrayPropertyReader, type ArrayChange, type PropertySource } from './mutation-arrays.ts';
 import type { Values } from './values.ts';
 
 export interface MutationCallSite {
@@ -25,6 +26,7 @@ export interface MutationCallSite {
   statement: Node | null;
   runsLater: boolean;
   bindOwner?: Expression;
+  arrayMethod?: string;
   accessor?: 'get' | 'set';
 }
 
@@ -121,6 +123,57 @@ export function mutationCalls(
         (write.owner !== program || time === null || write.end <= time),
     );
 
+  const arrayChanges = new Map<Expression, ArrayChange[]>();
+  for (const { site, owner } of sites.values()) {
+    if (!site.arrayMethod) continue;
+    const member = unwrapChain(site.call.callee) as MemberExpression;
+    const { value } = constantValue(member.object, site.scopes);
+    if (value.type !== 'ArrayExpression') continue;
+    const changes = arrayChanges.get(value) ?? [...(objectWrites.get(value) ?? [])];
+    changes.push({
+      call: site.call,
+      name: site.arrayMethod,
+      scopes: site.scopes,
+      owner,
+      end: site.call.end,
+      unconditional: site.statement?.type === 'ExpressionStatement' && site.statement.expression === site.call,
+    });
+    arrayChanges.set(value, changes);
+  }
+  for (const changes of arrayChanges.values()) changes.sort((a, b) => a.end - b.end);
+  const arrayReaders = new Map<Expression, ReturnType<typeof arrayPropertyReader>>();
+  const spreadLength = (source: Expression, scopes: readonly Node[]) => {
+    const { value } = constantValue(source, scopes);
+    if (value.type !== 'ArrayExpression' || arrayChanges.has(value) || objectWrites.has(value)) return null;
+    const elements = [...literalArguments(value.elements)];
+    return elements.some((element) => element?.type === 'SpreadElement') ? null : elements.length;
+  };
+  const memberSources = (
+    value: Expression,
+    scopes: readonly Node[],
+    key: string | null,
+    time: number | null,
+  ): PropertySource[] => {
+    const changes = arrayChanges.get(value);
+    if (changes && value.type === 'ArrayExpression') {
+      let read = arrayReaders.get(value);
+      if (!read) {
+        read = arrayPropertyReader(value, scopes, program, changes, spreadLength);
+        arrayReaders.set(value, read);
+      }
+      const edited = read(key, time);
+      if (edited) return edited;
+    }
+    const sources = Array.from(property({ value, path: [] }, key), (ref) => ({ ref, scopes }));
+    let accessorOnly = sources.every(({ ref }) => ref?.accessor);
+    for (const write of writesAt(value, key, time)) {
+      if (accessorOnly && write.assigned) continue;
+      if (!write.assigned) accessorOnly = false;
+      if (write.unconditional && time !== null && key !== null && key === write.name) sources.length = 0;
+      sources.push({ scopes: write.scopes, ref: write.assigned && { value: write.assigned, path: [] } });
+    }
+    return sources;
+  };
   // A spread reads its source immediately. An object contained in the copied slot is still shared.
   const spreadTime = (value: Expression, scopes: readonly Node[], invocationTime: number | null) =>
     scopes.some((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope))
@@ -134,27 +187,28 @@ export function mutationCalls(
     seen = new Set<Node>(),
   ): ParameterSource[] => {
     const { ref } = source;
-    if (!ref.path.length || ref.capture) return [source];
-    const { value, scopes } = constantValue(ref.value, source.scopes);
-    if (value.type !== 'ArrayExpression' || seen.has(value)) return [source];
+    if (ref.capture) return [source];
+    let { value, scopes } = constantValue(ref.value, source.scopes);
+    let path = ref.path;
+    if (value.type === 'MemberExpression') {
+      const object = constantValue(value.object, scopes);
+      if (arrayChanges.has(object.value)) {
+        path = [memberKey(value), ...path];
+        readTimes = [spreadTime(value, scopes, invocationTime), ...readTimes];
+        ({ value, scopes } = object);
+      }
+    }
+    if (!path.length || value.type !== 'ArrayExpression' || seen.has(value)) return [source];
     seen.add(value);
-    const [key, ...suffix] = ref.path;
+    const [key, ...suffix] = path;
     const [time, ...later] = readTimes;
     const choices: { source: ParameterSource; times: (number | null)[] }[] = [];
-    for (const child of property({ value, path: [] }, key))
+    for (const { ref: child, scopes: at } of memberSources(value, scopes, key, time))
       if (child)
         choices.push({
-          source: { ...source, scopes, ref: { ...ref, value: child.value, path: [...child.path, ...suffix] } },
-          times: [...child.path.map(() => spreadTime(child.value, scopes, invocationTime)), ...later],
+          source: { ...source, scopes: at, ref: { ...ref, value: child.value, path: [...child.path, ...suffix] } },
+          times: [...child.path.map(() => spreadTime(child.value, at, invocationTime)), ...later],
         });
-    for (const write of writesAt(value, key, time)) {
-      if (write.unconditional && time !== null && key !== null && key === write.name) choices.length = 0;
-      if (write.assigned)
-        choices.push({
-          source: { ...source, scopes: write.scopes, ref: { ...ref, value: write.assigned, path: suffix } },
-          times: later,
-        });
-    }
     return choices.flatMap((choice) => reflectSources(choice.source, choice.times, invocationTime, new Set(seen)));
   };
   const returns = new Map<FunctionNode, ReturnType<typeof analyzeReturns>>();
@@ -267,9 +321,7 @@ export function mutationCalls(
     if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
       const [step, ...rest] = path;
       const choices: CallbackChoice[] = [];
-      let accessorOnly = true;
-      for (const ref of property({ value, path: [] }, step.key)) {
-        if (!ref?.accessor) accessorOnly = false;
+      for (const { ref, scopes: at } of memberSources(value, scopes, step.key, step.time)) {
         if (ref?.accessor && !step.accessor) {
           choices.push(step.read ? produced(step.read.site, step.read.context, seen, rest) : UNKNOWN);
           continue;
@@ -279,21 +331,10 @@ export function mutationCalls(
           const projection = ref.path.map((key) => ({
             ...step,
             key,
-            time: spreadTime(ref.value, scopes, frame?.statement ? frame.call.start : step.time),
+            time: spreadTime(ref.value, at, frame?.statement ? frame.call.start : step.time),
           }));
-          choices.push(callable(selected, scopes, context, new Set(seen), frame, [...projection, ...rest]));
+          choices.push(callable(selected, at, context, new Set(seen), frame, [...projection, ...rest]));
         } else choices.push(UNKNOWN);
-      }
-      for (const write of writesAt(value, step.key, step.time)) {
-        if (accessorOnly && write.assigned) continue;
-        if (!write.assigned) accessorOnly = false;
-        if (write.unconditional && step.time !== null && step.key !== null && step.key === write.name)
-          choices.length = 0;
-        choices.push(
-          write.assigned && !step.accessor
-            ? callable(write.assigned, write.scopes, context, new Set(seen), frame, rest)
-            : UNKNOWN,
-        );
       }
       return alternatives(choices);
     }

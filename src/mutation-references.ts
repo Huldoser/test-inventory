@@ -84,7 +84,7 @@ interface AliasSource extends Site {
   invocation?: HelperInvocation;
   context?: CallbackContext;
 }
-interface Reference {
+export interface Reference {
   value: Expression;
   path: Key[];
   capture?: CapturedCall;

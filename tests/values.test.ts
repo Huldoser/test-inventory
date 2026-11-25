@@ -716,6 +716,128 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     }
   });
 
+  it('reads the reordered receiver and arguments after a local array is edited', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'const items=[close,null];items.push([night]);Reflect.apply(...items);',
+      'const items=[null,[night]];items.unshift(close);Reflect.apply(...items);',
+      'const items=[read,close,null,[night]];items.shift();Reflect.apply(...items);',
+      'const items=[read,null,[night]];items.splice(0,1,close);const copy=[...items];items[0]=read;Reflect.apply(...copy);',
+      'const rows=[day];rows.splice(-1,1,night);Reflect.apply(close,null,rows);',
+      'const rows=[day,night];rows.reverse();Reflect.apply(close,null,rows);',
+      'const rows=[day,night];rows.copyWithin(0,1);Reflect.apply(close,null,rows);',
+      'const rows=[day];rows.fill(night);Reflect.apply(close,null,rows);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('keeps unrelated slots out of sparse arrays after their length or a distant index changes', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const route of [
+      'const rows=[night];rows.length=4000000000;rows.push(day);Reflect.apply(close,null,[rows[0]]);',
+      'const rows=[];rows[4000000000]=day;rows.unshift(night);Reflect.apply(close,null,[rows[0]]);',
+      'const rows=[night];rows.length=128;rows.push(day);Reflect.apply(close,null,rows);',
+      'const rows=[];rows[64]=day;rows.unshift(night);Reflect.apply(close,null,rows);',
+    ]) {
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+    }
+  });
+
+  it('uses parameter defaults for array entries removed, cleared or left as holes', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row=night){row.label="closed";}';
+    for (const edits of [
+      'rows.pop();',
+      'rows.splice(0);',
+      'rows.fill();',
+      'rows.length=0;rows.reverse();',
+      'delete rows[0];rows.reverse();',
+    ]) {
+      const run = setup + 'const rows=[day];' + edits + 'Reflect.apply(close,null,rows);';
+      expect(resolve(run + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(run + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('tracks inserted or moved rows when array offsets, spreads or execution order are unknown', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},unchanged={label:"other"};function close(row){row.label="closed";}function zero(){return 0;}function one(){return 1;}';
+    for (const edits of [
+      'const rows=[day];rows.splice(zero(),1,night);',
+      'const rows=[day];rows.splice(0,one(),night);',
+      'const rows=[day];rows.fill(night,zero());',
+      'const rows=[day];rows.fill(night,0,one());',
+      'const rows=[day,night];rows.copyWithin(zero(),1);',
+      'const rows=[day,night];rows.copyWithin(0,one());',
+      'const rows=[day,night];rows.copyWithin(0,1,one()+1);',
+      'const rows=[day,night];rows.sort((a,b)=>a===night?-1:1);',
+      'const rows=[],add=[night];rows.push(...add);',
+      'const rows=[day],args=[0,1,night];rows.splice(...args);',
+      'const rows=[day],add=[night];rows.splice(0,1,...add);',
+      'const rows=[day];if(one())rows[0]=night;rows.reverse();',
+      'const rows=[day];rows[zero()]=night;rows.reverse();',
+      'const rows=[day];rows.length=zero();rows.push(night);',
+      'const rows=[day];function prepare(){rows.unshift(night);}prepare();',
+      'const rows=[night];rows.label="quotes";if(one())delete rows.label;rows.reverse();',
+    ]) {
+      const run = setup + edits + 'Reflect.apply(close,null,rows);';
+      expect(resolve(run + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(run + 'unchanged.label;')).toEqual({ ok: true, value: 'other' });
+    }
+  });
+
+  it('honors array method overrides, deletion and writes following a read', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const route of [
+      'const rows=[night];rows.unshift=()=>{};rows.unshift(day);Reflect.apply(close,null,rows);',
+      'const rows=[day];rows.unshift=()=>{};rows.unshift(day);delete rows.unshift;rows.unshift(night);Reflect.apply(close,null,rows);',
+      'const rows=[night];Reflect.apply(close,null,rows);rows.unshift(day);',
+      'const rows=[day,night];rows.copyWithin(0,1,2);rows.fill(day,1,2);Reflect.apply(close,null,rows);',
+      'const data=[night],rows=[...data];rows.push(day);Reflect.apply(close,null,rows);',
+      'const add=[night];const rows=[...[],...add];rows.splice(1,0,day);Reflect.apply(close,null,rows);',
+      'const rows=[night,day];rows.reverse();Reflect.apply(close,null,[rows[1]]);',
+      'const rows=[];rows[0]=night;rows.push(day);Reflect.apply(close,null,rows);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('reads unaffected slots across copies, sparse growth and repeated invocations', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row=night){row.label="closed";}';
+    for (const route of [
+      'const rows=[night,day,day];rows.copyWithin(1,2);Reflect.apply(close,null,rows);',
+      'const rows=[night,day];rows[1]=day;rows.reverse();rows.reverse();Reflect.apply(close,null,rows);',
+      'const extras=[],rows=[...extras,night];rows.reverse();Reflect.apply(close,null,rows);Reflect.apply(close,null,rows);',
+      'const rows=[];rows.length=1;rows.reverse();Reflect.apply(close,null,rows);',
+      'const prefix=[night];const bound=close.bind(null,...prefix);Reflect.apply(bound,null,[]);',
+      'const desks={post:night};Reflect.apply(close,null,[desks.post]);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('follows potential rows from unknown spread lengths and computed indices', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},other={label:"other"};function close(row){row.label="closed";}';
+    for (const route of [
+      'function list(){return [night];}const rows=[...list()];rows.unshift(night);Reflect.apply(close,null,rows);',
+      'const base=[day];base[0]=night;const rows=[...base];rows.unshift(night);Reflect.apply(close,null,rows);',
+      'const base=[night];base.reverse();const rows=[...base];rows.unshift(night);Reflect.apply(close,null,rows);',
+      'const nested=[night],base=[...nested],rows=[...base];rows.unshift(night);Reflect.apply(close,null,rows);',
+      'const rows=[day,night],key=0;rows.reverse();Reflect.apply(close,null,[rows[key]]);',
+      'const rows=[night];function tweak(){rows.push(day);}Reflect.apply(close,null,rows);rows.shift();',
+      'const rows=[night];function tweak(){rows.push(day);}function dispatch(){Reflect.apply(close,null,rows);}[0].forEach(dispatch);rows.reverse();',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'other.label;')).toEqual({ ok: true, value: 'other' });
+    }
+  });
+
   it('tracks the arguments captured by the bound function that actually runs', () => {
     const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closing";}';
     for (const route of [

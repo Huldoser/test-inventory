@@ -23,6 +23,6 @@ Follow local constant aliases of functions when collecting tests or tracking wri
 Track possible writes through callbacks passed to local helpers, keeping each callback paired with its own arguments.
 Follow callback parameters through local aliases and selection expressions, including defaults when a supplied callback could be missing.
 Track writes by local functions invoked through `call`, `apply`, or `Reflect.apply`, including writes to the receiver.
-Follow literal and named array spreads when `Reflect.apply` invokes a helper during collection. Track indexed assignments that replace its target, receiver, or arguments before the call, including when a spread copies the array.
+Follow literal and named array spreads when `Reflect.apply` invokes a helper during collection. Track indexed assignments that replace its target, receiver, or arguments before the call, including when a spread copies the array. Follow collection-time array edits that move or replace these values.
 Track receiver and argument writes made when a bound local function runs during collection.
 Follow writes by functions returned from local helpers when those functions run during collection, including local methods selected from objects and arrays. Account for writes made by local getters and setters.

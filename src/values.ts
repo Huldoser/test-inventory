@@ -1089,7 +1089,9 @@ function changedNames(program: Node, values: Values): Set<string> {
         member.type === 'MemberExpression' && propertyName(member) === 'bind'
           ? previousAliasValue(member.object, before)
           : undefined;
-      addSite(owner, { call: node, scopes, statement, runsLater, bindOwner });
+      const method = member.type === 'MemberExpression' ? propertyName(member) : null;
+      const arrayMethod = method && MUTATING_METHODS.has(method) ? method : undefined;
+      addSite(owner, { call: node, scopes, statement, runsLater, bindOwner, arrayMethod });
       walk(node.callee, scopes, statement, owner);
       for (const argument of node.arguments)
         if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes, statement, owner);
