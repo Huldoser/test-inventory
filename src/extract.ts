@@ -1,6 +1,7 @@
 import { isBuiltin } from 'node:module';
 import { visitorKeys } from 'oxc-parser';
 import type {
+  BindingIdentifier,
   CallExpression,
   CatchClause,
   Expression,
@@ -209,10 +210,17 @@ function possibleRegistration(registration: Registration | undefined): Registrat
   return registration && { ...registration, asyncCall: registration.asyncCall && { ...registration.asyncCall } };
 }
 
+interface InitializingParameters {
+  fn: FunctionNode;
+  pending: Set<string>;
+  steps: ReadonlyMap<Node, ParameterStep>;
+  outer?: InitializingParameters;
+}
+
 interface Context {
   /** Evaluating an argument to a runner API at collection time, before the runner receives it. */
   evaluatingArgument?: boolean;
-  parameterSteps?: ReadonlyMap<Node, ParameterStep>;
+  parameters?: InitializingParameters;
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
   registration?: Registration;
   emptySuiteAt?: number;
@@ -738,15 +746,23 @@ class Walker {
         isFunctionNode(node)
       )
         return;
-      const step = context.parameterSteps?.get(node);
-      if (step === 'throw') {
-        this.stopRegistration(node, context);
-        return;
-      }
-      if (node.type === 'AssignmentPattern' && step !== undefined) {
-        this.visitBranch(node.right, context, `${this.text(node.left)} === undefined`, step);
-        this.visit(node.left, context);
-        return;
+      const parameters = context.parameters;
+      if (parameters) {
+        const step = parameters.steps.get(node);
+        if (step === 'initialize') {
+          parameters.pending.delete((node as BindingIdentifier).name);
+          return;
+        }
+        if (node.type.startsWith('TS') && !TS_RUNTIME.has(node.type)) return;
+        if (step === 'throw' || (node.type === 'Identifier' && this.readsUninitialized(node, parameters))) {
+          this.stopRegistration(node, context);
+          return;
+        }
+        if (node.type === 'AssignmentPattern' && step !== undefined) {
+          this.visitBranch(node.right, context, `${this.text(node.left)} === undefined`, step);
+          this.visit(node.left, context);
+          return;
+        }
       }
       if (node.type === 'SpreadElement' && this.parents.at(-2)?.type !== 'ObjectExpression') {
         this.visit(node.argument, context);
@@ -1240,11 +1256,33 @@ class Walker {
     if (context.registration && !context.skipImports) context.registration.stoppedAt ??= this.lineOf(node);
   }
 
+  private readsUninitialized(node: Extract<Node, { type: 'Identifier' }>, parameters: InitializingParameters): boolean {
+    for (let entry: InitializingParameters | undefined = parameters; entry; entry = entry.outer) {
+      if (!entry.pending.has(node.name) || this.frame.values.declarationOf(node.name, this.scopes) !== entry.fn)
+        continue;
+      const parent = this.parents[this.parents.length - 2];
+      const key = Object.entries(parent).find(([, child]) => child === node)?.[0] ?? null;
+      return isReference(key, parent);
+    }
+    return false;
+  }
+
   /** Visits the body of a callback the framework or a loop calls, rather than a plain function. */
   private visitCallback(fn: FunctionNode, context: Context, parameterSteps?: ReadonlyMap<Node, ParameterStep>): void {
     this.scopes.push(fn);
     this.parents.push(fn);
-    const bindings = parameterSteps ? { ...context, evaluatingArgument: true, parameterSteps } : context;
+    const bindings = parameterSteps
+      ? {
+          ...context,
+          evaluatingArgument: true,
+          parameters: {
+            fn,
+            steps: parameterSteps,
+            pending: new Set(fn.params.flatMap((param) => bindingNames(param))),
+            outer: context.parameters,
+          },
+        }
+      : context;
     for (const parameter of fn.params) this.visit(parameter, bindings);
     // Function expressions and arrows always have a body; only declarations of overloads don't.
     if (!parameterSteps || (!fn.generator && bindings.registration?.stoppedAt === undefined))

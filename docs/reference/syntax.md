@@ -249,6 +249,7 @@ A return from a helper's `try` or `catch` still runs its `finally` block. If a c
 Calling a local async function returns a promise. Its rejection cannot enter a synchronous `catch` around the call. Evaluating an argument can still throw before the function starts.
 The scan follows known local calls in helper arguments from left to right. A spec they register counts toward the enclosing suite, and a thrown argument prevents the remaining arguments from running.
 Calling a generator or async generator binds its parameters immediately. A default can register a spec or throw into the caller's `catch` before the caller receives the iterator.
+A default can read an earlier parameter. Reading its own parameter or a later one before initialization stops the call at that expression. Creating a closure delays its reads until the closure runs.
 Awaiting a primitive literal such as `0` or `null` always fulfills. If the rest of the `try` also succeeds, the scan omits specs declared in its `catch`.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in

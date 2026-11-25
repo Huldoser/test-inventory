@@ -22,3 +22,4 @@ Honor returns through Jasmine async helpers’ try, catch and finally blocks whe
 Distinguish a rejected async helper from an exception thrown while evaluating its arguments in a Jasmine spec file.
 Account for registrations and exceptions from calls inside arguments to local Jasmine helpers when checking a catch.
 Check generator parameter defaults and destructuring at the call, including specs registered while binding a default.
+Stop registration at a parameter read before initialization while preserving reads deferred inside a closure.

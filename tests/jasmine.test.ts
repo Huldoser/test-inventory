@@ -345,6 +345,40 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('stops Jasmine registration when a default reads a parameter before it has been initialized', () => {
+    for (const kind of ['function', 'function*', 'async function', 'async function*']) {
+      for (const [parameters, args, fails] of [
+        ['bid = 4, ask = bid', '', false],
+        ['bid = ask, ask = 5', '', true],
+        ['bid = bid', '', true],
+        ['bid = bid', '7', false],
+        ['{bid = 4, ask = bid} = {}', '', false],
+        ['{bid = ask, ask = 4} = {}', '', true],
+        ['[bid = ask, ask = 7] = []', '', true],
+        ['bid = { ask: 5 }, ask = 4', '', false],
+        ['bid = { [ask]: 5 }, ask = 4', '', true],
+        ['{ [ask]: bid } = {}, ask = 4', '', true],
+        ['bid = false && ask, ask = 7', '', false],
+        ['bid = true && ask, ask = 7', '', true],
+        ['bid = () => ask, ask = 7', '', false],
+        ['bid = (() => ask)(), ask = 7', '', true],
+        ['bid = [ask], ask = 7', '', true],
+        ['bid = (4 as ask), ask = 7', '', false],
+        ['bid = (() => { const ask = 4; return ask; })(), ask = 7', '', false],
+      ] as const) {
+        const result = scanJasmine(`
+${kind} price(${parameters}) { it('enters the price body', () => {}); }
+try { price(${args}); it('returns from price', () => {}); }
+catch { it('catches the call', () => {}); }
+it('closes the book', () => {});`);
+        const titles = result.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.title);
+        expect(titles.includes('enters the price body'), kind + parameters).toBe(!kind.endsWith('*') && !fails);
+        expect(titles.includes('returns from price'), kind + parameters).toBe(!fails || kind === 'async function');
+        expect(titles).toContain('closes the book');
+      }
+    }
+  });
+
   it('checks generator parameters at the call and leaves their registration bodies deferred', () => {
     for (const kind of ['function*', 'async function*']) {
       for (const [params, args, catches] of [
@@ -408,7 +442,11 @@ try { describe('closing auction', () => prices(${args})); } catch { it('recovers
   });
 
   it('keeps a generator binding failure inside its Jasmine suite callback', () => {
-    for (const declaration of ['function* prices([bid]) {}', 'function* prices({[closed()]:bid} = {}) {}']) {
+    for (const declaration of [
+      'function* prices([bid]) {}',
+      'function* prices({[closed()]:bid} = {}) {}',
+      'function* prices(bid = ask, ask = 5) {}',
+    ]) {
       const result = scanJasmine(
         `
 function closed() { throw Error('closed'); }

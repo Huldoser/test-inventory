@@ -23,8 +23,8 @@ export type Value = string | number | boolean | null | undefined | Value[] | { [
 export type Resolved =
   { ok: true; value: Value } | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true };
 
-/** Whether a parameter default runs (null when unknown), or a destructuring pattern throws before binding. */
-export type ParameterStep = boolean | null | 'throw';
+/** Whether a default runs, a pattern throws or a parameter name becomes initialized. Null denotes uncertainty. */
+export type ParameterStep = boolean | null | 'throw' | 'initialize';
 
 /** Only strings and values with an iterator can be spread into a call or bound to an array pattern. */
 export function nonIterable(value: Value): boolean {
@@ -255,6 +255,7 @@ export class Values {
     const unknown = value && !value.ok ? value : UNRESOLVED;
     switch (pattern.type) {
       case 'Identifier':
+        steps?.set(pattern, 'initialize');
         if (value) names.set(pattern.name, () => value);
         return;
       case 'AssignmentPattern': {
@@ -266,6 +267,7 @@ export class Values {
         }
         const fallback = pattern.right;
         if (pattern.left.type === 'Identifier') {
+          steps?.set(pattern.left, 'initialize');
           names.set(pattern.left.name, () => this.resolve(fallback, scopes));
           return;
         }
