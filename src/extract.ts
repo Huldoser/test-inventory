@@ -1920,18 +1920,7 @@ class Walker {
             const callee = this.functionNamed(name, [...scopes, fn, ...around]);
             if (callee) this.walkedAtCall.add(callee);
           };
-          const spreadDelegate = (operand: Expression, around: readonly Node[], handlesThrow: boolean) => {
-            const inside = [...scopes, fn, ...around];
-            const iterator = frame.values.iteratorOf(operand, inside);
-            const spread = iterator
-              ? this.resumeIterator(
-                  iterator,
-                  { ...context, handlesRegistrationError: handlesThrow || use.handlesRegistrationError },
-                  registration,
-                  'spread',
-                  omitted,
-                )
-              : readSpread(operand, inside);
+          const collect = (spread: IteratorSpread) => {
             if (yielded.complete) {
               for (const item of spread.values) yielded.values.push(item);
               yielded.complete = spread.complete;
@@ -1942,7 +1931,24 @@ class Walker {
             operands,
             evaluate,
             enterCall,
-            spreadDelegate: method === 'spread' ? spreadDelegate : undefined,
+            iteratorOf: (operand: Expression, around: readonly Node[]) =>
+              frame.values.iteratorOf(operand, [...scopes, fn, ...around]),
+            resumeDelegate: (iterator: Resolved, next: IteratorMethod, value: Resolved, handlesThrow: boolean) => {
+              const step = this.resumeIterator(
+                iterator,
+                { ...context, handlesRegistrationError: handlesThrow || use.handlesRegistrationError },
+                registration,
+                method === 'spread' ? 'spread' : next,
+                value,
+              );
+              if (method === 'spread') collect(step);
+              return { position: step.position, outcome: step.outcome, value: step.result };
+            },
+            spreadDelegate:
+              method === 'spread'
+                ? (operand: Expression, around: readonly Node[]) =>
+                    collect(readSpread(operand, [...scopes, fn, ...around]))
+                : undefined,
           };
           const step = frame.values.withGeneratorOperands(operands, () => {
             let next = stepGenerator(body, position, method === 'spread' ? 'next' : method, argument, env);

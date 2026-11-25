@@ -1262,6 +1262,58 @@ const ticks=quotes();ticks.next();ticks.return('cancelled');it(ticks.next().valu
     expect(scan.tests.map((t) => t.title)).toEqual(['override']);
   });
 
+  it('forwards sent quotes to the same delegated iterator and uses its completion value', () => {
+    const scan =
+      scanJasmine(`function* bids(){const side=yield 'open';it('quotes '+side,()=>{});yield 'ask';return 'filled';}
+function* desk(source){const end=yield* source;return 'desk '+end;}
+const book=bids(), orders=desk(book);
+it(orders.next('ignored').value,()=>{});it(book.next('bid').value,()=>{});it(orders.next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['open', 'quotes bid', 'ask', 'desk filled']);
+  });
+
+  it('lets a delegate recover a throw and runs both generators’ cleanup on return', () => {
+    const scan =
+      scanJasmine(`function* bids(){try{yield 'open';}catch{yield 'retry';return 'recovered';}finally{it('closes bids',()=>{});}}
+function* desk(){try{const end=yield* bids();it(end,()=>{});return 'settled';}finally{it('closes desk',()=>{});}}
+const recovery=desk(), close=desk();
+recovery.next();it(recovery.throw('rejected').value,()=>{});it(recovery.next().value,()=>{});
+close.next();it(close.return('cancelled').value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'retry',
+      'closes bids',
+      'recovered',
+      'closes desk',
+      'settled',
+      'closes bids',
+      'closes desk',
+      'cancelled',
+    ]);
+  });
+
+  it('exhausts a delegated array before continuing the expression with undefined', () => {
+    const scan = scanJasmine(`function* book(){return (yield* ['bid'])??'closed';}
+const prices=book();try{it(prices.next().value,()=>{});it(prices.next('ignored').value,()=>{});}
+catch{it('rejects bids',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['bid', 'closed']);
+  });
+
+  it('preserves possible recovery when an inner iterator cannot resolve its next step', () => {
+    const scan = scanJasmine(`function* bids(source){it('opens the book',()=>{});yield* source;}
+function* desk(source){yield* bids(source);it('quotes the bid',()=>{});}
+const orders=desk(runtimeQuotes);
+try{orders.next();}catch{it('recovers the book',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['opens the book', 'recovers the book']);
+  });
+
+  it('uses a delegate’s terminal value when it handles a throw or replaces a return', () => {
+    const scan = scanJasmine(`function* recover(){try{yield 'quote';}catch{return 'restored';}}
+function* close(){try{yield 'quote';}finally{return 'cancelled';}}
+function* desk(source){try{return 'desk '+(yield* source);}finally{it('closes desk',()=>{});}}
+const bid=desk(recover()), ask=desk(close());bid.next();it(bid.throw('suspended').value,()=>{});
+ask.next();it(ask.return('halted').value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['closes desk', 'desk restored', 'closes desk', 'cancelled']);
+  });
+
   it('consumes delegated strings by code point and continues after empty and multi-element arrays', () => {
     const scan = scanJasmine(`function* quotes(bid){if(bid)yield 'late';else yield* [];if(false)yield 'invalid';
 try{yield* '𝔸x';yield* ['bid','ask'];}catch{yield 'refused';}}
@@ -1485,7 +1537,7 @@ it(quotes().next().value,()=>{});`);
       "return place(...sides, yield 'bid');",
       "return place?.(yield 'bid');",
       "return orders.place(yield 'bid');",
-      "return yield* ['bid'];",
+      'return yield* runtimeQuotes;',
     ]) {
       const scan = scanJasmine(`function* quotes(){${body}}
 const ticks=quotes();try{ticks.next();ticks.next();}catch{it('recovers the quote',()=>{});}`);

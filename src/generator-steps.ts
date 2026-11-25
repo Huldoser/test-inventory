@@ -7,6 +7,7 @@ export type IteratorMethod = 'next' | 'return' | 'throw';
 type Instruction =
   | { kind: 'statement' | 'finally' | 'catch'; node: Statement; scopes: readonly Node[] }
   | { kind: 'completion'; method: 'return' | 'throw'; value: Resolved }
+  | { kind: 'forward'; iterator: Resolved; receive?: YieldExpression }
   | { kind: 'delegate'; items: readonly Resolved[]; index: number };
 
 interface Pending {
@@ -71,7 +72,7 @@ function resumeExpression(
   }
 
   function resume(node: Expression): Evaluation {
-    if (node.type === 'YieldExpression' && !node.delegate) {
+    if (node.type === 'YieldExpression') {
       const value = node.argument ? read(node.argument) : omitted;
       return completed(value) ? { receive: node, value } : value;
     }
@@ -109,7 +110,9 @@ interface GeneratorEnvironment {
   operands: Map<Node, Resolved>;
   evaluate: (node: Node, scopes: readonly Node[], read: boolean, handlesThrow: boolean) => Resolved | 'throw';
   enterCall: (name: string, scopes: readonly Node[]) => void;
-  spreadDelegate?: (operand: Expression, scopes: readonly Node[], handlesThrow: boolean) => GeneratorStep['outcome'];
+  iteratorOf: (operand: Expression, scopes: readonly Node[]) => Resolved | undefined;
+  resumeDelegate: (iterator: Resolved, method: IteratorMethod, value: Resolved, handlesThrow: boolean) => GeneratorStep;
+  spreadDelegate?: (operand: Expression, scopes: readonly Node[]) => GeneratorStep['outcome'];
 }
 
 /** Resume a synchronous generator with its lexical blocks and pending catch/finally handlers intact. */
@@ -118,7 +121,7 @@ export function stepGenerator(
   position: IteratorPosition | undefined,
   method: IteratorMethod,
   argument: Resolved,
-  { operands, evaluate, enterCall, spreadDelegate }: GeneratorEnvironment,
+  { operands, evaluate, enterCall, iteratorOf, resumeDelegate, spreadDelegate }: GeneratorEnvironment,
 ): GeneratorStep {
   if (position === 'running') return { position, outcome: 'throw', value: unresolved };
   if (position === 'unknown') return unknownStep();
@@ -134,6 +137,20 @@ export function stepGenerator(
     const handlesThrow: boolean = stack.handlesThrow;
     const entry: Instruction = stack.instruction;
     stack = stack.next;
+    if (entry.kind === 'forward') {
+      const step = resumeDelegate(entry.iterator, method, value, handlesThrow);
+      if (step.outcome === 'unknown') return unknownStep();
+      value = step.value;
+      if (step.outcome === 'throw') method = 'throw';
+      else if (step.position !== 'closed') {
+        push(entry);
+        return { position: { stack, operands }, outcome: 'next', value };
+      } else if (method !== 'return') {
+        method = 'next';
+        if (entry.receive) operands.set(entry.receive, value);
+      }
+      continue;
+    }
     if (entry.kind === 'completion') {
       if (method === 'next') {
         method = entry.method;
@@ -163,7 +180,8 @@ export function stepGenerator(
       push({ kind: 'statement', node: node.block, scopes });
     } else {
       const expression = node.type === 'ExpressionStatement' ? unwrap(node.expression) : null;
-      const yieldNode = expression?.type === 'YieldExpression' ? expression : null;
+      let yieldNode = expression?.type === 'YieldExpression' ? expression : null;
+      let receive: YieldExpression | undefined;
       const operand = yieldNode
         ? yieldNode.argument
         : node.type === 'ReturnStatement' || node.type === 'ThrowStatement'
@@ -191,16 +209,26 @@ export function stepGenerator(
         if (result === 'unknown') return unknownStep();
         if (typeof result === 'object' && 'receive' in result) {
           push(entry);
-          return { position: { stack, operands, receive: result.receive }, outcome: 'next', value: result.value };
+          receive = yieldNode = result.receive;
+          result = result.value;
         }
       } else result = operand ? evaluate(operand, scopes, operand !== node, handlesThrow) : omitted;
-      if (result === 'throw' || node.type === 'ThrowStatement') {
+      if (result === 'throw') {
         method = 'throw';
-        value = result === 'throw' ? unresolved : result;
+        value = unresolved;
       } else if (yieldNode) {
-        if (!yieldNode.delegate) return { position: { stack, operands }, outcome: 'next', value: result };
+        if (!yieldNode.delegate) return { position: { stack, operands, receive }, outcome: 'next', value: result };
+        const iterable = yieldNode.argument as Expression;
+        const iterator = iteratorOf(iterable, scopes);
+        if (iterator) {
+          push({ kind: 'forward', iterator, receive });
+          value = omitted;
+          continue;
+        }
+        // Built-in string and array iterators finish with an undefined value.
+        if (receive) operands.set(receive, omitted);
         if (spreadDelegate) {
-          const outcome = spreadDelegate(yieldNode.argument as Expression, scopes, handlesThrow);
+          const outcome = spreadDelegate(iterable, scopes);
           if (outcome === 'unknown') return unknownStep();
           method = outcome;
           continue;
@@ -211,8 +239,8 @@ export function stepGenerator(
           const items = Array.from(result.value as Iterable<Value>, (value) => ({ ok: true as const, value }));
           if (items.length) push({ kind: 'delegate', items, index: 0 });
         }
-      } else if (node.type === 'ReturnStatement') {
-        method = 'return';
+      } else if (node.type === 'ReturnStatement' || node.type === 'ThrowStatement') {
+        method = node.type === 'ReturnStatement' ? 'return' : 'throw';
         value = result;
       } else if (node.type === 'IfStatement') {
         if (!result.ok) return unknownStep();
@@ -224,6 +252,6 @@ export function stepGenerator(
   return {
     position: 'closed',
     outcome: method === 'throw' ? 'throw' : 'next',
-    value: method === 'return' ? value : omitted,
+    value: method === 'next' ? omitted : value,
   };
 }
