@@ -417,6 +417,42 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(code + 'Object.assign(globalThis, {auctionPhase:"closing"}); display.label;')).toEqual(UNRESOLVED);
   });
 
+  it('tracks the object an assigned alias holds at a write and when another alias captures it', () => {
+    const setup =
+      'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}}; let desk=opening.desk;';
+    for (const assign of [
+      'desk=evening.desk;',
+      '({desk}=evening);',
+      '[desk]=[evening.desk];',
+      '[desk=evening.desk]=[];',
+    ]) {
+      const code = setup + assign + 'desk.label="closing";';
+      expect(resolve(code + 'evening.desk.label;')).toEqual(UNRESOLVED);
+      expect(resolve(code + 'opening.desk.label;')).toEqual({ ok: true, value: 'opening' });
+    }
+    for (const capture of [
+      'desk.label="closing"; desk=evening.desk;',
+      'const copy=desk; desk=evening.desk; copy.label="closing";',
+    ]) {
+      expect(resolve(setup + capture + 'evening.desk.label;')).toEqual({ ok: true, value: 'evening' });
+      expect(resolve(setup + capture + 'opening.desk.label;')).toEqual(UNRESOLVED);
+    }
+    const chain = setup + 'let other; other=desk=evening.desk; other.label="closing";';
+    expect(resolve(chain + 'evening.desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'desk=evening.desk; desk={}; desk.label="closing"; evening.desk.label;')).toEqual({
+      ok: true,
+      value: 'evening',
+    });
+  });
+
+  it('keeps the source of an alias readable when its assignment branch is unreachable', () => {
+    const code = 'const book={label:"opening"}; let desk={};';
+    for (const branch of ['if(false) desk=book;', 'if(true) { desk={}; } else { desk=book; }']) {
+      expect(resolve(code + branch + 'desk.label="closing"; book.label;')).toEqual({ ok: true, value: 'opening' });
+    }
+    expect(resolve(code + 'if(false) {} else { desk=book; } desk.label="closing"; book.label;')).toEqual(UNRESOLVED);
+  });
+
   it('tracks objects selected by an expression and preserves titles when their branch cannot supply the alias', () => {
     const prefix = 'const book={desk:{label:"opening auction"}};';
     for (const expression of [

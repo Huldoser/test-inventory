@@ -8,7 +8,7 @@ import {
   unwrapChain,
   type FunctionNode,
 } from './ast.ts';
-import { changedReferences, type ScopedValue } from './mutation-references.ts';
+import { changedReferences, type AliasBinding, type MutationTarget } from './mutation-references.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -977,24 +977,43 @@ function changedNames(
   program: Node,
   bindingKey: (name: string, scopes: readonly Node[]) => string | null,
 ): Set<string> {
-  const targets: ScopedValue<Expression>[] = [];
-  const declarations: ScopedValue<{ id: VariableDeclarator['id']; init: Expression }>[] = [];
-  const walk = (node: Node, ancestors: readonly Node[]): void => {
+  const targets: MutationTarget[] = [];
+  const declarations: AliasBinding[] = [];
+  const walk = (node: Node, ancestors: readonly Node[], statement: Node | null): void => {
     const scopes = isScopeNode(node) ? [...ancestors, node] : ancestors;
+    if (isFunctionNode(node) || node.type === 'ClassBody') statement = null;
     const target = mutatedObject(node);
-    if (target) targets.push({ value: target, scopes });
+    if (target) targets.push({ value: target, scopes, statement });
     if (node.type === 'VariableDeclarator' && node.init)
-      declarations.push({ value: { id: node.id, init: node.init }, scopes });
+      declarations.push({ pattern: node.id, source: node.init, scopes, statement, end: node.end, replaces: false });
+    if (node.type === 'AssignmentExpression' && node.operator === '=')
+      declarations.push({
+        pattern: node.left,
+        source: node.right,
+        scopes,
+        statement,
+        end: node.end,
+        replaces: statement?.type === 'ExpressionStatement' && statement.expression === node,
+      });
+    if (node.type === 'IfStatement' && node.test.type === 'Literal' && typeof node.test.value === 'boolean') {
+      const branch = node.test.value ? node.consequent : node.alternate;
+      if (branch) walk(branch, scopes, statement);
+      return;
+    }
     if (node.type === 'CallExpression') {
       const callee = calleeNames(node.callee);
       const runsLater = callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
-      walk(node.callee, scopes);
-      for (const argument of node.arguments) if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes);
+      walk(node.callee, scopes, statement);
+      for (const argument of node.arguments)
+        if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes, statement);
       return;
     }
-    for (const child of childNodes(node)) walk(child, scopes);
+    for (const child of childNodes(node)) {
+      const top = node === program && (child.type === 'VariableDeclaration' || child.type === 'ExpressionStatement');
+      walk(child, scopes, top ? child : statement);
+    }
   };
-  walk(program, []);
+  walk(program, [], null);
   return changedReferences(declarations, targets, bindingKey);
 }
 

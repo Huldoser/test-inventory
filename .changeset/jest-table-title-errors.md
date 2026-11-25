@@ -16,3 +16,4 @@ Expand rows titled by inherited methods and use the derived class when the title
 Flag titles and table data changed through aliases or shared children of shallow copies, so the inventory does not report stale values.
 Track writes and deletes through optional chains and aliases selected by conditional, logical and sequence expressions.
 Keep a title readable when a write changes a separate declaration with the same name.
+Follow aliases assigned after declaration, including destructuring, and keep earlier captures tied to their original objects.
