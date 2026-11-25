@@ -188,6 +188,8 @@ interface Registration {
 }
 
 interface Context {
+  /** Evaluating an argument to a runner API at collection time, before the runner receives it. */
+  evaluatingArgument?: boolean;
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
   registration?: Registration;
   emptySuiteAt?: number;
@@ -685,6 +687,29 @@ class Walker {
   }
 
   private visitNode(node: Node, context: Context): void {
+    if (context.evaluatingArgument && context.registration) {
+      if (
+        context.skipImports ||
+        context.registration.stoppedAt !== undefined ||
+        node.type === 'FunctionDeclaration' ||
+        isFunctionNode(node)
+      )
+        return;
+      if (node.type === 'ClassBody') {
+        // Class creation computes the keys first, then initializes static elements in declaration order.
+        for (const member of node.body) if ('computed' in member && member.computed) this.visit(member.key, context);
+        for (const member of node.body) {
+          if (member.type === 'StaticBlock') this.visit(member, context);
+          else if (
+            (member.type === 'PropertyDefinition' || member.type === 'AccessorProperty') &&
+            member.static &&
+            member.value
+          )
+            this.visit(member.value, context);
+        }
+        return;
+      }
+    }
     if (
       this.options.collectImports &&
       !context.skipImports &&
@@ -1016,7 +1041,7 @@ class Walker {
   }
 
   private visitBranch(node: Node, context: Context, guard: string, selected: boolean | null): void {
-    if (selected !== null && this.options.expandCases) {
+    if (selected !== null && (this.options.expandCases || context.evaluatingArgument)) {
       if (selected) this.visit(node, context);
       return;
     }
@@ -1038,12 +1063,12 @@ class Walker {
   }
 
   /** Visits the body of a callback the framework or a loop calls, rather than a plain function. */
-  private visitCallback(fn: FunctionNode, context: Context): void {
+  private visitCallback(fn: FunctionNode, context: Context, parametersOnly = false): void {
     this.scopes.push(fn);
     this.parents.push(fn);
     for (const parameter of fn.params) this.visit(parameter, context);
     // Function expressions and arrows always have a body; only declarations of overloads don't.
-    this.visit(fn.body as Node, context);
+    if (!parametersOnly) this.visit(fn.body as Node, context);
     this.parents.pop();
     this.scopes.pop();
   }
@@ -1188,6 +1213,15 @@ class Walker {
       returnsOf: (name, scopes) => this.returnsOf(name, scopes),
     });
     if (!api) return false;
+    if (context.registration && !context.skipImports && context.registration.stoppedAt === undefined) {
+      const args = {
+        ...context,
+        evaluatingArgument: true,
+        expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
+      };
+      for (const arg of call.arguments) this.visit(arg, args);
+      if (args.registration?.stoppedAt !== undefined) return true;
+    }
     return this.handle(call, api, context);
   }
 
@@ -1314,8 +1348,9 @@ class Walker {
     const runsHere = !context.test && !context.hookScope && !context.helper && this.callStack.length < MAX_DEPTH;
     if (
       runsHere &&
-      this.options.collectImports &&
-      (callee.type === 'ArrowFunctionExpression' || (callee.type === 'FunctionExpression' && !callee.generator))
+      (this.options.collectImports || context.evaluatingArgument) &&
+      (callee.type === 'ArrowFunctionExpression' ||
+        (callee.type === 'FunctionExpression' && (!callee.generator || context.evaluatingArgument)))
     )
       return this.withinLimit({ fn: callee, frame: this.frame }, call);
     if (callee.type === 'MemberExpression') {
@@ -1519,13 +1554,21 @@ class Walker {
       args,
       scopes,
       () => {
-        this.visitCallback(fn, {
-          ...context,
-          isInFunction: true,
-          declaredIn: null,
-          calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
-          registeredBy: context.registeredBy ?? call,
-        });
+        // Async functions turn throws into rejections. Generator calls bind their arguments and defer their body.
+        const registration =
+          context.evaluatingArgument && fn.async && !fn.generator ? { ...context.registration } : context.registration;
+        this.visitCallback(
+          fn,
+          {
+            ...context,
+            registration,
+            isInFunction: true,
+            declaredIn: null,
+            calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
+            registeredBy: context.registeredBy ?? call,
+          },
+          context.evaluatingArgument && fn.generator,
+        );
       },
       spread === -1,
     );

@@ -345,6 +345,73 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('evaluates registration arguments in order before entering the Jasmine declaration', () => {
+    const result = scanJasmine(`
+function readTitle() { it('reads the quote', () => {}); return 'closing auction'; }
+function rejectCallback() { it('checks the feed', () => {}); throw Error('no feed'); }
+describe('cash desk', () => {
+  try { describe(readTitle(), rejectCallback(), it('evaluates the late argument', () => {})); }
+  catch { it('recovers the market', () => {}); }
+  it('closes the desk', () => {});
+});`);
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'cash desk > reads the quote',
+      'cash desk > checks the feed',
+      'cash desk > recovers the market',
+      'cash desk > closes the desk',
+    ]);
+    expect(result.suites.map((suite) => suite.path)).toEqual([['cash desk']]);
+  });
+
+  it('evaluates eager fields and conditions in extra arguments while leaving function values dormant', () => {
+    const result = scanJasmine(`
+function begin() { it('opens the book', () => {}); return 25; }
+describe('cash desk', () => {
+  it('checks settlement', () => {}, 50, [
+    { start: true && begin(), later: () => it('defers validation', () => {}) },
+    false ? it('ignores the quote', () => {}) : 0,
+    () => it('defers the hedge', () => {}),
+  ]);
+});`);
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'cash desk > opens the book',
+      'cash desk > checks settlement',
+    ]);
+  });
+
+  it('runs generator defaults and synchronous async registrations without entering a generator body or throwing a rejection', () => {
+    const result = scanJasmine(`
+describe('cash desk', () => {
+  function* quotes(market = it('binds the market', () => {})) { it('yields the quote', () => {}); }
+  async function rejectQuote() { it('reads the quote', () => {}); throw Error('closed'); }
+  it('records the trade', () => {}, 4, quotes(), rejectQuote().catch(() => {}));
+  it('closes the desk', () => {});
+});`);
+    expect(states(result)).toEqual([
+      ['cash desk > binds the market', 'active', false],
+      ['cash desk > reads the quote', 'active', false],
+      ['cash desk > records the trade', 'active', false],
+      ['cash desk > closes the desk', 'active', false],
+    ]);
+  });
+
+  it('evaluates class keys before static fields and blocks in a declaration argument', () => {
+    const result = scanJasmine(`
+function key() { it('names the quote', () => {}); return 'quote'; }
+it('records the trade', () => {}, 4, class {
+  static bid = it('loads the market', () => {});
+  [key()] = it('prices an instance', () => {});
+  static { it('opens the ledger', () => {}); }
+  get price() { it('reads an instance', () => {}); }
+});`);
+    expect(result.tests.map((test) => test.title)).toEqual([
+      'names the quote',
+      'loads the market',
+      'opens the ledger',
+      'records the trade',
+    ]);
+  });
+
   it('omits a recovery spec when the preceding Jasmine registrations complete normally', () => {
     for (const frameworkVersion of ['3.99.1', '4.0.0', '5.13.0', '7.0.2']) {
       for (const [api, refused] of [

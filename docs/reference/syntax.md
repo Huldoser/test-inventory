@@ -235,6 +235,7 @@ that escape its callback. The scan marks subsequent specs in that callback `notL
 through helpers. Earlier specs and sibling suites keep their states. A user-written `catch` can resume collection,
 and `finally` can register specs before the error escapes. The same recovery rules apply to a top-level `try` in the spec file.
 The scan omits a `catch` block when it can establish that the preceding `try` completes normally. Calls with unknown side effects keep recovery specs in the inventory.
+When a synchronous helper registers specs while evaluating arguments to a Jasmine declaration, those specs belong to the enclosing suite. If an argument throws, Jasmine skips the remaining arguments and the declaration itself.
 From Jasmine 4.5, an empty-suite error leaves that suite open. Specs registered by a `catch` or `finally` then belong to the empty suite and inherit its hooks and focus or skip settings.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in

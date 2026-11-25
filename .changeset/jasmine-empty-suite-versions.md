@@ -8,3 +8,4 @@ Mark specs registered after a nested Jasmine declaration error as not loaded, wi
 Keep Jasmine files runnable when they catch their own registration errors.
 Assign recovery specs to the suite Jasmine leaves open after it rejects an empty suite.
 Omit Jasmine recovery specs when the guarded registrations and local helpers complete without throwing.
+Collect specs declared while evaluating Jasmine runner arguments in call order, stopping at a synchronous exception.
