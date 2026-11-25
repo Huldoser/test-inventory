@@ -12,14 +12,15 @@ For installation, read [AI agents](https://huldoser.github.io/test-inventory/gui
 
 ## Choose an interface
 
-| Goal                              | CLI                                                | Library                                 | MCP                         |
-| --------------------------------- | -------------------------------------------------- | --------------------------------------- | --------------------------- |
-| Count tests                       | Scan and inspect `summary`                         | `scan()`                                | `test_summary`              |
-| Locate matching tests             | `--state`, `--tag`, `--grep`, `--only`, `--fields` | `filterInventory()`, `pickTestFields()` | `find_tests`                |
-| Inspect known ids                 | Read records from the saved inventory              | Find records in `inventory.tests`       | `get_tests`                 |
-| Explain missing records           | Inspect `diagnostics`                              | Inspect `inventory.diagnostics`         | `scan_diagnostics`          |
-| Find candidates affected by files | `--related`                                        | Filter with `related`                   | `find_tests` with `related` |
-| Compare saved scans               | `test-inventory diff`                              | `diffInventories()`                     | `diff_inventories`          |
+| Goal                                  | CLI                                                | Library                                 | MCP                         |
+| ------------------------------------- | -------------------------------------------------- | --------------------------------------- | --------------------------- |
+| Count tests                           | Scan and inspect `summary`                         | `scan()`                                | `test_summary`              |
+| Locate matching tests                 | `--state`, `--tag`, `--grep`, `--only`, `--fields` | `filterInventory()`, `pickTestFields()` | `find_tests`                |
+| Inspect known ids                     | Read records from the saved inventory              | Find records in `inventory.tests`       | `get_tests`                 |
+| Explain missing records               | Inspect `diagnostics`                              | Inspect `inventory.diagnostics`         | `scan_diagnostics`          |
+| Find candidates affected by files     | `--related`                                        | Filter with `related`                   | `find_tests` with `related` |
+| Get runner commands for changed files | `--related` with `--format commands`               | `runCommands(filterInventory(...))`     | `get_run_commands`          |
+| Compare saved scans                   | `test-inventory diff`                              | `diffInventories()`                     | `diff_inventories`          |
 
 The [complete walkthrough](https://huldoser.github.io/test-inventory/guide/workflows) answers one question through all
 three interfaces. The [MCP tool reference](https://github.com/Huldoser/test-inventory-mcp/blob/main/docs/tools.md)

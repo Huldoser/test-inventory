@@ -86,16 +86,20 @@ to the spec that loads the tests. Its `declaredAt` field gives the declaration i
 the spec comes from one file with a different extension, Playwright checks the file argument against that source.
 A matching enclosing `test.describe` can still select tests it contains.
 
-During discovery, a shared module's top-level tests belong to the first spec that imports it in each Playwright
-command. Playwright collects files in project order and sorts entries within each directory. Separate package scripts
-can therefore register the same test in different specs. Calling an exported test helper registers its tests at each call.
-An immediately invoked function can load a module during collection. Imports in a branch that a literal condition
-rules out leave that module available to later specs. The same applies to an empty loop and to an import after
-a `break` or `return`. A loop's initializer still runs, and a `continue` reaches its update. Direct test declarations
-under conditions retain their guards.
+::: details Shared-module collection order and TypeScript imports
 
-In TypeScript specs, a type-only or unused import does not load the imported module's tests. A bare import, a
-re-export of a value, or an import used by an expression or JSX component can register tests when the module loads.
+- During discovery, a shared module's top-level tests belong to the first spec that imports it in each Playwright
+  command. Playwright collects files in project order and sorts entries within each directory, so separate package
+  scripts can register the same test in different specs.
+- Calling an exported test helper registers its tests at each call. An immediately invoked function can load a module
+  during collection.
+- Imports in a branch ruled out by a literal condition, an empty loop, or code after a `break` or `return` leave that
+  module available to later specs. A loop's initializer still runs, and a `continue` reaches its update. Direct test
+  declarations under conditions retain their guards.
+- In TypeScript specs, a type-only or unused import does not load the imported module's tests. A bare import, a
+  re-export of a value, or an import used by an expression or JSX component can register tests when the module loads.
+
+:::
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it, or one the scan can't read. A config named

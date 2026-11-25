@@ -80,7 +80,10 @@ The complete page index follows, including background, type reference and histor
     ['meta', { property: 'og:image:height', content: '640' }],
     [
       'meta',
-      { property: 'og:image:alt', content: 'test-inventory: test metadata from source code, not from test results.' },
+      {
+        property: 'og:image:alt',
+        content: 'test-inventory: know what your tests do, without running them, across 9 JS/TS test runners.',
+      },
     ],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],

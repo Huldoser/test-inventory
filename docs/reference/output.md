@@ -12,7 +12,7 @@ published with each release. This abbreviated example shows the overall shape, w
 ```json
 {
   "schemaVersion": 1,
-  "tool": { "name": "test-inventory", "version": "0.10.1" },
+  "tool": { "name": "test-inventory", "version": "0.12.2" },
   "framework": "playwright",
   "frameworkVersion": "1.63.0",
   "summary": { "fileCount": 11, "testCount": 31 },

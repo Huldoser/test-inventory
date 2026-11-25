@@ -1,7 +1,7 @@
 {
   "name": "test-inventory",
   "version": "0.12.2",
-  "description": "Lists every Playwright, Vitest, Jest, Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun test from the source code, without running it: its state and why, tags, an id that survives a move, a hash of everything it runs, and the tests a change can affect.",
+  "description": "Scan JS/TS test suites without running them: find skipped tests, diff revisions, and get commands for changed files.",
   "keywords": [
     "testing",
     "playwright",

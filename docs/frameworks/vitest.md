@@ -53,28 +53,6 @@ repeat those options here.
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
 
-A suite's `only`, `skip` and `todo` options pass to its descendants. Before Vitest 4.1 they set the
-children's options without changing the suite's own mode. From 4.1 they also set the suite's mode. In Vitest 4 and
-earlier, an inherited `skip: false` can clear a test's `.skip`, and `todo: false` can clear its `.todo`. From Vitest 5
-the test's modifier wins over the inherited option. A test's own explicit option wins in both cases. A configured tag
-can override the inherited suite option in Vitest 5. In Vitest 4.1 the inherited option takes precedence over a tag.
-For example, a suite with `{ only: true }` can make a child marked `.skip` run. In Vitest 5 a tag with
-`only: false` restores that child's skip. The suite still focuses the file.
-
-From Vitest 4.0.17, a focused suite with focused tests or suites inside it selects those children.
-Other tests in the same suite have `isOnly: false`. Earlier versions also select the plain siblings.
-
-A suite's `fails: true` makes a test count as `expectedToFail` when the test inherits that option.
-A nested suite or test can clear it with `fails: false`. In Vitest 4 and earlier, an inherited
-`fails: false` also clears a test's `.fails` modifier. In Vitest 5 the modifier takes precedence.
-When a focus tag makes a skipped or todo test run, its own `.fails` or `fails: true` still applies.
-
-`isParallel` follows the runner's scheduling options. Before Vitest 4.1.6, a test with
-`concurrent: false` can still run concurrently when `sequence.concurrent` is enabled.
-From 4.1.6 that test setting takes precedence over the default. Through Vitest 4, all projects use the root config's `sequence.concurrent`. From Vitest 5,
-each project supplies its own default. Vitest 5 ignores the
-`sequential` option and reads `concurrent: false` to turn concurrency off.
-
 ## Example
 
 <!--@include: ../guide/examples.md#example-vitest-->
@@ -117,6 +95,28 @@ A browser instance whose `browser` or `name` the scan can't work out, as one `pr
 `resolve.alias` and `test.alias` are followed for imports and dependency hashes. `mergeConfig` puts overriding
 list aliases first, converting object aliases to lists when either side is a list; two objects keep overriding
 values. Config paths built with string `+` or a template over `__dirname` or `import.meta.dirname` are read.
+
+::: details Suite option precedence and scheduling by Vitest version
+
+- **Inherited `only`, `skip` and `todo` options:** A suite's `only`, `skip` and `todo` options pass to its descendants.
+  Before Vitest 4.1 they set the children's options without changing the suite's own mode; from 4.1 they also set the
+  suite's mode. In Vitest 4 and earlier, an inherited `skip: false` can clear a test's `.skip`, and `todo: false` can
+  clear its `.todo`. From Vitest 5 the test's modifier wins over the inherited option. A test's own explicit option wins
+  in both cases. A configured tag can override the inherited suite option in Vitest 5; in Vitest 4.1 the inherited
+  option takes precedence over a tag. For example, a suite with `{ only: true }` can make a child marked `.skip` run,
+  and in Vitest 5 a tag with `only: false` restores that child's skip while the suite still focuses the file.
+- **Focused suites:** From Vitest 4.0.17, a focused suite with focused tests or suites inside it selects those children,
+  and other tests in the same suite have `isOnly: false`. Earlier versions also select the plain siblings.
+- **Inherited `fails`:** A suite's `fails: true` makes a test count as `expectedToFail` when the test inherits that
+  option; a nested suite or test can clear it with `fails: false`. In Vitest 4 and earlier, an inherited `fails: false`
+  also clears a test's `.fails` modifier; in Vitest 5 the modifier takes precedence. When a focus tag makes a skipped or
+  todo test run, its own `.fails` or `fails: true` still applies.
+- **Concurrency (`isParallel`):** Before Vitest 4.1.6, a test with `concurrent: false` can still run concurrently when
+  `sequence.concurrent` is enabled; from 4.1.6 that test setting takes precedence over the default. Through Vitest 4,
+  all projects use the root config's `sequence.concurrent`; from Vitest 5, each project supplies its own default. Vitest
+  5 ignores the `sequential` option and reads `concurrent: false` to turn concurrency off.
+
+:::
 
 ### Tables and case titles
 

@@ -16,16 +16,19 @@ The site's version label identifies the core package used to build these pages. 
 
 ## Feature minimums
 
-| Feature                                                          | Core minimum       | MCP minimum |
-| ---------------------------------------------------------------- | ------------------ | ----------- |
-| State/tag/title filters and selected fields                      | 0.3.0              | 0.1.0       |
-| Config-driven file selection                                     | 0.5.0              | 0.3.0       |
-| Dependency metadata and related-file queries                     | 0.6.0              | 0.4.0       |
-| Expanded table cases and loops                                   | 0.7.0              | 0.5.0       |
-| Jest scanning                                                    | 0.8.0              | 0.6.0       |
-| Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun scanning | 0.9.0              | 0.7.0       |
-| Saved inventory diffs                                            | 0.10.0             | 0.8.0       |
-| Rejecting unknown MCP arguments                                  | Not a core feature | 0.9.0       |
+| Feature                                                                                 | Core minimum       | MCP minimum |
+| --------------------------------------------------------------------------------------- | ------------------ | ----------- |
+| State/tag/title filters and selected fields                                             | 0.3.0              | 0.1.0       |
+| Config-driven file selection                                                            | 0.5.0              | 0.3.0       |
+| Dependency metadata and related-file queries                                            | 0.6.0              | 0.4.0       |
+| Expanded table cases and loops                                                          | 0.7.0              | 0.5.0       |
+| Jest scanning                                                                           | 0.8.0              | 0.6.0       |
+| Mocha, Jasmine, Cypress, WebdriverIO, node:test and Bun scanning                        | 0.9.0              | 0.7.0       |
+| Saved inventory diffs                                                                   | 0.10.0             | 0.8.0       |
+| Rejecting unknown MCP arguments                                                         | Not a core feature | 0.9.0       |
+| Unfollowed dependency locations (`unfollowedDependencies`) and older runner versions    | 0.11.0             | 0.10.0      |
+| Runner commands for kept tests (`--format commands`, `runCommands`, `get_run_commands`) | 0.11.0             | 0.12.0      |
+| Literal Vite module globs (`dependencyGlobs`)                                           | 0.12.0             | 0.11.0      |
 
 These are introduction versions, not recommendations to install old releases. Later fixes improve correctness within
 each feature. See the [core changelog](/changelog) and [MCP changelog](https://github.com/Huldoser/test-inventory-mcp/blob/main/CHANGELOG.md)
