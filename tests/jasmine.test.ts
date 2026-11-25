@@ -395,6 +395,27 @@ catch { it('recovers the market', () => {}); }`);
     }
   });
 
+  it('formats a Jasmine array description and continues after registering the suite', () => {
+    for (const [array, title] of [
+      ["['cash', 'desk']", 'cash,desk'],
+      ['[]', ''],
+      ["[['cash', null], ['desk', 7], undefined]", 'cash,,desk,7,'],
+      ["['cash', ...['desk', 7]]", 'cash,desk,7'],
+    ]) {
+      const scan = scanJasmine(`const parts = ${array};
+try { describe(parts, () => it((() => parts)(), () => {})); }
+catch { it('recovers the market', () => {}); }`);
+      expect(scan.suites[0].path, array).toEqual([title]);
+      expect(onlyTest(scan).title, array).toBe(title);
+      expect(codes(scan)).not.toContain('dynamic-title');
+    }
+    const invalid = scanJasmine(`try {
+  describe([{toString: null, valueOf: null}], () => it('opens the desk', () => {}));
+} catch { it('recovers the market', () => {}); }`);
+    expect(codes(invalid)).toContain('dynamic-title');
+    expect(invalid.tests.map((test) => test.title)).toContain('recovers the market');
+  });
+
   it('chooses a Jasmine title from the result of registering a spec, suite or hook', () => {
     for (const [title, expected] of [
       ["it('records a fee') ? 'cash desk' : closed()", 'cash desk'],

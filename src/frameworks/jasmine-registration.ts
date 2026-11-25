@@ -41,6 +41,20 @@ type Flow = 'next' | 'throw' | 'unknown';
 type Completion = Flow | { returned: Resolved };
 const omitted: Resolved = { ok: true, value: undefined };
 const objectResult: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true };
+
+/** Nested arrays of primitives use the standard comma-separated description without calling user code. */
+function descriptionText(value: Value): string | undefined {
+  if (value === null || typeof value !== 'object') return String(value ?? '');
+  if (!Array.isArray(value)) return undefined;
+  const parts: string[] = [];
+  for (const element of value) {
+    const text = descriptionText(element);
+    if (text === undefined) return undefined;
+    parts.push(text);
+  }
+  return parts.join(',');
+}
+
 interface Children {
   registered: boolean | 'possible';
 }
@@ -377,7 +391,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     // Resolving the callback position has already established the width of preceding spreads.
     if (title) {
       const value = title.resolved ?? valueOf(title.node as Expression, title.scopes);
-      if (!value.ok || (value.value !== null && typeof value.value === 'object')) return 'unknown';
+      if (!value.ok || descriptionText(value.value) === undefined) return 'unknown';
     }
     // Jasmine attaches the suite before running its callback and checking its children.
     children.registered = true;
@@ -525,6 +539,7 @@ export function jasmineTitleValue(title: JasmineArgument, file: FileContext, spe
     const value = node === literal ? literal.value : -literal.value;
     return { ok: true, value: spec && !value ? '' : String(value) };
   }
-  if (!resolved.ok || (resolved.value !== null && typeof resolved.value === 'object')) return resolved;
-  return { ok: true, value: String((spec && !resolved.value ? '' : resolved.value) ?? '') };
+  if (!resolved.ok) return resolved;
+  const text = spec && !resolved.value ? '' : descriptionText(resolved.value);
+  return text === undefined ? resolved : { ok: true, value: text };
 }
