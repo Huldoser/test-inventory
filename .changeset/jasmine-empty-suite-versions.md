@@ -41,3 +41,4 @@ Format ordinary object descriptions in Jasmine, including data objects inside ar
 Stop Jasmine argument evaluation when it spreads a noniterable helper result, async generator object, or Jasmine spec or suite result.
 Follow synchronous generator calls consumed by spreads in Jasmine registration arguments.
 Track the first and repeated consumption of saved synchronous iterators in Jasmine registration arguments.
+Follow explicit synchronous generator steps during Jasmine registration, including yielded and returned values, exhaustion and cleanup.

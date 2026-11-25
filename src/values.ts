@@ -210,7 +210,10 @@ export class Values {
   private readonly bindingsByScope = new Map<Node, Map<string, Binding>>();
   private readonly cache = new Map<Expression, Resolved>();
   private readonly fileIterators = new WeakMap<Expression, Resolved>();
-  readonly iteratorMethods = new WeakMap<CallExpression, 'next' | 'throw'>();
+  readonly iteratorMethods = new WeakMap<
+    CallExpression,
+    { outcome: IteratorSpread['outcome']; result: Resolved; registered: boolean | 'possible' }
+  >();
   readonly iteratorSpreads = new WeakMap<Expression, IteratorSpread>();
   private readonly pending = new Set<Expression>();
   /** The functions being read at one of their calls, innermost last. */
@@ -463,7 +466,10 @@ export class Values {
       case 'Literal':
         return 'regex' in expression || 'bigint' in expression ? UNRESOLVED : { ok: true, value: expression.value };
       case 'CallExpression':
-        return this.builtinCall(expression, scopes, (operand) => this.resolve(operand, scopes));
+        return (
+          this.iteratorMethods.get(expression)?.result ??
+          this.builtinCall(expression, scopes, (operand) => this.resolve(operand, scopes))
+        );
       case 'ArrayExpression': {
         const items: Value[] = [];
         for (const element of expression.elements) {

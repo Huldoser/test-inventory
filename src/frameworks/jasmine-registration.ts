@@ -356,8 +356,10 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     if (method) {
       const evaluated = elements(node.arguments, scopes, children);
       if (evaluated !== 'next') return evaluated;
-      results.set(node, nonIterableObject);
-      return method;
+      if (method.registered === true) children.registered = true;
+      else children.registered ||= method.registered;
+      results.set(node, method.result);
+      return method.outcome;
     }
     if (
       callee.type === 'MemberExpression' ||
@@ -534,6 +536,10 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
         }
       }
       return 'next';
+    }
+    if (value.type === 'MemberExpression' && file.values.resolve(value, scopes).ok) {
+      const object = expression(value.object, scopes, children);
+      return object === 'next' && value.computed ? expression(value.property, scopes, children) : object;
     }
     if (value.type === 'CallExpression') return call(value, scopes, children, iteration);
     if (value.type === 'YieldExpression') {

@@ -1188,6 +1188,147 @@ it(title(...ticks),()=>{});}catch{it('recovers the market',()=>{});}`);
     expect(scan.tests.map((test) => test.title)).toEqual(['keeps the order', 'bid']);
   });
 
+  it('registers Jasmine specs at each iterator step and spreads only the remaining quotes', () => {
+    const scan = scanJasmine(`function* quotes(side){
+  it('opens '+side,()=>{});try{yield side;it('resumes '+side,()=>{});yield 'quote';}
+  finally{it('closes '+side,()=>{});}
+}
+function title(...parts){return parts.join('/');}
+const bids=quotes('bid');const alias=bids;
+it('opens the desk',()=>{});
+try{
+  const first=alias.next();
+  it(title(first.value),()=>{});
+  it('parks the order',()=>{});
+  it(title(...bids,'fill'),()=>{});
+  it(title(...alias,'empty'),()=>{});
+}catch{it('recovers the order',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'opens the desk',
+      'opens bid',
+      'bid',
+      'parks the order',
+      'resumes bid',
+      'closes bid',
+      'quote/fill',
+      'empty',
+    ]);
+  });
+
+  it('runs suspended cleanup on return and reports the iterator completion value', () => {
+    const scan = scanJasmine(`function* quotes(){try{yield 'bid';it('continues the book',()=>{});}
+finally{it('retires the book',()=>{});}}
+const ticks=quotes();
+ticks.next();
+it('parks the order',()=>{});
+const end=ticks.return('closed');
+it(end.value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['parks the order', 'retires the book', 'closed']);
+  });
+
+  it('evaluates generator method receivers and reads their results inside Jasmine titles', () => {
+    const scan = scanJasmine(`function* prices(side){ it('opens '+side,()=>{}); yield side; }
+function title(side){return 'settles '+side;}
+const asks=prices('ask');
+try{
+  it(title(prices('bid').next().value),()=>{});
+  it(title(asks.next()['value']),()=>{});
+}catch{it('recovers the order',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['opens bid', 'settles bid', 'opens ask', 'settles ask']);
+  });
+
+  it('resumes a catch after an injected throw and runs finally before exposing the returned value', () => {
+    const scan = scanJasmine(`function* quotes(side){
+try{if(side)yield side;else yield 'reserve';it('fills the order',()=>{});}
+catch{it('recovers the book',()=>{});yield 'replacement';}
+finally{it('opens cleanup',()=>{});yield 'closing';it('ends cleanup',()=>{});}
+return 'settled';}
+const bids=quotes('bid');it(bids.next().value,()=>{});it(bids.throw('closed').value,()=>{});
+it(bids.next().value,()=>{});it(bids.next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'bid',
+      'recovers the book',
+      'replacement',
+      'opens cleanup',
+      'closing',
+      'ends cleanup',
+      'settled',
+    ]);
+  });
+
+  it('lets a return in a finally replace the return that entered it', () => {
+    const scan = scanJasmine(`function* quotes(){try{yield;}finally{yield 'pending';return 'override';}}
+const ticks=quotes();ticks.next();ticks.return('cancelled');it(ticks.next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['override']);
+  });
+
+  it('consumes delegated strings by code point and continues after empty and multi-element arrays', () => {
+    const scan = scanJasmine(`function* quotes(bid){if(bid)yield 'late';else yield* [];if(false)yield 'invalid';
+try{yield* '𝔸x';yield* ['bid','ask'];}catch{yield 'refused';}}
+const ticks=quotes(false);
+it(ticks.next().value,()=>{});
+function title(...parts){return parts.join('/');}it(title(...ticks),()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['𝔸', 'x/bid/ask']);
+  });
+
+  it('catches invalid delegates, failures in a guard and attempted reentry before the next yield', () => {
+    const scan = scanJasmine(`function reject(){throw 'closed';}
+function* quotes(){
+try{ticks.next();}catch{it('recovers from reentry',()=>{});}
+try{yield* 7;}catch{it('recovers the price',()=>{});}
+try{if(reject())yield 'late';}catch{it('opens the book',()=>{});}
+try{throw 'moved';}catch{yield 'restored';}}
+const ticks=quotes();it(ticks.next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'recovers from reentry',
+      'recovers the price',
+      'opens the book',
+      'restored',
+    ]);
+  });
+
+  it('retains the catch when a step depends on an unresolved guard, delegate or nested yield', () => {
+    for (const body of [
+      "if (flag) yield 'ask';",
+      "if (yield 'bid') yield 'ask';",
+      'yield* quoteSource;',
+      "const side = yield 'bid'; return side;",
+    ]) {
+      const scan = scanJasmine(`function* quotes(){${body}}
+const ticks=quotes();
+try{ticks.next();ticks.throw('closed');it('accepts the order',()=>{});}catch{it('recovers the order',()=>{});}`);
+      expect(
+        scan.tests.map((t) => t.title),
+        body,
+      ).toContain('recovers the order');
+    }
+  });
+
+  it('does not assume an omitted return argument after an unresolved spread', () => {
+    const scan = scanJasmine(`function* quotes(){yield 'bid';}
+const ticks=quotes();try{ticks.next();const end=ticks.return(...runtimeQuotes);it(end.value,()=>{});}
+catch{it('recovers the order',()=>{});}`);
+    expect(scan.tests.map((t) => t.title)).toContain('end.value');
+  });
+
+  it('retains the Jasmine suite left open by an empty-suite error during an iterator step', () => {
+    for (const callerCatches of [false, true]) {
+      const body = callerCatches
+        ? "describe('bid book',()=>{});"
+        : "try{describe('bid book',()=>{});}catch{it('recovers the order',()=>{});}";
+      const advance = callerCatches ? "try{ticks.next();}catch{it('recovers the order',()=>{});}" : 'ticks.next();';
+      const scan = scanJasmine(
+        `function* quotes(){${body}yield 'ask';}const ticks=quotes();${advance}
+it('closes the desk',()=>{});`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(scan.tests.map((t) => [t.fullName, t.state])).toEqual([
+        ['bid book > recovers the order', 'active'],
+        ['bid book > closes the desk', 'active'],
+      ]);
+    }
+  });
+
   it('closes a fresh iterator on throw and leaves subsequent advances exhausted', () => {
     const scan = scanJasmine(`function* prices(){it('opens the book',()=>{});yield 'bid';}
 const ticks=prices();

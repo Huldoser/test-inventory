@@ -38,6 +38,7 @@ import type {
   SuiteDeclaration,
   TestDeclaration,
 } from './model.ts';
+import { omitted, stepGenerator, type IteratorMethod, type IteratorPosition } from './generator-steps.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
@@ -195,8 +196,20 @@ interface AsyncRegistration {
   pending?: boolean;
 }
 
+interface IteratorRequest {
+  context: Context;
+  position?: IteratorPosition;
+  method: IteratorMethod | 'spread';
+  argument: Resolved;
+}
+
+interface IteratorRun extends IteratorSpread {
+  position: IteratorPosition;
+  result: Resolved;
+}
+
 interface Registration {
-  iterators: Map<Resolved, 'closed' | 'advanced'>;
+  iterators: Map<Resolved, IteratorPosition>;
   stoppedAt?: number;
   /** A return from the current registration callback, after its operand was evaluated. */
   returned?: boolean;
@@ -587,8 +600,8 @@ class Walker {
   private readonly fileScope: Scope;
   private readonly suites: PendingSuite[] = [];
   private readonly tests: PendingTest[] = [];
-  private readonly iterators = new WeakMap<Resolved, (context: Context) => IteratorSpread>();
-  private spreadRevision = 0;
+  private readonly iterators = new WeakMap<Resolved, (request: IteratorRequest) => IteratorRun>();
+  private argumentRevision = 0;
   private readonly problems: Problem[] = [];
   /** The scanned file. */
   private readonly main: Frame;
@@ -807,20 +820,14 @@ class Walker {
       };
       this.visit(operand, use);
       const value = this.frame.values.iteratorOf(operand, this.scopes);
-      const resume = value && this.iterators.get(value);
-      if (value && resume && context.registration.iterators.get(value) !== 'advanced') {
-        const instances = context.registration.iterators;
-        let spread: IteratorSpread = { values: [], complete: true, registered: false, outcome: 'next' };
-        if (!instances.has(value)) {
-          instances.set(value, 'closed');
-          spread = resume(use);
-        }
+      if (value) {
+        const spread = this.resumeIterator(value, use, context.registration, 'spread', omitted);
         this.frame.values.iteratorSpreads.set(operand, spread);
-        this.spreadRevision++;
+        this.argumentRevision++;
         if (spread.outcome === 'throw') this.stopRegistration(node, context);
         return;
       }
-      if (this.frame.values.iteratorSpreads.delete(operand)) this.spreadRevision++;
+      if (this.frame.values.iteratorSpreads.delete(operand)) this.argumentRevision++;
       const resolved = this.readArgument(operand, true);
       if (resolved.ok ? nonIterable(resolved.value) : resolved.nonIterable) this.stopRegistration(node, context);
       return;
@@ -847,12 +854,19 @@ class Walker {
         return;
       }
       case 'CallExpression': {
-        if (context.registration && this.advanceIterator(node, context, context.registration)) return;
         if (context.test && !context.quiet) this.expectCall(node, context.test);
         const helper = this.helperCall(node, context);
         if (this.call(node, context) || this.loopCall(node, context)) return;
         if (!helper) {
-          this.visitChildren(node, context);
+          for (const child of childNodes(node)) {
+            this.visit(child, context);
+            if (
+              child === node.callee &&
+              context.registration &&
+              this.advanceIterator(node, context, context.registration)
+            )
+              return;
+          }
           return;
         }
         if (helper.fn !== unwrap(node.callee)) this.visit(node.callee, context);
@@ -1313,19 +1327,28 @@ class Walker {
     values.iteratorMethods.delete(call);
     const token = values.iteratorOf(callee.object, this.scopes);
     if (!token) return false;
+    this.argumentRevision++;
+    const unknownObject: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true, nonIterable: true };
     if (this.registrationArguments(call, context)) {
-      values.iteratorMethods.set(call, 'throw');
+      values.iteratorMethods.set(call, { outcome: 'throw', result: unknownObject, registered: false });
       return true;
     }
-    const state = registration.iterators.get(token);
-    if (state === 'advanced' || (name === 'next' && state !== 'closed')) {
-      // A partially advanced iterator can be suspended inside a try or finally.
-      registration.iterators.set(token, 'advanced');
-    } else {
-      registration.iterators.set(token, 'closed');
-      values.iteratorMethods.set(call, name === 'throw' ? 'throw' : 'next');
-      if (name === 'throw') this.stopRegistration(call, context);
-    }
+    const { args, complete } = values.callArguments(call, this.scopes, true, (operand) =>
+      this.readArgument(operand, true),
+    );
+    const first = args[0] ?? (complete ? omitted : { ok: false as const, importedFrom: null });
+    const use = {
+      ...context,
+      evaluatingArgument: true,
+      expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
+    };
+    const step = this.resumeIterator(token, use, registration, name, first);
+    const result: Resolved =
+      step.outcome === 'next' && step.result.ok
+        ? { ok: true, value: { value: step.result.value, done: step.position === 'closed' } }
+        : unknownObject;
+    values.iteratorMethods.set(call, { outcome: step.outcome, registered: step.registered, result });
+    if (step.outcome === 'throw') this.stopRegistration(call, context);
     return true;
   }
 
@@ -1511,12 +1534,12 @@ class Walker {
       });
     const api = classify();
     if (!api) return false;
-    const revision = this.spreadRevision;
+    const revision = this.argumentRevision;
     if (this.registrationArguments(call, context)) return true;
-    // Consuming a saved iterator can determine an argument that was still unknown before the callee was classified.
+    // A spread or an explicit iterator step can supply a title during argument evaluation.
     return this.handle(
       call,
-      revision === this.spreadRevision ? api : (classify() as ApiCall),
+      revision === this.argumentRevision ? api : (classify() as ApiCall),
       this.currentScope(context),
     );
   }
@@ -1843,6 +1866,21 @@ class Walker {
       : values.resolve(operand, this.scopes);
   }
 
+  private resumeIterator(
+    token: Resolved,
+    context: Context,
+    registration: Registration,
+    method: IteratorRequest['method'],
+    argument: Resolved,
+  ): IteratorRun {
+    const position = registration.iterators.get(token);
+    registration.iterators.set(token, 'running');
+    const run = this.iterators.get(token) as (request: IteratorRequest) => IteratorRun;
+    const step = run({ context, method, argument, position });
+    registration.iterators.set(token, step.position);
+    return step;
+  }
+
   private saveIterator(
     { fn, frame }: Callee,
     scopes: readonly Node[],
@@ -1851,16 +1889,54 @@ class Walker {
     const token: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true, iterator: true };
     this.iterators.set(
       token,
-      frame.values.captureBindings<Context, IteratorSpread>((use) => {
+      frame.values.captureBindings<IteratorRequest, IteratorRun>(({ context: use, method, position, argument }) => {
         const previousFrame = this.frame;
         const previousScopes = this.scopes.splice(0, this.scopes.length, ...scopes, fn);
         this.frame = frame;
         this.parents.push(fn);
         this.callStack.push(fn);
         try {
-          this.visit(fn.body as Node, { ...use, isInFunction: true, declaredIn: null });
-          // Nested spreads have now recorded the elements consumed by delegated yields.
-          return read(fn, scopes);
+          if (method === 'spread' && position === undefined) {
+            this.visit(fn.body as Node, { ...use, isInFunction: true, declaredIn: null });
+            // Nested spreads have now recorded the elements consumed by delegated yields.
+            return { ...read(fn, scopes), position: 'closed', result: omitted };
+          }
+          const caller = use.registration as Registration;
+          const registration = { ...caller };
+          const context = { ...use, registration, isInFunction: true, declaredIn: null };
+          const before = this.tests.length + this.suites.length;
+          const evaluate = (
+            node: Node,
+            around: readonly Node[],
+            readValue: boolean,
+            handlesThrow: boolean,
+          ): Resolved | 'throw' => {
+            this.scopes.splice(0, this.scopes.length, ...scopes, fn, ...around);
+            this.visit(node, { ...context, handlesRegistrationError: handlesThrow || use.handlesRegistrationError });
+            if (registration.stoppedAt !== undefined) {
+              registration.scope = registration.recoveryScope ?? registration.scope;
+              delete registration.recoveryScope;
+              delete registration.stoppedAt;
+              return 'throw';
+            }
+            return readValue ? this.readArgument(node as Expression, true) : omitted;
+          };
+          const body = fn.body as Extract<Node, { type: 'BlockStatement' }>;
+          const yielded: Resolved[] = [];
+          let step = stepGenerator(body, position, method === 'spread' ? 'next' : method, argument, evaluate);
+          while (method === 'spread' && typeof step.position === 'object') {
+            yielded.push(step.value);
+            step = stepGenerator(body, step.position, 'next', omitted, evaluate);
+          }
+          caller.scope = registration.scope;
+          return {
+            values: yielded,
+            complete: step.outcome === 'next',
+            registered: this.tests.length + this.suites.length > before,
+            outcome: step.outcome,
+            position: step.position,
+            result: step.value,
+          };
         } finally {
           this.callStack.pop();
           this.parents.pop();
@@ -2479,7 +2555,7 @@ class Walker {
           registration: this.frame.adapter.catchesSuiteErrors
             ? {
                 stoppedAt: context.registration?.stoppedAt,
-                iterators: context.registration?.iterators ?? new Map<Resolved, 'closed' | 'advanced'>(),
+                iterators: context.registration?.iterators ?? new Map<Resolved, IteratorPosition>(),
               }
             : undefined,
           emptySuiteAt: context.emptySuiteAt ?? (declaration.emptySuiteError ? this.lineOf(call) : undefined),
