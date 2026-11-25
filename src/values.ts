@@ -1,6 +1,13 @@
 import type { CallExpression, ClassBody, Expression, Node, TSEnumDeclaration, VariableDeclarator } from 'oxc-parser';
-import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from './ast.ts';
-
+import {
+  childNodes,
+  isFunctionNode,
+  propertyKey,
+  propertyName,
+  unwrap,
+  unwrapChain,
+  type FunctionNode,
+} from './ast.ts';
 import { changedReferences } from './mutation-references.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
@@ -846,8 +853,8 @@ const OBJECT_MUTATORS = new Set(['assign', 'defineProperty', 'defineProperties',
 
 /** The identifier a member chain such as `ROUTING.venues[0]` starts from; null for any other expression. */
 function rootName(node: Node): string | null {
-  let current = unwrap(node as Expression);
-  while (current.type === 'MemberExpression') current = unwrap(current.object);
+  let current = unwrapChain(node as Expression);
+  while (current.type === 'MemberExpression') current = unwrapChain(current.object);
   return current.type === 'Identifier' ? current.name : null;
 }
 
@@ -929,10 +936,12 @@ function mutatedObject(node: Node): Expression | null {
       return node.left.type === 'MemberExpression' ? node.left.object : null;
     case 'UpdateExpression':
       return node.argument.type === 'MemberExpression' ? node.argument.object : null;
-    case 'UnaryExpression':
-      return node.operator === 'delete' && node.argument.type === 'MemberExpression' ? node.argument.object : null;
+    case 'UnaryExpression': {
+      const target = unwrapChain(node.argument);
+      return node.operator === 'delete' && target.type === 'MemberExpression' ? target.object : null;
+    }
     case 'CallExpression': {
-      const callee = unwrap(node.callee);
+      const callee = unwrapChain(node.callee);
       if (callee.type !== 'MemberExpression') return null;
       const method = propertyName(callee) ?? '';
       if (MUTATING_METHODS.has(method)) return callee.object;

@@ -383,6 +383,53 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
       expect(resolve(prefix + setup + 'book.desk.label;')).toEqual({ ok: true, value: 'opening auction' });
   });
 
+  it('tracks writes and deletes through optional chains, including the source of an alias', () => {
+    const prefix = 'const book={desk:{label:"opening auction"}};';
+    for (const change of [
+      'const desk=book?.desk; desk.label="closing auction";',
+      'const copy={desk:book?.desk}; copy.desk.label="closing auction";',
+      'Object.assign(book?.desk, {label:"closing auction"});',
+      'delete book.desk?.label;',
+      'delete (book?.desk.label);',
+    ])
+      expect(resolve(prefix + change + 'book.desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(prefix + 'const desk=book?.desk; desk?.label; book.desk.label;')).toEqual({
+      ok: true,
+      value: 'opening auction',
+    });
+  });
+
+  it('tracks objects selected by an expression and preserves titles when their branch cannot supply the alias', () => {
+    const prefix = 'const book={desk:{label:"opening auction"}};';
+    for (const expression of [
+      '(0,book.desk)',
+      'true ? book.desk : {}',
+      'book.desk || {}',
+      'book.desk ?? {}',
+      'choose() && book.desk',
+      'choose() ? {} : book.desk',
+      'void 0 ?? book.desk',
+      'null ?? book.desk',
+      '/close/ && book.desk',
+    ]) {
+      expect(resolve(prefix + `const desk=${expression}; desk.label="closing auction"; book.desk.label;`)).toEqual(
+        UNRESOLVED,
+      );
+    }
+    for (const expression of [
+      '(book.desk,{})',
+      'false ? book.desk : {}',
+      '{} || book.desk',
+      'false && book.desk',
+      '{} ?? book.desk',
+      '0n ?? book.desk',
+    ]) {
+      expect(
+        resolve(prefix + `const desk=${expression}; if (desk) desk.label="closing auction"; book.desk.label;`),
+      ).toEqual({ ok: true, value: 'opening auction' });
+    }
+  });
+
   it('tracks a destructuring default when a literal omits its value and preserves independent literal values', () => {
     const prefix = 'const book={desk:{label:"opening auction"}};';
     const read = ' desk.label="closing auction"; book.desk.label;';

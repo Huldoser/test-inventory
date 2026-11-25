@@ -42,6 +42,12 @@ export function unwrap(node: Expression): Expression {
   return current;
 }
 
+/** The expression that supplies a reference when an optional chain reaches its operand. */
+export function unwrapChain(node: Expression): Expression {
+  const value = unwrap(node);
+  return value.type === 'ChainExpression' ? unwrap(value.expression) : value;
+}
+
 export function isFunctionNode(node: Node | null | undefined): node is FunctionNode {
   return node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression';
 }

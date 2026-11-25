@@ -1,5 +1,5 @@
 import type { BindingPattern, Expression, Node, VariableDeclarator } from 'oxc-parser';
-import { propertyKey, propertyName, unwrap } from './ast.ts';
+import { propertyKey, propertyName, unwrapChain } from './ast.ts';
 
 type Key = string | null;
 interface Reference {
@@ -9,7 +9,7 @@ interface Reference {
   rest?: number;
 }
 
-const direct = (value: Expression): Reference => ({ value: unwrap(value), path: [] });
+const direct = (value: Expression): Reference => ({ value: unwrapChain(value), path: [] });
 const DEFINED = new Set<Node['type']>([
   'Literal',
   'ArrayExpression',
@@ -19,6 +19,22 @@ const DEFINED = new Set<Node['type']>([
   'ClassExpression',
   'TemplateLiteral',
 ]);
+
+/** Which operand supplies a reference when the condition can be decided without reading mutable bindings. */
+function selected(value: Extract<Expression, { type: 'ConditionalExpression' | 'LogicalExpression' }>): Expression[] {
+  const conditional = value.type === 'ConditionalExpression';
+  const test = unwrapChain(conditional ? value.test : value.left);
+  const present = !conditional && value.operator === '??';
+  let truth: boolean | null = null;
+  if (test.type === 'Literal') truth = 'regex' in test || (present ? test.value !== null : Boolean(test.value));
+  else if (test.type === 'UnaryExpression' && test.operator === 'void') truth = false;
+  else if (DEFINED.has(test.type) && (present || test.type !== 'TemplateLiteral')) truth = true;
+  const first = conditional ? value.consequent : value.left;
+  const second = conditional ? value.alternate : value.right;
+  if (truth === null) return [first, second];
+  const takeFirst = !conditional && value.operator === '&&' ? !truth : truth;
+  return [takeFirst ? first : second];
+}
 
 /** Possible references at a property, including a missing value when destructuring could use its default. */
 function* property(ref: Reference, key: Key): Generator<Reference | null> {
@@ -101,7 +117,7 @@ export function changedReferences(
     while (value.type === 'MemberExpression') {
       const key = value.property;
       path.unshift(key.type === 'Literal' && typeof key.value === 'number' ? String(key.value) : propertyName(value));
-      value = unwrap(value.object);
+      value = unwrapChain(value.object);
     }
     if (value.type === 'Identifier') {
       const name = value.name;
@@ -111,6 +127,10 @@ export function changedReferences(
       active.add(name);
       for (const source of sources) follow(source, path);
       active.delete(name);
+    } else if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
+      for (const source of selected(value)) follow(direct(source), path);
+    } else if (value.type === 'SequenceExpression') {
+      follow(direct(value.expressions[value.expressions.length - 1]), path);
     } else if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
       for (const child of property(direct(value), path[0])) if (child) follow(child, path.slice(1));
     }
