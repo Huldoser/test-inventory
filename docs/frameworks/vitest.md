@@ -61,6 +61,9 @@ can override the inherited suite option in Vitest 5. In Vitest 4.1 the inherited
 For example, a suite with `{ only: true }` can make a child marked `.skip` run. In Vitest 5 a tag with
 `only: false` restores that child's skip. The suite still focuses the file.
 
+From Vitest 4.0.17, a focused suite with focused tests or suites inside it selects those children.
+Other tests in the same suite have `isOnly: false`. Earlier versions also select the plain siblings.
+
 ## Example
 
 <!--@include: ../guide/examples.md#example-vitest-->

@@ -29,6 +29,7 @@ export interface FileSettings {
   framework: Framework;
   /** `[major, minor]` of the framework version; null applies the newest rules. */
   version: [number, number] | null;
+  patch?: number;
   comments: CommentsMode;
   /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
   expandCases?: boolean;
@@ -193,6 +194,9 @@ export function scanFile(code: string | ParsedFile, relativeFilePath: string, se
       focusesLikeJasmine:
         settings.framework === 'jasmine' ||
         (settings.framework === 'webdriverio' && settings.webdriverioFramework === 'jasmine'),
+      narrowsVitestFocus:
+        settings.framework === 'vitest' &&
+        (atLeast(settings.version, 4, 1) || (settings.version?.[0] === 4 && (settings.patch ?? 0) >= 17)),
       comments: settings.comments,
       isTypeTest,
       // Vitest 5's default `benchmark.include`, when no config says.

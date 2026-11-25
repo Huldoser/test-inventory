@@ -68,7 +68,7 @@ const FRAMEWORKS: readonly Framework[] = [
 ];
 const COMMENTS: readonly CommentsMode[] = ['all', 'non-active', 'none'];
 // A prerelease and build metadata each appear once, so a long input can't make the match backtrack for long.
-const VERSION = /^v?(\d+)\.(\d+)(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const VERSION = /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 /** An invalid option, told apart from other errors so that the command line can show it as a usage error. */
 export class OptionsError extends TypeError {}
@@ -135,6 +135,12 @@ export function checkStrings(value: unknown, option: string, required: boolean):
 export function majorMinor(version: string | null): [number, number] | null {
   const match = version === null ? null : VERSION.exec(version);
   return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/** The patch component when the checked version specifies one. */
+export function patchVersion(version: string | null): number | undefined {
+  const patch = VERSION.exec(version ?? '')?.[3];
+  return patch === undefined ? undefined : Number(patch);
 }
 
 /** A path with `/` separators and without a leading `./`. */

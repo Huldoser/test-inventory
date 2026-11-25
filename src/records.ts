@@ -111,6 +111,8 @@ interface RecordOptions {
   framework: Framework;
   /** Jasmine's focus rules apply: for Jasmine, and for WebdriverIO on Jasmine. */
   focusesLikeJasmine: boolean;
+  /** From 4.0.17, Vitest selects inner focused tests and suites over unmarked siblings in a focused suite. */
+  narrowsVitestFocus: boolean;
   comments: CommentsMode;
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
@@ -390,6 +392,7 @@ class RecordBuilder {
   private focused = new Set<Scope>();
   /** Jasmine: scopes with a focused spec or describe below them, whose own focus Jasmine gives up for the inner one. */
   private focusedBelow = new Set<Scope>();
+  private readonly inheritedVitestFocus = new Map<PendingTest, Scope>();
 
   constructor(parsed: ParsedFile, options: RecordOptions) {
     this.parsed = parsed;
@@ -454,6 +457,8 @@ class RecordBuilder {
     // A subtest in a named callback can precede its parent's declaration in source order.
     for (const [index, pending] of extraction.tests.entries()) {
       if (pending.parent) tests[index].parentTestId = this.testIds.get(pending.parent) as string;
+      const focusedSuite = this.inheritedVitestFocus.get(pending);
+      if (focusedSuite && this.focusedBelow.has(focusedSuite)) tests[index].isOnly = false;
     }
     for (const item of problems) {
       const found = this.diagnostic(item);
@@ -666,6 +671,15 @@ class RecordBuilder {
     const fromTags = this.tagOptions(tags, declaration.ownStateOptions ?? []);
     const focusedBySuite = fromTags?.only === false ? undefined : declaration.statesWhenFocusedBySuite;
     const declaredOnly = declaration.isOnly || focusedBySuite !== undefined || fromTags?.only === true;
+    if (this.options.narrowsVitestFocus) {
+      // Tag and inherited options can focus a sibling that appears later in the file.
+      if (declaredOnly) {
+        for (const scope of scopes) this.focusedBelow.add(scope);
+      } else {
+        const nearest = scopes.find((scope) => scope.isOnly);
+        if (nearest) this.inheritedVitestFocus.set(pending, nearest);
+      }
+    }
     // In Vitest 5 the options of a test's tags win over those the describes pass down; before, the describes' win.
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>

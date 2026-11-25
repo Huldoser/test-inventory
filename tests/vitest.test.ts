@@ -789,6 +789,8 @@ describe('margin desk',{only:true},()=>{
   test.skip('marks the margin',()=>{});
   test.todo('settles the credit',()=>{});
   describe.skip('liquidation',()=>{test('recalls shares',()=>{});});
+});
+describe('auction book',{only:true},()=>{
   describe('auction',{only:false},()=>{test('posts a price',()=>{});});
 });
 describe('rates desk',{only:false},()=>{
@@ -807,6 +809,35 @@ describe('rates desk',{only:false},()=>{
       ]);
     },
   );
+
+  it.each([
+    ['3.2.7', true],
+    ['4.0', true],
+    ['4.0.16', true],
+    ['4.0.17', false],
+    ['5.1.1', false],
+  ] as const)('selects siblings of an explicitly focused Vitest %s test', (frameworkVersion, keepsSiblings) => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe.only('opening auction', () => {
+  test('posts a price', () => {});
+  describe('matched orders', () => {
+    test('reports the volume', () => {});
+    test.only('settles the cross', () => {});
+  });
+  describe.only('late orders', () => {
+    test('reports a late fill', () => {});
+  });
+});`,
+      { frameworkVersion },
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isOnly])).toEqual([
+      ['posts a price', keepsSiblings],
+      ['reports the volume', keepsSiblings],
+      ['settles the cross', true],
+      ['reports a late fill', true],
+    ]);
+  });
 
   it("passes a describe's skip option down to everything inside, where skip goes before todo", () => {
     const inventory = scanVitest(`${VITEST_IMPORT}

@@ -263,6 +263,8 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
           'tests/orders.test.ts': `import {describe,test} from 'vitest';
         describe('opening auction',{only:true},()=>{
           test.skip('clears the opening order',{tags:['regular']},()=>{});
+        });
+        describe('opening prices',{only:true},()=>{
           test.only.skip('posts the opening price',{tags:['regular']},()=>{});
         });
         describe('closing auction',{only:false},()=>{
@@ -302,6 +304,24 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
       ['forbidden-only', 'warning', 2],
       ['forbidden-only', 'warning', 3],
       ['forbidden-only', 'warning', 4],
+    ]);
+  });
+
+  it('narrows a focused suite to the test selected by a later tag', async () => {
+    const inventory = await scanned("export default {test:{allowOnly:true,tags:[{name:'closing',only:true}]}};", {
+      'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe.only('closing auction',()=>{
+          test('publishes the depth',()=>{});
+          describe('matched orders',()=>{
+            test('reports the imbalance',()=>{});
+            test('settles the cross',{tags:['closing']},()=>{});
+          });
+        });`,
+    });
+    expect(inventory.tests.map((t) => [t.title, t.isOnly])).toEqual([
+      ['publishes the depth', false],
+      ['reports the imbalance', false],
+      ['settles the cross', true],
     ]);
   });
 
