@@ -123,7 +123,9 @@ export interface TestDeclaration extends Declaration {
   /** Vitest: the state options the test sets itself, to `false` too, which replace those of its tags. */
   ownStateOptions?: StateOption[];
   /** Vitest: a suite's only option takes priority over skip and todo unless a tag clears the inherited focus. */
-  statesWhenFocusedBySuite?: StateSetting[];
+  inheritsOnly?: boolean;
+  /** Line of the test's fails flag, including when skip or todo would otherwise hide it. */
+  failsLine?: number;
   /** Vitest: line of the inherited fails option, before the test's tags are resolved. */
   failsPassedDown?: number;
 }

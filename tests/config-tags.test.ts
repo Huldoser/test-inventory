@@ -342,6 +342,34 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
     },
   );
 
+  it.each([
+    ['4.1.12', 'active'],
+    ['5.1.1', 'expectedToFail'],
+  ] as const)(
+    'retains the test failure expectation when a focus tag overrides skip or todo in %s',
+    async (version, chained) => {
+      const inventory = await scanned(
+        "export default {test:{allowOnly:true,tags:[{name:'select',only:true},{name:'fixed',only:true,fails:false},{name:'known',only:true,fails:true}]}};",
+        {
+          'tests/auction.test.ts': `import {describe,test} from 'vitest';
+test.skip.fails('rejects the market order',{tags:['fixed']},()=>{});
+test.todo('rejects the limit order',{tags:['select'],fails:true},()=>{});
+test.skip.fails('validates the stop order',{tags:['known'],fails:false},()=>{});
+describe('verified prices',{fails:false},()=>{
+  test.skip.fails('rejects an expired quote',{tags:['select']},()=>{});
+});`,
+        },
+        version,
+      );
+      expect(inventory.tests.map((t) => [t.state, t.stateSource, t.stateLine])).toEqual([
+        ['expectedToFail', 'test', 2],
+        ['expectedToFail', 'test', 3],
+        ['active', null, null],
+        [chained, chained === 'active' ? null : 'test', chained === 'active' ? null : 6],
+      ]);
+    },
+  );
+
   it('narrows a focused suite to the test selected by a later tag', async () => {
     const inventory = await scanned("export default {test:{allowOnly:true,tags:[{name:'closing',only:true}]}};", {
       'tests/orders.test.ts': `import {describe,test} from 'vitest';

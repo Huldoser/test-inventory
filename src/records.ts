@@ -206,14 +206,19 @@ function skippedAtCollection(setting: StateSetting): boolean {
 function declaredStates(
   declared: StateSetting[],
   options: TagOptions | null,
-  { isOnly, skipPassedDown, todoPassedDown, failsPassedDown }: TestDeclaration,
+  { isOnly, skipPassedDown, todoPassedDown, failsPassedDown, failsLine }: TestDeclaration,
   tagsFirst: boolean,
-  focusedBySuite: StateSetting[] | undefined,
+  focusedBySuite: boolean,
 ): Chosen[] {
   const clearsSkip = tagsFirst && options?.skip === false;
   const inheritedSkip = clearsSkip ? undefined : skipPassedDown;
-  const states = focusedBySuite ?? (clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared);
-  const own = states.map((setting) => ({ setting, source: 'test' as const }));
+  const states = clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared;
+  const own: Chosen[] =
+    focusedBySuite || options?.only
+      ? failsLine === undefined
+        ? []
+        : [{ setting: { ...ALWAYS, state: 'expectedToFail', line: failsLine }, source: 'test' }]
+      : states.map((setting) => ({ setting, source: 'test' }));
   const inherited: Chosen[] =
     todoPassedDown !== undefined && !inheritedSkip && !(tagsFirst && options?.todo !== undefined)
       ? [{ setting: { ...ALWAYS, state: 'todo', line: todoPassedDown }, source: 'suite' }]
@@ -672,8 +677,8 @@ class RecordBuilder {
       ...declaration.details.tags,
     ]);
     const fromTags = this.tagOptions(tags, declaration.ownStateOptions ?? []);
-    const focusedBySuite = fromTags?.only === false ? undefined : declaration.statesWhenFocusedBySuite;
-    const declaredOnly = declaration.isOnly || focusedBySuite !== undefined || fromTags?.only === true;
+    const focusedBySuite = declaration.inheritsOnly === true && fromTags?.only !== false;
+    const declaredOnly = declaration.isOnly || focusedBySuite || fromTags?.only === true;
     if (this.options.narrowsVitestFocus) {
       // Tag and inherited options can focus a sibling that appears later in the file.
       if (declaredOnly) {

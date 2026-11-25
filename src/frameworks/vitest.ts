@@ -569,7 +569,8 @@ export class VitestAdapter extends SuiteAdapter {
         fixtures: fixturesOf(base.hashed, index, this.file.version),
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
-        statesWhenFocusedBySuite: inheritsOnly ? this.states(new Set([...flags, 'only']), [], false, line) : undefined,
+        inheritsOnly,
+        failsLine: flags.has('fails') ? line : undefined,
         failsPassedDown: around?.fails?.enabled && !read.flags.has('fails') ? around.fails.line : undefined,
         ownStateOptions: [
           ...(read.skip || conditionSetsSkip || (inheritsBeforeChain && around?.skip) ? ['skip' as const] : []),

@@ -9,3 +9,4 @@ Report forbidden focus from a configured tag and check it before a test body or 
 Follow Vitest's nested focus selection from 4.0.17 when reporting `isOnly` on siblings.
 
 Honor nested `fails: false` options and version-specific tag precedence when reporting expected failures.
+Preserve a test's failure expectation when a focus tag makes it run.
