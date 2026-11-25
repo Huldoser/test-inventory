@@ -415,4 +415,18 @@ describe.each(rows)('desk $legs.0, $missing, open', () => { test('settles', () =
     // `%s` meets the row, an object, so it stays as written; the scan shows it as the title has it.
     expect(inventory.tests.map((test) => test.title)).toEqual(titles.map((title) => title.replace(/X\w+/, '%s')));
   });
+
+  it('formats named placeholders against an array passed as the first Bun table argument', () => {
+    const inventory = scanBun(
+      `test.each([[['bid', 'offer'], 'market']])('posts $length sides for $missing, %s %s', () => {});
+test.each([{ '0': { name: 'future' }, qty: 3 }])('prices $0.name, quantity $qty', () => {});
+test.each(['floor'])('reads $length from a string', () => {});`,
+      { frameworkVersion: '1.4.4', expandCases: true },
+    );
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'posts 2 sides for $missing %s market',
+      'prices $0name, quantity 3',
+      'reads $length from a string',
+    ]);
+  });
 });

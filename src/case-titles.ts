@@ -351,11 +351,11 @@ function prettyFormatMin(value: Value, depth = 0): string {
   return `{${keys.map((key) => `${prettyFormatMin(key)}: ${prettyFormatMin(value[key], depth + 1)}`).join(', ')}}`;
 }
 
-const BUN_KEY_PATH = /[\w$]+(?:\.[\w$]+)*/y;
+const BUN_KEY_PATH = /\d\w*|[a-zA-Z_$][\w$]*(?:\.[\w$]+)*/y;
 export const BUN_INVALID_TITLE = Symbol('invalid Bun table title');
 
 /** Bun accepts decimal indices after a dot. A digit cannot start a top-level key. */
-function bunProperty(row: Record<string, Value>, path: string): Value | typeof NOT_PLAIN | typeof BUN_INVALID_TITLE {
+function bunProperty(row: Extract<Value, object>, path: string): Value | typeof NOT_PLAIN | typeof BUN_INVALID_TITLE {
   if (!path || /^\d/.test(path)) return undefined;
   let value: Value = row;
   for (const key of path.split('.')) {
@@ -381,7 +381,7 @@ export function bunCaseTitle(
   let known = true;
   for (let at = 0; at < template.length; at++) {
     const char = template[at];
-    if (char === '$' && isObject(first)) {
+    if (char === '$' && first !== null && typeof first === 'object') {
       BUN_KEY_PATH.lastIndex = at + 1;
       const path = BUN_KEY_PATH.exec(template)?.[0] ?? '';
       at += path.length;

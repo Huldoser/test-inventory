@@ -361,7 +361,9 @@ Bun 1.2.23 and newer, which runs tests the way 1.3 and 1.4 do; see [framework ve
 | `test(title)` without a function                                                   | Bun fails the file with `test-without-body`. Skipped and todo tests and suites can omit the callback or pass a null callback. With a function as its only argument, Bun collects an unnamed test or suite.                                                                                                                                                                                                                                                                                                                                                  |
 | `beforeAll`, `afterAll`, `beforeEach`, `afterEach`                                 | Hooks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
-In an object row, `$legs.0.qty` reads the first leg’s quantity, and `$venue.length` reads a string’s length.
+Bun reads named placeholders from the first argument when it is an object or array. In an object row, `$legs.0.qty`
+reads the first leg’s quantity, and `$venue.length` reads a string’s length. In a table passing an array as its first
+argument, `$length` reads that array’s length. A digit can start a path segment after a dot.
 Bun keeps the text of a missing, null or undefined field and consumes the next separator, so `$missing, open` becomes
 `$missing open`. A dollar or percent sign inserted from the row stays literal. If the row explicitly sets `desk` to null or undefined,
 `$desk.name` throws during collection. At the top level the file fails. Inside a describe its suite fails.
