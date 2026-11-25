@@ -1,6 +1,8 @@
 import type { CallExpression, ClassBody, Expression, Node, TSEnumDeclaration, VariableDeclarator } from 'oxc-parser';
 import { childNodes, isFunctionNode, propertyKey, propertyName, unwrap, type FunctionNode } from './ast.ts';
 
+import { changedReferences } from './mutation-references.ts';
+
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
 /** A resolved value or a failed lookup. `arrayLength` can record the size of an imported array with unknown items. */
@@ -879,7 +881,8 @@ export function assignedNames(body: Node): Set<string> {
     if (node.type === 'UpdateExpression') targets(node.argument);
     if (node.type === 'ForOfStatement' || node.type === 'ForInStatement') targets(node.left);
     // A parameter whose value the function changes, as in `list.push(...)`, no longer holds the argument's value.
-    const changed = mutatedName(node);
+    const object = mutatedObject(node);
+    const changed = object && rootName(object);
     if (changed !== null) names.add(changed);
     for (const child of childNodes(node)) walk(child);
   };
@@ -919,22 +922,27 @@ function calleeNames(callee: Node): string[] {
   return names;
 }
 
-/** The name a mutation changes the value of, as in `WATCHED.push('MSFT')` or `ROUTING.market = 'NYSE'`; or null. */
-function mutatedName(node: Node): string | null {
+/** The object a write or a mutating call acts on. */
+function mutatedObject(node: Node): Expression | null {
   switch (node.type) {
     case 'AssignmentExpression':
-      return node.left.type === 'MemberExpression' ? rootName(node.left) : null;
+      return node.left.type === 'MemberExpression' ? node.left.object : null;
     case 'UpdateExpression':
-      return node.argument.type === 'MemberExpression' ? rootName(node.argument) : null;
+      return node.argument.type === 'MemberExpression' ? node.argument.object : null;
     case 'UnaryExpression':
-      return node.operator === 'delete' ? rootName(node.argument) : null;
+      return node.operator === 'delete' && node.argument.type === 'MemberExpression' ? node.argument.object : null;
     case 'CallExpression': {
       const callee = unwrap(node.callee);
       if (callee.type !== 'MemberExpression') return null;
       const method = propertyName(callee) ?? '';
-      if (MUTATING_METHODS.has(method)) return rootName(callee.object);
+      if (MUTATING_METHODS.has(method)) return callee.object;
       const target = node.arguments.at(0);
-      return OBJECT_MUTATORS.has(method) && rootName(callee.object) === 'Object' && target ? rootName(target) : null;
+      return OBJECT_MUTATORS.has(method) &&
+        rootName(callee.object) === 'Object' &&
+        target &&
+        target.type !== 'SpreadElement'
+        ? target
+        : null;
     }
     default:
       return null;
@@ -948,15 +956,13 @@ function mutatedName(node: Node): string | null {
  * what they change doesn't count.
  */
 function changedNames(program: Node): Set<string> {
-  const names = new Set<string>();
-  const aliases = new Map<string, string>();
+  const targets: Expression[] = [];
+  const declarations: { id: VariableDeclarator['id']; init: Expression }[] = [];
   const walk = (node: Node, later: boolean): void => {
     if (!later) {
-      const name = mutatedName(node);
-      if (name !== null) names.add(name);
-    }
-    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.init?.type === 'Identifier') {
-      aliases.set(node.id.name, node.init.name);
+      const target = mutatedObject(node);
+      if (target) targets.push(target);
+      if (node.type === 'VariableDeclarator' && node.init) declarations.push({ id: node.id, init: node.init });
     }
     if (node.type === 'CallExpression') {
       const callee = calleeNames(node.callee);
@@ -969,12 +975,7 @@ function changedNames(program: Node): Set<string> {
     for (const child of childNodes(node)) walk(child, later);
   };
   walk(program, false);
-  for (const name of [...names]) {
-    for (let target = aliases.get(name); target !== undefined && !names.has(target); target = aliases.get(target)) {
-      names.add(target);
-    }
-  }
-  return names;
+  return changedReferences(declarations, targets);
 }
 
 function isPlainObject(value: Value): value is Record<string, Value> {

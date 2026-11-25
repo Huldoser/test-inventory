@@ -81,7 +81,9 @@ test('cancels an open limit order', { tag: TAGS.risk }, async ({ orderTicket }) 
 ```
 
 A value from an installed package, or built with any other call, is not. Nor is a constant the module changes while
-it loads, as in `WATCHED.push('MSFT')`, or a function parameter or loop variable the code assigns to, since the
+it loads, as in `WATCHED.push('MSFT')`. Writes through a property alias or a destructured binding also count.
+For a shallow copy, changing a shared child can affect the source, while replacing a property on the copy leaves
+the source value intact. A function parameter or loop variable the code assigns to also stays unknown, since the
 declared value may not be the one the runner reads. The record then keeps what it can and a
 diagnostic says so, naming the module when the value comes from an import:
 

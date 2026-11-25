@@ -347,6 +347,117 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     ]);
   });
 
+  it('marks titles dynamic when writes through member aliases or destructuring change the original object', () => {
+    const prefix = 'const book = { desk: { label: "opening auction", rows: ["open"] } };';
+    for (const setup of [
+      'const desk = book.desk;',
+      'const first = book["desk"]; const desk = first;',
+      'const { desk } = book;',
+      'const { desk: window } = book; const desk = window;',
+      'const { book: { desk } } = { book };',
+      'const { desk } = { desk: book.desk };',
+      'const [desk] = [book.desk];',
+    ]) {
+      const result = scanVitest(
+        `${VITEST_IMPORT}\n${prefix}\n${setup}\ndesk.label = "closing auction"; test(book.desk.label, () => {});`,
+      );
+      expect(result.tests.map((test) => [test.title, test.hasDynamicTitle])).toEqual([['book.desk.label', true]]);
+    }
+    expect(
+      resolve(
+        'const desks=[{label:"opening auction"}]; const [desk]=desks; desk.label="closing auction"; desks[0].label;',
+      ),
+    ).toEqual(UNRESOLVED);
+    expect(resolve(prefix + ' const rows = book.desk.rows; rows.push("close"); book.desk.rows.join(" and ");')).toEqual(
+      UNRESOLVED,
+    );
+  });
+
+  it('preserves the original title after a shallow copy is changed or a test body updates an alias', () => {
+    const prefix = 'const book = { desk: { label: "opening auction" } };';
+    for (const setup of [
+      'const desk = {...book.desk}; desk.label = "closing auction";',
+      'const {...desk} = book.desk; desk.label = "closing auction";',
+      'const desk = book.desk; test("closes the market", () => { desk.label = "closing auction"; });',
+    ])
+      expect(resolve(prefix + setup + 'book.desk.label;')).toEqual({ ok: true, value: 'opening auction' });
+  });
+
+  it('tracks a destructuring default when a literal omits its value and preserves independent literal values', () => {
+    const prefix = 'const book={desk:{label:"opening auction"}};';
+    const read = ' desk.label="closing auction"; book.desk.label;';
+    expect(resolve(prefix + 'const {desk=book.desk}={};' + read)).toEqual(UNRESOLVED);
+    expect(resolve(prefix + 'const [desk=book.desk]=[];' + read)).toEqual(UNRESOLVED);
+    expect(resolve(prefix + 'const {desk=book.desk}={desk:{}};' + read)).toEqual({
+      ok: true,
+      value: 'opening auction',
+    });
+    expect(resolve(prefix + 'const {desk=book.desk}={desk:void 0};' + read)).toEqual(UNRESOLVED);
+  });
+
+  it('invalidates only shared children when writes go through literal wrappers or shallow copies', () => {
+    const prefix = 'const book = {desk: {label: "opening auction"}};';
+    for (const change of [
+      'const copy = {...book}; copy.desk.label = "closing auction";',
+      'const {...copy} = book; Object.assign(copy.desk, {label:"closing auction"});',
+      'const wrapped = [book.desk]; wrapped[0].label = "closing auction";',
+      'const desks = [{}, book.desk]; const [, ...copy] = desks; copy[0].label = "closing auction";',
+      'const wrapped = {current:book.desk}; delete wrapped.current.label;',
+    ])
+      expect(resolve(prefix + change + 'book.desk.label;')).toEqual(UNRESOLVED);
+    for (const change of [
+      'const wrapped = {current:book.desk}; wrapped.current = {};',
+      'const copy = {...book, desk:{}}; copy.desk.label = "closing auction";',
+      'const copy = {current:book.desk, other:{}}; copy.other.label = "closing auction";',
+    ])
+      expect(resolve(prefix + change + 'book.desk.label;')).toEqual({ ok: true, value: 'opening auction' });
+  });
+
+  it('tracks aliases across object and array spreads that can supply a destructured value', () => {
+    const prefix = 'const desk={label:"opening auction"}; const book={window:desk};';
+    for (const setup of [
+      'const {window}= { ...book };',
+      'const {window}= { window:desk, other:42 };',
+      'const {window}= { [column()]:desk };',
+      'const [{label}, window] = [desk, ...[], desk];',
+      'const [, window=desk] = [0, ...[], , ];',
+      'const [window, ...later] = [...[], desk];',
+    ])
+      expect(resolve(prefix + setup + 'window.label="closing auction"; desk.label;')).toEqual(UNRESOLVED);
+    expect(
+      resolve(prefix + 'const {window}= { ...book, window:{} }; window.label="closing auction"; desk.label;'),
+    ).toEqual({ ok: true, value: 'opening auction' });
+    expect(
+      resolve(prefix + 'const [window, ...other]=[{}, ...[desk]]; window.label="closing auction"; desk.label;'),
+    ).toEqual({ ok: true, value: 'opening auction' });
+  });
+
+  it('follows possible array elements for a runtime index and preserves unrelated tail entries', () => {
+    const prefix = 'const desk={label:"opening auction"}; const desks=[desk];';
+    expect(
+      resolve(
+        prefix + 'const list=[...desks]; const chosen=list[chooseIndex()]; chosen.label="closing auction"; desk.label;',
+      ),
+    ).toEqual(UNRESOLVED);
+    expect(
+      resolve(
+        prefix + 'const list=[...[], {}, desk]; const chosen=list[0]; chosen.label="closing auction"; desk.label;',
+      ),
+    ).toEqual({ ok: true, value: 'opening auction' });
+  });
+
+  it('keeps a helper parameter unresolved when a nested member changes in its body', () => {
+    const inv = scanVitest(`${VITEST_IMPORT}
+function currentWindow() { return { label: 'opening auction' }; }
+function register(desk) {
+  desk.pricing.limits.max++;
+  delete currentWindow().label;
+  test(desk.label, () => {});
+}
+register({label:"closing auction", pricing:{limits:{max:4}}});`);
+    expect(inv.tests.map((test) => test.hasDynamicTitle)).toEqual([true]);
+  });
+
   it('binds destructured parameters, with holes, rests and defaults, as JavaScript does', () => {
     const inventory = scanPlaywright(`${PLAYWRIGHT_IMPORT}
 import { ORDER } from './orders';

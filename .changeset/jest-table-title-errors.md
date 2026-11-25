@@ -13,3 +13,4 @@ Mark files as not loaded when Bun rejects an anonymous computed method used as a
 Resolve titles from local class methods, prototype methods and static fields in initialization order.
 Use the Bun version to determine whether a static field gives an anonymous function its test title.
 Expand rows titled by inherited methods and use the derived class when the title is its prototype constructor.
+Flag titles and table data changed through aliases or shared children of shallow copies, so the inventory does not report stale values.
