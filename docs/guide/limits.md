@@ -88,6 +88,7 @@ such as `desk = evening.desk`, a later write through `desk` can change the eveni
 the reassignment still points to the earlier desk. A helper can also change a title by writing to an object
 passed as an argument, including through a destructured parameter, a forwarded argument, or a reference
 returned by a synchronous local helper. Nested calls can pass the same object back through several returns.
+Calls through a local constant such as `const publish = register` use the original helper and its declaration scope.
 For a shallow copy, changing a shared child can affect the source, while replacing a property on the copy leaves
 the source value intact. A function parameter or loop variable the code assigns to also stays unknown, since the
 declared value may not be the one the runner reads. The record then keeps what it can and a

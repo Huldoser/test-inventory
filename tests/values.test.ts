@@ -453,6 +453,29 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(code + 'if(false) {} else { desk=book; } desk.label="closing"; book.label;')).toEqual(UNRESOLVED);
   });
 
+  it('reads a helper at each call through a chain of local constants in its declaration scope', () => {
+    const inventory = scanVitest(
+      VITEST_IMPORT +
+        `
+      const venue="primary";
+      function register(label){test(venue+" "+label,()=>{});}
+      const first=register; {const venue="reserve"; const post=first;post("open");post("close");}
+    `,
+    );
+    expect(titles(inventory)).toEqual(['primary open', 'primary close']);
+  });
+
+  it('follows writes made through a constant function alias without confusing a shadowed helper', () => {
+    const code = 'const book={label:"opening"};function close(desk){desk.label="closing";}';
+    expect(resolve(code + 'const apply=close;const publish=apply;publish(book);book.label;')).toEqual(UNRESOLVED);
+    expect(resolve(code + '{const close=desk=>desk.label;const apply=close;apply(book);} book.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+    const cycle = parseFile('helpers.ts', 'const first=second;const second=first;');
+    expect(new Values().functionOf('first', [cycle.program])).toBeNull();
+  });
+
   it('flags titles changed through helper arguments resolved in the calling scope', () => {
     const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
     for (const route of [

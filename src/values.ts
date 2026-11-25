@@ -379,7 +379,7 @@ export class Values {
   }
 
   /**
-   * The function a name is declared as, with `function name() {}` or a variable holding one; null for any other name.
+   * The local function a name refers to, including one reached through a constant alias.
    * A parameter is not its function, though the function declares it.
    */
   functionOf(name: string, scopes: readonly Node[]): FunctionNode | null {
@@ -388,13 +388,21 @@ export class Values {
 
   /** `functionOf()`, with the scopes around the function's declaration, in which its body is read. */
   functionWithScopes(name: string, scopes: readonly Node[]): { fn: FunctionNode; scopes: readonly Node[] } | null {
-    const found = this.lookup(name, scopes);
-    const declaration = found?.binding.declaration;
-    // A class is bound like a function, but has no body to walk.
-    const declared = found?.binding.kind === 'function' && declaration?.type === 'FunctionDeclaration';
-    const init = declaration?.type === 'VariableDeclarator' && declaration.init ? unwrap(declaration.init) : null;
-    const fn = declared ? declaration : isFunctionNode(init) ? init : null;
-    return fn && found ? { fn, scopes: found.scopes } : null;
+    const seen = new Set<Node>();
+    let found = this.lookup(name, scopes);
+    while (found) {
+      const { binding } = found;
+      const declaration = binding.declaration;
+      if (binding.kind === 'function' && declaration.type === 'FunctionDeclaration')
+        return { fn: declaration, scopes: found.scopes };
+      if (declaration.type !== 'VariableDeclarator' || !declaration.init) return null;
+      const init = unwrap(declaration.init);
+      if (isFunctionNode(init)) return { fn: init, scopes: found.scopes };
+      if (binding.kind !== 'const' || init.type !== 'Identifier' || seen.has(declaration)) return null;
+      seen.add(declaration);
+      found = this.lookup(init.name, binding.scopes);
+    }
+    return null;
   }
 
   /** The value a `const` name is declared with, and the scopes around that declaration; null for any other name. */

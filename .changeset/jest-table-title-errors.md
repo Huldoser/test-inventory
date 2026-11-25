@@ -19,3 +19,4 @@ Keep a title readable when a write changes a separate declaration with the same 
 Follow aliases assigned after declaration, including destructuring, and keep earlier captures tied to their original objects.
 Flag possible changes to titles through the arguments of local helpers called during test collection.
 Follow possible returned objects even when the same helper is called inside its own argument or another branch returns no value.
+Follow local constant aliases of functions when collecting tests or tracking writes through helper arguments.
