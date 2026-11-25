@@ -241,10 +241,30 @@ test('charges the minimum fee again', checksFees);
     const inventory = scanJest(`
 const args = ['books the cash leg', () => {}];
 test(...args);
-test();
 `);
     expect(inventory.tests).toHaveLength(1);
     expect(inventory.diagnostics.map((item) => item.code)).toEqual(['dynamic-title']);
+  });
+
+  it('fails the file for an empty declaration and registers undefined titles for test tables', () => {
+    for (const [declaration, code] of [
+      ['test()', 'test-without-body'],
+      ['test.todo()', 'invalid-chain'],
+      ['describe()', 'test-without-body'],
+      ['describe.each([1, 2])()', 'test-without-body'],
+    ]) {
+      const result = scanJest(`test('opens the book', () => {});\n${declaration};`);
+      expect(testNamed(result, 'opens the book').state).toBe('notLoaded');
+      expect(codes(result)).toContain(code);
+    }
+    for (const [api, count] of [
+      ['test', 1],
+      ['test.concurrent', 2],
+      ['test.failing', 2],
+    ] as const) {
+      const result = scanJest(`${api}.each([1, 2])();`, { frameworkVersion: '30.5.2', expandCases: true });
+      expect(result.tests.map((t) => t.title)).toEqual(Array.from({ length: count }, () => 'undefined'));
+    }
   });
 
   it('counts hooks, imported or global', () => {
@@ -389,6 +409,158 @@ jest.retryTimes(...counts);
 });
 
 describe('Jest tables', () => {
+  it('keeps Jest table tests registered when their callback is a non-callable value', () => {
+    const result = scanJest(
+      `
+const sides = ['bid','ask'];
+const missing = null;
+test.each(sides)('prices %s', missing, 510);
+test.each(sides)('routes %s', 42, 610);
+test.concurrent.each(sides)('submits %s', undefined, 710);
+test.failing.each(sides)('rejects %s');
+test('closes the book',()=>{});
+`,
+      { frameworkVersion: '29.7.0', expandCases: true },
+    );
+    expect(result.tests.map((t) => [t.title, t.state, t.timeout])).toEqual([
+      ['prices %s', 'active', null],
+      ['routes bid', 'active', 610],
+      ['routes ask', 'active', 610],
+      ['submits bid', 'active', 710],
+      ['submits ask', 'active', 710],
+      ['rejects bid', 'expectedToFail', null],
+      ['rejects ask', 'expectedToFail', null],
+      ['closes the book', 'active', null],
+    ]);
+    expect(result.diagnostics.filter((d) => d.code === 'test-without-body').every((d) => d.level === 'warning')).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ['27.5.1', 2],
+    ['28.1.3', 1],
+    ['30.5.2', 1],
+  ] as const)('counts missing callbacks on skipped tables in Jest %s', (version, skippedCount) => {
+    const inventory = scanJest(
+      `
+test.skip.each([1,2])('checks %i lots');
+test.concurrent.skip.each([1,2])('holds %i lots');
+test.concurrent.only.each([1,2])('clears %i lots');
+`,
+      { frameworkVersion: version },
+    );
+    expect(inventory.tests.map((t) => [t.title, t.caseCount])).toEqual([
+      ['checks %i lots', skippedCount],
+      ['holds %i lots', skippedCount],
+      ['clears %i lots', 2],
+    ]);
+  });
+
+  it('rejects a Jest suite table whose named callback resolves to undefined', () => {
+    const inventory = scanJest(
+      `
+const setupDesk = undefined;
+test('opens the market',()=>{});
+describe.each(['bid','ask'])('routes %s', setupDesk);
+test('closes the market',()=>{});
+`,
+      { frameworkVersion: '30.5.2' },
+    );
+    expect(inventory.tests.map((t) => t.state)).toEqual(['notLoaded', 'notLoaded']);
+    expect(codes(inventory)).toContain('test-without-body');
+  });
+
+  it('drops the supplied callback and timeout when Jest rejects the table before registering tests', () => {
+    const code = `
+function post() { expect(2).toBe(2); }
+test.each([])('posts a cash leg', post, 700);
+test.concurrent.each({desk:'paper'})('routes an order', () => { expect(9).toBe(9); }, 800);
+test.skip.each\`
+  desk | currency
+  \${'paper'}
+\`('quotes $desk', post, 900);
+test('opens the book', () => {});
+`;
+    for (const expandCases of [false, true]) {
+      const inventory = scanJest(code, { frameworkVersion: '29.7.0', expandCases });
+      expect(
+        inventory.tests.slice(0, 3).map((t) => [t.title, t.caseCount, t.expectCount, t.bodyHash, t.timeout]),
+      ).toEqual([
+        ['posts a cash leg', 1, 0, null, null],
+        ['routes an order', 1, 0, null, null],
+        ['quotes $desk', 1, 0, null, null],
+      ]);
+      expect(testNamed(inventory, 'opens the book').state).toBe('active');
+    }
+  });
+
+  it('reports the rejected table before checking a missing callback', () => {
+    const inventory = scanJest("test.each([])('posts a cash leg', undefined, 700);", { expandCases: true });
+    expect(onlyTest(inventory)).toMatchObject({ caseCount: 1, timeout: null, bodyHash: null, state: 'active' });
+    expect(codes(inventory)).toEqual(['cases-not-expanded']);
+    expect(inventory.diagnostics[0].message).toContain('Jest rejects the table');
+  });
+
+  it('counts the fallback test when Jest cannot interpolate a row and keeps its unused body out of the inventory', () => {
+    const code = `
+const desks = [{desk:{name:'paper'}},{desk:null},{desk:{name:'live'}}];
+function settle() { expect('filled').toBe('filled'); }
+test.each(desks)('settles at $desk.name', settle, 500);
+test('closes the book', () => {});
+`;
+    for (const expandCases of [false, true]) {
+      const result = scanJest(code, { expandCases, frameworkVersion: '29.7.0' });
+      expect(result.tests).toHaveLength(2);
+      expect(result.tests[0]).toMatchObject({
+        title: 'settles at $desk.name',
+        state: 'active',
+        isParameterized: true,
+        caseCount: 1,
+        caseIndex: null,
+        expectCount: 0,
+        timeout: null,
+        bodyHash: null,
+      });
+      expect(result.tests[1].state).toBe('active');
+    }
+    expect(scanJest(code, { expandCases: true, frameworkVersion: '30.5.2' }).tests.map((t) => t.title)).toEqual([
+      'settles at paper',
+      'settles at null',
+      'settles at live',
+      'closes the book',
+    ]);
+  });
+
+  it('marks the file as not loaded when Jest cannot interpolate a tagged describe row', () => {
+    const code = `
+test('opens the book', () => {});
+describe.skip.each\`
+  desk | venue
+  \${{name:'paper'}} | \${'simulated'}
+  \${undefined} | \${'live'}
+\`('routes to $desk.name', () => { test('settles the order', () => {}); });
+test('closes the book', () => {});
+`;
+    for (const expandCases of [false, true]) {
+      const result = scanJest(code, { expandCases, frameworkVersion: '29.7.0' });
+      expect(result.tests.map((t) => [t.title, t.state])).toEqual([
+        ['opens the book', 'notLoaded'],
+        ['settles the order', 'notLoaded'],
+        ['closes the book', 'notLoaded'],
+      ]);
+      expect(codes(result)).toContain('describe-throws');
+    }
+    expect(
+      scanJest(code, { expandCases: true, frameworkVersion: '30.5.2' }).tests.map((t) => [t.fullName, t.state]),
+    ).toEqual([
+      ['opens the book', 'active'],
+      ['routes to paper > settles the order', 'skip'],
+      ['routes to undefined > settles the order', 'skip'],
+      ['closes the book', 'active'],
+    ]);
+  });
+
   it("counts the cases of arrays and tagged templates, and Jest's one failing test for a bad table", () => {
     const inventory = scanJest(`
 test.each([[1, 2], [3, 4]])('nets %i and %i', () => {});
@@ -905,15 +1077,276 @@ const HANDLERS = { onSubmit: () => submit() };
     ).toEqual([null, null, null, null, null, null, null, 1]);
   });
 
-  it('titles a describe or test by a function or class written in place, as Jest and Vitest do (TI-74)', () => {
+  it('titles a describe or test by a named function or class written in place (TI-74)', () => {
     const inventory = scanJest(`
 describe(function OrderBook() {}, () => {
   test(class Matcher {}, () => {});
-  test(function () {}, () => {});
 });
 `);
-    expect(inventory.tests.map((test) => test.fullName)).toEqual(['OrderBook > Matcher', 'OrderBook > ']);
-    expect(codes(inventory)).toEqual(['empty-title']);
+    expect(inventory.tests.map((test) => test.fullName)).toEqual(['OrderBook > Matcher']);
+    expect(codes(inventory)).toEqual([]);
+  });
+
+  it.each([
+    'false',
+    'null',
+    '({venue: "paper"})',
+    '["paper"]',
+    '({venue: quote()})',
+    '[quote()]',
+    '/settlement/',
+    '42n',
+    'function () {}',
+    'class {}',
+    '() => {}',
+  ])('marks the file as not loaded when Jest rejects title %s', (title) => {
+    for (const callee of ['test', 'describe.skip.each(["bid", "ask"])']) {
+      const result = scanJest(`test('opens the market', () => {});\n${callee}(${title}, () => {});`);
+      expect(testNamed(result, 'opens the market').state).toBe('notLoaded');
+      expect(codes(result)).toContain('invalid-chain');
+    }
+  });
+
+  it('expands Jest titles using the declared function name, its inferred name, or undefined', () => {
+    const result = scanJest(
+      `
+function settle() {}
+const alias = settle;
+const named = function postOrder() {};
+const inferred = () => {};
+const empty = undefined;
+test.each([1, 2])(alias, () => {});
+test(named, () => {});
+describe.each([1, 2])(inferred, () => { test('settles the order', () => {}); });
+test.each([1, 2])(empty, () => {});
+test(void 0, () => {});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((t) => t.fullName)).toEqual([
+      'settle',
+      'settle',
+      'postOrder',
+      'inferred > settles the order',
+      'inferred > settles the order',
+      'undefined',
+      'undefined',
+      'undefined',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('requires a string title for Jest todo declarations and Jest 27 tests', () => {
+    for (const [version, declaration] of [
+      ['30.5.2', 'test.todo(42)'],
+      ['30.5.2', 'function Orders() {} test.todo(Orders)'],
+      ['30.5.2', 'test.todo(void 0)'],
+      ['27.5.1', 'test(42, () => {})'],
+      ['27.5.1', 'describe.each([1,2])(function Trades() {}, () => {})'],
+    ]) {
+      const result = scanJest(`test('opens the market', () => {});\n${declaration};`, { frameworkVersion: version });
+      expect(testNamed(result, 'opens the market').state).toBe('notLoaded');
+    }
+    const legacy = scanJest("describe(function () {}, () => { test('posts the order', () => {}); });", {
+      frameworkVersion: '27.5.1',
+    });
+    expect(onlyTest(legacy).state).toBe('active');
+  });
+
+  it('reads static name fields and the name of a referenced class or function', () => {
+    const result = scanJest(
+      `
+const windowName = "closing auction";
+class Settlement { static ["name"] = windowName; }
+const Desk = Settlement;
+function openWindow() {}
+const post = function postOrder() {};
+test.each([1, 2])(Desk, () => {});
+describe(Desk.name, () => { test(openWindow["name"], () => {}); });
+test(post.name, () => {});
+test((class Intraday {}).name, () => {});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((t) => t.fullName)).toEqual([
+      'closing auction',
+      'closing auction',
+      'closing auction > openWindow',
+      'postOrder',
+      'Intraday',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('names Jest table rows from local methods, computed keys and aliased functions', () => {
+    const result = scanJest(
+      `
+const key = 'post';
+const settings = JSON.parse(process.env.MARKET_SETTINGS || '{}');
+function routeOrder() {}
+const book = {
+  ...settings,
+  [key]() {}, "price at close"() {}, 7() {}, settle: () => {},
+  clear: function clearOrder() {}, route: routeOrder,
+};
+const alias = book;
+const post = alias.post;
+describe('closing auction', () => {
+  const key = 'clear';
+  test.each([1, 2])(post, () => {});
+  test(alias[key].name, () => {});
+  test(book['price at close'], () => {});
+  test(book[7], () => {});
+  test(book.settle, () => {});
+  test(book.route, () => {});
+  test(({ crossOrder() {} }).crossOrder, () => {});
+});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((test) => test.title)).toEqual([
+      'post',
+      'post',
+      'clearOrder',
+      'price at close',
+      '7',
+      'settle',
+      'routeOrder',
+      'crossOrder',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('keeps Jest method titles dynamic after a mutation or a possible override', () => {
+    const result = scanJest(`
+const live = { settle() {} };
+const alias = live;
+const settings = JSON.parse(process.env.MARKET_SETTINGS || '{}');
+function selectMethod() { return function settleAtClose() {}; }
+alias.settle = selectMethod();
+const guessed = { settle() {}, ...settings };
+const getter = { get settle() { return selectMethod(); } };
+test(live.settle, () => {});
+test(guessed.settle, () => {});
+test(getter.settle, () => {});
+`);
+    expect(result.tests.map((test) => test.hasDynamicTitle)).toEqual([true, true, true]);
+  });
+
+  it('reads static and prototype methods and the final static fields as Jest table titles', () => {
+    const result = scanJest(
+      `
+const key = 'closing auction';
+class Book {
+  static [key]() {}
+  postOrder() {}
+  static settle = 'final print';
+  static settle() {}
+  static route() {}
+  static route = function routeOrder() {};
+}
+const desk = Book;
+const methods = desk.prototype;
+const post = methods.postOrder;
+describe(desk[key], () => {
+  test.each([1, 2])(post, () => {});
+  test(Book.settle, () => {});
+  test(Book.route.name, () => {});
+  test(Book.prototype.postOrder.name, () => {});
+});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'closing auction > postOrder',
+      'closing auction > postOrder',
+      'closing auction > final print',
+      'closing auction > routeOrder',
+      'closing auction > postOrder',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('distinguishes a class with an empty name field from the empty string property', () => {
+    const definition = 'class Settlement { static name = ""; }';
+    const direct = scanJest(`${definition} test('opens the book', () => {}); test(Settlement, () => {});`);
+    expect(testNamed(direct, 'opens the book').state).toBe('notLoaded');
+    const property = scanJest(`${definition} test(Settlement.name, () => {});`);
+    expect(onlyTest(property)).toMatchObject({ title: '', state: 'active', hasDynamicTitle: false });
+  });
+
+  it('expands Jest rows named by inherited methods and uses the derived prototype constructor', () => {
+    const result = scanJest(
+      `
+class Venue {
+  static desk = 'closing auction';
+  settleOrder() {}
+}
+const Base = Venue;
+class Market extends Base {}
+const AuctionDesk = class extends Market { constructor() { super(); } };
+const desk = AuctionDesk.prototype;
+describe(AuctionDesk.desk, () => {
+  test.each([1, 2])(desk.settleOrder, () => {});
+  test(desk.constructor, () => {});
+  test(Market.prototype.constructor.name, () => {});
+});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'closing auction > settleOrder',
+      'closing auction > settleOrder',
+      'closing auction > AuctionDesk',
+      'closing auction > Market',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
+  it('rejects a class with a null name and defers a class name computed at runtime', () => {
+    const rejected = scanJest(
+      "class Desk { static name = null; } test('opens the book', () => {}); test(Desk, () => {});",
+    );
+    expect(testNamed(rejected, 'opens the book').state).toBe('notLoaded');
+    const dynamic = scanJest('class Desk { static get name() { return selectDesk(); } } test(Desk, () => {});');
+    expect(onlyTest(dynamic)).toMatchObject({ state: 'active', hasDynamicTitle: true });
+  });
+
+  it('follows an immutable title alias to its expression and leaves cyclic title aliases unresolved', () => {
+    const result = scanJest('const missing = void 0; const name = missing; test(name, () => {});');
+    expect(onlyTest(result)).toMatchObject({ title: 'undefined', hasDynamicTitle: false });
+    const cycle = scanJest('const left = right; const right = left; test(left, () => {});');
+    expect(onlyTest(cycle).hasDynamicTitle).toBe(true);
+  });
+
+  it('preserves Jest table binding when a class overrides name with a number', () => {
+    const head = 'class Lot { static name = 42; }';
+    const result = scanJest(
+      `${head}
+test.each([1, 2])(Lot, () => {}, 700);
+test.each([1, 2])(Lot.name, () => {}, 800);
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((t) => [t.title, t.timeout])).toEqual([
+      ['42', null],
+      ['42', 800],
+      ['42', 800],
+    ]);
+    const suite = scanJest(`${head} test('opens the book', () => {}); describe.each([1, 2])(Lot, () => {});`);
+    expect(testNamed(suite, 'opens the book').state).toBe('notLoaded');
+  });
+
+  it('checks the ordinary describe callback before its title, and the table title before the callback', () => {
+    for (const [call, code] of [
+      ['describe(["bid"])', 'test-without-body'],
+      ['describe(["bid"], 7)', 'test-without-body'],
+      ['describe.each(["bid"])(false)', 'invalid-chain'],
+    ]) {
+      const result = scanJest(`test('opens the market', () => {});\n${call};`);
+      expect(codes(result)).toEqual([code]);
+      expect(testNamed(result, 'opens the market').state).toBe('notLoaded');
+    }
   });
 });
 

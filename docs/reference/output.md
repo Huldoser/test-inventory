@@ -99,7 +99,7 @@ the file around it.
 | `hasDynamicReason`                                                              | boolean                        | The reason could not be worked out to a string; `reason` holds its source text.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `stateSource`                                                                   | string or null                 | Where the state is set: `test`, `suite` or `file`, or `config` for a Vitest tag the config defines. `null` for active tests.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `stateLine`                                                                     | number or null                 | The line that sets the state. `null` for active tests and a state from the config.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `isParallel`, `isSerial`                                                        | boolean                        | The mode set in the file, or by a Vitest tag's `concurrent`. Both `false` means the framework's default. Where neither sets a mode, `isParallel` is true when every project that runs the test sets Playwright's `fullyParallel` or Vitest's `sequence.concurrent`, or for Bun, when a `concurrentTestGlob` matches the file.                                                                                                                                                                                                                                                                                       |
+| `isParallel`, `isSerial`                                                        | boolean                        | The file or a Vitest tag can set the mode. Playwright defaults to parallel when every selected project enables `fullyParallel`. Vitest reads `sequence.concurrent` from the root through version 4 and from each selected project in version 5. Bun checks `concurrentTestGlob`. See [Vitest scheduling](/frameworks/vitest) for how test and suite options interact with the default.                                                                                                                                                                                                                              |
 | `tags`                                                                          | string[]                       | Tags of the test and every describe around it, outermost first, without duplicates; for Playwright 1.57 and later, the config's `tag` first.                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `annotations`                                                                   | object[]                       | `{ type, description, lineStart }` from Playwright's `annotation` option and `test.info().annotations.push()`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `comments`                                                                      | string[]                       | The comment lines directly above the test, without lint, compiler, formatter and coverage directives. By default only for tests that are not active.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -386,15 +386,32 @@ or from its `--root` or `--project`; Jest, Playwright and WebdriverIO read them 
 script names a config the scan can't read, such as a variable, the scan can't tell which files it runs and reports a
 `config-value-unknown` warning on the package.json in place of `file-not-run`. The runner is found past variables
 set before it, `cross-env`, `dotenv --`, `xvfb-run`, `xvfb-maybe`, the coverage tools `nyc`, `c8` and `mcr`, and the
-package managers that start a binary. When a script runs plain `playwright test` in a folder without a config,
+package managers that start a binary. When a script runs `playwright test` with or without simple file arguments in a folder without a config,
 discovery applies the default Playwright file matcher in that folder. The file's `config` is `null`.
 Currents' `pwc` and `pwc-p` count as Playwright, with the `--config` they pass on, and its `cypress-cloud` as Cypress,
 with `--config-file` and `--project`. Scripts that start the runner through a wrapper of their own, and configs only a
 CI workflow names, aren't followed. A file that a collected test file
 imports gets no warning either, as its tests run in that file.
 
-Without globs, the scan also discovers files through a package.json script when no config above the file runs it, or
-the one there can't be read.
+During discovery, a config used by a filtered package command contributes the files selected by its scripts.
+Vitest file filters support Windows short paths such as `C:/DESK~1/orders.spec.js`.
+`jest --runTestsByPath` takes exact paths from the script's folder, `vitest run` takes case-insensitive path
+substrings and `playwright test` matches regular expressions against full file paths. Several arguments or scripts
+select their combined set. Playwright file filters also collect prerequisite projects and teardown for a project whose selected
+files contain tests admitted by the project's title filters or may load tests from another module. An empty spec,
+a hook by itself, or a module that only exports constants does not activate setup.
+When a Playwright file filter matches only an enclosing describe, the matching tests keep their projects. Other
+tests in the same file have an empty `projects` list unless another package script selects them.
+A literal shell directory change such as `cd desk && jest --runTestsByPath tests/orders.spec.js` resolves the runner's paths from `desk`.
+A command without filters keeps the full selection for that config. An independent
+config can also select a file, and explicit scan globs can select files outside the commands' filters.
+
+The scanner reads simple path arguments made of letters, digits, spaces, underscores, hyphens, dots and slashes.
+It accepts the runner's config and root options, Jest's `--ci` and `--runInBand`, and Vitest's `--coverage` after
+`run`. With variables, shell globs or other unmodeled options, it uses the configured file set. With no Playwright
+config, discovery requires a plain command or supported file arguments.
+
+A script can also discover files when no config above the file runs it, or the one there can't be read.
 If a Playwright or Vitest config's projects are unknown but its top-level file settings are readable, discovery keeps
 the candidates those settings select. Their `projects` is `null`; a `config-value-unknown` error warns that project
 overrides may select other files or exclude these candidates. An unknown top-level file setting still needs explicit
@@ -473,15 +490,20 @@ globs retain declarations with empty `projects` and a `file-not-run` diagnostic.
 For Mocha:
 from the root, each `spec` entry as a glob, a file, a file named without its extension, or a folder, whose files with
 one of the `extension`s, `js`, `cjs` and `mjs` by default, are taken, those in folders below too with `recursive`,
-without those `ignore` matches as written, so that a pattern starting with `./` matches nothing; and the `file` entries,
-which Mocha loads first, and to which `ignore` doesn't apply. An extension may have several parts, as `spec.js`. The
+without those its `ignore` or `exclude` entries match. Mocha applies ignores to each spec's lookup result before
+resolving the path. A literal `./test/orders.js` keeps that prefix, while listing the directory `./test` returns
+`test/orders.js`. Mocha loads `file` entries before the specs, including extensionless modules and directory indexes.
+Ignores apply only to specs. An extension may have several parts, as `spec.js`. An extensionless spec can also match repeated suffixes, such as `orders.js.cjs`. Comma-separated extension and preload settings select every listed value. The
 default `spec` is `./test`. Scanned with globs, every file they match counts as run, without those `ignore` matches, as
 a project's scripts often give Mocha the spec on its command line, which no config shows. Without globs, a script that
 starts `mocha`, `_mocha` or `ts-mocha` in a folder runs the files its command line and config give, read from that
 folder: the `.mocharc` file `--config` names or that Mocha finds from there up, with the nearest package.json's `mocha`
-key, unless `--no-config` or `--no-package` leave them out; the specs it gives as arguments, along with the `spec`
-that remains; and its `--spec`, `--extension`, `--ignore`, `--file`, `--recursive` and `--ui` over the config's. Globs
-on the command line are read as Mocha reads quoted ones, also when a shell would expand them first. The config's
+key, unless `--no-config` or `--no-package` leave them out. Positional arguments and `--spec` add to configured specs.
+The command's `--extension`, `--ignore` and `--file` also add to the configured lists. Its `--recursive`,
+`--no-recursive` and `--ui` override the corresponding settings. Spec lookup checks for an existing literal
+path before expanding a glob. Command-line globs are read as Mocha reads quoted ones. When the root
+package has a readable Mocha command, discovery uses `./test` only for commands that have no spec. A separate
+script that runs plain `mocha` can therefore still collect files directly under `test/`. The config's
 `timeout`, which may be a string such as `'5s'`, and `retries` apply to every test.
 
 <!-- #endregion files-mocha -->

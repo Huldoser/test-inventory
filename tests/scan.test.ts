@@ -1137,6 +1137,108 @@ export function venueTests() {
     ]);
   });
 
+  it('registers tests from a helper called directly on require and ignores a local require function', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'checks/ledger.cjs': `const {test} = require('@playwright/test');
+        exports.settle = (side) => test(side + ' order settles', () => {});`,
+      'tests/orders.spec.cjs': `require('../checks/ledger.cjs')['settle']('buy');`,
+      'tests/account.spec.cjs': `function require() { return {settle() {}}; }
+        require('../checks/ledger.cjs').settle('sell');`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.cjs'] });
+    expect(
+      inventory.tests.map((test) => [test.title, test.relativeFilePath, test.declaredAt?.relativeFilePath]),
+    ).toEqual([['buy order settles', 'tests/orders.spec.cjs', 'checks/ledger.cjs']]);
+  });
+
+  it('collects Playwright tests registered by loading a local module once per spec', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.cjs': "require('./ledger.cjs');\nrequire('./ledger.cjs');\nrequire('./fees.cjs');",
+      'tests/ledger.cjs': `require('./orders.spec.cjs');
+        const {test}=require('@playwright/test');
+        test('settles an order', () => { require('./never.cjs'); });`,
+      'tests/fees.cjs': "const {test}=require('@playwright/test'); test('records a fee', () => {});",
+      'tests/never.cjs': "const {test}=require('@playwright/test'); test('checks the pending balance', () => {});",
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.cjs'] });
+    expect(
+      inventory.tests.map((test) => [
+        test.title,
+        test.relativeFilePath,
+        test.lineStart,
+        test.declaredAt?.relativeFilePath,
+      ]),
+    ).toEqual([
+      ['settles an order', 'tests/orders.spec.cjs', 1, 'tests/ledger.cjs'],
+      ['records a fee', 'tests/orders.spec.cjs', 3, 'tests/fees.cjs'],
+    ]);
+  });
+
+  it.each([
+    ["import type {Fee} from './fees.cjs';", false],
+    ["import {type Fee} from './fees.cjs';", false],
+    ["export {type Fee} from './fees.cjs';", false],
+    ["import {fee} from './fees.cjs';", false],
+    ["import {fee} from './fees.cjs'; type Amount = typeof fee;", false],
+    ["import {fee} from './fees.cjs'; const order = {fee: 2}; void order.fee;", false],
+    ["import {fee} from './fees.cjs'; function amount(fee: number) {return fee;}", false],
+    ["import {fee} from './fees.cjs'; void fee;", true],
+    ["import {fee} from './fees.cjs'; export {fee};", true],
+    ["import {} from './fees.cjs';", true],
+    ["export {} from './fees.cjs';", true],
+  ] as const)('loads Playwright registrations only through imports TypeScript retains: %s', async (source, loads) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.ts': source,
+      'tests/fees.cjs':
+        "const {test}=require('@playwright/test'); exports.fee=2; test('charges the order fee', () => {});",
+    });
+    const { tests } = await scan({ root, patterns: ['tests/*.spec.ts'] });
+    expect(tests.map((test) => test.title)).toEqual(loads ? ['charges the order fee'] : []);
+  });
+
+  it.each([
+    ["import {fee} from './fees'; export const view = () => <fee/>;", false],
+    ["import {fee} from './fees'; export const view = () => <div fee='2'/>;", false],
+    ["import {fee} from './fees'; export const view = () => <div data-fee={fee}/>;", true],
+    ["import {Fee} from './fees'; export const view = () => <Fee/>;", true],
+    ["import * as fees from './fees'; export const view = () => <fees.Fee/>;", true],
+    ["import {React} from './fees'; export const view = () => <></>;", true],
+    ["/** Settlement amounts are in cents. */ import {React} from './fees'; export const view = () => <div/>;", true],
+    ["/** @jsx desk.create */ import * as desk from './fees'; export const view = () => <div/>;", true],
+    [
+      "/** @jsx desk.create */ /** @jsxFrag desk.Fragment */ import {React} from './fees'; export const view = () => <div/>;",
+      false,
+    ],
+  ] as const)('retains Playwright TSX imports used by the emitted JSX: %s', async (source, loads) => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.tsx': source,
+      'tests/fees.ts':
+        "import {test} from '@playwright/test'; export const fee=2, Fee=()=>null, React={}; test('charges the order fee', () => {});",
+    });
+    const { tests } = await scan({ root, patterns: ['tests/*.spec.tsx'] });
+    expect(tests.map((test) => test.title)).toEqual(loads ? ['charges the order fee'] : []);
+  });
+
+  it('follows side-effect imports and re-exports that register Playwright tests during collection', async () => {
+    const root = project({
+      'package.json': PLAYWRIGHT_PACKAGE,
+      'tests/orders.spec.mjs': "import './desk.mjs';\nimport './ledger.mjs';",
+      'tests/desk.mjs': "export * from './ledger.mjs';",
+      'tests/ledger.mjs': `import { test } from '@playwright/test';
+        export const fee = 2;
+        export const registerLater = () => test('checks a later order', () => {});
+        test.describe('settlement desk', () => test('settles a sale', () => {}));`,
+    });
+    const inventory = await scan({ root, patterns: ['tests/*.spec.mjs'] });
+    expect(inventory.tests.map((test) => [test.fullName, test.lineStart, test.declaredAt?.relativeFilePath])).toEqual([
+      ['settlement desk > settles a sale', 1, 'tests/ledger.mjs'],
+    ]);
+  });
+
   it('follows a helper called as a member of the module, through a namespace import or require', async () => {
     const root = project({
       'package.json': JSON.stringify({ devDependencies: { mocha: '12.0.3' } }),

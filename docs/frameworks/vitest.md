@@ -53,6 +53,28 @@ repeat those options here.
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
 
+A suite's `only`, `skip` and `todo` options pass to its descendants. Before Vitest 4.1 they set the
+children's options without changing the suite's own mode. From 4.1 they also set the suite's mode. In Vitest 4 and
+earlier, an inherited `skip: false` can clear a test's `.skip`, and `todo: false` can clear its `.todo`. From Vitest 5
+the test's modifier wins over the inherited option. A test's own explicit option wins in both cases. A configured tag
+can override the inherited suite option in Vitest 5. In Vitest 4.1 the inherited option takes precedence over a tag.
+For example, a suite with `{ only: true }` can make a child marked `.skip` run. In Vitest 5 a tag with
+`only: false` restores that child's skip. The suite still focuses the file.
+
+From Vitest 4.0.17, a focused suite with focused tests or suites inside it selects those children.
+Other tests in the same suite have `isOnly: false`. Earlier versions also select the plain siblings.
+
+A suite's `fails: true` makes a test count as `expectedToFail` when the test inherits that option.
+A nested suite or test can clear it with `fails: false`. In Vitest 4 and earlier, an inherited
+`fails: false` also clears a test's `.fails` modifier. In Vitest 5 the modifier takes precedence.
+When a focus tag makes a skipped or todo test run, its own `.fails` or `fails: true` still applies.
+
+`isParallel` follows the runner's scheduling options. Before Vitest 4.1.6, a test with
+`concurrent: false` can still run concurrently when `sequence.concurrent` is enabled.
+From 4.1.6 that test setting takes precedence over the default. Through Vitest 4, all projects use the root config's `sequence.concurrent`. From Vitest 5,
+each project supplies its own default. Vitest 5 ignores the
+`sequential` option and reads `concurrent: false` to turn concurrency off.
+
 ## Example
 
 <!--@include: ../guide/examples.md#example-vitest-->
@@ -72,6 +94,10 @@ the one there. A script that starts Vitest in a package without a config runs Vi
 before Vitest 5 the config above it. It reads file and project selection,
 `test.globals`, run settings, modes, `allowOnly` and defined tags. A Vitest 3 project list in
 `vitest.workspace.*` or `test.workspace` is not read, so the config is taken to run the file.
+
+During discovery, a package script such as `vitest run orders` selects eligible files whose paths contain
+`orders`, ignoring case. A script can supply multiple filters, including a directory relative to the package.
+A literal `cd desk && vitest run` starts discovery in `desk`. Discovery collects files selected by any script using the config. See [package script file filters](/reference/output#configs).
 
 Paths and globs in `test.projects` start at `test.root`, then Vite's `root` if set.
 If the scan cannot read the root, it reports unknown membership for those entries.
@@ -98,7 +124,10 @@ Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%
 `%$` and `$name`, with values cut as the config of the project that runs the file cuts them:
 `taskTitleValueFormatTruncate`, or before Vitest 5 `chaiConfig.truncateThreshold`, and 40 characters, Vitest's default,
 when it sets neither. A table stays one record, with a `cases-not-expanded` warning, when the scan can't work out a
-value in it or its title, or the title would show an array or object.
+value in it or its title, or the title would show an array or object. A table shared by multiple projects also stays
+as one record when those projects shorten a case title differently. Cases whose titles agree still expand when the
+projects use different length limits. If the config computes the length at runtime, a table expands only when
+its case titles are independent of that setting.
 
 Loops over `var` are not expanded because the variable holds its last value by the time Vitest runs describes.
 Include source files when scanning in-source tests, and `*.test-d.ts` files for type tests. See the
@@ -122,6 +151,10 @@ the snapshot file for every test that reaches it.
 :::
 
 ## Supported syntax
+
+Vitest uses a function or class name as a title and calls an unnamed one `<anonymous>`.
+The scanner follows local aliases and reads a class's static `name` field when it can resolve its value.
+In `describe(function OrderBook() {}, collectOrders)`, Vitest calls `collectOrders` to collect the suite.
 
 <!--@include: ../reference/syntax.md#syntax-vitest-->
 

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import picomatch from 'picomatch';
 
 /** Node.js options that take their value as the next argument, so it is not a file to test. */
@@ -62,7 +63,7 @@ const VALUE_OPTIONS = new Set([
  */
 export function nodeTestCommands(script: string, setups = false): string[][] {
   const commands: string[][] = [];
-  for (const words of commandsOf(script)) {
+  for (const { words } of commandsOf(script)) {
     const node = words.findIndex((word) => /(^|[/\\])node(\.exe)?$/.test(word));
     if (node === -1) continue;
     let runsTests = false;
@@ -89,15 +90,17 @@ export function nodeTestCommands(script: string, setups = false): string[][] {
 }
 
 /** The commands of a script, each as its words, without quotes. */
-function commandsOf(script: string): string[][] {
+function commandsOf(script: string): { words: string[]; next: string }[] {
   // A word is quoted in whole or in part, as `--server-args="-screen 0 1280x1024x24"`, and the shell drops the quotes.
-  return script
-    .split(/&&|\|\||[;|]/)
-    .map((command) =>
-      [...command.matchAll(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g)].map(([word]) =>
-        word.replaceAll(/'([^']*)'|"([^"]*)"/g, '$1$2'),
-      ),
-    );
+  const commands = [];
+  let words: string[] = [];
+  for (const [word, separator] of script.matchAll(/(&&|\|\||[;|])|(?:[^\s'"&;|]+|'[^']*'|"[^"]*"|&(?!&))+/g)) {
+    if (separator) {
+      commands.push({ words, next: separator });
+      words = [];
+    } else words.push(word.replaceAll(/'([^']*)'|"([^"]*)"/g, '$1$2'));
+  }
+  return [...commands, { words, next: '' }];
 }
 
 /**
@@ -110,7 +113,7 @@ export function scriptsRunBy(scripts: Record<string, unknown>, name: string): st
   const visit = (current: string) => {
     if (run.includes(current) || !names.includes(current)) return;
     run.push(current);
-    for (const words of commandsOf(scripts[current] as string)) {
+    for (const { words } of commandsOf(scripts[current] as string)) {
       for (const called of calledScripts(words, names)) visit(called);
     }
   };
@@ -147,6 +150,7 @@ export type ScriptRunner = 'vitest' | 'jest' | 'playwright' | 'cypress' | 'webdr
 
 /** A command of a script that starts a test runner. */
 export interface RunnerCommand {
+  cwd?: string;
   /** The config it names, as written; null when it names none. */
   config: string | null;
   /** The folder it takes as the project's root, as written: Vitest's `--root`, Cypress's `--project`; else null. */
@@ -155,6 +159,8 @@ export interface RunnerCommand {
   unreadable: boolean;
   /** A plain playwright test command collects its default files even without a config. */
   playwrightDefaults?: true;
+  /** Static positional file filters, when every selection argument is readable. */
+  filters?: string[];
   /** For Mocha, which takes its files and settings from them, the words after the program. */
   args?: string[];
 }
@@ -216,14 +222,57 @@ const RUNNER_PACKAGES: Partial<Record<string, string>> = {
   mocha: 'mocha',
 };
 
+/** Only narrow discovery when every remaining argument has an unambiguous role. */
+function fileFilters(program: string, args: string[]): string[] {
+  let files: string[];
+  if (program === 'jest' && args.includes('--runTestsByPath')) {
+    files = args.filter((arg) => !['--runTestsByPath', '--ci', '--runInBand'].includes(arg));
+  } else if (program === 'vitest' && args[0] === 'run') {
+    files = args.slice(1).filter((arg) => arg !== '--coverage');
+  } else if (program === 'playwright') {
+    files = args;
+  } else return [];
+  // Variables, shell globs, redirects and options with unmodeled values cannot safely narrow a command.
+  return files.every((file) => !/^[-~]/.test(file) && /^(?:[A-Za-z]:\/)?[\p{L}\p{N}_./ ~-]+$/u.test(file)) ? files : [];
+}
+
 /**
  * The commands of a package.json script that start a runner, with the config and root each names. Only a command whose
  * program is the runner counts, so `eslint --plugin jest -c .eslintrc.json` and `npm run jest` start none.
  */
-export function runnerCommands(script: string, runner: ScriptRunner): RunnerCommand[] {
+export function runnerCommands(
+  script: string,
+  runner: ScriptRunner,
+  canEnter: (cwd: string) => boolean | null = () => true,
+): RunnerCommand[] {
   const { programs, config, root } = RUNNERS[runner];
   const found: RunnerCommand[] = [];
-  for (const words of commandsOf(script)) {
+  let cwd: string | null = '.';
+  let previous = '';
+  let success: boolean | null = null;
+  for (const { words, next } of commandsOf(script)) {
+    const before = previous;
+    previous = next;
+    if ((before === '&&' && success === false) || (before === '||' && success === true)) continue;
+    success = null;
+    if (words.length === 1 && ['true', 'false', ':'].includes(words[0])) {
+      success = words[0] !== 'false';
+      continue;
+    }
+    if (words[0] === 'cd' && before !== '|' && next !== '|') {
+      const args = words.slice(1);
+      if (args[0] === '-L') args.shift();
+      if (args[0] === '--') args.shift();
+      const [target] = args;
+      if (args.length !== 1 || !/^(?:[A-Za-z]:\/)?[\p{L}\p{N}_./ -]+$/u.test(target) || target.startsWith('-')) {
+        cwd = null;
+      } else {
+        const dir: string | null = path.isAbsolute(target) ? target : cwd === null ? null : path.join(cwd, target);
+        success = dir === null ? null : canEnter(dir);
+        if (success !== false) cwd = success ? dir : null;
+      }
+      continue;
+    }
     const started = programOf(words);
     if (!started || !Object.hasOwn(programs, started.program)) continue;
     const subcommands = programs[started.program];
@@ -232,17 +281,22 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
       if (!subcommands.includes(args[0])) continue;
       args = args.slice(1);
     }
-    const command: RunnerCommand = { config: null, root: null, unreadable: false };
+    const command: RunnerCommand = { config: null, root: null, unreadable: cwd === null };
+    if (cwd && cwd !== '.') command.cwd = cwd;
     if (started.program === 'playwright' && args.length === 0) command.playwrightDefaults = true;
     if (runner === 'mocha') command.args = args;
     if (runner === 'webdriverio') {
       const first = args.at(0) === 'run' ? args.at(1) : args.at(0);
       if (first !== undefined && !first.startsWith('-')) command.config = first;
     }
+    const remaining: string[] = [];
     for (let index = 0; index < args.length; index++) {
       const parts = args[index].split(/=(.*)/s);
       const key = config.includes(parts[0]) ? 'config' : root.includes(parts[0]) ? 'root' : null;
-      if (key === null) continue;
+      if (key === null) {
+        remaining.push(args[index]);
+        continue;
+      }
       const value = parts.at(1) ?? args.at(++index);
       if (value === undefined) command.unreadable = true;
       else command[key] = value;
@@ -250,6 +304,8 @@ export function runnerCommands(script: string, runner: ScriptRunner): RunnerComm
     // The shell expands a variable, and Jest reads a config that starts with `{` as the config itself.
     const values = [command.config, command.root].filter((value) => value !== null);
     if (values.some((value) => /[$%]/.test(value) || value.startsWith('{'))) command.unreadable = true;
+    const filters = fileFilters(started.program, remaining);
+    if (filters.length) command.filters = filters;
     found.push(command);
   }
   return found;
@@ -390,7 +446,8 @@ export function mochaArguments(args: readonly string[]): MochaArguments {
     const valued = MOCHA_VALUES[name];
     if (valued === undefined) {
       const flag = MOCHA_FLAGS[name];
-      if (flag !== undefined) options.set(flag, []);
+      if (word === '--no-recursive') options.set('recursive', ['false']);
+      else if (flag !== undefined) options.set(flag, flag === 'recursive' && option[2] === 'false' ? ['false'] : []);
       continue;
     }
     const value = option.at(2) ?? args.at(++index);

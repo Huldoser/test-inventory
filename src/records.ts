@@ -12,6 +12,7 @@ import {
   type Scope,
 } from './extract.ts';
 import { problem } from './frameworks/common.ts';
+import { legacyVitestParallel, suiteConcurrency, type ConcurrencyRules } from './vitest-concurrency.ts';
 import type { Dependencies } from './dependency-hash.ts';
 import { hashNodes, shortHash } from './hash.ts';
 import type { Mode, Problem, RunSettings, Span, State, StateOption, StateSetting, TestDeclaration } from './model.ts';
@@ -52,7 +53,7 @@ export interface ConfigDefaults {
   retryText: string | null;
   repeatsText: string | null;
   /** Whether tests run in parallel unless the file says otherwise: Playwright's `fullyParallel`, Vitest's `sequence.concurrent`. */
-  parallel: boolean;
+  parallel: boolean | null | undefined;
 }
 
 /** What a Vitest tag the config defines sets on the tests that carry it. */
@@ -80,8 +81,6 @@ export interface VitestTags {
   isStrict: boolean;
   /** From Vitest 5 a tag's options win over the describe's around the test; before, the describe's win. */
   beatsDescribes: boolean;
-  /** Vitest 4.1 passes the config's `sequence.concurrent`, when it sets one, to every test, over a tag's `concurrent`. */
-  concurrentBeatsTags: boolean;
 }
 
 /** What the config the file uses gives it. */
@@ -107,10 +106,13 @@ export interface FileConfig {
 }
 
 interface RecordOptions {
+  vitestConcurrency: ConcurrencyRules | null;
   relativeFilePath: string;
   framework: Framework;
   /** Jasmine's focus rules apply: for Jasmine, and for WebdriverIO on Jasmine. */
   focusesLikeJasmine: boolean;
+  /** From 4.0.17, Vitest selects inner focused tests and suites over unmarked siblings in a focused suite. */
+  narrowsVitestFocus: boolean;
   comments: CommentsMode;
   isTypeTest: boolean;
   /** A Vitest 5 benchmark file, such as `*.bench.ts`. */
@@ -192,6 +194,11 @@ function undefinedTags(extraction: Extraction, tags: VitestTags): { problem: Pro
 const FLAG_ORDER: State[] = ['skip', 'todo', 'expectedToFail'];
 const ALWAYS = { condition: null, reason: null, hasDynamicReason: false };
 
+/** Vitest checks allowOnly during collection, before a hook or a test body can skip the test. */
+function skippedAtCollection(setting: StateSetting): boolean {
+  return !setting.afterLoad && setting.condition === null && (setting.state === 'skip' || setting.state === 'todo');
+}
+
 /**
  * The states of a test's declaration with those of its Vitest tags. Vitest merges the options and then takes `only`
  * over `skip` over `todo`, so a `.only` on either side drops the skip and todo of both.
@@ -199,18 +206,41 @@ const ALWAYS = { condition: null, reason: null, hasDynamicReason: false };
 function declaredStates(
   declared: StateSetting[],
   options: TagOptions | null,
-  { isOnly, skipPassedDown }: TestDeclaration,
+  { isOnly, skipPassedDown, todoPassedDown, failsPassedDown, failsLine }: TestDeclaration,
+  tagsFirst: boolean,
+  focusedBySuite: boolean,
 ): Chosen[] {
-  const own = declared.map((setting) => ({ setting, source: 'test' as const }));
-  if (options === null) return own;
+  const clearsSkip = tagsFirst && options?.skip === false;
+  const inheritedSkip = clearsSkip ? undefined : skipPassedDown;
+  const states = clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared;
+  const own: Chosen[] =
+    focusedBySuite || options?.only
+      ? failsLine === undefined
+        ? []
+        : [{ setting: { ...ALWAYS, state: 'expectedToFail', line: failsLine }, source: 'test' }]
+      : states.map((setting) => ({ setting, source: 'test' }));
+  const inherited: Chosen[] =
+    todoPassedDown !== undefined && !inheritedSkip && !(tagsFirst && options?.todo !== undefined)
+      ? [{ setting: { ...ALWAYS, state: 'todo', line: todoPassedDown }, source: 'suite' }]
+      : [];
+  if (failsPassedDown !== undefined && options?.fails === undefined) {
+    inherited.push({ setting: { ...ALWAYS, state: 'expectedToFail', line: failsPassedDown }, source: 'suite' });
+  }
+  if (options === null && !inherited.length) return own;
   // A describe's `skip` option is merged in too, where the scan otherwise leaves it to the describe's own state; the
   // test's own skip, when it has one, sorts first.
   const passed: Chosen[] =
-    skipPassedDown === undefined
+    options === null || inheritedSkip === undefined
       ? []
-      : [{ setting: { ...ALWAYS, state: 'skip', line: skipPassedDown }, source: 'suite' }];
-  const all = [...own, ...passed, ...tagStates(options).map((setting) => ({ setting, source: 'config' as const }))];
-  const kept = isOnly || options.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
+      : [{ setting: { ...ALWAYS, state: 'skip', line: inheritedSkip.line }, source: 'suite' }];
+  const all = [
+    ...own,
+    ...passed,
+    ...inherited,
+    ...(options ? tagStates(options).map((setting) => ({ setting, source: 'config' as const })) : []),
+  ];
+  const kept =
+    isOnly || focusedBySuite || options?.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
   return kept.sort((a, b) => FLAG_ORDER.indexOf(a.setting.state) - FLAG_ORDER.indexOf(b.setting.state));
 }
 
@@ -370,6 +400,7 @@ class RecordBuilder {
   private focused = new Set<Scope>();
   /** Jasmine: scopes with a focused spec or describe below them, whose own focus Jasmine gives up for the inner one. */
   private focusedBelow = new Set<Scope>();
+  private readonly inheritedVitestFocus = new Map<PendingTest, Scope>();
 
   constructor(parsed: ParsedFile, options: RecordOptions) {
     this.parsed = parsed;
@@ -412,6 +443,7 @@ class RecordBuilder {
       this.parsed.source.line((item.node as Span).start),
     );
     if (lines.length > 0) this.rejectedAt = Math.min(...lines);
+    if (extraction.registrationStoppedAt !== undefined) this.rejectedAt = extraction.registrationStoppedAt;
     this.keepsEarlierTests = rejecting.length > 0 && rejecting.every((item) => item.keepsEarlierTests === true);
     this.focused = new Set(extraction.tests.filter((test) => test.declaration.isOnly).map((test) => test.scope));
     const focusedAt = [
@@ -434,6 +466,8 @@ class RecordBuilder {
     // A subtest in a named callback can precede its parent's declaration in source order.
     for (const [index, pending] of extraction.tests.entries()) {
       if (pending.parent) tests[index].parentTestId = this.testIds.get(pending.parent) as string;
+      const focusedSuite = this.inheritedVitestFocus.get(pending);
+      if (focusedSuite && this.focusedBelow.has(focusedSuite)) tests[index].isOnly = false;
     }
     for (const item of problems) {
       const found = this.diagnostic(item);
@@ -511,10 +545,7 @@ class RecordBuilder {
   private suite(pending: PendingSuite): SuiteRecord {
     const { scope, declaration, call } = pending;
     const skipped =
-      this.options.framework === 'vitest' &&
-      outward(scope).some((parent) =>
-        parent.states.some((setting) => ['skip', 'todo'].includes(setting.state) && setting.condition === null),
-      );
+      this.options.framework === 'vitest' && outward(scope).some((parent) => parent.states.some(skippedAtCollection));
     if (declaration.isOnly && !skipped) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
     const parents = outward(scope).slice(1, -1).reverse();
     const title = declaration.title;
@@ -543,7 +574,10 @@ class RecordBuilder {
       condition: chosen?.setting.condition ?? null,
       reason: chosen?.setting.reason ?? null,
       hasDynamicReason: chosen?.setting.hasDynamicReason ?? false,
-      isParallel: scope.mode === 'parallel',
+      isParallel:
+        declaration.vitestConcurrency && this.options.vitestConcurrency
+          ? suiteConcurrency({}, declaration.vitestConcurrency, this.options.vitestConcurrency).concurrent === true
+          : scope.mode === 'parallel',
       isSerial: scope.mode === 'serial',
       isShuffled: declaration.isShuffled,
       isParameterized: declaration.isParameterized,
@@ -647,12 +681,27 @@ class RecordBuilder {
       ...declaration.details.tags,
     ]);
     const fromTags = this.tagOptions(tags, declaration.ownStateOptions ?? []);
+    const focusedBySuite = declaration.inheritsOnly === true && fromTags?.only !== false;
+    const declaredOnly = declaration.isOnly || focusedBySuite || fromTags?.only === true;
+    if (this.options.narrowsVitestFocus) {
+      // Tag and inherited options can focus a sibling that appears later in the file.
+      if (declaredOnly) {
+        for (const scope of scopes) this.focusedBelow.add(scope);
+      } else {
+        const nearest = scopes.find((scope) => scope.isOnly);
+        if (nearest) this.inheritedVitestFocus.set(pending, nearest);
+      }
+    }
     // In Vitest 5 the options of a test's tags win over those the describes pass down; before, the describes' win.
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
     const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
-    const focus = this.options.focusesLikeJasmine ? this.jasmineFocus(pending, scopes) : undefined;
+    const focus = this.options.focusesLikeJasmine
+      ? pending.registrationStoppedAt === undefined
+        ? this.jasmineFocus(pending, scopes)
+        : null
+      : undefined;
     const mocha =
       !this.options.focusesLikeJasmine && ['mocha', 'cypress', 'webdriverio'].includes(this.options.framework);
     // A focus inside an `xdescribe` runs, as the describe's own skip doesn't reach it; `pending()` still does. An
@@ -665,7 +714,11 @@ class RecordBuilder {
     const overriding = OVERRIDING_DESCRIBES[this.options.framework];
     const around = scopes.flatMap((scope, index) =>
       scope.states
-        .filter((setting) => !declaredSkip(scope, index, setting))
+        .filter(
+          (setting) =>
+            !declaredSkip(scope, index, setting) &&
+            !(this.options.framework === 'vitest' && setting.state === 'expectedToFail'),
+        )
         .map((setting) => ({
           setting,
           source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),
@@ -680,7 +733,13 @@ class RecordBuilder {
       : chooseState([
           // Outermost first, as the outermost of them decides.
           ...around.filter((candidate) => candidate.overrides).reverse(),
-          ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration),
+          ...declaredStates(
+            pending.states.slice(0, declaration.states.length),
+            fromTags,
+            declaration,
+            tagsFirst,
+            focusedBySuite,
+          ),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
           // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
           ...parents.flatMap((parent) =>
@@ -689,13 +748,15 @@ class RecordBuilder {
           ...around.filter((candidate) => !candidate.overrides),
         ]);
     // When the runner refuses the file, no test in it runs, whatever else is written, or none after the refused call.
-    const scopeFailure = scopes
-      .map((scope) => this.rejectedScopes.get(scope))
-      .find(
-        (failure) => failure !== undefined && (this.options.framework === 'bun' || located.start >= failure.offset),
-      );
+    const scopeFailureLine =
+      (this.rejectedAt === null ? pending.registrationStoppedAt : undefined) ??
+      scopes
+        .map((scope) => this.rejectedScopes.get(scope))
+        .find(
+          (failure) => failure !== undefined && (this.options.framework === 'bun' || located.start >= failure.offset),
+        )?.line;
     const rejected =
-      scopeFailure !== undefined ||
+      scopeFailureLine !== undefined ||
       (this.rejectedAt !== null &&
         !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt));
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
@@ -704,7 +765,7 @@ class RecordBuilder {
       ...describes.flatMap((scope) => suiteOf(scope).declaration.title?.text ?? []),
       ...parents.map((parent) => parent.declaration.title.text),
     ];
-    const tagConcurrent = this.options.config?.tags?.concurrentBeatsTags ? undefined : fromTags?.concurrent;
+    const tagConcurrent = fromTags?.concurrent;
     const tagMode: Mode | null = tagConcurrent === undefined ? null : tagConcurrent ? 'parallel' : 'default';
     const [mode = null] = tagged(
       [declaration.mode],
@@ -724,7 +785,7 @@ class RecordBuilder {
         ? focus !== null
         : mocha
           ? this.mochaFocus(pending, scopes)
-          : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
+          : declaredOnly || scopes.some((scope) => scope.isOnly);
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments
@@ -754,12 +815,7 @@ class RecordBuilder {
         ),
       );
     }
-    if (
-      (declaration.isOnly || fromTags?.only === true) &&
-      chosen &&
-      chosen.source !== 'test' &&
-      chosen.setting.state === 'skip'
-    ) {
+    if (declaredOnly && chosen && chosen.source !== 'test' && chosen.setting.state === 'skip') {
       this.diagnostics.push(
         this.diagnostic(
           problem(
@@ -803,8 +859,13 @@ class RecordBuilder {
       condition: setting?.condition ?? null,
       reason: setting?.reason ?? null,
       hasDynamicReason: setting?.hasDynamicReason ?? false,
-      stateSource: scopeFailure ? 'suite' : rejected ? 'file' : (chosen?.source ?? null),
-      stateLine: scopeFailure ? scopeFailure.line : rejected ? this.rejectedAt : (setting?.line ?? null),
+      stateSource:
+        scopeFailureLine !== undefined && pending.scope.kind === 'describe'
+          ? 'suite'
+          : rejected
+            ? 'file'
+            : (chosen?.source ?? null),
+      stateLine: scopeFailureLine ?? (rejected ? this.rejectedAt : (setting?.line ?? null)),
       isParallel: mode === 'parallel',
       isSerial: mode === 'serial',
       tags,
@@ -849,13 +910,21 @@ class RecordBuilder {
       projects: null,
       defaults: null,
     };
-    const skippedOnly = chosen && ['skip', 'todo'].includes(chosen.setting.state) && chosen.setting.condition === null;
-    if (declaration.isOnly && this.options.framework === 'vitest' && !skippedOnly) {
+    const skippedOnly = chosen && skippedAtCollection(chosen.setting);
+    if (declaredOnly && this.options.framework === 'vitest' && !skippedOnly) {
       this.forbidOnly(located, pending.site ? null : pending.call, forbidOnly);
     }
     return {
       ...withConfig(record, defaults),
-      isParallel: record.isParallel || (mode === null && defaults?.parallel === true),
+      isParallel: this.options.vitestConcurrency
+        ? legacyVitestParallel(
+            this.options.vitestConcurrency,
+            describes.map((scope) => suiteOf(scope).declaration.vitestConcurrency),
+            declaration.vitestConcurrency,
+            fromTags?.concurrent,
+            defaults?.parallel,
+          )
+        : record.isParallel || (mode === null && defaults?.parallel === true),
       projects,
     };
   }

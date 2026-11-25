@@ -1,12 +1,13 @@
 import type { RunsWith } from './config-dependencies.ts';
 import { DependencyGraph, fileDependencies, type Place, type SnapshotFiles } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
-import { extract, noHooks, type Frame } from './extract.ts';
-import { parseModule } from './frameworks/bindings.ts';
+import { extract, initializesLocalModule, noHooks, type Frame } from './extract.ts';
+import { importsFrom, parseModule } from './frameworks/bindings.ts';
 import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
 import { VitestAdapter } from './frameworks/vitest.ts';
+import { concurrencyRules } from './vitest-concurrency.ts';
 import { JestAdapter } from './frameworks/jest.ts';
 import { MochaAdapter, type MochaInterface } from './frameworks/mocha.ts';
 import { BunAdapter } from './frameworks/bun.ts';
@@ -29,10 +30,12 @@ export interface FileSettings {
   framework: Framework;
   /** `[major, minor]` of the framework version; null applies the newest rules. */
   version: [number, number] | null;
+  patch?: number;
   comments: CommentsMode;
   /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
   expandCases?: boolean;
   readModule: ModuleReader | null;
+  initializeModule?: (file: string) => boolean;
   /** The project root, left out of error messages so that the output has no absolute paths. */
   root: string | null;
   /** Whether the config runs the file as a benchmark; null takes it from the file's name, as Vitest 5's default does. */
@@ -41,8 +44,8 @@ export interface FileSettings {
   config?: FileConfig | null;
   /** The interface Mocha's config sets for the tests: `describe` and `it`, or `suite` and `test`. */
   mochaInterface?: MochaInterface;
-  /** The length Vitest's config shortens a value in a case title to; Vitest's default, 40, when unset. */
-  titleTruncate?: number;
+  /** The distinct case-title truncation settings for this file's Vitest projects. */
+  titleThresholds?: (number | null)[];
   /** The framework a WebdriverIO config runs the specs with. */
   webdriverioFramework?: WebdriverIOFramework;
   /** Shared by the files of one scan, so that code many tests reach is read once. */
@@ -56,6 +59,7 @@ export interface FileSettings {
 }
 
 export interface FileResult extends FileRecords {
+  unknownRegistration?: boolean;
   usesGlobals: boolean;
 }
 
@@ -67,7 +71,7 @@ const ADAPTERS: Record<
   (parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, settings: FileSettings) => Adapter
 > = {
   playwright: (parsed, file, readModule) => new PlaywrightAdapter(parsed.program, file, readModule),
-  vitest: (parsed, file, readModule, settings) => new VitestAdapter(parsed, file, readModule, settings.titleTruncate),
+  vitest: (parsed, file, readModule, settings) => new VitestAdapter(parsed, file, readModule, settings.titleThresholds),
   jest: (parsed, file, readModule) => new JestAdapter(parsed, file, readModule),
   mocha: (parsed, file, readModule, settings) => new MochaAdapter(parsed, file, readModule, settings.mochaInterface),
   jasmine: (parsed, file, readModule) => new JasmineAdapter(parsed, file, readModule),
@@ -99,10 +103,48 @@ export function noRecords(relativeFilePath: string): Omit<FileRecords, 'diagnost
   return { file: fileRecord(relativeFilePath, noHooks(), { suites: [], tests: [] }), suites: [], tests: [] };
 }
 
+export interface PlaywrightSelection {
+  parsed: ParsedFile | null;
+  imports: Set<string>;
+  records: () => FileRecords | null;
+}
+
+/** Record module initialization in collection order. A spec that imports only Playwright needs its records only
+ * when script filters or project dependencies select among its tests. */
+export function playwrightSelection(
+  module: ModuleSource | { reason: string },
+  version: FileSettings['version'],
+  preloaded?: Set<string>,
+): PlaywrightSelection {
+  const imports = new Set<string>();
+  if ('reason' in module) return { imports, parsed: null, records: () => null };
+  const parsed = parseModule(module);
+  let cached: FileRecords | null | undefined;
+  const records = () => {
+    if (cached === undefined) {
+      const result = scanFile(parsed, module.relativeFilePath, {
+        framework: 'playwright',
+        version,
+        readModule: module.readModule,
+        comments: 'none',
+        root: null,
+        initializeModule: (name) => {
+          imports.add(name);
+          return !preloaded?.has(name);
+        },
+      });
+      cached = result.diagnostics.length || result.unknownRegistration ? null : result;
+    }
+    return cached;
+  };
+  if (importsFrom(parsed.program, initializesLocalModule)) records();
+  return { imports, records, parsed };
+}
+
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
-export function scanFile(code: string, relativeFilePath: string, settings: FileSettings): FileResult {
+export function scanFile(code: string | ParsedFile, relativeFilePath: string, settings: FileSettings): FileResult {
   try {
-    const parsed = parseFile(relativeFilePath, code);
+    const parsed = typeof code === 'string' ? parseFile(relativeFilePath, code) : code;
     const diagnostics = [];
     if (parsed.error) {
       const { message, start, end } = parsed.error;
@@ -129,7 +171,12 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
         const helper = parseModule(module);
         return helper.error ? null : frame(helper, module.relativeFilePath, settings, module.readModule, exports);
       },
-      { expandCases: settings.expandCases ?? false, version: settings.version },
+      {
+        expandCases: settings.expandCases ?? false,
+        version: settings.version,
+        collectImports: settings.framework === 'playwright' && settings.readModule !== null,
+        initializeModule: settings.initializeModule,
+      },
     );
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);
     const unfollowed: Place[] = [];
@@ -148,6 +195,10 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
       focusesLikeJasmine:
         settings.framework === 'jasmine' ||
         (settings.framework === 'webdriverio' && settings.webdriverioFramework === 'jasmine'),
+      vitestConcurrency: settings.framework === 'vitest' ? concurrencyRules(settings.version, settings.patch) : null,
+      narrowsVitestFocus:
+        settings.framework === 'vitest' &&
+        (atLeast(settings.version, 4, 1) || (settings.version?.[0] === 4 && (settings.patch ?? 0) >= 17)),
       comments: settings.comments,
       isTypeTest,
       // Vitest 5's default `benchmark.include`, when no config says.
@@ -166,6 +217,7 @@ export function scanFile(code: string, relativeFilePath: string, settings: FileS
         ...unfollowed.map((place) => toDiagnostic(place.problem, place.relativeFilePath, place.source)),
       ],
       usesGlobals: extraction.usesGlobals,
+      unknownRegistration: extraction.unknownRegistration,
     };
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error);

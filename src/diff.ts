@@ -1,56 +1,9 @@
 import { checkInventory } from './inventory-input.ts';
 import { OptionsError } from './options.ts';
-import type { Framework, Inventory, TestRecord, Tool } from './types.ts';
+import type { ChangeKind, CloneGroup, Inventory, InventoryDiff, MatchMethod, TestChange, TestRecord } from './types.ts';
 import { toolVersion } from './version.ts';
 
-/** Changes a comparison can report; one matched test can have several. */
-export type ChangeKind =
-  | 'added'
-  | 'removed'
-  | 'moved'
-  | 'renamed'
-  | 'bodyChanged'
-  | 'dependenciesChanged'
-  | 'newlySkipped'
-  | 'reEnabled'
-  | 'stateChanged'
-  | 'tagsChanged'
-  | 'metadataChanged';
-
-/** The evidence that two records identify the same test; null for an addition or removal. */
-export type MatchMethod = 'id' | 'bodyHash' | 'bodyHashAndFile' | 'bodyHashAndSuite' | 'bodyHashAndDependencies';
-
-/** One addition, removal or changed test. Locations and records come from the saved scans unchanged. */
-export type TestChange = {
-  kinds: ChangeKind[];
-  /** Changed record keys, excluding locations and ids. Hashes are included only when comparable. */
-  changedFields: (keyof TestRecord)[];
-} & (
-  | { match: MatchMethod; before: TestRecord; after: TestRecord }
-  | { match: null; before: TestRecord; after: null }
-  | { match: null; before: null; after: TestRecord }
-);
-
-/** Tests with identical syntax-tree bodies, including trivial bodies; this does not prove they test the same thing. */
-export interface CloneGroup {
-  bodyHash: string;
-  testIds: string[];
-}
-
-/** The deterministic comparison of two saved inventories. */
-export interface InventoryDiff {
-  schemaVersion: 1;
-  tool: Tool;
-  framework: Framework;
-  beforeToolVersion: string;
-  afterToolVersion: string;
-  hashesComparable: boolean;
-  /** Category counts overlap; changed counts matched tests, while unchanged counts matches with no changes. */
-  summary: Record<ChangeKind | 'changed' | 'unchanged', number>;
-  changes: TestChange[];
-  clones: { before: CloneGroup[]; after: CloneGroup[] };
-  warnings: string[];
-}
+export type { ChangeKind, CloneGroup, InventoryDiff, MatchMethod, TestChange } from './types.ts';
 
 const KINDS: ChangeKind[] = [
   'added',

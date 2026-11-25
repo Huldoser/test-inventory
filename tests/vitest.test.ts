@@ -3,6 +3,16 @@ import { codes, onlyTest, scanVitest, testNamed, titles, VITEST_IMPORT } from '.
 import type { Inventory } from '../src/index.ts';
 
 describe('Vitest imports', () => {
+  it('recognizes an in-source test guard inside a block without marking its test conditional', () => {
+    const inventory = scanVitest(`{
+      if (import.meta.vitest) {
+        const {test} = import.meta.vitest;
+        test('averages closing prices', () => {});
+      }
+    }`);
+    expect(onlyTest(inventory)).toMatchObject({ title: 'averages closing prices', isInCondition: false });
+  });
+
   it('recognizes test, it, describe and suite, also renamed', () => {
     const inventory = scanVitest(`
 import { describe as group, it, suite, test as check } from 'vitest';
@@ -686,6 +696,71 @@ describe.todo('one-cancels-other orders', { todo: false }, () => {
     ]);
   });
 
+  it.each([
+    ['1.6.1', true, false],
+    ['2.0.5', false, false],
+    ['2.1.2', false, false],
+    ['2.1.3', true, true],
+    ['4.1.12', true, true],
+  ] as const)(
+    'resolves concurrency requests inside sequential suites in Vitest %s',
+    (frameworkVersion, chained, cleared) => {
+      const inventory = scanVitest(
+        `${VITEST_IMPORT}
+describe.sequential('closing auction', () => {
+  describe.concurrent('pairs', () => {
+    test('matches hedges', () => {});
+  });
+  describe('closing trades', {sequential:false}, () => {
+    test('books both legs', () => {});
+  });
+});`,
+        { frameworkVersion },
+      );
+      expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+        ['matches hedges', chained],
+        ['books both legs', cleared],
+      ]);
+    },
+  );
+
+  it.each(['3.2.7', '4.1.12'])('records the concurrency requested on a Vitest %s suite', (frameworkVersion) => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe('opening pairs', {sequential:false}, () => {});
+describe('auction book', {concurrent:true,sequential:true}, () => {});
+describe.concurrent('settlement', {concurrent:false}, () => {});
+describe.concurrent('closing prices', {sequential:true}, () => {});`,
+      { frameworkVersion },
+    );
+    expect(inventory.suites.map((s) => [s.title, s.isParallel])).toEqual([
+      ['opening pairs', true],
+      ['auction book', false],
+      ['settlement', false],
+      ['closing prices', false],
+    ]);
+  });
+
+  it('ignores a sequential option on a suite or test in Vitest 5', () => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe.concurrent('opening auction', () => {
+  test('publishes a price', { sequential: true }, () => {});
+  describe('closing book', { sequential: true }, () => {
+    test('settles a fill', () => {});
+  });
+});
+test('records a halt', { sequential: process.env.CLOSED }, () => {});`,
+      { frameworkVersion: '5.1.1' },
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+      ['publishes a price', true],
+      ['settles a fill', true],
+      ['records a halt', false],
+    ]);
+    expect(codes(inventory)).toEqual([]);
+  });
+
   it("lets a test's chain set its mode over its options", () => {
     const inventory = scanVitest(
       `${VITEST_IMPORT}
@@ -699,6 +774,133 @@ describe.concurrent('quotes', () => {
     expect(inventory.tests.map((test) => [test.title, test.isParallel])).toEqual([
       ['fills a market order', true],
       ['streams quotes', false],
+    ]);
+  });
+
+  it.each([
+    { version: '3.2.7', expected: ['active', 'active', 'active', 'active'] },
+    { version: '4.1.12', expected: ['skip', 'todo', 'active', 'active'] },
+    { version: '5.1.1', expected: ['skip', 'todo', 'skip', 'todo'] },
+  ])('applies explicit suite and test option overrides in Vitest $version', ({ version, expected }) => {
+    const inventory = scanVitest(
+      `import {describe,test} from 'vitest';
+describe('margin desk',{skip:true},()=>{test('recalls a loan',{skip:false},()=>{});});
+describe('cash desk',{todo:true},()=>{test('settles cash',{todo:false},()=>{});});
+describe('rates desk',{skip:false},()=>{test.skip('marks the bond',()=>{});});
+describe('energy desk',{todo:false},()=>{test.todo('delivers the contract',()=>{});});`,
+      { frameworkVersion: version },
+    );
+    expect(inventory.tests.map((t) => t.state)).toEqual(expected);
+  });
+
+  it.each(['3.2.7', '4.1.12', '5.1.0', '5.1.1'])(
+    'retains the originating suite for inherited todo in Vitest %s',
+    (frameworkVersion) => {
+      const inventory = scanVitest(
+        `import {describe,test} from 'vitest';
+describe('margin desk', {todo:true}, () => {
+  describe.skip('short positions', () => {
+    test('locates the borrow', () => {});
+    test('recalls a loan', {skip:false}, () => {});
+    test('marks the position', {todo:false}, () => {});
+  });
+  describe('long positions', {skip:true}, () => {
+    test('settles the trade', {skip:false}, () => {});
+  });
+});
+describe('cash desk', {skip:true}, () => {
+  describe('credit limits', {todo:true}, () => {
+    test('reviews a limit', {skip:false}, () => {});
+  });
+});`,
+        { frameworkVersion },
+      );
+      expect(inventory.tests.map((t) => [t.title, t.state, t.stateSource, t.stateLine])).toEqual([
+        ['locates the borrow', 'todo', 'suite', 2],
+        ['recalls a loan', 'todo', 'suite', 2],
+        ['marks the position', 'skip', 'suite', 3],
+        ['settles the trade', 'todo', 'suite', 2],
+        ['reviews a limit', 'todo', 'suite', 13],
+      ]);
+    },
+  );
+
+  it('passes a conditional skip from an active Vitest 3 suite to tests that inherit it', () => {
+    const inventory = scanVitest(
+      `import {describe,test} from 'vitest';
+describe('closing auction',{skip:process.env.FEED_CLOSED},()=>{
+  test('marks the bond',()=>{});
+  test('nets the orders',{skip:false},()=>{});
+});`,
+      { frameworkVersion: '3.2.7' },
+    );
+    expect(inventory.suites[0].isSkipped).toBe(false);
+    expect(inventory.tests.map((t) => [t.state, t.condition])).toEqual([
+      ['skip', 'process.env.FEED_CLOSED'],
+      ['active', null],
+    ]);
+  });
+
+  it.each([
+    { version: '3.2.7', nested: 'skip', cleared: false, child: false },
+    { version: '4.1.12', nested: 'active', cleared: true, child: false },
+    { version: '5.1.1', nested: 'active', cleared: true, child: true },
+  ])(
+    'applies inherited only independently of a suite focus in Vitest $version',
+    ({ version, nested, cleared, child }) => {
+      const inventory = scanVitest(
+        `import {describe,test} from 'vitest';
+describe('margin desk',{only:true},()=>{
+  test.skip('marks the margin',()=>{});
+  test.todo('settles the credit',()=>{});
+  describe.skip('liquidation',()=>{test('recalls shares',()=>{});});
+});
+describe('auction book',{only:true},()=>{
+  describe('auction',{only:false},()=>{test('posts a price',()=>{});});
+});
+describe('rates desk',{only:false},()=>{
+  test.only('prices a swap',()=>{});
+  test.only('records the spread',{skip:true},()=>{});
+});`,
+        { frameworkVersion: version },
+      );
+      expect(inventory.tests.map((t) => [t.title, t.state, t.isOnly])).toEqual([
+        ['marks the margin', 'active', true],
+        ['settles the credit', 'active', true],
+        ['recalls shares', nested, true],
+        ['posts a price', 'active', cleared],
+        ['prices a swap', 'active', child],
+        ['records the spread', child ? 'active' : 'skip', child],
+      ]);
+    },
+  );
+
+  it.each([
+    ['3.2.7', true],
+    ['4.0', true],
+    ['4.0.16', true],
+    ['4.0.17', false],
+    ['5.1.1', false],
+  ] as const)('selects siblings of an explicitly focused Vitest %s test', (frameworkVersion, keepsSiblings) => {
+    const inventory = scanVitest(
+      `${VITEST_IMPORT}
+describe.only('opening auction', () => {
+  test('posts a price', () => {});
+  describe('matched orders', () => {
+    test('reports the volume', () => {});
+    test.only('settles the cross', () => {});
+  });
+  describe.only('late orders', () => {
+    test('reports a late fill', () => {});
+  });
+});`,
+      { frameworkVersion },
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isOnly])).toEqual([
+      ['posts a price', keepsSiblings],
+      ['reports the volume', keepsSiblings],
+      ['settles the cross', true],
+      ['reports a late fill', true],
     ]);
   });
 
@@ -1626,5 +1828,35 @@ describe(2026, () => {
       ['2026 > true', false],
       ['2026 > null', false],
     ]);
+  });
+
+  it('runs the suite callback when a function supplies the Vitest title', () => {
+    const result = scanVitest(`${VITEST_IMPORT}
+describe(function Settlement() {}, () => {
+  test(() => {}, () => {});
+});
+describe(function () {}, { concurrent: true }, () => {
+  test(class {}, () => {});
+});
+`);
+    expect(result.tests.map((t) => t.fullName)).toEqual(['Settlement > <anonymous>', '<anonymous> > <anonymous>']);
+    expect(codes(result)).not.toContain('describe-not-called');
+  });
+
+  it('uses the name of an aliased Vitest title function and the static name of a class', () => {
+    const result = scanVitest(`${VITEST_IMPORT}
+class AuctionDesk { static name = "closing auction"; }
+const Desk = AuctionDesk;
+const fill = function bookTrade() {};
+describe(Desk, () => { test(fill, () => {}); });
+test(Desk.name, () => {});
+test(class { static name = ""; }, () => {});
+`);
+    expect(result.tests.map((t) => t.fullName)).toEqual([
+      'closing auction > bookTrade',
+      'closing auction',
+      '<anonymous>',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
   });
 });

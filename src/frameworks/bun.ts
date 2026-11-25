@@ -1,6 +1,6 @@
 import type { Argument, CallExpression, Expression } from 'oxc-parser';
 import { isFunctionNode, unwrap } from '../ast.ts';
-import { bunCaseTitle } from '../case-titles.ts';
+import { BUN_INVALID_TITLE, bunCaseTitle } from '../case-titles.ts';
 import type {
   ApiCall,
   CallContext,
@@ -15,6 +15,7 @@ import type {
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { HookCounts } from '../types.ts';
+import type { Value } from '../values.ts';
 import { requiredModule } from './bindings.ts';
 import {
   atLeast,
@@ -146,28 +147,44 @@ export class BunAdapter extends SuiteAdapter {
     const args = call.arguments;
     const callee = snippet(text(this.file, call.callee));
     const problems: Problem[] = [];
-    const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
-      stripTags: false,
-      functionNames: true,
-    });
-    if (titleProblem) problems.push(titleProblem);
     const spread = args.some((arg) => arg.type === 'SpreadElement');
     // (title, fn, options) or (title, options, fn), by whether the second is a function; a number is the timeout. A
     // name the scan can't follow, as an imported function, is taken for the function unless the third is one.
     const [second, third] = [args.at(1), args.at(2)];
     const isFunction = (node: Argument | undefined) =>
       isFunctionLike(node) || namedFunction(this.file, context.scopes, node) !== null;
+    const first = args.at(0);
+    const callbackOnly = args.length === 1 && isFunction(first);
+    const titleArg = callbackOnly ? undefined : first;
+    const written = titleArg && titleArg.type !== 'SpreadElement' ? unwrap(titleArg) : null;
+    const value = written ? this.file.values.resolve(written, context.scopes) : null;
+    const declaredName =
+      written && !value?.ok
+        ? this.file.values.functionName(written, context.scopes, {
+            inferStaticFieldNames: atLeast(this.file.version, 1, 4),
+          })
+        : null;
+    const unnamed = !titleArg || (value?.ok && (value.value === undefined || value.value === null));
+    const defaultName = kind === 'test' ? '(unnamed)' : '';
+    const { title, problem: titleProblem } = unnamed
+      ? { title: { text: defaultName, withoutTags: defaultName, isDynamic: false }, problem: null }
+      : readTitle(this.file, context.scopes, titleArg, { stripTags: false, functionNames: { bun: declaredName } });
+    if (titleProblem) problems.push(titleProblem);
     const fnSecond =
       third === undefined ||
       isFunction(second) ||
       (!isFunction(third) && !this.isKnownValue(second as Argument, context));
-    const body = spread ? undefined : fnSecond ? second : third;
+    const body = spread ? undefined : callbackOnly ? first : fnSecond ? second : third;
     const options = spread ? undefined : fnSecond ? third : second;
     const fn = isFunctionNode(body) ? body : null;
     const names = new Set(links.map((link) => link.name));
     const line = this.file.source.line(call.start);
     const states = this.states(links, line, context);
     const table = links.find((link) => link.name === 'each') ?? null;
+    const rows = (table?.args as Argument[] | undefined)?.at(0);
+    const resolvedRows = rows && rows.type !== 'SpreadElement' ? this.file.values.resolve(rows, context.scopes) : null;
+    const cases =
+      resolvedRows?.ok && Array.isArray(resolvedRows.value) ? this.tableCases(resolvedRows.value, title) : null;
     const run = this.options(options, problems, context);
     const base = {
       title,
@@ -179,17 +196,22 @@ export class BunAdapter extends SuiteAdapter {
       hashed: fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(table, problems, context) : null,
-      cases: table ? this.tableCases(table, title, context) : null,
+      cases: cases === BUN_INVALID_TITLE ? null : cases,
       problems,
     };
     const declared: ApiCall =
       kind === 'describe'
         ? { kind: 'describe', ...base, isShuffled: false, passesDown: null }
         : { kind: 'test', ...base, testContext: null, fixtures: [], takesAllFixtures: false, usesBench: false };
-    // Only a skipped or todo test may leave out its function.
-    const mayLeaveOut = kind === 'test' && (names.has('skip') || names.has('todo'));
-    const rows = (table?.args as Argument[] | undefined)?.at(0);
-    const resolvedRows = rows && rows.type !== 'SpreadElement' ? this.file.values.resolve(rows, context.scopes) : null;
+    if (cases === BUN_INVALID_TITLE) {
+      const refusal = problem(
+        'invalid-chain',
+        call,
+        `${callee}() cannot read a title property from null or undefined.`,
+        title.text,
+      );
+      return refused(call, refusal, context, () => declared);
+    }
     if (resolvedRows?.ok && !Array.isArray(resolvedRows.value)) {
       const source = snippet(text(this.file, rows as Argument));
       const refusal = problem(
@@ -200,9 +222,27 @@ export class BunAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, () => declared);
     }
-    // Bun wants a function second or third; a value that can't be one, as options alone, is none.
-    const missing = body === undefined || isValue(body);
-    if (missing && !spread && !mayLeaveOut) {
+    if (
+      (declaredName?.ok && declaredName.value === undefined) ||
+      (value?.ok && (typeof value.value === 'boolean' || (typeof value.value === 'object' && value.value !== null))) ||
+      written?.type === 'ArrayExpression' ||
+      written?.type === 'ObjectExpression'
+    ) {
+      const refusal = problem(
+        'invalid-chain',
+        call,
+        `${callee}() rejects this title. Bun fails to load the file.`,
+        callee,
+      );
+      return refused(call, refusal, context, () => declared);
+    }
+    const resolvedBody = body && body.type !== 'SpreadElement' ? this.file.values.resolve(body, context.scopes) : null;
+    const absent =
+      body === undefined || (resolvedBody?.ok && (resolvedBody.value === null || resolvedBody.value === undefined));
+    const mayLeaveOut = states.some(
+      (setting) => (setting.state === 'skip' || setting.state === 'todo') && setting.condition === null,
+    );
+    if (!spread && (absent ? !mayLeaveOut : isValue(body) || resolvedBody?.ok)) {
       const refusal = problem(
         'test-without-body',
         call,
@@ -310,14 +350,15 @@ export class BunAdapter extends SuiteAdapter {
   }
 
   /** The cases of a table the scan can work out: an item that is an array is spread into the arguments, another is one. */
-  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | null {
-    const first = (table.args as Argument[]).at(0);
-    const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
-    if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
-    return resolved.value.map((item, index) => {
+  private tableCases(items: Value[], title: Title): TableCase[] | typeof BUN_INVALID_TITLE {
+    const cases: TableCase[] = [];
+    for (const [index, item] of items.entries()) {
       const row = Array.isArray(item) ? item : [item];
-      return { title: title.isDynamic ? null : bunCaseTitle(title.text, row, index, this.file.version), args: row };
-    });
+      const formatted = title.isDynamic ? null : bunCaseTitle(title.text, row, index, this.file.version);
+      if (formatted === BUN_INVALID_TITLE) return formatted;
+      cases.push({ title: formatted, args: row });
+    }
+    return cases;
   }
 }
 

@@ -68,7 +68,19 @@ ancestor, combined with the nearest `package.json` `mocha` key. List options suc
 Explicit scan globs count as supplied specs, less `ignore`, because project scripts often pass Mocha its files.
 Without globs, the scan reads those scripts: a package.json script that starts Mocha, also through `nyc` or `c8`, as
 `nyc mocha --recursive 'src/**/*.spec.ts'`, runs the files its command line names, with the `.mocharc` found from the
-script's folder, as Mocha starts there.
+script's folder, as Mocha starts there. For example, a root script running `mocha 'test/**/*.spec.js'` collects
+`test/orders.spec.js`. It leaves out `test/quotes.cjs` unless another script or an explicit config entry selects it.
+Mocha combines command-line and configured specs, extensions, preloaded files and ignores. For example,
+`--extension cjs` with `extension: ['js']` selects both extensions. A script's `--no-recursive` overrides
+`recursive: true`. An existing path such as `specs/[orders].js` selects that literal file before glob expansion.
+
+Mocha reads comma-separated extension and preload lists, including preloads given as a module path without its
+extension or as a directory with an index file. Both `ignore` and `exclude` apply to the path each spec produces.
+Extensionless preloads are also discovered when the project root is a directory link.
+Glob lookup follows Mocha's character classes and extended patterns. A single-character class such as `[a]`
+also participates in Mocha's extension lookup when the named path does not exist.
+Ignore and exclude patterns support negated character classes such as `test/[!a].js` and extended patterns such as `test/!(orders).js`.
+
 The config's `timeout`, `retries` and `forbid-only` are read. Runtime or package-provided settings remain unknown.
 `this.skip()` is read from source; whether a conditional call actually skips a test needs a run.
 

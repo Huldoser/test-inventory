@@ -73,9 +73,29 @@ or `playwright.chromium.launch()` through a default or CommonJS import is config
 invalid test declaration; so are `firefox`, `webkit`, `request`, `devices`, `selectors`, `errors`, `mergeTests` and
 `mergeExpects`. Extended test functions do not inherit those module exports.
 
-If a package.json script runs plain `playwright test` in a folder without a Playwright config, discovery uses Playwright's
-default test filenames and respects its ignore rules from that folder. A script with additional file filters needs
-explicit scan globs when there is no config.
+A package script running `playwright test tests/orders.spec.ts` applies the argument as a regular expression to
+the full path of each eligible test file. With no config, discovery uses Playwright's default filenames and ignore
+rules in the script's folder. Multiple scripts can select different files, and plain `playwright test` collects
+the full set. A filtered project with tests collects its prerequisite projects and teardown, including transitive prerequisites.
+Empty specs, hook-only specs and imports that only provide data do not activate setup. The project's `grep` and
+`grepInvert` also apply before setup is selected. Discovery retains setup when a selected spec may load tests from
+another module or its contents cannot be read. See [package script file filters](/reference/output#configs) for the supported arguments.
+
+A spec can load test declarations through a local import, `require()`, or a re-export. The entry in the inventory points
+to the spec that loads the tests. Its `declaredAt` field gives the declaration in the imported file. When every test in
+the spec comes from one file with a different extension, Playwright checks the file argument against that source.
+A matching enclosing `test.describe` can still select tests it contains.
+
+During discovery, a shared module's top-level tests belong to the first spec that imports it in each Playwright
+command. Playwright collects files in project order and sorts entries within each directory. Separate package scripts
+can therefore register the same test in different specs. Calling an exported test helper registers its tests at each call.
+An immediately invoked function can load a module during collection. Imports in a branch that a literal condition
+rules out leave that module available to later specs. The same applies to an empty loop and to an import after
+a `break` or `return`. A loop's initializer still runs, and a `continue` reaches its update. Direct test declarations
+under conditions retain their guards.
+
+In TypeScript specs, a type-only or unused import does not load the imported module's tests. A bare import, a
+re-export of a value, or an import used by an expression or JSX component can register tests when the module loads.
 
 A config chosen with the runner's `--config` counts when a package.json script in the file's folder or above names it,
 including discovery without globs when the file has no config above it, or one the scan can't read. A config named

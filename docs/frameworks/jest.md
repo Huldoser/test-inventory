@@ -68,6 +68,10 @@ From Jest 30, a string-valued `jest` key names a config file. Multiple configs i
 `config-value-unknown` warning because Jest refuses them. With no root config, Jest's defaults apply.
 `injectGlobals` and supported run settings are read.
 
+During discovery, `jest --runTestsByPath tests/orders.spec.js` selects that exact file from the package script's
+working directory if the Jest config accepts it. A literal `cd desk && jest` starts Jest in `desk`. Multiple scripts can select different files with the same config. A plain
+`jest` script still selects the full configured set. See [package script file filters](/reference/output#configs).
+
 A config built with next/jest, as the [Next.js Jest guide](https://nextjs.org/docs/app/guides/testing/jest) writes
 it, is read: `createJestConfig(config)` or `nextJest(options)(config)` gives the config, or what a function given
 returns, with the mocks next/jest maps styles, images, fonts and `server-only` to, and with `/node_modules/` and
@@ -97,7 +101,31 @@ Flow annotations cannot be parsed, even if Babel would compile them before Jest 
 When a local preset is missing, Jest cannot start. Config-based discovery then returns no test files; explicit
 globs retain the declarations with empty `projects` and a `file-not-run` diagnostic.
 
+When Jest rejects a table or cannot format a row title, `test.each` registers one test with the title as written.
+Its original callback and timeout are unused. With `describe.each` the same error prevents the whole file from loading.
+For example, on Jest 29 a title containing `$desk.name` fails to format if a row sets `desk` to `null`.
+Jest 30 renders that value as `null`.
+
+On a valid table, ordinary `test.each` registers one fallback test if the callback is missing or null.
+Concurrent and failing tests register each row and invoke the callback when the row runs. Skipped tables
+use the ordinary binding from Jest 28. In Jest 27 they use the concurrent binding. A non-null, non-callable
+value such as a number lets Jest register every row with its timeout, and invoking that value throws.
+
 ## Supported syntax
+
+From Jest 28, a test or suite title can be a string, a number, `undefined`, or a named function or class.
+Jest uses the function's name even when the declaration passes it through a local alias. For a title such as
+`book.post`, a local object method `post() {}` gives the title `post`, while `post: function routeOrder() {}`
+gives `routeOrder`. The scanner reads a local class's static fields and methods, prototype methods, and a
+function or class's `.name` property. A static field takes precedence over a method with the same name
+even when the method appears later in the class. An inherited method supplies its original name.
+Passing `Book.prototype.constructor` normally supplies the class's own title. An invalid title prevents
+the entire file from loading, including when its declaration is skipped. `test.todo` requires a string in every
+supported version. In Jest 27 ordinary tests and table titles also require strings.
+
+Calling `test()`, `test.todo()`, or `describe()` with no arguments prevents the file from loading.
+From Jest 28, `test.each([1, 2])()` registers one failing test named `undefined`.
+The concurrent and failing variants register both rows with that name.
 
 <!--@include: ../reference/syntax.md#syntax-jest-->
 

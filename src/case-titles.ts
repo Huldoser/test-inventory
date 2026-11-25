@@ -11,14 +11,14 @@ import type { Value } from './values.ts';
  *
  * `version` is Vitest's `[major, minor]`, null for the newest rules. `truncate` is the length Vitest shortens a value to,
  * 40 unless the config sets `chaiConfig.truncateThreshold` (3 and 4) or `taskTitleValueFormatTruncate` (5); 0 keeps
- * values whole.
+ * values whole. With an unknown length (null), only substitutions independent of the setting can be rendered.
  */
 export function vitestCaseTitle(
   template: string,
   items: readonly Value[],
   index: number,
   version: readonly [number, number] | null,
-  truncate = 40,
+  truncate: number | null = 40,
 ): string | null {
   const rules = version === null || version[0] >= 5 ? 5 : version[0];
   const isFirst3 = version !== null && version[0] === 3 && version[1] === 0;
@@ -78,7 +78,7 @@ function isPrimitive(value: Value): value is Primitive {
   return typeof value !== 'object' || value === null;
 }
 
-function isObject(value: Value | undefined): boolean {
+function isObject(value: Value | undefined): value is Record<string, Value> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -128,7 +128,7 @@ function replaceAttributes(text: string, pattern: RegExp, attribute: (key: strin
 }
 
 /** Vitest's `format()` for a template and its arguments, for the values it shows the way the scan does. */
-function printf(template: string, args: readonly Value[], rules: number, truncate: number): string | null {
+function printf(template: string, args: readonly Value[], rules: number, truncate: number | null): string | null {
   let used = 0;
   let output = '';
   let last = 0;
@@ -153,7 +153,7 @@ function printf(template: string, args: readonly Value[], rules: number, truncat
   return output;
 }
 
-function formatValue(placeholder: string, value: Value, rules: number, truncate: number): string | null {
+function formatValue(placeholder: string, value: Value, rules: number, truncate: number | null): string | null {
   switch (placeholder) {
     case '%s':
       if (!isPrimitive(value)) return null;
@@ -177,7 +177,8 @@ function formatValue(placeholder: string, value: Value, rules: number, truncate:
 }
 
 /** A string cut to `length` with an ellipsis, without splitting a surrogate pair; 0 keeps it whole. */
-function shorten(text: string, length: number): string {
+function shorten(text: string, length: number | null): string | null {
+  if (length === null) return text === '…' ? text : null;
   if (length === 0 || text.length <= length) return text;
   let end = length - 1;
   if (isHighSurrogate(text[end - 1])) end -= 1;
@@ -189,10 +190,11 @@ function isHighSurrogate(char: string | undefined): boolean {
 }
 
 /** Vitest 5's `inspect()` of a value, through pretty-format with single quotes. */
-function prettyFormat(value: Value, truncate: number): string | null {
+function prettyFormat(value: Value, truncate: number | null): string | null {
   if (!isPrimitive(value)) return null;
   if (typeof value !== 'string') return Object.is(value, -0) ? '-0' : String(value);
   const quoted = `'${value}'`;
+  if (truncate === null) return value === '…' ? quoted : null;
   if (truncate === 0 || quoted.length <= truncate) return quoted;
   let end = truncate - 1;
   if (end > 0 && isHighSurrogate(quoted[end - 1])) end -= 1;
@@ -214,19 +216,22 @@ const LOUPE_ESCAPES: Record<string, string> = {
 };
 
 /** loupe's `inspect()` of a value, as Vitest 3 and 4 show it, cut to `truncate`. */
-function loupe(value: Value, truncate: number): string | null {
+function loupe(value: Value, truncate: number | null): string | null {
   if (!isPrimitive(value)) return null;
   if (typeof value === 'string') {
     const escaped = value.replace(
       LOUPE_ESCAPED,
       (char) => LOUPE_ESCAPES[char] ?? `\\u${`0000${char.charCodeAt(0).toString(16)}`.slice(-4)}`,
     );
+    if (truncate === null) return escaped.length <= 1 ? `'${escaped}'` : null;
     return `'${loupeTruncate(escaped, truncate - 2)}'`;
   }
   if (typeof value !== 'number') return String(value);
   if (Number.isNaN(value) || !Number.isFinite(value)) return String(value);
   if (value === 0) return Object.is(value, -0) ? '-0' : '+0';
-  return loupeTruncate(String(value), truncate);
+  const text = String(value);
+  if (truncate === null) return text.length <= 1 ? text : null;
+  return loupeTruncate(text, truncate);
 }
 
 function loupeTruncate(text: string, length: number): string {
@@ -346,69 +351,71 @@ function prettyFormatMin(value: Value, depth = 0): string {
   return `{${keys.map((key) => `${prettyFormatMin(key)}: ${prettyFormatMin(value[key], depth + 1)}`).join(', ')}}`;
 }
 
-/**
- * The title Bun gives one case of `.each`, read from Bun 1.2.23, 1.3.14 and 1.4.4: for a case whose first value is an
- * object, first `$key` and `$key.path` for its values, then for every case the placeholders, left to right. `%s` takes
- * a string, `%d` and `%f` a number, `%i` an integer, `%j` and `%o` any value as JSON; a value of another type leaves
- * the placeholder as written, but is used up. `%#` is the index, `%%` a `%`, and `%` before any other character is
- * dropped. Once the values are used up, the rest stays as written. Null where Bun pretty-prints: `%p`, and `$key`
- * of an object, `null` or `undefined`.
- */
+const BUN_KEY_PATH = /\d\w*|[a-zA-Z_$][\w$]*(?:\.[\w$]+)*/y;
+export const BUN_INVALID_TITLE = Symbol('invalid Bun table title');
+
+/** Bun accepts decimal indices after a dot. A digit cannot start a top-level key. */
+function bunProperty(row: Extract<Value, object>, path: string): Value | typeof NOT_PLAIN | typeof BUN_INVALID_TITLE {
+  if (!path || /^\d/.test(path)) return undefined;
+  let value: Value = row;
+  for (const key of path.split('.')) {
+    if (value === null || value === undefined) return BUN_INVALID_TITLE;
+    const object = Object(value) as Record<string, Value>;
+    if (!Object.hasOwn(object, key)) return key in object ? NOT_PLAIN : undefined;
+    value = object[key];
+  }
+  return value;
+}
+
+/** Bun reads both kinds of placeholders from the template. It never interprets text inserted from a row. */
 export function bunCaseTitle(
   template: string,
   args: readonly Value[],
   index: number,
   version: readonly [number, number] | null,
-): string | null {
-  let text = template;
+): string | null | typeof BUN_INVALID_TITLE {
   const [first] = args;
-  if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
-    const quotes = version !== null && (version[0] < 1 || (version[0] === 1 && version[1] < 3));
-    const shown = { all: true };
-    text = text.replace(/\$([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/g, (written, path: string) => {
-      let value: Value | undefined = first;
-      for (const key of path.split('.')) {
-        value = value !== null && typeof value === 'object' && !Array.isArray(value) ? value[key] : undefined;
-      }
-      if (value === undefined && !hasPath(first, path)) return written;
-      if (typeof value === 'string') return quotes ? JSON.stringify(value) : value;
-      if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
-      if (typeof value === 'boolean') return String(value);
-      shown.all = false;
-      return written;
-    });
-    if (!shown.all) return null;
-  }
+  const quotes = version !== null && (version[0] < 1 || (version[0] === 1 && version[1] < 3));
   let out = '';
   let used = 0;
-  for (let at = 0; at < text.length; at++) {
-    const char = text[at];
-    if (char !== '%' || at === text.length - 1) {
+  let known = true;
+  for (let at = 0; at < template.length; at++) {
+    const char = template[at];
+    if (char === '$' && first !== null && typeof first === 'object') {
+      BUN_KEY_PATH.lastIndex = at + 1;
+      const path = BUN_KEY_PATH.exec(template)?.[0] ?? '';
+      at += path.length;
+      // Bun can split a UTF-8 sequence when it advances past an unknown key.
+      if (template.charCodeAt(at + 1) > 127) return null;
+      const value = bunProperty(first, path);
+      if (value === BUN_INVALID_TITLE) return value;
+      if (value === undefined || value === null) {
+        out += '$' + path;
+        at++;
+      } else if (typeof value === 'string') out += quotes ? JSON.stringify(value) : value.toWellFormed();
+      else if (typeof value === 'number') out += Object.is(value, -0) ? '-0' : String(value);
+      else if (typeof value === 'boolean') out += String(value);
+      else known = false;
+      continue;
+    }
+    if (char !== '%' || at === template.length - 1 || used >= args.length) {
       out += char;
       continue;
     }
-    if (used >= args.length) return out + text.slice(at);
-    const placeholder = text[++at];
+    const placeholder = template[at + 1];
     if (placeholder === '#') out += String(index);
     else if (placeholder === '%') out += '%';
-    else if (placeholder === 'p') return null;
-    else if ('sdfijo'.includes(placeholder)) {
+    else if (placeholder === 'p') {
+      used++;
+      known = false;
+    } else if ('sdfijo'.includes(placeholder)) {
       const formatted = bunValue(placeholder, args[used++]);
-      if (formatted === null) return null;
-      out += formatted;
-    } else out += placeholder;
+      if (formatted === null) known = false;
+      else out += formatted;
+    } else continue;
+    at++;
   }
-  return out;
-}
-
-/** Whether an object has a value at a dotted path, `undefined` included. */
-function hasPath(item: Value, path: string): boolean {
-  let value: Value | undefined = item;
-  for (const key of path.split('.')) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value) || !(key in value)) return false;
-    value = value[key];
-  }
-  return true;
+  return known ? out : null;
 }
 
 /** One placeholder of a Bun title, or the placeholder as written for a value of another type; null for a JSON Bun shows otherwise. */

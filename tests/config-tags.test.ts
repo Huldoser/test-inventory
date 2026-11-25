@@ -233,6 +233,56 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
   const states = (inventory: Inventory) =>
     inventory.tests.map((test) => [test.title, test.state, test.isOnly, test.stateSource]);
 
+  it.each([
+    { version: '4.1.12', expected: ['active', 'active', 'skip', 'skip'] },
+    { version: '5.1.1', expected: ['skip', 'todo', 'todo', 'todo'] },
+  ])('merges false tag and suite options before deriving test states in $version', async ({ version, expected }) => {
+    const inventory = await scanned(
+      "export default {test:{tags:[{name:'blocked',skip:true},{name:'review',todo:true},{name:'ready',skip:false}]}};",
+      {
+        'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe('cash desk',{skip:false},()=>{test('prices a bond',{tags:['blocked']},()=>{});});
+        describe('energy desk',{todo:false},()=>{test('delivers gas',{tags:['review']},()=>{});});
+        describe('rates desk',{skip:true},()=>{test('settles a swap',{tags:['ready'],todo:true},()=>{});});
+        describe('margin desk',{todo:true},()=>{describe('borrows',{skip:true},()=>{test('locates shares',{tags:['ready']},()=>{});});});`,
+      },
+      version,
+    );
+    expect(inventory.tests.map((test) => test.state)).toEqual(expected);
+  });
+
+  it.each([
+    { version: '4.1.12', fromSuite: 'active', fromTag: 'todo', tagFocus: false },
+    { version: '5.1.1', fromSuite: 'skip', fromTag: 'active', tagFocus: true },
+  ])(
+    'resolves focus from tags and inherited options in Vitest $version',
+    async ({ version, fromSuite, fromTag, tagFocus }) => {
+      const inventory = await scanned(
+        "export default {test:{allowOnly:true,tags:[{name:'regular',only:false},{name:'focus',only:true}]}};",
+        {
+          'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe('opening auction',{only:true},()=>{
+          test.skip('clears the opening order',{tags:['regular']},()=>{});
+        });
+        describe('opening prices',{only:true},()=>{
+          test.only.skip('posts the opening price',{tags:['regular']},()=>{});
+        });
+        describe('closing auction',{only:false},()=>{
+          test.todo('clears the closing order',{tags:['focus']},()=>{});
+          test('posts the closing price',{tags:['focus']},()=>{});
+        });`,
+        },
+        version,
+      );
+      expect(inventory.tests.map((test) => [test.state, test.isOnly])).toEqual([
+        [fromSuite, true],
+        ['active', true],
+        [fromTag, tagFocus],
+        ['active', tagFocus],
+      ]);
+    },
+  );
+
   it('picks only over skip over todo from all of them, as one declaration does', async () => {
     const inventory = await scanned(TAGS, {
       'tests/orders.test.ts': [
@@ -250,8 +300,151 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
       ['cancels an order', 'active', true, null],
       ['amends an order', 'skip', false, 'config'],
     ]);
-    // A .only, which Vitest fails in CI, where allowOnly is off by default.
-    expect(codes(inventory)).toEqual(['forbidden-only']);
+    expect(inventory.diagnostics.map((d) => [d.code, d.level, d.lineStart])).toEqual([
+      ['forbidden-only', 'warning', 2],
+      ['forbidden-only', 'warning', 3],
+      ['forbidden-only', 'warning', 4],
+    ]);
+  });
+
+  it.each([
+    ['3.2.7', false, true, false],
+    ['4.1.12', false, true, false],
+    ['5.1.1', true, false, true],
+  ] as const)(
+    'resolves suite, tag and test expected-failure options in Vitest %s',
+    async (version, chain, clearedTag, enabledTag) => {
+      const inventory = await scanned(
+        "export default {test:{tags:[{name:'known',fails:true},{name:'settled',fails:false}]}};",
+        {
+          'tests/clearing.test.ts': `import {describe,test} from 'vitest';
+        describe('late settlement',{fails:true},()=>{
+          test('posts a settled trade',{fails:false},()=>{});
+          describe('fixed feed',{fails:false},()=>{test('records the fill',()=>{});});
+          test('keeps the expected rejection',()=>{});
+          test('honors the settled tag',{tags:['settled']},()=>{});
+        });
+        describe('verified trades',{fails:false},()=>{
+          test.fails('rejects an uncovered order',()=>{});
+          test('honors the known tag',{tags:['known']},()=>{});
+        });`,
+        },
+        version,
+      );
+      expect(inventory.tests.map((test) => test.isExpectedToFail)).toEqual([
+        false,
+        false,
+        true,
+        clearedTag,
+        chain,
+        enabledTag,
+      ]);
+    },
+  );
+
+  it.each([
+    ['4.1.12', 'active'],
+    ['5.1.1', 'expectedToFail'],
+  ] as const)(
+    'retains the test failure expectation when a focus tag overrides skip or todo in %s',
+    async (version, chained) => {
+      const inventory = await scanned(
+        "export default {test:{allowOnly:true,tags:[{name:'select',only:true},{name:'fixed',only:true,fails:false},{name:'known',only:true,fails:true}]}};",
+        {
+          'tests/auction.test.ts': `import {describe,test} from 'vitest';
+test.skip.fails('rejects the market order',{tags:['fixed']},()=>{});
+test.todo('rejects the limit order',{tags:['select'],fails:true},()=>{});
+test.skip.fails('validates the stop order',{tags:['known'],fails:false},()=>{});
+describe('verified prices',{fails:false},()=>{
+  test.skip.fails('rejects an expired quote',{tags:['select']},()=>{});
+});`,
+        },
+        version,
+      );
+      expect(inventory.tests.map((t) => [t.state, t.stateSource, t.stateLine])).toEqual([
+        ['expectedToFail', 'test', 2],
+        ['expectedToFail', 'test', 3],
+        ['active', null, null],
+        [chained, chained === 'active' ? null : 'test', chained === 'active' ? null : 6],
+      ]);
+    },
+  );
+
+  it.each([
+    ['', true],
+    ['sequence:{concurrent:false},', false],
+  ] as const)(
+    'distinguishes an omitted Vitest 4 concurrency default from explicit false for a tagged test (%s)',
+    async (setting, enabled) => {
+      const inventory = await scanned(
+        `export default {test:{${setting}tags:[{name:'paired',concurrent:true}]}};`,
+        {
+          'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe.sequential('closing prices',()=>{
+          test('pairs the quotes',{tags:['paired']},()=>{});
+        });`,
+        },
+        '4.1.12',
+      );
+      expect(inventory.tests.map((t) => t.isParallel)).toEqual([enabled]);
+    },
+  );
+
+  it('reports Vitest 4 concurrency that holds for every value of a conditional default', async () => {
+    const inventory = await scanned(
+      "export default {test:{sequence:{concurrent:process.env.PAIRED === '1'},tags:[{name:'paired',concurrent:true}]}};",
+      {
+        'tests/orders.test.ts': `import {test} from 'vitest';
+        test('settles the spread',{tags:['paired']},()=>{});
+        test.concurrent('posts the paired quotes',()=>{});`,
+      },
+      '4.1.12',
+    );
+    expect(inventory.tests.map((t) => [t.title, t.isParallel])).toEqual([
+      ['settles the spread', false],
+      ['posts the paired quotes', true],
+    ]);
+  });
+
+  it('narrows a focused suite to the test selected by a later tag', async () => {
+    const inventory = await scanned("export default {test:{allowOnly:true,tags:[{name:'closing',only:true}]}};", {
+      'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe.only('closing auction',()=>{
+          test('publishes the depth',()=>{});
+          describe('matched orders',()=>{
+            test('reports the imbalance',()=>{});
+            test('settles the cross',{tags:['closing']},()=>{});
+          });
+        });`,
+    });
+    expect(inventory.tests.map((t) => [t.title, t.isOnly])).toEqual([
+      ['publishes the depth', false],
+      ['reports the imbalance', false],
+      ['settles the cross', true],
+    ]);
+  });
+
+  it('reports forbidden focus at collection before a test or hook can skip', async () => {
+    const inventory = await scanned("export default {test:{allowOnly:false,tags:[{name:'auction',only:true}]}};", {
+      'tests/orders.test.ts': [
+        "import {describe,test,beforeEach} from 'vitest';",
+        "test.only('clears a limit order', ctx => ctx.skip());",
+        "describe.only('opening auction', () => {",
+        '  beforeEach(ctx => ctx.skip());',
+        "  test('posts the opening price', {tags:['auction']}, () => {});",
+        '});',
+        "describe.skip('closed exchange', () => {",
+        "  test('cancels the closing order', {tags:['auction']}, ctx => ctx.skip());",
+        '});',
+      ].join('\n'),
+    });
+    expect(inventory.diagnostics.filter((d) => d.code === 'forbidden-only').map((d) => [d.lineStart, d.level])).toEqual(
+      [
+        [2, 'error'],
+        [3, 'error'],
+        [5, 'error'],
+      ],
+    );
   });
 
   it("lets skipIf and runIf replace a tag's skip from Vitest 5, and an option set to undefined leave it", async () => {

@@ -42,6 +42,12 @@ export function unwrap(node: Expression): Expression {
   return current;
 }
 
+/** The expression that supplies a reference when an optional chain reaches its operand. */
+export function unwrapChain(node: Expression): Expression {
+  const value = unwrap(node);
+  return value.type === 'ChainExpression' ? unwrap(value.expression) : value;
+}
+
 export function isFunctionNode(node: Node | null | undefined): node is FunctionNode {
   return node?.type === 'ArrowFunctionExpression' || node?.type === 'FunctionExpression';
 }
@@ -55,9 +61,14 @@ export interface ReturnValue {
 /**
  * The values a function returns; null when it may return no value, as with `return;` or no `return` at all, and for
  * an async function or a generator, which returns a promise or an iterator whatever its `return` says. With `awaited`,
- * an async function's values are those its promise resolves to. A `return` in a function inside it is that function's.
+ * an async function's values are those its promise resolves to. A bare return can be ignored when looking for
+ * objects that might be returned. A nested function's returns belong to the nested function.
  */
-export function returnValues(fn: FunctionNode, awaited = false): ReturnValue[] | null {
+export function returnValues(
+  fn: FunctionNode,
+  awaited = false,
+  bare: 'unknown' | 'ignore' = 'unknown',
+): ReturnValue[] | null {
   if ((fn.async && !awaited) || fn.generator) return null;
   // Only declarations of overloads have no body.
   const body = fn.body as Node;
@@ -67,7 +78,8 @@ export function returnValues(fn: FunctionNode, awaited = false): ReturnValue[] |
   const around: Node[] = [];
   const visit = (node: Node): void => {
     if (node.type === 'ReturnStatement') {
-      values.push(node.argument ? { expression: node.argument, around: [...around] } : null);
+      if (node.argument) values.push({ expression: node.argument, around: [...around] });
+      else if (bare === 'unknown') values.push(null);
       return;
     }
     if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) return;
@@ -102,4 +114,36 @@ export function propertyName(member: MemberExpression): string | null {
     return member.property.type === 'Identifier' ? member.property.name : null;
   }
   return isStringLiteral(member.property) ? member.property.value : null;
+}
+
+/** Whether an identifier refers to a binding, rather than naming a property, a label or a member. */
+export function isReference(key: string | null, parent: Node | null): boolean {
+  switch (parent?.type) {
+    case 'MemberExpression':
+      return key === 'object' || parent.computed;
+    case 'Property':
+    case 'MethodDefinition':
+    case 'PropertyDefinition':
+    case 'AccessorProperty':
+    case 'TSPropertySignature':
+    case 'TSMethodSignature':
+      return key !== 'key' || parent.computed;
+    case 'LabeledStatement':
+    case 'BreakStatement':
+    case 'ContinueStatement':
+      return false;
+    case 'TSEnumMember':
+    case 'TSModuleDeclaration':
+    case 'TSTypeParameter':
+    case 'TSImportEqualsDeclaration':
+      return key !== 'id' && key !== 'name';
+    case 'TSQualifiedName':
+      return key === 'left';
+    case 'ExportSpecifier':
+      return key === 'local';
+    case 'MetaProperty':
+      return false;
+    default:
+      return true;
+  }
 }

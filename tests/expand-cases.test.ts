@@ -632,6 +632,91 @@ test('rounds the fee down', async () => {});
 });
 
 describe("expanded Vitest titles with the config's truncate", () => {
+  it.each(['4.1.12', '5.1.1'])(
+    'expands shared tables only when Vitest %s projects give their cases the same titles',
+    async (version) => {
+      const listed = (name: string, length: number) => ({
+        test: {
+          name,
+          include: ['tests/shared.test.ts', `tests/${name}.test.ts`],
+          ...(version === '5.1.1'
+            ? { taskTitleValueFormatTruncate: length }
+            : { chaiConfig: { truncateThreshold: length } }),
+        },
+      });
+      const paper = listed('paper', 0);
+      const live = listed('live', 6);
+      for (const projects of [
+        [paper, live],
+        [live, paper],
+      ]) {
+        const root = project({
+          'package.json': JSON.stringify({ devDependencies: { vitest: version } }),
+          'vitest.config.ts': 'export default ' + JSON.stringify({ test: { projects } }),
+          'tests/shared.test.ts': `${VITEST_IMPORT}
+const desks = [{desk:'FX'}, {desk:'International settlement'}];
+test.each(desks)('settles with $desk', () => {});
+describe.each(desks)('routes through $desk', () => { test('accepts an order', () => {}); });
+test.for(['buy','sell'])('places a %s order', () => {});`,
+          'tests/paper.test.ts': `${VITEST_IMPORT}test.each([{desk:'International settlement'}])('opens $desk', () => {});`,
+        });
+        const result = await scan({ root, framework: 'vitest', expandCases: true });
+        const shared = result.tests.filter((t) => t.relativeFilePath === 'tests/shared.test.ts');
+        expect(shared.map((t) => [t.fullName, t.caseIndex, t.caseCount])).toEqual([
+          ['settles with $desk', null, 2],
+          ['routes through $desk > accepts an order', null, 2],
+          ['places a buy order', 0, 1],
+          ['places a sell order', 1, 1],
+        ]);
+        expect(result.tests.find((t) => t.relativeFilePath === 'tests/paper.test.ts')?.title).toBe(
+          version === '5.1.1' ? 'opens International settlement' : "opens 'International settlement'",
+        );
+        expect(result.diagnostics.filter((d) => d.code === 'cases-not-expanded').map((d) => d.message)).toEqual(
+          Array(2).fill(
+            'The cases of the table are listed as one record, since the Vitest projects that run this file give a case different titles.',
+          ),
+        );
+      }
+    },
+  );
+
+  it.each(['4.1.12', '5.1.1'])(
+    'keeps Vitest %s case names that are independent of a runtime title limit',
+    async (version) => {
+      const value = 'Number(process.env.EXAMPLE_TITLE_LENGTH)';
+      const setting =
+        version === '5.1.1' ? `taskTitleValueFormatTruncate: ${value}` : `chaiConfig: { truncateThreshold: ${value} }`;
+      const root = project({
+        'package.json': JSON.stringify({ devDependencies: { vitest: version } }),
+        'vitest.config.ts': `export default {test:{${setting}}};`,
+        'orders.test.ts': `${VITEST_IMPORT}
+const venues = [{venue:'International settlement', rate: 100, side: true}];
+test.each(venues)('opens $venue', () => {});
+test.each(venues)('quotes $rate', () => {});
+test.each(venues)('clears $side', () => {});
+test.for(['International settlement'])('routes to %s', () => {});
+test.for(['International settlement'])('displays %o', () => {});
+test.each([{limit:'…', qty:1}])('posts $limit at quantity $qty', () => {});
+test.each(['…'])('quotes %o', () => {});`,
+      });
+      const result = await scan({ root, framework: 'vitest', expandCases: true });
+      expect(result.tests.map((t) => [t.title, t.caseIndex])).toEqual([
+        ['opens $venue', null],
+        version === '5.1.1' ? ['quotes 100', 0] : ['quotes $rate', null],
+        ['clears true', 0],
+        ['routes to International settlement', 0],
+        version === '5.1.1' ? ['displays %o', null] : ["displays 'International settlement'", 0],
+        version === '5.1.1' ? ['posts … at quantity 1', 0] : ["posts '…' at quantity 1", 0],
+        ["quotes '…'", 0],
+      ]);
+      expect(result.diagnostics.filter((d) => d.code === 'cases-not-expanded').map((d) => d.message)).toEqual(
+        Array(2).fill(
+          'The cases of the table are listed as one record, since a case title depends on a Vitest truncation setting the scan cannot resolve.',
+        ),
+      );
+    },
+  );
+
   it.each([
     ['5.1.0', 'taskTitleValueFormatTruncate: 10', 'settles ACME Hold…'],
     ['4.1.0', 'chaiConfig: { truncateThreshold: 10 }', "settles 'ACME Ho…'"],

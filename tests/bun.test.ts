@@ -7,6 +7,118 @@ function states(inventory: Inventory): [string, string, string | null][] {
 }
 
 describe('Bun tests', () => {
+  it('collects Bun callback-only declarations and keeps their bodies and child tests', () => {
+    const inventory = scanBun(`
+function postOrder() { expect(2).toBe(2); }
+test(postOrder);
+describe(() => { test('fills the order', () => {}); });
+test(null, () => {});
+test.skip();
+test.todo();
+`);
+    expect(inventory.tests.map((t) => [t.title, t.state, t.expectCount])).toEqual([
+      ['(unnamed)', 'active', 1],
+      ['fills the order', 'active', 0],
+      ['(unnamed)', 'active', 0],
+      ['(unnamed)', 'skip', 0],
+      ['(unnamed)', 'todo', 0],
+    ]);
+    expect(codes(inventory)).not.toContain('internal-error');
+  });
+
+  it('marks the file as not loaded for a title Bun rejects with a separate callback', () => {
+    for (const title of ['function () {}', '() => {}', 'false', '({})', '[]']) {
+      const result = scanBun(`test('opens the book', () => {}); describe.skip(${title}, () => {});`);
+      expect(onlyTest(result).state).toBe('notLoaded');
+      expect(codes(result)).toContain('invalid-chain');
+    }
+  });
+
+  it('keeps sibling Bun tests runnable when a nested declaration has an invalid title', () => {
+    const result = scanBun(`
+test('opens the book', () => {});
+test('runs the auction', () => { test(false, () => {}); });
+test('closes the book', () => {});
+`);
+    expect(result.tests.map((t) => [t.title, t.state])).toEqual([
+      ['opens the book', 'active'],
+      ['runs the auction', 'active'],
+      ['closes the book', 'active'],
+    ]);
+    expect(codes(result)).toEqual(['nested-test']);
+  });
+
+  it('rejects an anonymous computed method as a Bun title while accepting its name string', () => {
+    for (const definition of ['[key]() {}', '[key]: () => {}', '[key]: function () {}']) {
+      const prefix = `const key = 'post'; const book = { ${definition} }; const post = book.post;`;
+      for (const expression of ['post', 'book.post']) {
+        const result = scanBun(`${prefix}
+test('opens the book', () => {});
+describe(${expression}, () => { test('fills the order', () => {}); });
+test('closes the book', () => {});`);
+        expect(result.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded']);
+        expect(codes(result)).toContain('invalid-chain');
+      }
+      const named = scanBun(`${prefix} test(book.post.name, () => {});`);
+      expect(onlyTest(named)).toMatchObject({ title: 'post', state: 'active', hasDynamicTitle: false });
+    }
+    const explicit = scanBun("const book = { ['post']: function routeOrder() {} }; test(book.post, () => {});");
+    expect(onlyTest(explicit)).toMatchObject({ title: 'routeOrder', state: 'active' });
+    const computedClass = scanBun(
+      "const book = { ['post']: class {} }; test(book.post, () => {}); test(book.post.name, () => {});",
+    );
+    expect(computedClass.tests.map((test) => test.title)).toEqual(['', 'post']);
+  });
+
+  it('distinguishes missing and invalid callbacks for skipped Bun declarations', () => {
+    for (const declaration of ['describe.skip()', 'describe.todo("overnight")', 'test.if(false)("overnight", null)']) {
+      const result = scanBun(`test('opens the book', () => {}); ${declaration};`);
+      expect(result.tests[0].state).toBe('active');
+      expect(codes(result)).not.toContain('internal-error');
+    }
+    for (const declaration of ['test()', 'describe()', 'test.skip("overnight", 7)', 'describe.skip("overnight", {})']) {
+      const result = scanBun(`test('opens the book', () => {}); ${declaration};`);
+      expect(result.tests[0].state).toBe('notLoaded');
+      expect(codes(result)).toContain('test-without-body');
+    }
+  });
+
+  it('uses the Bun version when an anonymous static field is supplied as a test title', () => {
+    for (const initializer of ['() => {}', 'function () {}']) {
+      const code = `class Book { static post = ${initializer}; }
+const alias = Book.post;
+test('opens the book', () => {});
+test(alias, () => {});
+test('closes the book', () => {});`;
+      const old = scanBun(code, { frameworkVersion: '1.3.14' });
+      expect(old.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded']);
+      expect(codes(old)).toContain('invalid-chain');
+      const current = scanBun(code, { frameworkVersion: '1.4.0' });
+      expect(current.tests.map((test) => [test.title, test.state])).toEqual([
+        ['opens the book', 'active'],
+        ['post', 'active'],
+        ['closes the book', 'active'],
+      ]);
+      expect(codes(current)).not.toContain('dynamic-title');
+    }
+    const source = 'class Book { static post = class {}; } test(Book.post, () => {}); test(Book.post.name, () => {});';
+    expect(scanBun(source, { frameworkVersion: '1.3.14' }).tests.map((test) => test.title)).toEqual(['', 'post']);
+    expect(scanBun(source, { frameworkVersion: '1.4.0' }).tests.map((test) => test.title)).toEqual(['post', 'post']);
+  });
+
+  it('keeps the empty name Bun registers for an unnamed class title', () => {
+    const result = scanBun('test(class {}, () => {});');
+    expect(onlyTest(result)).toMatchObject({ title: '', hasDynamicTitle: false });
+  });
+
+  it('uses the declared Bun class name for the class and its static field for an explicit name property', () => {
+    const result = scanBun(`class Desk { static name = "closing auction"; }
+const record = function postOrder() {};
+describe(Desk, () => { test(record, () => {}); });
+test(Desk.name, () => {});`);
+    expect(result.tests.map((t) => t.fullName)).toEqual(['Desk > postOrder', 'closing auction']);
+  });
+
   it('reads its globals, bun:test imported any way, and @jest/globals and vitest imports, which Bun rewrites', () => {
     const inventory = scanBun(`
 import * as bt from 'bun:test';
@@ -250,6 +362,48 @@ test.if(true).skip.failingIf(process.env.CROSSED)('prices a crossed quote', () =
     ]);
   });
 
+  it.each([false, true])(
+    'marks the file or suite Bun rejects for a null table path (expandCases %s)',
+    (expandCases) => {
+      const registration =
+        "describe.skip.each([{ items: [1], desk: { name: 'floor' } }, { items: [2], desk: null }])('$items at $desk.name', () => { test('fills the order', () => {}); });";
+      const open = "test('opens the desk', () => {});";
+      const close = "test('closes the desk', () => {});";
+      const file = scanBun(open + registration + close, { expandCases });
+      expect(file.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded', 'notLoaded']);
+      expect(codes(file)).toContain('invalid-chain');
+      const nested = scanBun(open + "describe('auction', () => {" + open + registration + close + '});' + close, {
+        expandCases,
+      });
+      expect(nested.tests.map((test) => test.state)).toEqual([
+        'active',
+        'notLoaded',
+        'notLoaded',
+        'notLoaded',
+        'active',
+      ]);
+      const missing = scanBun("test.each([{}])('$desk.name', () => {});" + close, { expandCases });
+      expect(missing.tests.map((test) => test.state)).toEqual(['active', 'active']);
+    },
+  );
+
+  it.each([
+    ['1.2.23', 'posts 2 legs for "N", venue length 4', 'fills "$venue" or "%#"'],
+    ['1.4.4', 'posts 2 legs for N, venue length 4', 'fills $venue or %#'],
+  ])(
+    'expands Bun %s object rows with numeric paths, literal substitutions and missing fields',
+    (version, title, markers) => {
+      const inventory = scanBun(
+        `const rows = [{ venue: 'XNYS', legs: [2, 4], symbol: '$venue', sequence: '%#' }];
+test.each(rows)('posts $legs.length legs for $venue.1, venue length $venue.length', () => {});
+test.each(rows)('fills $symbol or $sequence', () => {});
+describe.each(rows)('desk $legs.0, $missing, open', () => { test('settles', () => {}); });`,
+        { frameworkVersion: version, expandCases: true },
+      );
+      expect(inventory.tests.map((test) => test.fullName)).toEqual([title, markers, 'desk 2, $missing open > settles']);
+    },
+  );
+
   it.each([
     ['1.2.23', ['quotes XNAS for "rates"', 'quotes XLON for "fx"']],
     ['1.3.14', ['quotes XNAS for rates', 'quotes XLON for fx']],
@@ -260,5 +414,19 @@ test.if(true).skip.failingIf(process.env.CROSSED)('prices a crossed quote', () =
     );
     // `%s` meets the row, an object, so it stays as written; the scan shows it as the title has it.
     expect(inventory.tests.map((test) => test.title)).toEqual(titles.map((title) => title.replace(/X\w+/, '%s')));
+  });
+
+  it('formats named placeholders against an array passed as the first Bun table argument', () => {
+    const inventory = scanBun(
+      `test.each([[['bid', 'offer'], 'market']])('posts $length sides for $missing, %s %s', () => {});
+test.each([{ '0': { name: 'future' }, qty: 3 }])('prices $0.name, quantity $qty', () => {});
+test.each(['floor'])('reads $length from a string', () => {});`,
+      { frameworkVersion: '1.4.4', expandCases: true },
+    );
+    expect(inventory.tests.map((test) => test.title)).toEqual([
+      'posts 2 sides for $missing %s market',
+      'prices $0name, quantity 3',
+      'reads $length from a string',
+    ]);
   });
 });

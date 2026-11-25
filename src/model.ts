@@ -2,7 +2,8 @@ import type { CallExpression, Expression, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import type { Scope } from './extract.ts';
 import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue } from './types.ts';
-import type { Value } from './values.ts';
+import type { IteratorSpread, Resolved, Value } from './values.ts';
+import type { VitestConcurrency } from './vitest-concurrency.ts';
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
 
@@ -83,8 +84,11 @@ interface Declaration {
   states: StateSetting[];
   isOnly: boolean;
   mode: Mode | null;
-  /** Vitest: the line of the describe whose `skip` option reaches this declaration, merged into its options. */
-  skipPassedDown?: number;
+  vitestConcurrency?: VitestConcurrency;
+  /** A Vitest suite's inherited skip, and the declaration's states if a config tag clears it. */
+  skipPassedDown?: { line: number; withoutSkip: StateSetting[] };
+  /** Vitest: a suite's todo option merged into the test's options, independent of a nested suite's mode. */
+  todoPassedDown?: number;
   details: Details;
   fn: FunctionNode | null;
   /**
@@ -102,8 +106,8 @@ interface Declaration {
 
 /** One case of a `.each` or `.for` table: the title the runner gives it, and the arguments its callback gets. */
 export interface TableCase {
-  /** Null when the scan can't format it the way the runner does, as for a title that shows an object. */
-  title: string | null;
+  /** Null for an unsupported value, or a reason when the runner's config prevents expansion. */
+  title: string | null | { reason: string };
   args: Value[];
 }
 
@@ -120,10 +124,18 @@ export interface TestDeclaration extends Declaration {
   usesBench: boolean;
   /** Vitest: the state options the test sets itself, to `false` too, which replace those of its tags. */
   ownStateOptions?: StateOption[];
+  /** Vitest: a suite's only option takes priority over skip and todo unless a tag clears the inherited focus. */
+  inheritsOnly?: boolean;
+  /** Line of the test's fails flag, including when skip or todo would otherwise hide it. */
+  failsLine?: number;
+  /** Vitest: line of the inherited fails option, before the test's tags are resolved. */
+  failsPassedDown?: number;
 }
 
 export interface SuiteDeclaration extends Declaration {
   kind: 'describe';
+  /** Jasmine adds the suite before it checks for children. Since 4.5 a failure leaves it current. */
+  emptySuiteError?: { problem: Problem; keepsScope: boolean };
   isShuffled: boolean;
   /** What the describe passes down to the calls inside it, such as Vitest's `skip` option; null for nothing. */
   passesDown: unknown;
@@ -176,6 +188,8 @@ export type ApiCall =
   | { kind: 'other' };
 
 export interface CallContext {
+  /** The call runs inside a try block or helper whose registration error may be caught by user code. */
+  handlesRegistrationError?: boolean;
   scopes: readonly Node[];
   /** The test context of the test or hook whose body the call is in, as the framework returned it. */
   testContext: unknown;
@@ -226,6 +240,17 @@ export interface Adapter {
   usesGlobals: boolean;
   /** Whether a test declared in a test's body is a subtest the runner runs as the test does, as in `node:test`. */
   nestsTests?: boolean;
+  /** A suite callback catches registration errors and preserves the children registered before them. */
+  catchesSuiteErrors?: boolean;
+  /** Read the values supplied by a spread operand during registration. */
+  registrationSpread?(operand: Expression, scopes: readonly Node[]): IteratorSpread;
+  /** Resolve a value computed during registration, including a local helper return. */
+  registrationValue?(operand: Expression, scopes: readonly Node[]): Resolved;
+  /** How a synchronous registration block completes, when the runner and local helpers determine its path. */
+  registrationExit?(
+    block: Extract<Node, { type: 'BlockStatement' }>,
+    scopes: readonly Node[],
+  ): 'next' | 'return' | 'throw' | 'unknown';
   classify(call: CallExpression, context: CallContext): ApiCall | null;
   /**
    * The test or describe function a value holds, in the adapter's own terms, as `it.skip` in `return it.skip`; null

@@ -1,13 +1,11 @@
-import type { CallExpression, Expression } from 'oxc-parser';
-import { isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
+import type { CallExpression, Expression, Node } from 'oxc-parser';
+import { isFunctionNode, unwrap } from '../ast.ts';
 import type { ApiCall, CallContext, ModuleReader, Problem } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { DiagnosticCode, HookCounts } from '../types.ts';
 import {
   atLeast,
-  hookFunction,
-  namedFunction,
   problem,
   readChain,
   readCount,
@@ -20,6 +18,18 @@ import {
   wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
+import {
+  functionLength,
+  isRuntimeFunction,
+  jasmineSpread,
+  jasmineArguments,
+  jasmineCallback,
+  jasmineRegistration,
+  jasmineTitleValue,
+  jasmineValue,
+  registrationExit,
+  type JasmineArgument,
+} from './jasmine-registration.ts';
 
 const HOOKS = ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
@@ -62,6 +72,16 @@ const IN_SPEC = Symbol('in a spec');
 const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
+  readonly catchesSuiteErrors = true;
+  registrationSpread(operand: Expression, scopes: readonly Node[]) {
+    return jasmineSpread(operand, scopes, this.file);
+  }
+  registrationValue(operand: Expression, scopes: readonly Node[]) {
+    return jasmineValue(operand, scopes, this.file);
+  }
+  registrationExit(block: Extract<Node, { type: 'BlockStatement' }>, scopes: readonly Node[]) {
+    return registrationExit(block, scopes, this.file);
+  }
   /** What the runner does with a call it refuses at the top level of a file, as the end of a sentence. */
   protected readonly refusedEffect: string = 'Jasmine stops before it runs any spec';
   /** Whether a number after a spec's timeout is a retry count, as WebdriverIO reads it. */
@@ -81,7 +101,12 @@ export class JasmineAdapter extends SuiteAdapter {
   }
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
-    const fn = hookFunction(this.file, context.scopes, call.arguments);
+    const [body, limit] = jasmineArguments(call.arguments, context.scopes, this.file, 2);
+    const { status, fn } = jasmineRegistration(jasmineCallback(body, this.file), limit, this.file, false);
+    if (status === 'callback' || status === 'timeout') {
+      const reason = status === 'callback' ? 'requires a non-generator function' : 'refuses a timeout above 2147483647';
+      return { kind: 'invalid', problem: this.refusal('invalid-hook', call, `${name}() ${reason}`, context) };
+    }
     // In `beforeAll` and `afterAll`, `pending()` is an error of the describe, and the specs keep the state they get.
     const testContext = name === 'beforeEach' || name === 'afterEach' ? IN_SPEC : null;
     return { kind: 'hook', name, fn, testContext, fixtures: [], takesAllFixtures: false };
@@ -134,21 +159,29 @@ export class JasmineAdapter extends SuiteAdapter {
     }
     const flags = new Set(links.map((link) => link.name));
     const problems: Problem[] = [];
+    const spec = kind === 'test';
+    const slots = jasmineArguments(args, context.scopes, this.file, spec ? (this.trailingRetries ? 4 : 3) : 2);
+    const [titleArg, bodyArg] = slots;
     let title = { text: '', withoutTags: '', isDynamic: false };
-    if (args.length > 0) {
-      const read = readTitle(this.file, context.scopes, args[0], { stripTags: false, functionNames: false });
+    if (titleArg) {
+      const read = readTitle(
+        this.file,
+        titleArg.scopes,
+        titleArg.node,
+        { stripTags: false, functionNames: false },
+        jasmineTitleValue(titleArg, this.file, spec),
+      );
       title = read.title;
       if (read.problem) problems.push(read.problem);
     }
-    const spread = args.some((arg) => arg.type === 'SpreadElement');
-    const written = spread ? null : args.at(1);
-    // `undefined` given as the function is no function, as when none is given.
-    const body = written?.type === 'Identifier' && written.name === 'undefined' ? undefined : written;
-    const fn = isFunctionNode(body) ? body : null;
-    const callback = fn ?? namedFunction(this.file, context.scopes, body ?? undefined);
+    const body = bodyArg?.node;
+    const read = jasmineCallback(bodyArg, this.file);
+    const binding = read.binding;
+    const callback = binding?.fn;
+    // A function in a named tuple uses its defining scope, like a named callback.
+    const fn = isFunctionNode(body) && bodyArg?.scopes === context.scopes ? body : null;
     const line = this.file.source.line(call.start);
-    // A spec without a function is pending, unless it is focused: `fit` needs one.
-    const isSkipped = flags.has('skip') || (kind === 'test' && body === undefined);
+    const isSkipped = flags.has('skip') || (spec && read.status === 'missing');
     const base = {
       title,
       states: isSkipped
@@ -158,13 +191,14 @@ export class JasmineAdapter extends SuiteAdapter {
       mode: null,
       details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
       fn,
-      hashed: callback ?? wrappedFunction(body ?? undefined),
+      hashed: callback ?? wrappedFunction(body),
       isParameterized: false,
       caseCount: null,
       cases: null,
       problems,
     };
-    if (kind === 'test') {
+    if (spec) {
+      const registration = jasmineRegistration(read, slots[2], this.file, !flags.has('only'));
       const declared: ApiCall = {
         kind: 'test',
         ...base,
@@ -173,48 +207,45 @@ export class JasmineAdapter extends SuiteAdapter {
         takesAllFixtures: false,
         usesBench: false,
       };
-      const timeout = spread ? undefined : args.at(2);
-      if (timeout && timeout.type !== 'SpreadElement') {
-        const option = { node: timeout, resolved: this.file.values.resolve(timeout, context.scopes) };
-        const value = readCount(this.file, 'timeout', option, problems);
-        if (value !== null) declared.details.run = { timeout: value };
+      const readOption = (name: string, slot: JasmineArgument | null | undefined) => {
+        if (!slot || slot.node.type === 'SpreadElement') return null;
+        const resolved = slot.resolved ?? this.file.values.resolve(slot.node, slot.scopes);
+        return readCount(this.file, name, { node: slot.node, resolved }, problems);
+      };
+      if (registration.status === 'timeout') {
+        const refusal = this.refusal(
+          'unresolved-option',
+          call,
+          `${callee}() refuses a timeout above 2147483647`,
+          context,
+        );
+        return refused(call, { ...refusal, level: 'error' }, context, () => declared);
       }
-      const retries = this.trailingRetries && !spread ? args.at(3) : undefined;
-      if (retries && retries.type !== 'SpreadElement') {
-        const option = { node: retries, resolved: this.file.values.resolve(retries, context.scopes) };
-        const count = readCount(this.file, 'retries', option, problems);
-        if (count !== null)
-          declared.details.run = { ...declared.details.run, retry: { count, delay: null, condition: null } };
-      }
-      if (body === null || (body === undefined ? !flags.has('only') : isFunctionLike(body))) return declared;
-      const reason = body === undefined ? `${callee}() has no function` : `${callee}() takes a function second`;
+      const timeout = readOption('timeout', slots[2]);
+      if (timeout !== null) declared.details.run = { timeout };
+      const retries = readOption('retries', slots[3]);
+      if (retries !== null)
+        declared.details.run = { ...declared.details.run, retry: { count: retries, delay: null, condition: null } };
+      if (registration.status !== 'callback') return declared;
+      const reason = registration.missing ? `${callee}() has no function` : `${callee}() takes a function second`;
       return refused(call, this.refusal('test-without-body', call, reason, context), context, () => declared);
     }
     const declared: ApiCall = { kind: 'describe', ...base, isShuffled: false, passesDown: IN_DESCRIBE };
-    if (body === null) return declared;
-    if (body === undefined || !isFunctionLike(body)) {
+    if (read.status === 'missing' || read.status === 'callback') {
       const refusal = this.refusal('test-without-body', call, `${callee}() has no function`, context);
       return refused(call, refusal, context, () => declared);
     }
-    if (callback?.async) {
+    if (callback && (callback.async || callback.generator)) {
       const refusal = this.refusal(
-        'async-describe',
+        callback.async ? 'async-describe' : 'describe-throws',
         callback,
-        'The describe callback is async, which Jasmine refuses',
+        `The describe callback is ${callback.async ? 'async' : 'a generator'}, which Jasmine refuses`,
         context,
       );
       return refused(call, refusal, context, () => declared);
     }
-    if (callback && declaresNothing(callback)) {
-      const refusal = this.refusal(
-        'describe-throws',
-        callback,
-        'The describe declares no spec or describe, which Jasmine refuses',
-        context,
-      );
-      return refused(call, refusal, context, () => declared);
-    }
-    if (callback && functionLength(callback) > 0) {
+    const plain = flags.size === 0;
+    if (callback && plain && functionLength(callback) > 0) {
       const refusal = this.refusal(
         'describe-throws',
         callback,
@@ -222,6 +253,20 @@ export class JasmineAdapter extends SuiteAdapter {
         context,
       );
       return refused(call, refusal, context, () => declared);
+    }
+    if (
+      isRuntimeFunction(binding?.fn) &&
+      atLeast(this.file.version, 4, plain ? 0 : 5) &&
+      registrationExit({ call, fn: binding.fn, definition: binding.scopes, plain }, context.scopes, this.file) ===
+        'throw'
+    ) {
+      const refusal = this.refusal(
+        'describe-throws',
+        binding.fn,
+        'The describe declares no spec or describe, which Jasmine refuses',
+        context,
+      );
+      return { ...declared, emptySuiteError: { problem: refusal, keepsScope: atLeast(this.file.version, 4, 5) } };
     }
     return declared;
   }
@@ -237,41 +282,13 @@ export class JasmineAdapter extends SuiteAdapter {
     context: CallContext,
   ): Problem {
     const source = snippet(text(this.file, node));
+    if (context.handlesRegistrationError) {
+      return problem(code, node, `${what}, so this call throws during Jasmine registration.`, source);
+    }
     if (context.passedDown !== IN_DESCRIBE) {
       return problem(code, node, `${what}, so ${this.refusedEffect}.`, source);
     }
     const message = `${what}, so the describe around it throws: Jasmine reports it as failed, and registers none of the specs written after this call in it.`;
     return { ...problem(code, node, message, source), afterLoad: true };
   }
-}
-
-/**
- * Whether a describe callback surely declares nothing: its body is empty or holds only hook calls. A call to anything
- * else, as a helper that declares specs, may declare some.
- */
-function declaresNothing(fn: FunctionNode): boolean {
-  if (fn.body?.type !== 'BlockStatement') return false;
-  return fn.body.body.every((statement) => {
-    if (statement.type !== 'ExpressionStatement') return false;
-    const expression = unwrap(statement.expression);
-    if (expression.type !== 'CallExpression') return false;
-    const callee = unwrap(expression.callee);
-    return callee.type === 'Identifier' && (HOOKS as readonly string[]).includes(callee.name);
-  });
-}
-
-/** Whether an argument may be a function: anything but a value that can't be one, as a number or an object. */
-function isFunctionLike(node: CallExpression['arguments'][number]): boolean {
-  const value = unwrap(node as Expression);
-  return !['Literal', 'ObjectExpression', 'ArrayExpression', 'TemplateLiteral'].includes(value.type);
-}
-
-/**
- * A function's `length`, which Jasmine checks: its parameters before the first with a default value or a rest, without
- * TypeScript's `this`, which is no parameter at run time.
- */
-function functionLength(fn: FunctionNode): number {
-  const params = fn.params.filter((param) => param.type !== 'Identifier' || param.name !== 'this');
-  const end = params.findIndex((param) => param.type === 'AssignmentPattern' || param.type === 'RestElement');
-  return end === -1 ? params.length : end;
 }

@@ -23,7 +23,9 @@ separates folders, so `tests\**\*.spec.ts` works; on Linux and macOS it escapes 
 `tests/\[legacy\]/*.spec.ts`. A `/` separates folders on every system.
 This normalization also applies when a node:test pattern names a linked folder explicitly.
 
-A package script running plain `playwright test` also discovers default Playwright files from its folder without a config.
+Without scan globs, package scripts can narrow discovery using `jest --runTestsByPath tests/orders.spec.js`,
+`vitest run orders`, or `playwright test orders`. Scripts using the same config contribute their combined file set.
+These commands follow literal shell directory changes within the scanned project. Playwright also applies simple file filters to its default files in a package without a config.
 
 For Playwright and Vitest projects built at runtime, readable top-level file settings select candidates with
 `projects: null`.

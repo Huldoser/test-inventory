@@ -1,4 +1,7 @@
+import { isBuiltin } from 'node:module';
+import { visitorKeys } from 'oxc-parser';
 import type {
+  BindingIdentifier,
   CallExpression,
   CatchClause,
   Expression,
@@ -12,12 +15,13 @@ import {
   childNodes,
   isFunctionNode,
   isImportMetaVitest,
+  isReference,
   propertyName,
   returnValues,
   unwrap,
   type FunctionNode,
 } from './ast.ts';
-import { commonJsExport, exportName } from './frameworks/bindings.ts';
+import { commonJsExport, exportName, requiredModule } from './frameworks/bindings.ts';
 import { problem, readCount } from './frameworks/common.ts';
 import type {
   Adapter,
@@ -34,10 +38,21 @@ import type {
   SuiteDeclaration,
   TestDeclaration,
 } from './model.ts';
+import { omitted, stepGenerator, type IteratorMethod, type IteratorPosition, type Thrown } from './generator-steps.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
-import { bindingNames, isScopeNode, type Resolved, type Value, type Values } from './values.ts';
+import {
+  bindingNames,
+  isScopeNode,
+  nonIterable,
+  usesRightOperand,
+  type IteratorSpread,
+  type ParameterStep,
+  type Resolved,
+  type Value,
+  type Values,
+} from './values.ts';
 
 /** The file or a describe, with what is set on it. Tests inherit from every scope around them. */
 export interface Scope {
@@ -77,7 +92,7 @@ export interface PendingSuite {
   /** The file the describe is written in. */
   frame: Frame;
   /** The outermost helper call in the scanned file that declares the describe; null when the file declares it. */
-  registeredBy: CallExpression | null;
+  registeredBy: Node | null;
   /** Where the scanned file registers the describe: its own call, or the outermost helper call that declares it. */
   order: number;
   /** Statements of the tests and describes directly inside, left out of the describe's body hash. */
@@ -90,6 +105,8 @@ export interface PendingSuite {
 }
 
 export interface PendingTest {
+  /** Line where collection stopped before this spec could register in its suite. */
+  registrationStoppedAt?: number;
   scope: Scope;
   /** The test whose body declares this one as a subtest; null for a test declared in the file or a describe. */
   parent: PendingTest | null;
@@ -101,7 +118,7 @@ export interface PendingTest {
   /** The file the test is written in. */
   frame: Frame;
   /** The outermost helper call in the scanned file that declares the test; null when the file declares it. */
-  registeredBy: CallExpression | null;
+  registeredBy: Node | null;
   /** Where the scanned file registers the test: its own call, or the outermost helper call that declares it. */
   order: number;
   /** States from the declaration, then from calls in the body such as `test.skip(condition)`. */
@@ -140,6 +157,10 @@ export interface Frame {
 
 /** How the walk lists tables and loops. */
 export interface ExtractOptions {
+  /** Follow modules loaded while a Playwright spec registers its tests. */
+  collectImports?: boolean;
+  /** Whether this local import still needs to run in the collecting Playwright process. */
+  initializeModule?: (file: string) => boolean;
   /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
   expandCases: boolean;
   /** Vitest's `[major, minor]`, whose rules give each case its title; null for the newest rules. */
@@ -156,6 +177,9 @@ interface Callee {
 }
 
 export interface Extraction {
+  /** Line where an uncaught exception stopped Jasmine loading this spec file. */
+  registrationStoppedAt?: number;
+  unknownRegistration: boolean;
   suites: PendingSuite[];
   tests: PendingTest[];
   /** Problems not tied to one test. */
@@ -167,7 +191,65 @@ export interface Extraction {
   fileTags: { name: string; span: Span }[];
 }
 
+interface AsyncRegistration {
+  body: Node;
+  atAwait?: { scope?: Scope };
+  pending?: boolean;
+}
+
+interface IteratorRequest {
+  context: Context;
+  position?: IteratorPosition;
+  method: IteratorMethod | 'spread';
+  argument: Resolved;
+}
+
+interface IteratorRun extends IteratorSpread {
+  position: IteratorPosition;
+  result: Resolved;
+}
+
+interface Registration {
+  iterators: Map<Resolved, IteratorPosition>;
+  failure?: { line: number; value?: Resolved };
+  /** A return from the current registration callback, after its operand was evaluated. */
+  returned?: boolean;
+  /** The suite an async helper leaves current when it gives control back to the caller. */
+  asyncCall?: AsyncRegistration;
+  /** Current suite after user code caught an empty-suite error. */
+  scope?: Scope;
+  /** Suite Jasmine left current as a registration error escaped. */
+  recoveryScope?: Scope;
+}
+
+function possibleRegistration(registration: Registration | undefined): Registration | undefined {
+  return (
+    registration && {
+      ...registration,
+      iterators: new Map(registration.iterators),
+      asyncCall: registration.asyncCall && { ...registration.asyncCall },
+    }
+  );
+}
+
+interface InitializingParameters {
+  fn: FunctionNode | CatchClause;
+  pending: Set<string>;
+  steps: ReadonlyMap<Node, ParameterStep>;
+  outer?: InitializingParameters;
+}
+
 interface Context {
+  /** Evaluating an argument to a runner API at collection time, before the runner receives it. */
+  evaluatingArgument?: boolean;
+  iteratorReturn?: { fn: FunctionNode; value?: Resolved };
+  parameters?: InitializingParameters;
+  /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
+  registration?: Registration;
+  emptySuiteAt?: number;
+  handlesRegistrationError?: boolean;
+  /** Direct declarations are inventoried under guards even where an import cannot execute. */
+  skipImports?: boolean;
   scope: Scope;
   test: PendingTest | null;
   /** The scope a hook body applies to, while in a hook. */
@@ -213,7 +295,7 @@ interface Context {
    */
   quiet: boolean;
   /** The outermost helper call being walked from the file or a describe; null outside one. */
-  registeredBy: CallExpression | null;
+  registeredBy: Node | null;
 }
 
 /** A function with a name, waiting to be walked where it is written once the calls in the file are known. */
@@ -347,16 +429,17 @@ function referencedNames(node: Node): string[] | null {
  * Whether a loop body can end a pass before its end or stop the loop, with `break`, `continue`, `return` or `throw`,
  * so that a test in it may not be registered on every pass. Functions inside run later, and don't count.
  */
-function leavesEarly(body: Node): boolean {
+function leavesEarly(body: Node, continueOnly = false): boolean {
   if (body.type === 'FunctionDeclaration' || isFunctionNode(body)) return false;
   switch (body.type) {
     case 'BreakStatement':
-    case 'ContinueStatement':
     case 'ReturnStatement':
     case 'ThrowStatement':
+      return !continueOnly;
+    case 'ContinueStatement':
       return true;
   }
-  return childNodes(body).some(leavesEarly);
+  return childNodes(body).some((child) => leavesEarly(child, continueOnly));
 }
 
 /**
@@ -424,19 +507,113 @@ function commentLines(comment: { type: 'Line' | 'Block'; value: string }): strin
   return lines.filter((line) => line !== '' && !DIRECTIVE.test(line));
 }
 
+/** A component or the object of a JSX member tag reads a binding. Intrinsic tags and attribute names are strings. */
+function jsxReference(name: string, field: string | null, parent: Node | null): boolean {
+  if (parent?.type === 'JSXMemberExpression') return field === 'object';
+  return (
+    (parent?.type === 'JSXOpeningElement' || parent?.type === 'JSXClosingElement') &&
+    field === 'name' &&
+    !/^[a-z]/.test(name)
+  );
+}
+
+/** References that keep imported values in Playwright's emitted TypeScript. Look up the binding at the use
+ * so a local parameter or a property with the same name cannot keep an import alive. */
+function runtimeReferences(frame: Frame): Set<Node> {
+  const used = new Set<Node>();
+  let hasJsx = false;
+  const scopes: Node[] = [];
+  const program = frame.parsed.program;
+  const imports = new Map<string, Node>();
+  for (const statement of program.body) {
+    if (statement.type === 'ImportDeclaration')
+      for (const specifier of statement.specifiers) imports.set(specifier.local.name, specifier);
+  }
+  const visit = (node: Node, field: string | null, parent: Node | null): void => {
+    if (
+      node.type === 'ImportDeclaration' ||
+      ('declare' in node && node.declare) ||
+      (node.type === 'ExportNamedDeclaration' && (node.source || node.exportKind === 'type')) ||
+      (node.type === 'ExportSpecifier' && node.exportKind === 'type')
+    )
+      return;
+    if (node.type.startsWith('TS') && !TS_RUNTIME.has(node.type)) return;
+    const scoped = isScopeNode(node);
+    if (scoped) scopes.push(node);
+    if (node.type === 'Identifier' || node.type === 'JSXIdentifier') {
+      const imported = imports.get(node.name);
+      const readsValue =
+        node.type === 'Identifier' ? isReference(field, parent) : jsxReference(node.name, field, parent);
+      if (imported && readsValue && frame.values.declarationOf(node.name, scopes) === imported) used.add(imported);
+    }
+    if (!hasJsx && (node.type === 'JSXElement' || node.type === 'JSXFragment')) {
+      hasJsx = true;
+      const factories = new Map([
+        ['jsx', 'React'],
+        ['jsxFrag', 'React'],
+      ]);
+      for (const comment of frame.parsed.comments) {
+        const pragma = /@(jsx(?:Frag)?)\s+([^\s.]+)/.exec(comment.value);
+        if (pragma) factories.set(pragma[1], pragma[2]);
+      }
+      for (const name of factories.values()) {
+        const binding = frame.values.declarationOf(name, [program]);
+        if (binding) used.add(binding);
+      }
+    }
+    const fields = node as unknown as Record<string, unknown>;
+    for (const key of visitorKeys[node.type]) {
+      const value = fields[key];
+      if (Array.isArray(value)) {
+        for (const child of value as (Node | null)[]) if (child) visit(child, key, node);
+      } else if (value) visit(value as Node, key, node);
+    }
+    if (scoped) scopes.pop();
+  };
+  visit(program, null, null);
+  return used;
+}
+
+const TS_RUNTIME = new Set<string>([
+  'TSAsExpression',
+  'TSSatisfiesExpression',
+  'TSTypeAssertion',
+  'TSNonNullExpression',
+  'TSInstantiationExpression',
+  'TSEnumDeclaration',
+  'TSEnumBody',
+  'TSEnumMember',
+  'TSModuleDeclaration',
+  'TSModuleBlock',
+  'TSParameterProperty',
+  'TSExportAssignment',
+  'TSImportEqualsDeclaration',
+  'TSExternalModuleReference',
+]);
+
+export function initializesLocalModule(source: string): boolean {
+  return source !== '@playwright/test' && source !== 'playwright/test' && !isBuiltin(source);
+}
+
 class Walker {
   private readonly scopes: Node[] = [];
   private readonly parents: Node[] = [];
   private readonly fileScope: Scope;
   private readonly suites: PendingSuite[] = [];
   private readonly tests: PendingTest[] = [];
+  private readonly iterators = new WeakMap<Resolved, (request: IteratorRequest) => IteratorRun>();
+  private argumentRevision = 0;
   private readonly problems: Problem[] = [];
   /** The scanned file. */
   private readonly main: Frame;
   /** The file whose code is being walked: the scanned file, or the module of an imported helper. */
   private frame: Frame;
   /** While an imported helper is walked, the call in the scanned file that walks it; records and problems point there. */
-  private site: CallExpression | null = null;
+  private site: Node | null = null;
+  private readonly loaded = new Set<string>();
+  private readonly valueImports = new WeakMap<Frame, Set<Node>>();
+  private importDepth = 0;
+  private unknownRegistration = false;
   private readonly openModule: OpenModule;
   private readonly frames = new Map<ModuleSource, Frame | null>();
   /** Problems of helper modules' own imports, reported once, at the first call that walks the module. */
@@ -458,6 +635,7 @@ class Walker {
    */
   private readonly declaredIn = new Map<PendingTest, { fn: Node; call: CallExpression | null }>();
   private readonly deferred: Deferred[] = [];
+  private continuations: ((root: Registration) => void)[] = [];
   private readonly isDeferred = new Set<Node>();
   /**
    * Functions walked at one of their calls, or as a test or hook body passed by name, so that their tests are recorded
@@ -482,6 +660,7 @@ class Walker {
   constructor(main: Frame, openModule: OpenModule, options: ExtractOptions) {
     this.options = options;
     this.main = main;
+    this.loaded.add(main.relativeFilePath);
     this.frame = main;
     this.openModule = openModule;
     const { adapter } = main;
@@ -502,7 +681,11 @@ class Walker {
   }
 
   run(): Extraction {
+    const registration: Context['registration'] = this.main.adapter.catchesSuiteErrors
+      ? { iterators: new Map() }
+      : undefined;
     this.visit(this.main.parsed.program, {
+      registration,
       scope: this.fileScope,
       test: null,
       hookScope: null,
@@ -524,6 +707,13 @@ class Walker {
       quiet: false,
       registeredBy: null,
     });
+    if (registration) {
+      while (this.continuations.length) {
+        const batch = this.continuations;
+        this.continuations = [];
+        for (const resume of batch) resume(registration);
+      }
+    }
     // Functions defined inside these are deferred in turn; the loop reaches them too, as they are added to the end.
     for (const entry of this.deferred) this.walkWhereWritten(entry);
     // Records follow the order the file registers them in; the sort is stable, so one call's tests keep theirs.
@@ -534,10 +724,12 @@ class Walker {
     this.checkFunctionTests(exported);
     return {
       suites: this.suites,
+      registrationStoppedAt: registration?.failure?.line,
       tests: this.tests,
       problems: [...this.main.adapter.problems, ...this.problems],
       hooks: this.fileScope.hooks,
       usesGlobals: this.main.adapter.usesGlobals,
+      unknownRegistration: this.unknownRegistration,
       fileTags: this.main.adapter.fileTags.map((name, index) => ({
         name,
         span: this.main.adapter.fileTagSpans[index],
@@ -545,11 +737,17 @@ class Walker {
     };
   }
 
+  private currentScope(context: Context): Context {
+    const scope = context.registration?.scope;
+    return scope && scope !== context.scope ? { ...context, scope } : context;
+  }
+
   private visit(node: Node, context: Context): void {
+    if (this.frame.values.completedOperand(node, this.scopes)) return;
     const isScope = isScopeNode(node);
     if (isScope) this.scopes.push(node);
     this.parents.push(node);
-    this.visitNode(node, context);
+    this.visitNode(node, this.currentScope(context));
     this.parents.pop();
     if (isScope) this.scopes.pop();
   }
@@ -559,40 +757,138 @@ class Walker {
   }
 
   private visitNode(node: Node, context: Context): void {
+    const task = context.registration?.asyncCall;
+    if (
+      task &&
+      (context.skipImports ||
+        task.pending ||
+        context.registration?.returned ||
+        context.registration?.failure !== undefined)
+    )
+      return;
+    if (context.evaluatingArgument && context.registration) {
+      if (
+        context.skipImports ||
+        context.registration.failure !== undefined ||
+        node.type === 'FunctionDeclaration' ||
+        isFunctionNode(node)
+      )
+        return;
+      const parameters = context.parameters;
+      if (parameters) {
+        const step = parameters.steps.get(node);
+        if (step === 'initialize') {
+          parameters.pending.delete((node as BindingIdentifier).name);
+          return;
+        }
+        if (node.type.startsWith('TS') && !TS_RUNTIME.has(node.type)) return;
+        if (step === 'throw' || (node.type === 'Identifier' && this.readsUninitialized(node, parameters))) {
+          this.stopRegistration(node, context);
+          return;
+        }
+        if (node.type === 'AssignmentPattern' && step !== undefined) {
+          this.visitBranch(node.right, context, `${this.text(node.left)} === undefined`, step);
+          this.visit(node.left, context);
+          return;
+        }
+      }
+      if (node.type === 'ClassBody') {
+        // Class creation computes the keys first, then initializes static elements in declaration order.
+        for (const member of node.body) if ('computed' in member && member.computed) this.visit(member.key, context);
+        for (const member of node.body) {
+          if (member.type === 'StaticBlock') this.visit(member, context);
+          else if (
+            (member.type === 'PropertyDefinition' || member.type === 'AccessorProperty') &&
+            member.static &&
+            member.value
+          )
+            this.visit(member.value, context);
+        }
+        return;
+      }
+    }
+    if (
+      context.registration &&
+      !context.skipImports &&
+      context.registration.failure === undefined &&
+      node.type === 'SpreadElement' &&
+      this.parents.at(-2)?.type !== 'ObjectExpression'
+    ) {
+      const operand = node.argument;
+      const use = {
+        ...context,
+        evaluatingArgument: true,
+        expandedAt: context.expandedAt ?? context.registeredBy?.start ?? node.start,
+      };
+      this.visit(operand, use);
+      const value = this.frame.values.iteratorOf(operand, this.scopes);
+      if (value) {
+        const spread = this.resumeIterator(value, use, context.registration, 'spread', omitted);
+        this.frame.values.iteratorSpreads.set(operand, spread);
+        this.argumentRevision++;
+        if (spread.outcome === 'throw') this.stopRegistration(node, context, spread.result);
+        return;
+      }
+      if (this.frame.values.iteratorSpreads.delete(operand)) this.argumentRevision++;
+      const resolved = this.readArgument(operand, true);
+      if (resolved.ok ? nonIterable(resolved.value) : resolved.nonIterable) this.stopRegistration(node, context);
+      return;
+    }
+    if (
+      this.options.collectImports &&
+      !context.skipImports &&
+      !context.test &&
+      !context.hookScope &&
+      !context.helper &&
+      !context.quiet
+    )
+      this.collectImport(node, context);
     switch (node.type) {
+      case 'AwaitExpression': {
+        this.visit(node.argument, context);
+        const registration = context.registration;
+        if (registration?.asyncCall && registration.failure === undefined) {
+          registration.asyncCall.atAwait ??= { scope: registration.scope };
+          const failure = this.awaitedFailure(node.argument);
+          if (failure === 'pending') registration.asyncCall.pending = true;
+          if (failure === 'rejected') this.stopRegistration(node, context);
+        }
+        return;
+      }
       case 'CallExpression': {
         if (context.test && !context.quiet) this.expectCall(node, context.test);
         const helper = this.helperCall(node, context);
         if (this.call(node, context) || this.loopCall(node, context)) return;
-        this.visitChildren(node, context);
-        if (helper) this.walkAtCall(helper, node, context);
-        return;
-      }
-      case 'IfStatement': {
-        // In-source tests sit inside `if (import.meta.vitest)`, which is how they are written, not a condition.
-        if (isImportMetaVitest(node.test)) break;
-        const condition = this.text(node.test);
-        this.visit(node.test, context);
-        const known = this.known(node.test, context);
-        if (known) {
-          const taken = known.value ? node.consequent : node.alternate;
-          if (taken) this.visit(taken, context);
+        if (!helper) {
+          for (const child of childNodes(node)) {
+            this.visit(child, context);
+            if (
+              child === node.callee &&
+              context.registration &&
+              this.advanceIterator(node, context, context.registration)
+            )
+              return;
+          }
           return;
         }
-        this.visit(node.consequent, this.guarded(context, condition));
-        if (node.alternate) this.visit(node.alternate, this.guarded(context, `!(${condition})`));
+        if (helper.fn !== unwrap(node.callee)) this.visit(node.callee, context);
+        const stopped = this.registrationArguments(node, context);
+        if (stopped) this.walkedAtCall.add(helper.fn);
+        else {
+          if (stopped === null) for (const arg of node.arguments) this.visit(arg, context);
+          this.walkAtCall(helper, node, context, stopped !== null);
+        }
         return;
       }
+      case 'IfStatement':
       case 'ConditionalExpression': {
+        // In-source tests sit inside `if (import.meta.vitest)`, which is how they are written, not a condition.
+        if (node.type === 'IfStatement' && isImportMetaVitest(node.test)) break;
         const condition = this.text(node.test);
         this.visit(node.test, context);
         const known = this.known(node.test, context);
-        if (known) {
-          this.visit(known.value ? node.consequent : node.alternate, context);
-          return;
-        }
-        this.visit(node.consequent, this.guarded(context, condition));
-        this.visit(node.alternate, this.guarded(context, `!(${condition})`));
+        this.visitBranch(node.consequent, context, condition, known && Boolean(known.value));
+        if (node.alternate) this.visitBranch(node.alternate, context, `!(${condition})`, known && !known.value);
         return;
       }
       case 'LogicalExpression': {
@@ -600,25 +896,66 @@ class Walker {
         const guard = node.operator === '&&' ? left : node.operator === '||' ? `!(${left})` : `(${left}) == null`;
         this.visit(node.left, context);
         const known = this.known(node.left, context);
-        if (known) {
-          const { value } = known;
-          const right =
-            node.operator === '&&'
-              ? Boolean(value)
-              : node.operator === '||'
-                ? !value
-                : value === null || value === undefined;
-          if (right) this.visit(node.right, context);
-          return;
-        }
-        this.visit(node.right, this.guarded(context, guard));
+        const right = known && usesRightOperand(node.operator, known.value);
+        this.visitBranch(node.right, context, guard, right);
         return;
       }
-      case 'TryStatement':
-        this.visit(node.block, context);
-        // A `catch` block runs only when the `try` block throws, as when a test server can't start.
-        if (node.handler) this.visit(node.handler, this.guarded(context, this.catchCondition(node.handler)));
-        if (node.finalizer) this.visit(node.finalizer, context);
+      case 'TryStatement': {
+        const attempt = context.registration && { ...context.registration };
+        this.visit(node.block, { ...context, registration: attempt, handlesRegistrationError: !!attempt });
+        let failure = attempt?.failure;
+        let returned = attempt?.returned;
+        let scope = attempt?.recoveryScope ?? attempt?.scope;
+        const exit =
+          node.handler && attempt && failure === undefined
+            ? this.frame.adapter.registrationExit?.(node.block, this.scopes)
+            : undefined;
+        if (node.handler && exit !== 'next' && exit !== 'return') {
+          const handler = this.guarded(context, this.catchCondition(node.handler));
+          if (handler.registration) {
+            handler.registration.scope = scope;
+            if (attempt && (failure !== undefined || exit === 'throw'))
+              handler.registration.iterators = attempt.iterators;
+            if (failure !== undefined) handler.registration.asyncCall = attempt?.asyncCall;
+          }
+          this.visit(node.handler, handler);
+          if (failure !== undefined && handler.registration) {
+            failure = handler.registration.failure;
+            returned = handler.registration.returned;
+            scope = handler.registration.recoveryScope ?? handler.registration.scope;
+          } else returned = returned && handler.registration?.returned;
+        }
+        if (context.registration) context.registration.scope = scope;
+        if (node.finalizer) {
+          this.visit(node.finalizer, context);
+          if (
+            failure !== undefined &&
+            (context.registration?.returned ||
+              this.frame.adapter.registrationExit?.(node.finalizer, this.scopes) === 'return')
+          )
+            failure = undefined;
+        }
+        if (context.registration && failure !== undefined) context.registration.failure ??= failure;
+        if (returned && context.registration) context.registration.returned = true;
+        return;
+      }
+      case 'ReturnStatement':
+        if (node.argument) {
+          this.visit(node.argument, context);
+          const target = context.iteratorReturn;
+          if (
+            target &&
+            this.scopes.findLast((n) => n.type === 'FunctionDeclaration' || isFunctionNode(n)) === target.fn
+          ) {
+            target.value = this.frame.values.iteratorOf(node.argument, this.scopes);
+          }
+        }
+        if (context.registration?.asyncCall && context.registration.failure === undefined)
+          context.registration.returned = true;
+        return;
+      case 'ThrowStatement':
+        this.visit(node.argument, context);
+        this.stopRegistration(node, context);
         return;
       case 'SwitchStatement': {
         const discriminant = this.text(node.discriminant);
@@ -626,19 +963,29 @@ class Walker {
         // The default case runs when no other case matches.
         const otherwise = values.map((value) => `${discriminant} !== ${value}`).join(' && ');
         this.visit(node.discriminant, context);
-        for (const switchCase of node.cases) {
+        const start = this.switchStart(node, context);
+        let fallsThrough = false;
+        for (const [index, switchCase] of node.cases.entries()) {
           const guard = switchCase.test ? `${discriminant} === ${this.text(switchCase.test)}` : otherwise;
-          this.visit(switchCase, this.guarded(context, guard === '' ? null : guard));
+          const guarded = this.guarded(context, guard === '' ? null : guard);
+          const executes: boolean = start === null || index === start || fallsThrough;
+          this.visit(switchCase, executes ? guarded : { ...guarded, skipImports: true });
+          fallsThrough = executes && !switchCase.consequent.some((statement) => alwaysLeaves(statement));
         }
         return;
       }
+      case 'SwitchCase':
+        if (node.test) this.visit(node.test, context);
+        this.visitStatements(node.consequent, context);
+        return;
       case 'BlockStatement':
         this.visitStatements(node.body, context);
         return;
       case 'ForInStatement':
       case 'ForOfStatement': {
         const leaves = leavesEarly(node.body);
-        const values = leaves ? null : this.loopValues(node);
+        const iterable = this.loopValues(node);
+        const values = leaves ? null : iterable;
         const expands = values ? this.expands(node, values, context) : 'no';
         if (values && expands === 'yes') {
           this.expandLoop(node, values, context);
@@ -648,15 +995,31 @@ class Walker {
         const listed = node.type === 'ForOfStatement' && !leaves ? node.right : null;
         const count = values?.length ?? (listed ? this.frame.values.lengthOf(listed, this.scopes.slice(0, -1)) : null);
         this.walkUnexpanded(node, expands === 'limit', () => {
-          this.visitChildren(node, this.inLoop(context, count));
+          this.visit(node.right, context);
+          const loop = this.inLoop(context, count);
+          const body = iterable?.length === 0 ? { ...loop, skipImports: true } : loop;
+          this.visit(node.left, body);
+          this.visit(node.body, body);
         });
         return;
       }
       case 'ForStatement':
-      case 'WhileStatement':
-      case 'DoWhileStatement':
-        this.visitChildren(node, this.inLoop(context, null));
+      case 'WhileStatement': {
+        const loop = this.inLoop(context, null);
+        if (node.type === 'ForStatement' && node.init) this.visit(node.init, loop);
+        if (node.test) this.visit(node.test, loop);
+        const condition = node.test && this.known(node.test, context);
+        const body = condition && !condition.value ? { ...loop, skipImports: true } : loop;
+        this.visit(node.body, body);
+        if (node.type === 'ForStatement' && node.update) this.visit(node.update, this.loopTail(node.body, body));
         return;
+      }
+      case 'DoWhileStatement': {
+        const loop = this.inLoop(context, null);
+        this.visit(node.body, loop);
+        this.visit(node.test, this.loopTail(node.body, loop));
+        return;
+      }
       case 'FunctionDeclaration':
       case 'FunctionExpression':
       case 'ArrowFunctionExpression': {
@@ -664,7 +1027,8 @@ class Walker {
         const helper = context.test || context.hookScope ? null : node;
         const named = helper !== null && this.isNamed(node);
         // In an imported helper's module, a function runs only when it is called, and is walked then.
-        if (named && this.frame !== this.main) return;
+        if (this.frame !== this.main && (named || (this.importDepth > 0 && !context.test && !context.hookScope)))
+          return;
         if (named && !this.isDeferred.has(node)) {
           // Its calls decide where its tests are registered, and a call may come after it, so it waits.
           this.written.set(node, { ...this.placement(context), declaredIn: context.declaredIn });
@@ -677,12 +1041,84 @@ class Walker {
           ...context,
           isInFunction: true,
           helper: helper ?? context.helper,
+          registration: undefined,
           guards: helper ? [] : context.guards,
         });
         return;
       }
     }
     this.visitChildren(node, context);
+  }
+
+  /** Static module loads run once during collection. Keep the location of the import in the entry spec and
+   * the declaration's own location in the loaded module, just as for a helper invoked at a call site. */
+  private collectImport(node: Node, context: Context): void {
+    let source: string | null;
+    if (node.type === 'ImportDeclaration' && node.importKind !== 'type') {
+      source = node.source.value;
+      if (node.specifiers.length && /\.[cm]?tsx?$/.test(this.frame.relativeFilePath)) {
+        let used = this.valueImports.get(this.frame);
+        if (!used) {
+          used = runtimeReferences(this.frame);
+          this.valueImports.set(this.frame, used);
+        }
+        if (
+          !node.specifiers.some(
+            (item) => (item.type !== 'ImportSpecifier' || item.importKind !== 'type') && used.has(item),
+          )
+        )
+          return;
+      }
+    } else if (
+      (node.type === 'ExportAllDeclaration' || node.type === 'ExportNamedDeclaration') &&
+      node.source &&
+      node.exportKind !== 'type'
+    ) {
+      if (
+        node.type === 'ExportNamedDeclaration' &&
+        node.specifiers.length &&
+        node.specifiers.every((item) => item.exportKind === 'type')
+      )
+        return;
+      source = node.source.value;
+    } else if (
+      node.type === 'CallExpression' &&
+      node.callee.type === 'Identifier' &&
+      node.callee.name === 'require' &&
+      !this.frame.values.declarationOf('require', this.scopes)
+    )
+      source = requiredModule(node);
+    else if (node.type === 'ImportExpression') source = null;
+    else return;
+    if (source !== null && !initializesLocalModule(source)) return;
+    const frame = source !== null ? this.openFrom(this.frame, source) : null;
+    if (!frame || this.importDepth >= MAX_DEPTH) {
+      this.unknownRegistration = true;
+      return;
+    }
+    if (this.loaded.has(frame.relativeFilePath)) return;
+    this.loaded.add(frame.relativeFilePath);
+    if (this.options.initializeModule?.(frame.relativeFilePath) === false) return;
+    const caller = this.frame;
+    const site = this.site;
+    const scopes = this.scopes.splice(0);
+    const parents = this.parents.splice(0);
+    this.frame = frame;
+    this.site ??= node;
+    this.importDepth++;
+    this.visit(frame.parsed.program, { ...context, registeredBy: context.registeredBy ?? node });
+    this.importDepth--;
+    this.scopes.push(...scopes);
+    this.parents.push(...parents);
+    this.site = site;
+    this.frame = caller;
+  }
+
+  /** A continue reaches the update or trailing condition of its loop. A break, return or throw skips it. */
+  private loopTail(body: Node, context: Context): Context {
+    return this.options.collectImports && alwaysLeaves(body) && !leavesEarly(body, true)
+      ? { ...context, skipImports: true }
+      : context;
   }
 
   /** Whether a function has a name it can be called by: `function name() {}` or `const name = () => {}`. */
@@ -699,7 +1135,12 @@ class Walker {
    * the values of a case or pass; null otherwise, and then both branches are walked under the condition.
    */
   private known(test: Expression, context: Context): { value: Value } | null {
-    if (!this.options.expandCases || context.test || context.hookScope) return null;
+    if (
+      (!this.options.expandCases && !this.options.collectImports && !context.registration) ||
+      context.test ||
+      context.hookScope
+    )
+      return null;
     // Only the values of the case, pass or helper call decide: a constant of the module may be changed in ways the scan
     // doesn't see, and taking a branch away would drop a test the runner registers.
     const names = referencedNames(test);
@@ -714,21 +1155,113 @@ class Walker {
    * condition; a branch taken for certain, or both branches leaving, ends the walk. A branch that leaves on only some
    * of its paths leaves what follows as it is.
    */
-  private visitStatements(statements: readonly Node[], context: Context): void {
+  private visitStatements(statements: readonly Node[], context: Context, start = 0): void {
     let current = context;
-    for (const statement of statements) {
+    for (let index = start; index < statements.length; index++) {
+      const task = current.registration?.asyncCall;
+      if (current.registration?.returned) return;
+      if (task?.atAwait && task.body === this.parents.at(-1)) {
+        if (!current.skipImports && !task.pending && current.registration?.failure === undefined)
+          this.deferStatements(statements, index, current, task.body);
+        return;
+      }
+      const statement = statements[index];
       this.visit(statement, current);
-      if (statement.type !== 'IfStatement' || isImportMetaVitest(statement.test)) continue;
+      if (statement.type !== 'IfStatement') {
+        if ((this.options.collectImports || context.registration) && alwaysLeaves(statement))
+          current = { ...current, skipImports: true };
+        continue;
+      }
+      if (isImportMetaVitest(statement.test)) continue;
       const thenLeaves = alwaysLeaves(statement.consequent);
       const elseLeaves = statement.alternate !== null && alwaysLeaves(statement.alternate);
       if (!thenLeaves && !elseLeaves) continue;
       const known = this.known(statement.test, current);
       const taken = known && (known.value ? thenLeaves : elseLeaves);
-      if (taken || (thenLeaves && elseLeaves)) return;
-      if (known) continue;
+      if ((taken && this.options.expandCases) || (thenLeaves && elseLeaves)) return;
+      if (known && (this.options.expandCases || (context.registration && !taken))) continue;
       const condition = this.text(statement.test);
       current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
+      if (taken) current.skipImports = true;
     }
+  }
+
+  /** Terminal outcomes of the built-in Promise constructor and its static methods that the scan can prove. */
+  private awaitedFailure(expression: Expression): 'pending' | 'rejected' | null {
+    if (
+      this.frame.values.declarationOf('Promise', this.scopes) ||
+      this.frame.values.assignedIn(this.frame.parsed.program).has('Promise')
+    )
+      return null;
+    let node = unwrap(expression);
+    while (node.type === 'CallExpression') {
+      const method = unwrap(node.callee);
+      if (method.type !== 'MemberExpression' || method.object.type !== 'Identifier' || method.object.name !== 'Promise')
+        return null;
+      if (propertyName(method) === 'reject') return 'rejected';
+      const value = node.arguments.at(0);
+      if (propertyName(method) !== 'resolve' || !value || value.type === 'SpreadElement') return null;
+      node = unwrap(value);
+    }
+    if (node.type !== 'NewExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'Promise')
+      return null;
+    const executor = node.arguments[0];
+    if (
+      !isFunctionNode(executor) ||
+      !executor.params.every((p) => p.type === 'Identifier') ||
+      executor.body?.type !== 'BlockStatement'
+    )
+      return null;
+    return executor.body.body.every(
+      (s) =>
+        s.type === 'VariableDeclaration' &&
+        ['var', 'let', 'const'].includes(s.kind) &&
+        s.declarations.every((d) => d.id.type === 'Identifier' && d.init?.type === 'Literal'),
+    )
+      ? 'pending'
+      : null;
+  }
+
+  /** Resume in the active file suite, retaining the lexical environment where the helper suspended. */
+  private deferStatements(statements: readonly Node[], index: number, context: Context, body: Node): void {
+    const { frame, site, importDepth } = this;
+    const scopes = this.scopes.slice(),
+      parents = this.parents.slice(),
+      calls = this.callStack.slice();
+    this.continuations.push(
+      frame.values.captureBindings<Registration>((root) => {
+        this.frame = frame;
+        this.site = site;
+        this.importDepth = importDepth;
+        this.scopes.push(...scopes);
+        this.parents.push(...parents);
+        this.callStack.push(...calls);
+        this.asyncRegistration(root, body, (registration) => {
+          this.visitStatements(
+            statements,
+            {
+              ...context,
+              scope: root.scope ?? this.fileScope,
+              registration,
+              emptySuiteAt: undefined,
+              expandedAt: this.main.parsed.program.end + 1,
+            },
+            index,
+          );
+        });
+        this.callStack.length = this.parents.length = this.scopes.length = 0;
+        this.importDepth = 0;
+        this.site = null;
+        this.frame = this.main;
+      }),
+    );
+  }
+
+  private asyncRegistration(caller: Registration, body: Node, visit: (registration: Registration) => void): void {
+    const asyncCall: AsyncRegistration = { body };
+    const registration = { ...caller, asyncCall };
+    visit(registration);
+    caller.scope = asyncCall.atAwait ? asyncCall.atAwait.scope : (registration.recoveryScope ?? registration.scope);
   }
 
   private placement(context: Context): Placement {
@@ -746,17 +1279,115 @@ class Walker {
     return this.text({ start: handler.start, end: handler.body.start }).trim();
   }
 
-  private guarded(context: Context, guard: string | null): Context {
-    return { ...context, isInCondition: true, guards: guard === null ? context.guards : [...context.guards, guard] };
+  /** First case entered at collection, -1 for none, or null when a value cannot be determined. */
+  private switchStart(node: Extract<Node, { type: 'SwitchStatement' }>, context: Context): number | null {
+    if (!this.options.collectImports) return null;
+    const key = this.known(node.discriminant, context);
+    if (!key || (key.value !== null && typeof key.value === 'object')) return null;
+    let fallback = -1;
+    for (const [index, entry] of node.cases.entries()) {
+      if (entry.test === null) fallback = index;
+      else {
+        const value = this.known(entry.test, context);
+        if (!value) return null;
+        if (value.value === key.value) return index;
+      }
+    }
+    return fallback;
+  }
+
+  private visitBranch(node: Node, context: Context, guard: string, selected: boolean | null): void {
+    if (selected !== null && (this.options.expandCases || context.evaluatingArgument)) {
+      if (selected) this.visit(node, context);
+      return;
+    }
+    const guarded = this.guarded(context, guard, selected === true);
+    this.visit(node, selected === false ? { ...guarded, skipImports: true } : guarded);
+  }
+
+  private guarded(context: Context, guard: string | null, certain = false): Context {
+    return {
+      ...context,
+      isInCondition: true,
+      guards: guard === null ? context.guards : [...context.guards, guard],
+      registration: certain ? context.registration : possibleRegistration(context.registration),
+    };
+  }
+
+  private advanceIterator(call: CallExpression, context: Context, registration: Registration): boolean {
+    const callee = unwrap(call.callee);
+    if (callee.type !== 'MemberExpression' || context.skipImports || registration.failure !== undefined) return false;
+    const name = propertyName(callee);
+    if (name !== 'return' && name !== 'throw' && name !== 'next') return false;
+    const values = this.frame.values;
+    values.iteratorMethods.delete(call);
+    const token = values.iteratorOf(callee.object, this.scopes);
+    if (!token) return false;
+    this.argumentRevision++;
+    const unknownObject: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true, nonIterable: true };
+    if (this.registrationArguments(call, context)) {
+      values.iteratorMethods.set(call, { outcome: 'throw', result: unknownObject, registered: false });
+      return true;
+    }
+    const { args, complete } = values.callArguments(call, this.scopes, true, (operand) =>
+      this.readArgument(operand, true),
+    );
+    const first = args[0] ?? (complete ? omitted : { ok: false as const, importedFrom: null });
+    const use = {
+      ...context,
+      evaluatingArgument: true,
+      expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
+    };
+    const step = this.resumeIterator(token, use, registration, name, first);
+    const result: Resolved =
+      step.outcome === 'next' && step.result.ok
+        ? { ok: true, value: { value: step.result.value, done: step.position === 'closed' } }
+        : unknownObject;
+    values.iteratorMethods.set(call, { outcome: step.outcome, registered: step.registered, result });
+    if (step.outcome === 'throw') this.stopRegistration(call, context, step.result);
+    return true;
+  }
+
+  private stopRegistration(node: Node, context: Context, value?: Resolved): void {
+    if (context.registration && !context.skipImports)
+      context.registration.failure ??= {
+        line: this.lineOf(node),
+        value: node.type === 'ThrowStatement' ? this.readArgument(node.argument, true) : value,
+      };
+  }
+
+  private readsUninitialized(node: Extract<Node, { type: 'Identifier' }>, parameters: InitializingParameters): boolean {
+    for (let entry: InitializingParameters | undefined = parameters; entry; entry = entry.outer) {
+      if (!entry.pending.has(node.name) || this.frame.values.declarationOf(node.name, this.scopes) !== entry.fn)
+        continue;
+      const parent = this.parents[this.parents.length - 2];
+      const key = Object.entries(parent).find(([, child]) => child === node)?.[0] ?? null;
+      return isReference(key, parent);
+    }
+    return false;
   }
 
   /** Visits the body of a callback the framework or a loop calls, rather than a plain function. */
-  private visitCallback(fn: FunctionNode, context: Context): void {
+  private visitCallback(fn: FunctionNode, context: Context, parameterSteps?: ReadonlyMap<Node, ParameterStep>): void {
     this.scopes.push(fn);
     this.parents.push(fn);
-    for (const parameter of fn.params) this.visit(parameter, context);
+    const bindings = parameterSteps
+      ? {
+          ...context,
+          evaluatingArgument: true,
+          parameters: {
+            fn,
+            steps: parameterSteps,
+            pending: new Set(fn.params.flatMap((param) => bindingNames(param))),
+            outer: context.parameters,
+          },
+        }
+      : context;
+    for (const parameter of fn.params) this.visit(parameter, bindings);
     // Function expressions and arrows always have a body; only declarations of overloads don't.
-    this.visit(fn.body as Node, context);
+    if (!parameterSteps || (!fn.generator && bindings.registration?.failure === undefined))
+      this.visit(fn.body as Node, context);
+    if (context.registration?.returned) context.registration.returned = false;
     this.parents.pop();
     this.scopes.pop();
   }
@@ -770,6 +1401,7 @@ class Walker {
     return {
       ...context,
       isInLoop: true,
+      registration: passes ? context.registration : possibleRegistration(context.registration),
       loops: [...context.loops, passes],
       loopConditions: [...context.loopConditions, context.isInCondition || pass !== null],
       caseIndex: pass?.index ?? context.caseIndex,
@@ -878,7 +1510,8 @@ class Walker {
         } else {
           const count = values?.length ?? (leaves ? null : this.frame.values.lengthOf(callee.object, this.scopes));
           this.walkUnexpanded(call, expands === 'limit', () => {
-            this.visitCallback(arg, this.inLoop(context, count));
+            const loop = this.inLoop(context, count);
+            this.visitCallback(arg, list?.length === 0 ? { ...loop, skipImports: true } : loop);
           });
         }
       } else {
@@ -889,16 +1522,38 @@ class Walker {
   }
 
   private call(call: CallExpression, context: Context): boolean {
-    const api = this.frame.adapter.classify(call, {
-      scopes: this.scopes,
-      testContext: context.testContext,
-      inTest: context.test !== null,
-      inBody: context.test !== null || context.hookScope !== null,
-      passedDown: context.scope.suite?.declaration.passesDown ?? null,
-      returnsOf: (name, scopes) => this.returnsOf(name, scopes),
-    });
+    const classify = () =>
+      this.frame.adapter.classify(call, {
+        scopes: this.scopes,
+        testContext: context.testContext,
+        inTest: context.test !== null,
+        inBody: context.test !== null || context.hookScope !== null,
+        passedDown: context.scope.suite?.declaration.passesDown ?? null,
+        handlesRegistrationError: !!context.registration && context.handlesRegistrationError,
+        returnsOf: (name, scopes) => this.returnsOf(name, scopes),
+      });
+    const api = classify();
     if (!api) return false;
-    return this.handle(call, api, context);
+    const revision = this.argumentRevision;
+    if (this.registrationArguments(call, context)) return true;
+    // A spread or an explicit iterator step can supply a title during argument evaluation.
+    return this.handle(
+      call,
+      revision === this.argumentRevision ? api : (classify() as ApiCall),
+      this.currentScope(context),
+    );
+  }
+
+  /** Whether argument evaluation stopped a call during collection, or null outside live Jasmine registration. */
+  private registrationArguments(call: CallExpression, context: Context): boolean | null {
+    if (!context.registration || context.skipImports || context.registration.failure !== undefined) return null;
+    const args = {
+      ...context,
+      evaluatingArgument: true,
+      expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
+    };
+    for (const arg of call.arguments) this.visit(arg, args);
+    return args.registration?.failure !== undefined;
   }
 
   private handle(call: CallExpression, api: ApiCall, context: Context): boolean {
@@ -950,6 +1605,7 @@ class Walker {
         return true;
       case 'hook':
         if (context.test) return false;
+        if (context.registration?.failure !== undefined) return true;
         // A function with a name registers its hooks where it is called, not where it is written.
         if (!context.hookScope && context.declaredIn === null) {
           context.scope.hooks[api.name] += 1;
@@ -962,6 +1618,7 @@ class Walker {
           this.visitCallback(api.fn, {
             ...context,
             hookScope: context.scope,
+            registration: undefined,
             hookName: api.name,
             testContext: api.testContext,
             guards: [],
@@ -974,6 +1631,7 @@ class Walker {
         context.test?.problems.push(...api.problems.map((item) => this.here(item)));
         return true;
       case 'invalid': {
+        this.stopRegistration(call, context);
         // Code that runs after the file loads, only when a condition holds, or in a function the scan can't place, which
         // runs only if something calls it, can't be sure to stop it loading.
         const afterLoad =
@@ -983,7 +1641,11 @@ class Walker {
           context.declaredIn !== null ||
           context.calledIn !== null ||
           context.isInCondition;
-        this.report({ ...api.problem, afterLoad: afterLoad || api.problem.afterLoad, scope: context.scope });
+        this.report({
+          ...api.problem,
+          afterLoad: afterLoad || context.registration !== undefined || api.problem.afterLoad,
+          scope: context.scope,
+        });
         // Under a condition, the call either never runs or fails the file, so it declares nothing either way.
         return api.declaration && !context.isInCondition ? this.handle(call, api.declaration, context) : true;
       }
@@ -1015,13 +1677,25 @@ class Walker {
   private helperCall(call: CallExpression, context: Context): Callee | null {
     const callee = unwrap(call.callee);
     const runsHere = !context.test && !context.hookScope && !context.helper && this.callStack.length < MAX_DEPTH;
+    if (
+      runsHere &&
+      (this.options.collectImports || context.registration) &&
+      (callee.type === 'ArrowFunctionExpression' ||
+        (callee.type === 'FunctionExpression' && (!callee.generator || context.registration)))
+    )
+      return this.withinLimit({ fn: callee, frame: this.frame }, call);
     if (callee.type === 'MemberExpression') {
       const object = unwrap(callee.object);
       const member = propertyName(callee);
-      const imported =
-        runsHere && object.type === 'Identifier' && member !== null
-          ? this.importedFunction(object.name, this.scopes, this.frame, member)
-          : null;
+      if (!runsHere || member === null) return null;
+      let imported: Callee | null = null;
+      if (object.type === 'Identifier') {
+        imported = this.importedFunction(object.name, this.scopes, this.frame, member);
+      } else {
+        const source = requiredModule(object);
+        if (source !== null && !this.frame.values.declarationOf('require', this.scopes))
+          imported = this.functionFrom(this.frame, source, member);
+      }
       return imported && !this.callStack.includes(imported.fn) ? this.withinLimit(imported, call) : null;
     }
     if (callee.type !== 'Identifier') return null;
@@ -1114,8 +1788,12 @@ class Walker {
     const imported = from.values.importedName(name, scopes);
     const whole = imported === null || from.values.declarationOf(name, scopes)?.type === 'VariableDeclarator';
     const exported = member === null ? imported : whole ? member : null;
-    const frame = exported === null ? null : this.openFrom(from, source);
-    return frame ? this.exportedFunction(frame, exported as string, new Set(), 0) : null;
+    return exported === null ? null : this.functionFrom(from, source, exported);
+  }
+
+  private functionFrom(from: Frame, source: string, name: string): Callee | null {
+    const frame = this.openFrom(from, source);
+    return frame ? this.exportedFunction(frame, name, new Set(), 0) : null;
   }
 
   /** A module a file imports, read as a frame once; null when it can't be read or parsed. */
@@ -1181,18 +1859,157 @@ class Walker {
     return isFunctionNode(value) ? { fn: value, frame } : null;
   }
 
+  private readArgument(operand: Expression, atRegistration: boolean): Resolved {
+    const { adapter, values } = this.frame;
+    return atRegistration && adapter.registrationValue
+      ? adapter.registrationValue(operand, this.scopes)
+      : values.resolve(operand, this.scopes);
+  }
+
+  private resumeIterator(
+    token: Resolved,
+    context: Context,
+    registration: Registration,
+    method: IteratorRequest['method'],
+    argument: Resolved,
+  ): IteratorRun {
+    const position = registration.iterators.get(token);
+    registration.iterators.set(token, 'running');
+    const run = this.iterators.get(token) as (request: IteratorRequest) => IteratorRun;
+    const step = run({ context, method, argument, position });
+    registration.iterators.set(token, step.position);
+    return step;
+  }
+
+  private saveIterator(
+    { fn, frame }: Callee,
+    scopes: readonly Node[],
+    readSpread: (operand: Expression, scopes: readonly Node[]) => IteratorSpread,
+  ): Resolved {
+    const token: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true, iterator: true };
+    this.iterators.set(
+      token,
+      frame.values.captureBindings<IteratorRequest, IteratorRun>(({ context: use, method, position, argument }) => {
+        const previousFrame = this.frame;
+        const previousScopes = this.scopes.splice(0, this.scopes.length, ...scopes, fn);
+        this.frame = frame;
+        this.parents.push(fn);
+        this.callStack.push(fn);
+        try {
+          const caller = use.registration as Registration;
+          const registration = { ...caller };
+          const context = { ...use, registration, isInFunction: true, declaredIn: null };
+          const before = this.tests.length + this.suites.length;
+          const evaluate = (
+            node: Node,
+            around: readonly Node[],
+            readValue: boolean,
+            handlesThrow: boolean,
+            parameters?: InitializingParameters,
+          ): Resolved | Thrown => {
+            this.scopes.splice(0, this.scopes.length, ...scopes, fn, ...around);
+            this.visit(node, {
+              ...context,
+              parameters: parameters ?? use.parameters,
+              handlesRegistrationError: handlesThrow || use.handlesRegistrationError,
+            });
+            if (registration.failure !== undefined) {
+              const thrown = registration.failure.value ?? { ok: false, importedFrom: null };
+              registration.scope = registration.recoveryScope ?? registration.scope;
+              delete registration.recoveryScope;
+              delete registration.failure;
+              return { thrown };
+            }
+            return readValue ? this.readArgument(node as Expression, true) : omitted;
+          };
+          const body = fn.body as Extract<Node, { type: 'BlockStatement' }>;
+          const yielded: { values: Resolved[]; complete: boolean } = { values: [], complete: true };
+          const previous = typeof position === 'object' ? position.locals : undefined;
+          const locals = { operands: new Map(previous?.operands), catches: new Map(previous?.catches) };
+          const enterCall = (name: string, around: readonly Node[]) => {
+            // If an argument suspends or throws, the helper body cannot register at its declaration.
+            const callee = this.functionNamed(name, [...scopes, fn, ...around]);
+            if (callee) this.walkedAtCall.add(callee);
+          };
+          const collect = (spread: IteratorSpread) => {
+            if (yielded.complete) {
+              for (const item of spread.values) yielded.values.push(item);
+              yielded.complete = spread.complete;
+            }
+            return spread.outcome;
+          };
+          const env = {
+            locals,
+            evaluate,
+            bindCatch: (clause: CatchClause, around: readonly Node[], value: Resolved, handlesThrow: boolean) => {
+              const steps = frame.values.bindCatch(clause, value, [...scopes, fn, ...around], locals);
+              return evaluate(clause.param as Node, around, false, handlesThrow, {
+                fn: clause,
+                steps,
+                pending: new Set(bindingNames(clause.param)),
+                outer: use.parameters,
+              });
+            },
+            enterCall,
+            iteratorOf: (operand: Expression, around: readonly Node[]) =>
+              frame.values.iteratorOf(operand, [...scopes, fn, ...around]),
+            resumeDelegate: (iterator: Resolved, next: IteratorMethod, value: Resolved, handlesThrow: boolean) => {
+              const step = this.resumeIterator(
+                iterator,
+                { ...context, handlesRegistrationError: handlesThrow || use.handlesRegistrationError },
+                registration,
+                method === 'spread' ? 'spread' : next,
+                value,
+              );
+              if (method === 'spread') collect(step);
+              return { position: step.position, outcome: step.outcome, value: step.result };
+            },
+            spreadDelegate:
+              method === 'spread'
+                ? (operand: Expression, around: readonly Node[]) =>
+                    collect(readSpread(operand, [...scopes, fn, ...around]))
+                : undefined,
+          };
+          const step = frame.values.withGeneratorLocals(locals, () => {
+            let next = stepGenerator(body, position, method === 'spread' ? 'next' : method, argument, env);
+            while (method === 'spread' && typeof next.position === 'object') {
+              if (yielded.complete) yielded.values.push(next.value);
+              next = stepGenerator(body, next.position, 'next', omitted, env);
+            }
+            return next;
+          });
+          caller.scope = registration.scope;
+          return {
+            values: yielded.values,
+            complete: yielded.complete && step.outcome !== 'unknown',
+            registered: this.tests.length + this.suites.length > before,
+            outcome: step.outcome,
+            position: step.position,
+            result: step.value,
+          };
+        } finally {
+          this.callStack.pop();
+          this.parents.pop();
+          this.frame = previousFrame;
+          this.scopes.splice(0, this.scopes.length, ...previousScopes);
+        }
+      }),
+    );
+    return token;
+  }
+
   /**
    * Walks a function at one of its calls from the file or a describe, as the runner runs it there: with the scopes
    * where it is written, and its parameters bound to the call's arguments so that titles built from them resolve. A
    * function imported from another module is walked in that module, and what it registers points at this call.
    */
-  private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context): void {
+  private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context, registering: boolean): void {
     this.walkedAtCall.add(fn);
     // Arguments are worked out where the call is, in the file and scopes of the caller.
-    const spread = call.arguments.findIndex((item) => item.type === 'SpreadElement');
-    const args = (spread === -1 ? call.arguments : call.arguments.slice(0, spread)).map((item) =>
-      this.frame.values.resolve(item as Expression, this.scopes),
+    const { args, complete } = this.frame.values.callArguments(call, this.scopes, registering, (operand) =>
+      this.readArgument(operand, registering),
     );
+    const parameterSteps = registering ? new Map<Node, ParameterStep>() : undefined;
     const caller = this.frame;
     const site = this.site;
     if (frame !== caller) {
@@ -1202,21 +2019,44 @@ class Walker {
     const scopes = this.scopeChain(fn);
     const saved = this.scopes.splice(0, this.scopes.length, ...scopes);
     this.callStack.push(fn);
+    const returned: { fn: FunctionNode; value?: Resolved } = { fn };
     frame.values.withArguments(
       fn,
       args,
       scopes,
       () => {
-        this.visitCallback(fn, {
-          ...context,
-          isInFunction: true,
-          declaredIn: null,
-          calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
-          registeredBy: context.registeredBy ?? call,
-        });
+        const visitBody = (registration: Context['registration']) => {
+          this.visitCallback(
+            fn,
+            {
+              ...context,
+              registration,
+              iteratorReturn: returned,
+              isInFunction: true,
+              declaredIn: null,
+              calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
+              registeredBy: context.registeredBy ?? call,
+            },
+            parameterSteps,
+          );
+        };
+        if (registering && context.registration && fn.async && !fn.generator)
+          this.asyncRegistration(context.registration, fn.body as Node, visitBody);
+        else visitBody(context.registration);
+        if (registering && fn.generator && !fn.async && frame.adapter.registrationSpread) {
+          returned.value = this.saveIterator(
+            { fn, frame },
+            scopes,
+            frame.adapter.registrationSpread.bind(frame.adapter),
+          );
+        } else if (registering && fn.type === 'ArrowFunctionExpression' && fn.body.type !== 'BlockStatement') {
+          returned.value = frame.values.iteratorOf(fn.body, [...scopes, fn]);
+        }
       },
-      spread === -1,
+      complete,
+      parameterSteps,
     );
+    if (registering) caller.values.recordIterator(call, saved, returned.value);
     this.callStack.pop();
     this.scopes.splice(0, this.scopes.length, ...saved);
     // What the module's own imports couldn't resolve is reported at the call, as it is why tests may be missing. Another
@@ -1245,6 +2085,7 @@ class Walker {
       helper: fn,
       guards: [],
       declaredIn: fn,
+      registration: undefined,
       quiet: this.walkedAtCall.has(fn),
     });
     this.scopes.splice(0, this.scopes.length, ...savedScopes);
@@ -1596,6 +2437,8 @@ class Walker {
     const title = declaration.title;
     if (!title || title.isDynamic) return single("the scan can't work out the title");
     const titles = declaration.cases.map((item) => item.title);
+    const problemTitle = titles.find((text) => text !== null && typeof text === 'object');
+    if (problemTitle) return single(problemTitle.reason);
     if (titles.some((text) => text === null)) {
       return single("the title shows a value the scan doesn't format the way the runner does");
     }
@@ -1620,9 +2463,12 @@ class Walker {
     { declaration, index, args }: Case<TestDeclaration>,
     context: Context,
   ): void {
+    const registrationStoppedAt = context.registration?.failure?.line ?? context.emptySuiteAt;
+    if (registrationStoppedAt !== undefined && declaration.isOnly) declaration = { ...declaration, isOnly: false };
     const statement = this.statement(call);
     const empty = emptyTitle(declaration, call);
     const test: PendingTest = {
+      registrationStoppedAt,
       scope: context.scope,
       parent: context.test,
       declaration,
@@ -1661,6 +2507,7 @@ class Walker {
         this.visitCallback(body, {
           ...context,
           test,
+          registration: undefined,
           hookScope: null,
           hookName: null,
           stepDepth: 0,
@@ -1719,6 +2566,8 @@ class Walker {
     { declaration, index, args }: Case<SuiteDeclaration>,
     context: Context,
   ): void {
+    if ((context.registration?.failure !== undefined || context.emptySuiteAt !== undefined) && declaration.isOnly)
+      declaration = { ...declaration, isOnly: false };
     for (const item of [...declaration.problems, ...emptyTitle(declaration, call)]) this.report(item);
     const scope: Scope = {
       kind: 'describe',
@@ -1757,6 +2606,14 @@ class Walker {
         this.visitCallback(fn, {
           ...context,
           scope,
+          registration: this.frame.adapter.catchesSuiteErrors
+            ? {
+                failure: context.registration?.failure,
+                iterators: context.registration?.iterators ?? new Map<Resolved, IteratorPosition>(),
+              }
+            : undefined,
+          emptySuiteAt: context.emptySuiteAt ?? (declaration.emptySuiteError ? this.lineOf(call) : undefined),
+          handlesRegistrationError: false,
           test: null,
           hookScope: null,
           hookName: null,
@@ -1771,6 +2628,14 @@ class Walker {
         });
       });
     });
+    const error = declaration.emptySuiteError;
+    if (error) {
+      this.report({ ...error.problem, afterLoad: true, scope: context.scope });
+      if (context.registration && !context.skipImports && context.registration.failure === undefined) {
+        context.registration.failure = { line: this.lineOf(call) };
+        if (error.keepsScope) context.registration.recoveryScope = scope;
+      }
+    }
   }
 
   /** The statement a call forms, such as `test(...);`, or the call itself when it is part of a larger expression. */

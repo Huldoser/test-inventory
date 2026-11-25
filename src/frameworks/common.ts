@@ -273,10 +273,11 @@ export function readTitle(
   file: FileContext,
   scopes: readonly Node[],
   node: Argument,
-  options: { stripTags: boolean; functionNames: boolean },
+  options: { stripTags: boolean; functionNames: false | 'vitest' | { bun: Resolved | null } },
+  known?: Resolved,
 ): { title: Title; problem: Problem | null } {
   const expression = node.type === 'SpreadElement' ? null : node;
-  const resolved = expression ? file.values.resolve(expression, scopes) : null;
+  const resolved = known ?? (expression ? file.values.resolve(expression, scopes) : null);
   let value: string | null = resolved?.ok && typeof resolved.value === 'string' ? resolved.value : null;
   // Vitest turns a title that is a number, boolean or null into a string.
   const other = resolved?.ok ? resolved.value : undefined;
@@ -287,17 +288,14 @@ export function readTitle(
   ) {
     value = String(other);
   }
-  if (value === null && options.functionNames && expression?.type === 'Identifier') {
-    value = file.values.isFunction(expression.name, scopes) ? expression.name : null;
-  }
-  // A function or class written in place gives its name, as `describe(function OrderBook() {}, ...)` does.
-  const written = expression && unwrap(expression);
-  if (
-    value === null &&
-    options.functionNames &&
-    (written?.type === 'FunctionExpression' || written?.type === 'ClassExpression')
-  ) {
-    value = written.id?.name ?? '';
+  if (value === null && options.functionNames && expression) {
+    const name =
+      options.functionNames === 'vitest' ? file.values.functionName(expression, scopes) : options.functionNames.bun;
+    if (name?.ok) {
+      if (!name.value && options.functionNames === 'vitest') value = '<anonymous>';
+      else if (typeof name.value === 'string' && unwrap(expression).type !== 'ArrowFunctionExpression')
+        value = name.value;
+    }
   }
   if (value !== null) {
     const withoutTags = options.stripTags ? value.replace(/@\S+/g, ' ').replace(/\s+/g, ' ').trim() : value;

@@ -36,12 +36,14 @@ import {
   checkVersion,
   invalid,
   majorMinor,
+  patchVersion,
   type ScanOptions,
   toPosixPath,
 } from './options.ts';
+import type { ParsedFile } from './parse.ts';
 import type { FileRecords } from './records.ts';
 import { moduleResolver } from './resolve.ts';
-import { noRecords, scanFile } from './scan-file.ts';
+import { noRecords, playwrightSelection, scanFile, type PlaywrightSelection } from './scan-file.ts';
 import type { Diagnostic, Framework, Inventory } from './types.ts';
 import { globalsCheck } from './vitest-config.ts';
 
@@ -90,17 +92,20 @@ function versionDiagnostics(
   ];
 }
 
-/**
- * The length Vitest shortens a value in a case title to: `test.taskTitleValueFormatTruncate` from Vitest 5,
- * `test.chaiConfig.truncateThreshold` before, from the project that runs the file; 40, Vitest's default, when it sets
- * none or the scan can't read it.
- */
-function titleTruncate(placement: Placement, version: [number, number] | null): number {
+/** The distinct case-title lengths used by the Vitest projects collecting the file. */
+function titleThresholds(placement: Placement, version: [number, number] | null): (number | null)[] {
   const key = atLeast(version, 5, 0)
     ? ['test', 'taskTitleValueFormatTruncate']
     : ['test', 'chaiConfig', 'truncateThreshold'];
-  const setting = placement.settings && settingAt(placement.settings, key);
-  return setting?.kind === 'value' && typeof setting.value === 'number' ? setting.value : 40;
+  const settings = placement.projects?.length
+    ? placement.projects.map((project) => project.settings)
+    : [placement.settings];
+  const lengths = settings.map((config) => {
+    const setting = config && settingAt(config, key);
+    if (setting?.kind === 'unknown') return null;
+    return setting?.kind === 'value' && typeof setting.value === 'number' ? setting.value : 40;
+  });
+  return [...new Set(lengths)];
 }
 
 /** Why Jest gives a file that uses its globals none: a project that runs it sets `injectGlobals` to false. */
@@ -234,6 +239,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     ? ([(majorMinor(frameworkVersion) as [number, number])[0], Number.MAX_SAFE_INTEGER] as [number, number])
     : majorMinor(frameworkVersion);
   const source = override === null ? (detected?.source ?? 'package.json') : '.';
+  const patch = patchVersion(frameworkVersion);
   const projectDiagnostics = versionDiagnostics(framework, frameworkVersion, source, range);
   projectDiagnostics.push(...found.diagnostics);
 
@@ -241,7 +247,20 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const graph = new DependencyGraph(root, framework);
   const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
-  const runs = new ConfigRuns(configs, framework, rules, patterns === null);
+  const registering = new Map<string, PlaywrightSelection>();
+  const runs = new ConfigRuns(
+    configs,
+    framework,
+    rules,
+    patterns === null ? found.files.map((file) => file.absolutePath) : null,
+    (file, preloaded) => {
+      const cached = registering.get(file);
+      if (cached && !preloaded) return cached;
+      const selection = playwrightSelection(readerFor(file)(file), rules, preloaded);
+      if (!preloaded) registering.set(file, selection);
+      return selection;
+    },
+  );
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
   const files = patterns
     ? found.files
@@ -285,9 +304,9 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     const placement = placements.get(absolutePath) as Placement;
     if (placement.config) configs.use(placement.config);
     const config = placement.config?.record.relativeFilePath ?? null;
-    let code: string;
+    let code: string | ParsedFile;
     try {
-      code = await readFile(absolutePath, 'utf8');
+      code = registering.get(absolutePath)?.parsed ?? (await readFile(absolutePath, 'utf8'));
     } catch (error) {
       const records = noRecords(relativeFilePath);
       results.push({
@@ -300,12 +319,15 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       continue;
     }
     const runsWith = configDependencies.of(placement);
+    const { preloaded } = placement;
     const result = scanFile(code, relativeFilePath, {
       framework,
       version: rules,
+      patch,
       comments,
       expandCases,
       readModule: readerFor(absolutePath, importMap(placement, framework)),
+      initializeModule: preloaded ? (name) => !preloaded.has(name) : undefined,
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),
@@ -316,7 +338,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
             ? webdriverioInterface(placement, configs)
             : undefined,
       webdriverioFramework: framework === 'webdriverio' ? webdriverioFramework(placement, configs) : undefined,
-      titleTruncate: framework === 'vitest' ? titleTruncate(placement, rules) : undefined,
+      titleThresholds: framework === 'vitest' ? titleThresholds(placement, rules) : undefined,
       graph,
       exports,
       runsWith,

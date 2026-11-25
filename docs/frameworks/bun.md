@@ -78,6 +78,18 @@ See [Bun file selection](/reference/output#bun-file-selection) for exact default
 
 ## Supported syntax
 
+Bun uses the declared class name when a class supplies the title. Passing `Desk.name` explicitly
+uses the value of that property, including a static `name` field.
+
+With a function as the only argument, `test(fn)` registers an `(unnamed)` test and `describe(fn)` collects
+an unnamed suite. When a separate callback is supplied, Bun rejects an unnamed function, boolean, array or
+object used as the title. For `const book = { ['post']() {} }`, Bun rejects `book.post` as a title
+and accepts `book.post.name` as the string `post`. An explicitly named function on the same computed
+property keeps its declared name. A null or undefined title gives the test or suite its unnamed label.
+
+For `class Book { static post = () => {} }`, Bun 1.4 takes `Book.post` as the title `post`.
+Earlier versions reject that function as a title. Passing `Book.post.name` supplies the string `post` in both.
+
 <!--@include: ../reference/syntax.md#syntax-bun-->
 
 The [shared syntax rules](/reference/syntax#in-every-runner) also apply.

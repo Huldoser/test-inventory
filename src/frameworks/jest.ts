@@ -5,7 +5,7 @@ import type { ApiCall, CallContext, ModuleReader, Problem, StateSetting, TableCa
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { HookCounts } from '../types.ts';
-import type { Value } from '../values.ts';
+import type { Resolved, Value } from '../values.ts';
 import { requiredModule } from './bindings.ts';
 import {
   atLeast,
@@ -172,22 +172,89 @@ export class JestAdapter extends SuiteAdapter {
     return refused(call, refusal, context, () => this.declaration(call, kind, [], context));
   }
 
+  /** The title Jest registers, false for a rejected descriptor, or null when the value is unknown. */
+  private titleName(
+    arg: Argument,
+    scopes: readonly Node[],
+    stringsOnly: boolean,
+    modern: boolean,
+    functionName: Resolved | null,
+  ): string | false | null {
+    if (arg.type === 'SpreadElement') return null;
+    if (functionName) {
+      if (stringsOnly) return false;
+      if (!functionName.ok) return null;
+      const value = functionName.value;
+      if (typeof value === 'string') return modern && !value ? false : value;
+      if (typeof value === 'number' && value) return String(value);
+      return false;
+    }
+    const resolved = this.file.values.resolve(arg, scopes);
+    if (resolved.ok) {
+      const value = resolved.value;
+      if (typeof value === 'string') return value;
+      if (!stringsOnly && (typeof value === 'number' || value === undefined)) return String(value);
+      return false;
+    }
+    let node = unwrap(arg);
+    const seen = new Set<Expression>();
+    while (node.type === 'Identifier') {
+      const binding = this.file.values.constantOf(node.name, scopes);
+      if (!binding || seen.has(binding.init)) return null;
+      seen.add(binding.init);
+      node = unwrap(binding.init);
+      scopes = binding.scopes;
+    }
+    if (
+      node.type === 'ArrayExpression' ||
+      node.type === 'ObjectExpression' ||
+      (node.type === 'Literal' && ('regex' in node || 'bigint' in node))
+    )
+      return false;
+    return null;
+  }
+
   private declaration(call: CallExpression, kind: Kind, links: Link[], context: CallContext): ApiCall {
     const args = call.arguments;
-    if (args.length === 0) return { kind: 'other' };
     const callee = snippet(text(this.file, call.callee));
     const flags = new Set(links.map((link) => link.name));
     const problems: Problem[] = [];
-    const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
-      stripTags: false,
-      functionNames: true,
-    });
-    if (titleProblem) problems.push(titleProblem);
+    const table = links.find((link) => link.name === 'each') ?? null;
+    const modern = atLeast(this.file.version, 28, 0);
+    const stringsOnly = flags.has('todo') || (!modern && (kind === 'test' || table !== null));
+    const argument = args.at(0);
+    const functionName =
+      argument && argument.type !== 'SpreadElement' ? this.file.values.functionName(argument, context.scopes) : null;
+    const name = argument ? this.titleName(argument, context.scopes, stringsOnly, modern, functionName) : 'undefined';
+    const invalidName = name === false || (args.length === 0 && stringsOnly);
+    const { title, problem: titleProblem } =
+      typeof name === 'string'
+        ? { title: { text: name, withoutTags: name, isDynamic: false }, problem: null }
+        : readTitle(this.file, context.scopes, args[0], { stripTags: false, functionNames: false });
+    if (titleProblem && name !== false) problems.push(titleProblem);
     const spread = args.some((arg) => arg.type === 'SpreadElement');
-    const body = spread ? undefined : args.at(1);
+    const body = spread ? undefined : (args.at(1) as Expression | undefined);
     const fn = isFunctionNode(body) ? body : null;
     const callback = fn ?? namedFunction(this.file, context.scopes, body);
-    const table = links.find((link) => link.name === 'each') ?? null;
+    const cases = table ? this.tableCases(table, title, context) : null;
+    // A class can replace its name with a number. The table formatter receives that number before Jest stringifies it.
+    const titleFailed =
+      cases === 'invalid-title' ||
+      (table !== null && functionName?.ok === true && typeof functionName.value === 'number');
+    const count = table ? this.caseCount(table, context, problems) : null;
+    const invalidTable = count === 'invalid-table';
+    const resolvedBody =
+      (table || kind === 'describe') && body && !callback ? this.file.values.resolve(body, context.scopes) : null;
+    const nullishBody =
+      !spread &&
+      (body === undefined || (resolvedBody?.ok && (resolvedBody.value === null || resolvedBody.value === undefined)));
+    const nonCallable = body !== undefined && (isNotFunction(body) || resolvedBody?.ok === true);
+    // Jest 27 installs its concurrent skip binding on test.skip itself. Later versions share the ordinary skip binding.
+    const readsArity =
+      !flags.has('failing') && (flags.has('skip') ? atLeast(this.file.version, 28, 0) : !flags.has('concurrent'));
+    const missingBodyFallback = table !== null && kind === 'test' && nullishBody && readsArity;
+    const single = titleFailed || invalidTable || missingBodyFallback;
+    const fallbackTest = kind === 'test' && single;
     const line = this.file.source.line(call.start);
     const declared = (given: FunctionNode | null = fn): ApiCall => {
       const base = {
@@ -196,15 +263,28 @@ export class JestAdapter extends SuiteAdapter {
         isOnly: flags.has('only'),
         mode: flags.has('concurrent') && !flags.has('skip') ? ('parallel' as const) : null,
         details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
-        fn: given,
-        hashed: given ?? callback ?? wrappedFunction(body),
+        fn: fallbackTest ? null : given,
+        hashed: fallbackTest ? null : (given ?? callback ?? wrappedFunction(body)),
         isParameterized: table !== null,
-        caseCount: table ? this.caseCount(table, context, problems) : null,
-        cases: table ? this.tableCases(table, title, context) : null,
+        caseCount: single ? 1 : count,
+        cases: single
+          ? [
+              {
+                title: {
+                  reason: titleFailed
+                    ? 'Jest cannot format a case title and registers a single declaration with the original title'
+                    : invalidTable
+                      ? 'Jest rejects the table and registers a single declaration with the original title'
+                      : 'Jest registers a single fallback test when it cannot read the callback arity',
+                },
+                args: [],
+              },
+            ]
+          : cases,
         problems,
       };
       // With the function given third, after an argument that isn't one, there is no timeout to read.
-      const timeout = spread || kind === 'describe' || given !== fn ? undefined : args.at(2);
+      const timeout = spread || kind === 'describe' || fallbackTest || given !== fn ? undefined : args.at(2);
       if (timeout && timeout.type !== 'SpreadElement') {
         const option = { node: timeout, resolved: this.file.values.resolve(timeout, context.scopes) };
         const value = readCount(this.file, 'timeout', option, problems);
@@ -213,6 +293,17 @@ export class JestAdapter extends SuiteAdapter {
       if (kind === 'describe') return { kind: 'describe', ...base, isShuffled: false, passesDown: null };
       return { kind: 'test', ...base, testContext: null, fixtures: [], takesAllFixtures: false, usesBench: false };
     };
+    // Ordinary describe validates its callback first. The table binder validates its title before binding any row.
+    if (invalidName && !(kind === 'describe' && !table && (nullishBody || nonCallable))) {
+      const expected = stringsOnly ? 'a string title' : 'a string, number, undefined, or a named function or class';
+      const refusal = problem(
+        'invalid-chain',
+        args[0] ?? call,
+        `${callee}() requires ${expected}. Jest fails to load the file.`,
+        callee,
+      );
+      return refused(call, refusal, context, declared);
+    }
     if (flags.has('todo')) {
       if (args.length === 1 && !spread) return declared();
       const refusal = problem(
@@ -224,13 +315,16 @@ export class JestAdapter extends SuiteAdapter {
       return refused(call, refusal, context, declared);
     }
     const head = snippet(text(this.file, eachHead(call)));
-    if (!spread && args.length < 2 && table && kind === 'test') {
-      // jest-each fails on the missing body inside its own try, and registers one test that throws instead.
-      const message = `${head}() has no test body, so Jest registers one test titled '${title.text}' that always fails.`;
-      problems.push({ ...problem('test-without-body', call, message, head), level: 'warning' });
-      const one = declared();
-      return { ...one, caseCount: 1, cases: null } as ApiCall;
+    if (table && kind === 'test' && (nullishBody || nonCallable)) {
+      if (!titleFailed && !invalidTable) {
+        const message = missingBodyFallback
+          ? `${head}() has no test body, so Jest registers one test titled '${title.text}' that always fails.`
+          : `${head}() has no callable test body. Jest registers each row, which throws if its body runs.`;
+        problems.push({ ...problem('test-without-body', call, message, head), level: 'warning' });
+      }
+      return declared();
     }
+    if (fallbackTest) return declared();
     if (!spread && args.length < 2) {
       const what = kind === 'test' ? 'test body' : 'function';
       const refusal = problem(
@@ -241,7 +335,7 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, declared);
     }
-    if (body !== undefined && isNotFunction(body)) {
+    if (nonCallable) {
       const refusal = problem(
         'test-without-body',
         call,
@@ -250,7 +344,16 @@ export class JestAdapter extends SuiteAdapter {
       );
       return refused(call, refusal, context, () => declared(findFunction(args, 2)));
     }
-    if (kind === 'describe' && table && this.isInvalidTable(table, context)) {
+    if (kind === 'describe' && titleFailed) {
+      const refusal = problem(
+        'describe-throws',
+        call,
+        `${head}() cannot format a case title, so its describe throws and Jest fails the file.`,
+        head,
+      );
+      return refused(call, refusal, context, declared);
+    }
+    if (kind === 'describe' && invalidTable) {
       const refusal = problem(
         'describe-throws',
         call,
@@ -283,20 +386,6 @@ export class JestAdapter extends SuiteAdapter {
     return declared();
   }
 
-  /** Whether a table makes `describe.each` throw, as jest-each does on an empty array or a value that isn't a table. */
-  private isInvalidTable(table: Link, context: CallContext): boolean {
-    if (table.template) {
-      const headings = templateHeadings(table.template);
-      const values = table.template.expressions.length;
-      return headings === null || values === 0 || values % headings.length !== 0;
-    }
-    const cases = (table.args as Argument[]).at(0);
-    if (!cases) return true;
-    if (cases.type === 'SpreadElement') return false;
-    const resolved = this.file.values.resolve(cases, context.scopes);
-    return resolved.ok ? !Array.isArray(resolved.value) || resolved.value.length === 0 : false;
-  }
-
   /** Jest's order: `todo` and `skip` set the test's mode, `only` runs it, and `failing` applies when it runs. */
   private states(flags: Set<string>, line: number): StateSetting[] {
     const setting = (state: StateSetting['state']): StateSetting[] => [
@@ -311,17 +400,19 @@ export class JestAdapter extends SuiteAdapter {
    * How many tests a table registers. No table, an empty array, or a tagged template whose first line isn't a line of names or
    * whose values don't fill its rows, makes Jest register one test with the title as written, which fails.
    */
-  private caseCount(table: Link, context: CallContext, problems: Problem[]): number | null {
+  private caseCount(table: Link, context: CallContext, problems: Problem[]): number | 'invalid-table' | null {
     if (table.template) {
       const headings = templateHeadings(table.template);
       const values = table.template.expressions.length;
-      return headings === null || values === 0 || values % headings.length !== 0 ? 1 : values / headings.length;
+      return headings === null || values === 0 || values % headings.length !== 0
+        ? 'invalid-table'
+        : values / headings.length;
     }
     const cases = (table.args as Argument[]).at(0);
-    if (!cases) return 1;
+    if (!cases) return 'invalid-table';
     const resolved = cases.type === 'SpreadElement' ? null : this.file.values.resolve(cases, context.scopes);
     // A table that isn't an array makes Jest register one test that fails, as an empty one does.
-    if (resolved?.ok && !Array.isArray(resolved.value)) return 1;
+    if (resolved?.ok && !Array.isArray(resolved.value)) return 'invalid-table';
     const length = this.arrayLength(cases, context);
     if (length === null) {
       const source = snippet(text(this.file, cases));
@@ -329,7 +420,7 @@ export class JestAdapter extends SuiteAdapter {
         problem('unresolved-cases', cases, 'The cases of .each() could not be counted; caseCount is null.', source),
       );
     }
-    return length === 0 ? 1 : length;
+    return length === 0 ? 'invalid-table' : length;
   }
 
   /**
@@ -337,18 +428,26 @@ export class JestAdapter extends SuiteAdapter {
    * into the callback's arguments when every case is one; otherwise each case is passed whole. A tagged template gives
    * one object per row, keyed by the names in its first line.
    */
-  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | null {
+  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | 'invalid-title' | null {
     const version = this.file.version;
+    const keyedCases = (items: Record<string, Value>[], tagged: boolean): TableCase[] | 'invalid-title' => {
+      const rows = items.map((item, index) => ({
+        title: title.isDynamic ? null : jestKeysTitle(title.text, item, index, version, tagged),
+        args: [item],
+      }));
+      // jest-each formats every row before registering the first. One interpolation error rejects the whole table.
+      return !title.isDynamic && rows.some((row) => row.title === null) ? 'invalid-title' : rows;
+    };
     if (table.template) {
       const headings = templateHeadings(table.template);
       const resolved = table.template.expressions.map((item) => this.file.values.resolve(item, context.scopes));
       const rows = headings && resolved.length / headings.length;
       if (!headings || !rows || !Number.isInteger(rows) || !resolved.every((item) => item.ok)) return null;
       const values = resolved.map((item) => (item as { value: Value }).value);
-      return Array.from({ length: rows }, (_, row) => {
-        const item = Object.fromEntries(headings.map((name, column) => [name, values[row * headings.length + column]]));
-        return { title: title.isDynamic ? null : jestKeysTitle(title.text, item, row, version, true), args: [item] };
-      });
+      const items = Array.from({ length: rows }, (_, row) =>
+        Object.fromEntries(headings.map((name, column) => [name, values[row * headings.length + column]])),
+      );
+      return keyedCases(items, true);
     }
     const first = (table.args as Argument[]).at(0);
     const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
@@ -359,15 +458,10 @@ export class JestAdapter extends SuiteAdapter {
       !arraysOnly &&
       !/%[#Odfijops]/.test(title.text.replaceAll('%%', '')) &&
       cases.every((item) => item !== null && typeof item === 'object');
+    if (byKeys) return keyedCases(cases as Record<string, Value>[], false);
     return cases.map((item, index) => {
       const row = arraysOnly ? (item as Value[]) : [item];
-      let caseTitle: string | null = null;
-      if (!title.isDynamic) {
-        caseTitle = byKeys
-          ? jestKeysTitle(title.text, item as Record<string, Value>, index, version, false)
-          : jestRowTitle(title.text, row, index, version);
-      }
-      return { title: caseTitle, args: row };
+      return { title: title.isDynamic ? null : jestRowTitle(title.text, row, index, version), args: row };
     });
   }
 }

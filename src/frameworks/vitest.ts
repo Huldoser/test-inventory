@@ -186,6 +186,13 @@ interface PassedSkip {
   covered: boolean;
 }
 
+interface SuiteOptions {
+  skip: PassedSkip | null;
+  todo?: { enabled: boolean; line: number };
+  fails?: { enabled: boolean; line: number };
+  only?: boolean;
+}
+
 /**
  * Whether a member of `test` or `describe` reads the function it is called on through `this`, so that it throws when
  * destructured, as each version of Vitest runs it (checked with 3.2.4, 4.0.18, 4.1.12, 5.0.0 and 5.1.0).
@@ -199,12 +206,16 @@ function readsItsFunction(kind: Kind, member: string, version: [number, number] 
 export class VitestAdapter extends SuiteAdapter {
   private warnedAboutTags = false;
 
-  /** The length a value in a case title is shortened to, as the config sets it. */
-  private readonly titleTruncate: number;
+  private readonly titleThresholds: readonly (number | null)[];
 
-  constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, titleTruncate = 40) {
+  constructor(
+    parsed: ParsedFile,
+    file: FileContext,
+    readModule: ModuleReader | null,
+    titleThresholds: readonly (number | null)[] = [40],
+  ) {
     super(parsed, file, readModule, VITEST, TEST_MEMBERS);
-    this.titleTruncate = titleTruncate;
+    this.titleThresholds = titleThresholds;
     if (atLeast(file.version, 5, 0)) {
       for (const call of nestedHoistedCalls(parsed.program)) {
         const callee = snippet(text(this.file, call.callee));
@@ -395,7 +406,7 @@ export class VitestAdapter extends SuiteAdapter {
     const args = call.arguments;
     const callee = snippet(text(this.file, call.callee));
     if (args.length === 0) return { kind: 'other' };
-    if (kind === 'describe' && isFunctionNode(args[0])) {
+    if (kind === 'describe' && args.length === 1 && isFunctionNode(args[0])) {
       return {
         kind: 'invalid',
         problem: problem(
@@ -409,7 +420,7 @@ export class VitestAdapter extends SuiteAdapter {
     const problems: Problem[] = [];
     const { title, problem: titleProblem } = readTitle(this.file, context.scopes, args[0], {
       stripTags: false,
-      functionNames: true,
+      functionNames: 'vitest',
     });
     if (titleProblem) problems.push(titleProblem);
     // (title, fn, timeout), (title, options, fn) or the removed (title, fn, options)
@@ -468,24 +479,41 @@ export class VitestAdapter extends SuiteAdapter {
     }
     // A test's own options win over its chain, so `test.skip('title', { skip: false }, fn)` runs. The chain wins for a
     // test's mode, and for everything on a describe.
+    const suiteOptionModes = atLeast(this.file.version, 4, 1);
+    const readsOwnMode = kind === 'test' || suiteOptionModes;
     for (const [flag, value] of read.flags) {
+      if (!readsOwnMode && (flag === 'todo' || flag === 'only')) continue;
       if (value) flags.add(flag);
       else if (kind === 'test' && flag !== 'sequential') flags.delete(flag);
     }
     if (read.skip && kind === 'test') {
       flags.delete('skip');
       conditions = [read.skip];
-    } else if (read.skip) {
+    } else if (read.skip && readsOwnMode) {
       conditions.push(read.skip);
     }
     // Vitest passes a describe's options down to the tests and describes inside, where their own options and `only`
     // win. A `skip` passed down skips them, and turns todo into skip, as skip goes before todo.
     const line = this.file.source.line(call.start);
-    const around = context.passedDown as PassedSkip | null;
-    const passed = read.skip || conditionSetsSkip ? null : around;
-    const skips = passed?.condition.applies === 'always' && !flags.has('only');
+    const around = context.passedDown as SuiteOptions | null;
+    const passed = read.skip || conditionSetsSkip ? null : around?.skip;
+    // Before Vitest 5, test options inherited from a suite override the test's chain; its own options still win.
+    const inheritsBeforeChain = !atLeast(this.file.version, 5, 0);
+    const inheritsOnly = around?.only === true && !read.flags.has('only');
+    if (kind === 'describe' && suiteOptionModes && inheritsOnly) flags.add('only');
+    if (kind === 'test' && inheritsBeforeChain) {
+      if (around?.only === false && !read.flags.has('only')) flags.delete('only');
+      if (passed?.condition.applies === 'never') {
+        flags.delete('skip');
+        conditions = [];
+      }
+      if (around?.todo?.enabled === false && !read.flags.has('todo')) flags.delete('todo');
+      if (around?.fails?.enabled === false && !read.flags.has('fails')) flags.delete('fails');
+      if (!suiteOptionModes && passed?.condition.applies === 'sometimes') conditions.push(passed.condition);
+    }
+    const skips = readsOwnMode && passed?.condition.applies === 'always' && !flags.has('only');
     const table = links.find((link) => TABLES.has(link.name)) ?? null;
-    const isTodo = flags.has('todo') || body === undefined;
+    const isTodo = flags.has('todo') || (body === undefined && readsOwnMode);
     const states = this.states(flags, conditions, isTodo && !skips, line);
     const skipped = () => states.some((setting) => setting.state === 'skip' && !setting.condition);
     // The skip is set where the describe that passes it down sets it. A skipped describe around already skips what is
@@ -506,7 +534,23 @@ export class VitestAdapter extends SuiteAdapter {
       states,
       isOnly: flags.has('only'),
       mode,
-      ...(skips ? { skipPassedDown: passed.line } : {}),
+      vitestConcurrency:
+        inheritsBeforeChain &&
+        (chain.has('concurrent') || chain.has('sequential') || read.concurrent !== null || read.flags.has('sequential'))
+          ? {
+              concurrent: read.concurrent ?? undefined,
+              sequential: read.flags.get('sequential'),
+              chainConcurrent: chain.has('concurrent'),
+              chainSequential: chain.has('sequential'),
+            }
+          : undefined,
+      ...(skips
+        ? { skipPassedDown: { line: passed.line, withoutSkip: this.states(flags, conditions, isTodo, line) } }
+        : {}),
+      todoPassedDown:
+        !isTodo && !read.flags.has('todo') && !flags.has('only') && around?.todo?.enabled
+          ? around.todo.line
+          : undefined,
       details: read.details,
       fn,
       hashed: fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body),
@@ -520,8 +564,15 @@ export class VitestAdapter extends SuiteAdapter {
       // A table's cases are passed instead.
       const first = table ? null : fn?.params.at(0);
       if (fn && first?.type === 'Identifier') this.suiteParameters.set(fn, first.name);
-      const own = read.skip ? { condition: read.skip, line } : around;
-      const passesDown: PassedSkip | null = own && { ...own, covered: (around?.covered ?? false) || skipped() };
+      const own = read.skip ? { condition: read.skip, line } : around?.skip;
+      const todo = read.flags.get('todo');
+      const fails = read.flags.get('fails');
+      const passesDown: SuiteOptions = {
+        skip: own ? { ...own, covered: (around?.skip?.covered ?? false) || skipped() } : null,
+        todo: todo === undefined ? around?.todo : { enabled: todo, line },
+        fails: fails === undefined ? around?.fails : { enabled: fails, line },
+        only: read.flags.get('only') ?? around?.only,
+      };
       declared = { kind: 'describe', ...base, isShuffled: flags.has('shuffle'), passesDown };
     } else {
       const index = table?.name === 'for' ? 1 : table ? null : 0;
@@ -532,9 +583,14 @@ export class VitestAdapter extends SuiteAdapter {
         fixtures: fixturesOf(base.hashed, index, this.file.version),
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
+        inheritsOnly,
+        failsLine: flags.has('fails') ? line : undefined,
+        failsPassedDown: around?.fails?.enabled && !read.flags.has('fails') ? around.fails.line : undefined,
         ownStateOptions: [
-          ...(read.skip || conditionSetsSkip ? ['skip' as const] : []),
-          ...STATE_FLAGS.filter((flag) => read.flags.has(flag)),
+          ...(read.skip || conditionSetsSkip || (inheritsBeforeChain && around?.skip) ? ['skip' as const] : []),
+          ...STATE_FLAGS.filter(
+            (flag) => read.flags.has(flag) || (inheritsBeforeChain && around?.[flag] !== undefined),
+          ),
         ],
       };
     }
@@ -602,6 +658,7 @@ export class VitestAdapter extends SuiteAdapter {
       return isUndefined && atLeast(this.file.version, 5, 0) ? undefined : option;
     };
     for (const flag of ['only', 'todo', 'fails', 'concurrent', 'sequential', 'shuffle']) {
+      if (flag === 'sequential' && atLeast(this.file.version, 5, 0)) continue;
       const option = given(flag);
       if (option && !option.resolved.ok) {
         const { importedFrom } = option.resolved;
@@ -737,8 +794,21 @@ export class VitestAdapter extends SuiteAdapter {
       if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
       cases = resolved.value;
     }
-    const caseTitle = (items: Value[], index: number) =>
-      title.isDynamic ? null : vitestCaseTitle(title.text, items, index, this.file.version, this.titleTruncate);
+    const [first = 40, ...others] = this.titleThresholds.filter((length) => length !== null);
+    const unknownLimit = this.titleThresholds.includes(null);
+    const caseTitle = (items: Value[], index: number): TableCase['title'] => {
+      if (title.isDynamic) return null;
+      const format = (length: number | null) => vitestCaseTitle(title.text, items, index, this.file.version, length);
+      const rendered = format(first);
+      if (rendered === null) return null;
+      if (others.some((length) => format(length) !== rendered)) {
+        return { reason: 'the Vitest projects that run this file give a case different titles' };
+      }
+      if (unknownLimit && format(null) === null) {
+        return { reason: 'a case title depends on a Vitest truncation setting the scan cannot resolve' };
+      }
+      return rendered;
+    };
     if (table.name === 'for') {
       return cases.map((item, index) => ({
         title: caseTitle(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index),

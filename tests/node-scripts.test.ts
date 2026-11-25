@@ -182,6 +182,12 @@ describe('the test runner commands of a package.json script', () => {
     expect(runnerCommands('wdio run', 'webdriverio')).toEqual([named(null)]);
   });
 
+  it('keeps Vitest filters under a Windows short directory name', () => {
+    const file = 'C:/Users/DESK~1/orders.spec.js';
+    expect(runnerCommands(`vitest run "${file}"`, 'vitest')[0].filters).toEqual([file]);
+    expect(runnerCommands('vitest run ~/orders.spec.js', 'vitest')[0].filters).toBeUndefined();
+  });
+
   it('finds the runner past variables, cross-env, dotenv and the package managers that start it', () => {
     const scripts = [
       'TZ=UTC vitest run -c vitest.orders.config.ts',
@@ -308,5 +314,25 @@ describe('the Mocha commands of a package.json script', () => {
       'no-config': [],
     });
     expect(mochaArguments(['specs/unit', '--ui'])).toEqual({ positional: ['specs/unit'], options: new Map() });
+  });
+});
+
+describe('package script working directories', () => {
+  it('tracks successful and failed directory changes through shell conditionals', () => {
+    const commands = runnerCommands(
+      'cd desk || jest --config skipped; cd missing && jest --config absent; jest --config live',
+      'jest',
+      (dir) => dir === 'desk',
+    );
+    expect(commands).toEqual([{ config: 'live', root: null, unreadable: false, cwd: 'desk' }]);
+    expect(runnerCommands('cd desk && mocha', 'mocha')[0].cwd).toBe('desk');
+  });
+
+  it('resumes from an absolute directory after an unknown shell directory', () => {
+    const commands = runnerCommands('cd "$DESK" && cd tests && jest; cd /fixtures && jest', 'jest');
+    expect(commands).toEqual([
+      { config: null, root: null, unreadable: true },
+      { config: null, root: null, unreadable: false, cwd: '/fixtures' },
+    ]);
   });
 });

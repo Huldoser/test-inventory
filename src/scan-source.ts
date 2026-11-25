@@ -8,6 +8,7 @@ import {
   checkVersion,
   invalid,
   majorMinor,
+  patchVersion,
   toPosixPath,
   type ScanSourceOptions,
 } from './options.ts';
@@ -31,6 +32,7 @@ export function scanSource(options: ScanSourceOptions): Inventory {
   const result = scanFile(checked.code, relativeFilePath, {
     framework,
     version: majorMinor(frameworkVersion),
+    patch: patchVersion(frameworkVersion),
     comments,
     expandCases,
     readModule: null,
