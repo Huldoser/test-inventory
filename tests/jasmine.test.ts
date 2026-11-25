@@ -345,6 +345,27 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('binds array patterns from string code points and object patterns from boxed properties', () => {
+    const result = scanJasmine(`
+function readChars([first = it('loads first character', () => {}), ...[second = it('loads second character', () => {})]]) {
+  it('reads ' + first, () => {});
+}
+function readBook({0: first = it('loads first entry', () => {}), length: count = it('loads length', () => {}),
+                   3: end = it('loads final entry', () => {})}) { it('counts ' + count, () => {}); }
+function readTick({toString: display = it('loads renderer', () => {}), quote = it('loads the quote', () => {})}) {}
+it('records the trade', () => {}, 25, readChars('\\u{1D54F}'), readBook([4]), readBook('FX'), readTick(42));`);
+    expect(result.tests.map((test) => test.title)).toEqual([
+      'loads second character',
+      'reads 𝕏',
+      'loads final entry',
+      'counts 1',
+      'loads final entry',
+      'counts 2',
+      'loads the quote',
+      'records the trade',
+    ]);
+  });
+
   it('stops on a refused parameter binding after earlier defaults and before later defaults or the helper body', () => {
     for (const [binding, argument] of [
       ['{bid}', 'null'],

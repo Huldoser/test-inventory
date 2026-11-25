@@ -1768,7 +1768,7 @@ legTests('AAPL');
       '`quotes ${symbol} ${more} on ${venue} ${rest} ${desk}`',
       '`quotes ${symbol} ${more} on ${venue} ${rest} ${desk}`',
       '`fills ${leg}`',
-      '`fills ${leg}`',
+      'fills A',
     ]);
   });
 

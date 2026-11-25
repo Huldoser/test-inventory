@@ -19,8 +19,9 @@ import { mutationCalls, type MethodWrite, type MutationCallSite } from './mutati
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
-/** A resolved value or a failed lookup. `arrayLength` can record the size of an imported array with unknown items. */
-export type Resolved = { ok: true; value: Value } | { ok: false; importedFrom: string | null; arrayLength?: number };
+/** An unknown value can still have a known array length or be known to differ from undefined. */
+export type Resolved =
+  { ok: true; value: Value } | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true };
 
 /** Whether a parameter default runs (null when unknown), or a destructuring pattern throws before binding. */
 export type ParameterStep = boolean | null | 'throw';
@@ -214,13 +215,14 @@ export class Values {
     scopes: readonly Node[],
     steps?: Map<Node, ParameterStep>,
   ): void {
+    const unknown = value && !value.ok ? value : UNRESOLVED;
     switch (pattern.type) {
       case 'Identifier':
         if (value) names.set(pattern.name, () => value);
         return;
       case 'AssignmentPattern': {
         const useDefault = !value || (value.ok && value.value === undefined);
-        steps?.set(pattern, value && !value.ok ? null : useDefault);
+        steps?.set(pattern, value && !value.ok && !value.defined ? null : useDefault);
         if (!useDefault) {
           this.bind(pattern.left, value, names, scopes, steps);
           return;
@@ -233,45 +235,49 @@ export class Values {
         this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes, steps);
         return;
       }
-      case 'ArrayPattern':
+      case 'ArrayPattern': {
         if (steps && (!value || (value.ok && nonIterable(value.value)))) {
           steps.set(pattern, 'throw');
           return;
         }
+        const iterable = value?.ok ? value.value : null;
+        const list = typeof iterable === 'string' ? Array.from(iterable) : Array.isArray(iterable) ? iterable : null;
         for (const [index, element] of pattern.elements.entries()) {
           if (!element || !value) continue;
-          const list = value.ok && Array.isArray(value.value) ? value.value : null;
           const part = (rest: boolean): Resolved =>
-            list ? { ok: true, value: rest ? list.slice(index) : list[index] } : value.ok ? UNRESOLVED : value;
+            list ? { ok: true, value: rest ? list.slice(index) : list[index] } : unknown;
           if (element.type === 'RestElement') this.bind(element.argument, part(true), names, scopes, steps);
           else this.bind(element, part(false), names, scopes, steps);
         }
         return;
+      }
       case 'ObjectPattern': {
         if (steps && (!value || (value.ok && (value.value === null || value.value === undefined)))) {
           steps.set(pattern, 'throw');
           return;
         }
         if (!value) return;
-        const object = value.ok && isPlainObject(value.value) ? value.value : null;
+        const object =
+          value.ok && value.value !== null && value.value !== undefined
+            ? (Object(value.value) as Record<string, Value>)
+            : null;
         const taken: string[] = [];
         for (const property of pattern.properties) {
           if (property.type === 'RestElement') {
             const rest = object && Object.fromEntries(Object.entries(object).filter(([key]) => !taken.includes(key)));
-            this.bind(
-              property.argument,
-              rest ? { ok: true, value: rest } : value.ok ? UNRESOLVED : value,
-              names,
-              scopes,
-              steps,
-            );
+            this.bind(property.argument, rest ? { ok: true, value: rest } : unknown, names, scopes, steps);
             continue;
           }
           const key = this.propertyKey(property.key, property.computed, scopes);
           const name = key.ok && isKey(key.value) ? String(key.value) : null;
           if (name !== null) taken.push(name);
-          const part: Resolved =
-            object && name !== null ? { ok: true, value: object[name] } : value.ok ? UNRESOLVED : value;
+          let part: Resolved = unknown;
+          if (object && name !== null) {
+            const item = object[name];
+            // An inherited method suppresses a default even though the scan cannot use it as a literal value.
+            part =
+              typeof item === 'function' ? { ok: false, importedFrom: null, defined: true } : { ok: true, value: item };
+          }
           this.bind(property.value, part, names, scopes, steps);
         }
         return;

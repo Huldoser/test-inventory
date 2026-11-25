@@ -11,3 +11,4 @@ Omit Jasmine recovery specs when the guarded registrations and local helpers com
 Collect specs declared while evaluating Jasmine runner arguments in call order, stopping at a synchronous exception.
 Use supplied helper arguments when deciding which parameter defaults register specs.
 Honor synchronous errors from invalid spreads and destructuring in Jasmine declaration arguments.
+Read string elements and boxed properties in helper parameters so registration defaults and generated titles match the runner.
