@@ -225,7 +225,7 @@ rules.
 | `pending(reason)` in a spec, `beforeEach` or `afterEach`          | The spec skipped with the reason; under a condition, `isConditional`. In `beforeAll` or `afterAll`, Jasmine reports it as an error of the describe, and the specs keep their state.                                                      |
 | `notApplicable(reason)` in a spec                                 | From Jasmine 7, the spec skipped with the reason. Before, the call fails the spec.                                                                                                                                                       |
 
-Jasmine takes the hook callback first and an optional timeout second. A missing callback, a nonfunction or a generator raises `invalid-hook` during registration. From Jasmine 3.10, a timeout above 2,147,483,647 also throws. Extra arguments are evaluated before the hook is registered.
+Jasmine takes the hook callback first and an optional timeout second. A missing callback, a nonfunction or a generator raises `invalid-hook` during registration. From Jasmine 3.10, a timeout above 2,147,483,647 also throws. The scan reads callback and timeout positions across literal spreads and unchanged array constants. Extra arguments are evaluated before the hook is registered.
 
 Jasmine 3 accepts empty suites. From 4.0, a plain `describe` that registers no spec or child suite is a `describe-throws` error, including when it declares only hooks. From 4.5 this also applies to `xdescribe` and `fdescribe`. Both accept callbacks with unused positional arguments.
 

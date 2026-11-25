@@ -27,3 +27,4 @@ Use the arguments supplied to ordinary Jasmine helpers when checking whether a d
 Mark suites with a generator callback as refused by Jasmine and keep recovery with the handler that catches the refusal.
 Check the children registered through local helpers before collecting specs after a Jasmine suite.
 Report rejected Jasmine hooks, exclude them from hook counts and follow registration into the caller's catch.
+Read Jasmine hook callbacks and timeouts supplied through array or string spreads.

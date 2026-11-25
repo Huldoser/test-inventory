@@ -1,6 +1,7 @@
 import type { Argument, BlockStatement, CallExpression, Expression, Node, Statement } from 'oxc-parser';
 import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
-import { nonIterable, type ParameterStep, type Resolved } from '../values.ts';
+import { literalArguments } from '../mutation-references.ts';
+import { nonIterable, type ParameterStep, type Resolved, type Value } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
@@ -47,24 +48,68 @@ const timeout = (node: Node | undefined) =>
 
 type HookStatus = 'valid' | 'callback' | 'timeout' | 'unknown';
 
+type HookArgument = { node: Argument; scopes: readonly Node[] } | { value: Value };
+
+/** Read only as far as the two positions Jasmine consumes. A spread of unknown width obscures later positions. */
+function* hookArguments(
+  args: readonly (Argument | null)[],
+  scopes: readonly Node[],
+  file: FileContext,
+  arrays = new Map<Node, HookArgument[]>(),
+): Generator<HookArgument, undefined> {
+  for (const item of literalArguments(args)) {
+    if (item?.type !== 'SpreadElement') {
+      yield item ? { node: unwrap(item), scopes } : { value: undefined };
+      continue;
+    }
+    const spread = unwrap(item.argument);
+    const source = spread.type === 'Identifier' && file.values.constantOf(spread.name, scopes, true);
+    const init = source && unwrap(source.init);
+    if (init && init.type === 'ArrayExpression') {
+      let positions = arrays.get(init);
+      if (!positions) {
+        // A circular initializer has unknown width. Shared tuples need their first two positions only once.
+        arrays.set(init, [{ node: item, scopes }]);
+        positions = [];
+        for (const arg of hookArguments(init.elements, source.scopes, file, arrays)) {
+          positions.push(arg);
+          if (positions.length === 2) break;
+        }
+        arrays.set(init, positions);
+      }
+      yield* positions;
+      continue;
+    }
+    const result = file.values.resolve(spread, scopes);
+    if (result.ok && (Array.isArray(result.value) || typeof result.value === 'string')) {
+      for (const value of result.value) yield { value };
+      continue;
+    }
+    yield { node: item, scopes };
+    return;
+  }
+}
+
 /** Jasmine checks only the first two argument values, after JavaScript has evaluated the whole argument list. */
 export function jasmineHook(
   args: readonly Argument[],
   scopes: readonly Node[],
   file: FileContext,
 ): { status: HookStatus; fn: FunctionNode | null } {
-  const first = args.at(0);
-  if (!first) return { status: 'callback', fn: null };
-  if (first.type === 'SpreadElement') return { status: 'unknown', fn: null };
-  const value = unwrap(first);
-  const assigned = file.values.assignedIn(scopes[0], false);
+  const positions = hookArguments(args, scopes, file);
+  const first = positions.next().value;
+  if (!first || 'value' in first) return { status: 'callback', fn: null };
+  const value = first.node;
+  if (value.type === 'SpreadElement') return { status: 'unknown', fn: null };
+  const assigned = file.values.assignedIn(first.scopes[0], false);
   const fn = isFunctionNode(value)
     ? value
     : value.type === 'Identifier' && !assigned.has(value.name)
-      ? file.values.functionOf(value.name, scopes)
+      ? file.values.functionOf(value.name, first.scopes)
       : null;
   if (fn?.generator) return { status: 'callback', fn: null };
-  if (!fn && value.type !== 'ClassExpression') {
+  const valid = fn !== null || value.type === 'ClassExpression';
+  if (!valid) {
     // Jasmine's declarations return a spec, suite or undefined. None can serve as a hook callback.
     const callee = value.type === 'CallExpression' && unwrap(value.callee);
     const registration =
@@ -72,19 +117,22 @@ export function jasmineHook(
       callee.type === 'Identifier' &&
       ['it', 'fit', 'xit', 'describe', 'fdescribe', 'xdescribe'].includes(callee.name) &&
       !assigned.has(callee.name) &&
-      !file.values.declarationOf(callee.name, scopes);
-    const invalid = registration || file.values.resolve(value, scopes).ok;
-    return { status: invalid ? 'callback' : 'unknown', fn: null };
+      !file.values.declarationOf(callee.name, first.scopes);
+    if (registration || file.values.resolve(value, first.scopes).ok) return { status: 'callback', fn: null };
   }
-  const limit = args.at(1);
+  const limit = positions.next().value;
   if (limit && atLeast(file.version, 3, 10)) {
-    if (limit.type === 'SpreadElement') return { status: 'unknown', fn };
-    const resolved = file.values.resolve(limit, scopes);
+    let resolved: Resolved;
+    if ('value' in limit) resolved = { ok: true, value: limit.value };
+    else {
+      if (limit.node.type === 'SpreadElement') return { status: 'unknown', fn };
+      resolved = file.values.resolve(limit.node, limit.scopes);
+    }
     if (!resolved.ok || (typeof resolved.value === 'object' && resolved.value !== null))
       return { status: 'unknown', fn };
     if (Number(resolved.value) > 2147483647) return { status: 'timeout', fn: null };
   }
-  return { status: 'valid', fn };
+  return { status: valid ? 'valid' : 'unknown', fn };
 }
 
 interface SuiteCall {
@@ -266,8 +314,9 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       if (item.type === 'SpreadElement') {
         if (unwrap(item.argument).type === 'ArrayExpression') continue;
         const spread = file.values.resolve(item.argument, scopes);
-        if (!spread.ok) return 'unknown';
-        if (nonIterable(spread.value)) return 'throw';
+        if (!spread.ok) {
+          if (file.values.lengthOf(item.argument, scopes) === null) return 'unknown';
+        } else if (nonIterable(spread.value)) return 'throw';
       }
     }
     return 'next';

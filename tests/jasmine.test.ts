@@ -404,6 +404,68 @@ describe('declarations Jasmine refuses', () => {
     expect(onlyTest(result).hooks.beforeEach).toBe(1);
   });
 
+  it('reads the first two Jasmine hook arguments across array holes, nested spreads and strings', () => {
+    for (const [args, refused] of [
+      ['...[]', true],
+      ['...[], ready', false],
+      ['...[ready]', false],
+      ['...[...[ready], ...[25]]', false],
+      ['ready, ...[...[], 2147483648]', true],
+      ['...[, ready]', true],
+      ['...[ready,, 2147483648]', false],
+      ["...'desk'", true],
+      ["ready, ...'45'", false],
+      ["...'', ready", false],
+      ['...[prices, 25]', true],
+      ['...empty, ...empty, ready', false],
+      ['...hooks', false],
+      ['...waits', true],
+      ['...words', true],
+      ['...[[ready][0], ...[2147483648]]', true],
+    ] as const) {
+      const scan = scanJasmine(`
+const ready = () => {};
+function* prices() {}
+const hooks = [ready, 25], empty = [], waits = [55], words = 'open';
+try { beforeEach(${args}); it('continues registration', () => {}); }
+catch { it('recovers the hook', () => {}); }`);
+      expect(testNamed(scan, 'continues registration').state, args).toBe(refused ? 'notLoaded' : 'active');
+      expect(
+        scan.tests.some((test) => test.title === 'recovers the hook'),
+        args,
+      ).toBe(refused);
+    }
+  });
+
+  it('preserves the callback binding of a spread hook argument and accounts for later argument evaluation', () => {
+    const scan = scanJasmine(`
+function closeBook() { pending('closing auction'); }
+const setup = [closeBook, 25];
+{ const closeBook = function* prices() {}; beforeEach(...setup); }
+it('quotes the opening price', () => {});`);
+    expect(onlyTest(scan).state).toBe('skip');
+    for (const body of [
+      'const callbacks = [function* prices() {}]; callbacks[0] = () => {}; beforeEach(...callbacks);',
+      'const callbacks = [function* prices() {}]; const alias = callbacks; alias[0] = () => {}; beforeEach(...callbacks);',
+    ]) {
+      const changed = scanJasmine(body + "it('quotes the opening price', () => {});");
+      expect(onlyTest(changed).state).toBe('active');
+    }
+    const dynamic = scanJasmine(`
+function readOptions() { return [() => {}, 25]; }
+const options = [...readOptions(), 2147483648];
+beforeEach(...options);
+it('quotes the opening price', () => {});`);
+    expect(onlyTest(dynamic).state).toBe('active');
+    expect(codes(dynamic)).not.toContain('invalid-hook');
+    const thrown = scanJasmine(`function closed() { throw Error('closed'); }
+try { beforeEach(...[() => {}, 5, it('prices a quote', () => {}), closed()]); it('continues registration', () => {}); }
+catch { it('recovers the hook', () => {}); }`);
+    expect(testNamed(thrown, 'continues registration').state).toBe('notLoaded');
+    expect(testNamed(thrown, 'prices a quote').state).toBe('active');
+    expect(testNamed(thrown, 'recovers the hook').hooks.beforeEach).toBe(0);
+  });
+
   it('checks the parameters and body of each ordinary Jasmine helper call before collecting its catch', () => {
     for (const [parameters, body, args, recovery] of [
       ['bid = 5', 'return bid;', '', false],

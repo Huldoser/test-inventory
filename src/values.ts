@@ -479,9 +479,14 @@ export class Values {
   }
 
   /** The value a `const` name is declared with, and the scopes around that declaration; null for any other name. */
-  constantOf(name: string, scopes: readonly Node[]): { init: Expression; scopes: readonly Node[] } | null {
+  constantOf(
+    name: string,
+    scopes: readonly Node[],
+    unchanged = false,
+  ): { init: Expression; scopes: readonly Node[] } | null {
     const binding = this.lookup(name, scopes)?.binding;
-    return binding?.kind === 'const' ? { init: binding.init, scopes: binding.scopes } : null;
+    if (binding?.kind !== 'const' || (unchanged && this.changedAtLoad(binding.scopes[0], binding, name))) return null;
+    return { init: binding.init, scopes: binding.scopes };
   }
 
   /** The name a module exports that a name imported from it stands for, `default` for a default import; null otherwise. */

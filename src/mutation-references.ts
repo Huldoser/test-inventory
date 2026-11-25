@@ -325,9 +325,9 @@ export function patternReferences(pattern: BindingPattern, source: Expression, s
   return { entries, scopes };
 }
 
-/** Reflect.apply takes its target and receiver from the same expanded list as its argument array. */
+/** Expand literal array spreads in argument order, preserving holes and spreads of unknown width. */
 export function* literalArguments(
-  elements: ArrayExpression['elements'],
+  elements: Readonly<ArrayExpression['elements']>,
 ): Generator<ArrayExpression['elements'][number], void> {
   for (const element of elements) {
     const spread = element?.type === 'SpreadElement' && unwrapChain(element.argument);
