@@ -37,3 +37,4 @@ Follow methods installed on a local object by an earlier helper call.
 Follow callbacks selected from a module-level object or array passed to a local helper, including when separate calls supply different containers.
 Track array edits made by a callback installed and invoked during the same collection helper.
 Re-read a forwarded callback after an intervening write, including writes made inside another local helper.
+Follow the replacement when a callback changes its own entry before a repeated helper call.

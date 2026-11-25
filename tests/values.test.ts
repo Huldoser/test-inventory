@@ -1098,6 +1098,23 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     }
   });
 
+  it('calls the replacement on the second invocation of a self-replacing callback', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function write(h,list,row){list[0]=row;}function use(h,list,row){h[0](h,list,row);}';
+    for (const arm of ['h[0]=write;', 'h.unshift(write);', 'h.shift();']) {
+      const run =
+        'function arm(h){' +
+        arm +
+        '}function run(h,list,row){use(h,list,row);use(h,list,row);}run([arm,write],rows,night);';
+      expect(resolve(setup + run + 'close(rows[0]);night.label;'), arm).toEqual(UNRESOLVED);
+    }
+    const once = 'function arm(h){h[0]=write;}use([arm],rows,night);';
+    expect(resolve(setup + once + 'close(rows[0]);night.label;')).toEqual({ ok: true, value: 'night' });
+    const computed =
+      'function arm(h){h.update=write;}function step(h,list,row,key){h[key](h,list,row);}function run(h,list,row){step(h,list,row,"update");step(h,list,row,"update");}run({update:arm},rows,night);';
+    expect(resolve(setup + computed + 'close(rows[0]);night.label;')).toEqual(UNRESOLVED);
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

@@ -39,6 +39,13 @@ function indexOf(key: string): number | null {
   return Number.isInteger(index) && index >= 0 && index < 0xffffffff && String(index) === key ? index : null;
 }
 
+/** Array methods can move numeric slots without replacing named properties such as the method itself. */
+export function changesMember(change: ArrayChange, key: string | null): boolean {
+  if (key === null) return true;
+  if (!('args' in change) && change.name !== 'length') return change.name === null || change.name === key;
+  return key === 'length' || indexOf(key) !== null;
+}
+
 /** Only literal offsets can determine which existing slots an edit moves. */
 function numberAt(expr: Expression | null | undefined, fallback: number): number | null {
   if (!expr) return fallback;

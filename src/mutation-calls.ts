@@ -20,6 +20,7 @@ import { analyzeReturns, capturedResult, conditionArgument, markReturnedLocals }
 import {
   arrayArguments,
   arrayPropertyReader,
+  changesMember,
   type ArrayChange,
   type ArrayMethod,
   type PropertySource,
@@ -279,6 +280,7 @@ export function mutationCalls(
   }
   type Step = ContainerEdit | Boundary;
   let writeVersion = 0;
+  const observedMembers: Map<Expression, Set<string | null>>[] = [];
   const readTimes = new HelperReadTimes();
   const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
     return (expression, at) => {
@@ -357,10 +359,20 @@ export function mutationCalls(
             ]),
           ]);
           const previous = children.get(key);
-          const edits =
-            previous?.version === writeVersion
-              ? previous.edits
-              : invocationEdits(child, when, unique, active, record, sources);
+          let edits: Step[];
+          let reusable = true;
+          if (previous?.version === writeVersion) edits = previous.edits;
+          else {
+            const reads = new Map<Expression, Set<string | null>>();
+            observedMembers.push(reads);
+            edits = invocationEdits(child, when, unique, active, record, sources);
+            observedMembers.pop();
+            reusable = !edits.some(
+              (step) =>
+                'change' in step &&
+                [...(reads.get(step.container) ?? [])].some((key) => changesMember(step.change, key)),
+            );
+          }
           for (const edit of edits) {
             if (result.delete(edit)) {
               if ('change' in edit) edit.change.unconditional = false;
@@ -369,7 +381,7 @@ export function mutationCalls(
             }
             result.add(edit);
           }
-          children.set(key, { edits, version: writeVersion });
+          if (reusable) children.set(key, { edits, version: writeVersion });
         }
         append({ owner: frame.fn, position: expression.end, end: when });
         continue;
@@ -572,6 +584,13 @@ export function mutationCalls(
     }
     if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
       const [step, ...rest] = path;
+      if (!step.accessor) {
+        for (const reads of observedMembers) {
+          const keys = reads.get(value);
+          if (keys) keys.add(step.key);
+          else reads.set(value, new Set([step.key]));
+        }
+      }
       const choices: CallbackChoice[] = [];
       for (const { ref, scopes: at } of memberSources(value, scopes, step.key, step.time)) {
         if (ref?.accessor && !step.accessor) {
