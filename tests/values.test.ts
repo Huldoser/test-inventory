@@ -14,6 +14,12 @@ function resolve(code: string) {
 const UNRESOLVED = { ok: false, importedFrom: null };
 
 describe('Values', () => {
+  it('finds no iterator instance through a circular constant alias', () => {
+    const parsed = parseFile('values.ts', 'const bids = asks; const asks = bids; asks;');
+    const read = parsed.program.body.at(-1) as ExpressionStatement;
+    expect(new Values().iteratorOf(read.expression, [parsed.program])).toBeUndefined();
+  });
+
   it('uses the final static name field and ignores instance, unrelated and private fields', () => {
     expect(
       resolve(`class Desk {

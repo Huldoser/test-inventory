@@ -22,7 +22,23 @@ export type Value = string | number | boolean | null | undefined | Value[] | { [
 /** An unknown value can still have a known array length, be defined, or be a truthy object. */
 export type Resolved =
   | { ok: true; value: Value }
-  | { ok: false; importedFrom: string | null; arrayLength?: number; defined?: true; truthy?: true; nonIterable?: true };
+  | {
+      ok: false;
+      importedFrom: string | null;
+      arrayLength?: number;
+      defined?: true;
+      truthy?: true;
+      nonIterable?: true;
+      iterator?: true;
+    };
+
+/** What a synchronous iterator produced at one registration-time spread. */
+export interface IteratorSpread {
+  values: Resolved[];
+  complete: boolean;
+  outcome: 'next' | 'throw' | 'unknown';
+  registered: boolean | 'possible';
+}
 
 /** Whether a default runs, a pattern throws or a parameter name becomes initialized. Null denotes uncertainty. */
 export type ParameterStep = boolean | null | 'throw' | 'initialize';
@@ -61,6 +77,7 @@ interface BoundCall {
   parameters: Map<string, () => Resolved>;
   /** Constants are worked out again for each call, since they may be built from the parameters. */
   cache: Map<Expression, Resolved>;
+  iterators?: WeakMap<Expression, Resolved>;
 }
 
 function isPrimitive(value: Value): value is string | number | boolean | null | undefined {
@@ -192,6 +209,9 @@ export function bindingNames(pattern: Node | null, names: string[] = []): string
 export class Values {
   private readonly bindingsByScope = new Map<Node, Map<string, Binding>>();
   private readonly cache = new Map<Expression, Resolved>();
+  private readonly fileIterators = new WeakMap<Expression, Resolved>();
+  readonly iteratorMethods = new WeakMap<CallExpression, 'next' | 'throw'>();
+  readonly iteratorSpreads = new WeakMap<Expression, IteratorSpread>();
   private readonly pending = new Set<Expression>();
   /** The functions being read at one of their calls, innermost last. */
   private calls: BoundCall[] = [];
@@ -205,14 +225,44 @@ export class Values {
     this.imports = imports;
   }
 
+  /** Saved instances belong to the invocation that evaluated their initializer. */
+  recordIterator(node: Expression, scopes: readonly Node[], value: Resolved | undefined): void {
+    const call = this.calls.findLast((entry) => scopes.includes(entry.fn));
+    if (value) {
+      const instances = call ? (call.iterators ??= new WeakMap()) : this.fileIterators;
+      instances.set(node, value);
+    } else (call ? call.iterators : this.fileIterators)?.delete(node);
+  }
+
+  /** Follow only bindings that preserve the iterator object itself. A copy of its elements is reusable. */
+  iteratorOf(node: Expression, scopes: readonly Node[]): Resolved | undefined {
+    let expression = unwrap(node);
+    const seen = new Set<Node>();
+    while (expression.type === 'Identifier') {
+      if (seen.has(expression)) return;
+      seen.add(expression);
+      const constant = this.constantOf(expression.name, scopes, true);
+      if (!constant) {
+        const declaration = this.declarationOf(expression.name, scopes);
+        const bound = declaration && this.resolveParameter(expression.name, declaration);
+        return bound && !bound.ok && bound.iterator ? bound : undefined;
+      }
+      expression = unwrap(constant.init);
+      scopes = constant.scopes;
+    }
+    if (expression.type !== 'CallExpression') return;
+    const call = this.calls.findLast((entry) => scopes.includes(entry.fn));
+    return (call ? call.iterators : this.fileIterators)?.get(expression);
+  }
+
   /** A suspended helper still sees its own arguments and the parameters of the enclosing calls that created it. */
-  captureBindings<T>(read: (value: T) => void): (value: T) => void {
+  captureBindings<T, R = void>(read: (value: T) => R): (value: T) => R {
     const bindings = this.calls.slice();
     return (value) => {
       const caller = this.calls;
       this.calls = bindings;
       try {
-        read(value);
+        return read(value);
       } finally {
         this.calls = caller;
       }
@@ -224,15 +274,23 @@ export class Values {
     call: CallExpression,
     scopes: readonly Node[],
     expandSpread: boolean,
+    read: (operand: Expression) => Resolved,
   ): { args: Resolved[]; complete: boolean } {
     const args: Resolved[] = [];
     let complete = true;
     for (const item of call.arguments) {
       if (item.type !== 'SpreadElement') {
-        args.push(this.resolve(item, scopes));
+        args.push((expandSpread ? this.iteratorOf(item, scopes) : undefined) ?? read(item));
         continue;
       }
-      const list = expandSpread && this.resolve(item.argument, scopes);
+      const consumed = expandSpread && this.iteratorSpreads.get(item.argument);
+      if (consumed) {
+        for (const value of consumed.values) args.push(value);
+        if (consumed.complete) continue;
+        complete = false;
+        break;
+      }
+      const list = expandSpread && read(item.argument);
       if (!list || !list.ok || !(Array.isArray(list.value) || typeof list.value === 'string')) {
         complete = false;
         break;
@@ -323,7 +381,7 @@ export class Values {
     scopes: readonly Node[],
     steps?: Map<Node, ParameterStep>,
   ): void {
-    const unknown = value && !value.ok ? value : UNRESOLVED;
+    const unknown = value && !value.ok && !value.iterator ? value : UNRESOLVED;
     switch (pattern.type) {
       case 'Identifier':
         steps?.set(pattern, 'initialize');
@@ -410,6 +468,15 @@ export class Values {
         const items: Value[] = [];
         for (const element of expression.elements) {
           if (element === null) return UNRESOLVED;
+          if (element.type === 'SpreadElement') {
+            const spread = this.iteratorSpreads.get(element.argument);
+            if (spread) {
+              if (spread.outcome !== 'next' || !spread.complete || !spread.values.every((item) => item.ok))
+                return UNRESOLVED;
+              for (const item of spread.values) items.push(item.value);
+              continue;
+            }
+          }
           const resolved = this.resolve(element.type === 'SpreadElement' ? element.argument : element, scopes);
           if (!resolved.ok) return resolved;
           if (element.type !== 'SpreadElement') {

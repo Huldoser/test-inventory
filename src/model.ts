@@ -2,7 +2,7 @@ import type { CallExpression, Expression, Node } from 'oxc-parser';
 import type { FunctionNode } from './ast.ts';
 import type { Scope } from './extract.ts';
 import type { Annotation, DiagnosticCode, DiagnosticLevel, HookCounts, MetaValue } from './types.ts';
-import type { Value } from './values.ts';
+import type { IteratorSpread, Resolved, Value } from './values.ts';
 import type { VitestConcurrency } from './vitest-concurrency.ts';
 
 export type State = 'skip' | 'fixme' | 'todo' | 'expectedToFail';
@@ -242,8 +242,10 @@ export interface Adapter {
   nestsTests?: boolean;
   /** A suite callback catches registration errors and preserves the children registered before them. */
   catchesSuiteErrors?: boolean;
-  /** Whether a spread operand with an otherwise unresolved value is known to fail during registration. */
-  rejectsRegistrationSpread?(operand: Expression, scopes: readonly Node[]): boolean;
+  /** Evaluate a synchronous generator body after its parameters have already been initialized. */
+  iterateGenerator?(fn: FunctionNode, scopes: readonly Node[]): IteratorSpread;
+  /** Resolve a value computed during registration, including a local helper return. */
+  registrationValue?(operand: Expression, scopes: readonly Node[]): Resolved;
   /** How a synchronous registration block completes, when the runner and local helpers determine its path. */
   registrationExit?(
     block: Extract<Node, { type: 'BlockStatement' }>,

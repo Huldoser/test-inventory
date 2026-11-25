@@ -1085,6 +1085,139 @@ catch { it('recovers the market', () => {}); }`);
     expect(scan.tests.map((test) => test.fullName)).toEqual(['records the fee', 'bid quote', 'finishes registration']);
   });
 
+  it('consumes a saved Jasmine iterator once across its aliases and leaves another instance independent', () => {
+    const scan = scanJasmine(`function* prices(side) {
+  it('opens the ' + side + ' book', () => {});
+  yield side;
+}
+function title(...fields) {return 'settles ' + fields.join('/');}
+try {
+  const bids = prices('bid');
+  const asks = prices('ask');
+  const alias = bids;
+  it('accepts the order', () => {});
+  it(title(...asks), () => {});
+  it(title(...alias), () => {});
+  it(title(...bids), () => {});
+} catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.title)).toEqual([
+      'accepts the order',
+      'opens the ask book',
+      'settles ask',
+      'opens the bid book',
+      'settles bid',
+      'settles ',
+    ]);
+  });
+
+  it('consumes a generator at the array copy and allows the copied Jasmine arguments to be spread twice', () => {
+    const scan = scanJasmine(`function* prices() { it('opens the book', () => {}); yield 'ask'; }
+function title(side, kind) {return side + ' ' + kind;}
+try {
+  const sides = [...prices()];
+  it('accepts the order', () => {});
+  it(title(...sides, 'quote'), () => {});
+  it(title(...sides, 'price'), () => {});
+} catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.title)).toEqual([
+      'opens the book',
+      'accepts the order',
+      'ask quote',
+      'ask price',
+    ]);
+  });
+
+  it('keeps a saved Jasmine generator closed after return before its first yield', () => {
+    const scan = scanJasmine(`function* prices() { it('records the fee', () => {}); yield 'ask'; }
+function title(...sides) {return 'settles ' + sides.join('/');}
+try {
+  const sides = prices();
+  sides.return(it('retires the order', () => {}));
+  it(title(...sides), () => {});
+} catch { it('recovers the market', () => {}); }`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['retires the order', 'settles ']);
+  });
+
+  it('retains a helper return in a saved generator and registers array-copy effects at the copy site', () => {
+    const scan = scanJasmine(`function quote() {return 'ask';}
+function* prices(side) {it('opens the ' + side + ' book', () => {}); yield side;}
+function title(...sides) {return sides.join('/');}
+it('opens the desk', () => {});
+try {
+  const ticks = prices(quote());
+  const sides = [...ticks];
+  it(title(...sides), () => {});
+} catch {it('recovers the market', () => {});}`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['opens the desk', 'opens the ask book', 'ask']);
+  });
+
+  it('keeps an iterator consumed in a reached catch closed after recovery', () => {
+    const scan = scanJasmine(`function* sides(){it('reads the bids',()=>{});yield 'bid';}
+function title(...parts){return parts.join('/');}
+const ticks = sides();
+try{throw 'closed';}catch{it(title(...ticks,'first'),()=>{});}
+it(title(...ticks,'second'),()=>{});`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['reads the bids', 'bid/first', 'second']);
+  });
+
+  it('registers yielded arguments from a delegated saved iterator and ignores its return value', () => {
+    const scan = scanJasmine(`function* prices(){it('reads the bids',()=>{});yield 'bid';return 'discard';}
+const ticks=prices();
+function* sides(){yield* ticks;yield 'ask';}
+function title(...parts){return parts.join('/');}
+try{it(title(...sides()),()=>{});it(title(...ticks,'closed'),()=>{});}catch{it('recovers the price',()=>{});}`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['reads the bids', 'bid/ask', 'closed']);
+  });
+
+  it('reads an iterator and then an array at the same spread inside a Jasmine helper', () => {
+    const scan = scanJasmine(`const make=(side)=>prices(side);
+function* prices(side){yield side;}
+function title(...sides){return sides.join('/');}
+function place(ticks){it(title(...ticks),()=>{});}
+place(make('bid'));place(['ask']);`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['bid', 'ask']);
+  });
+
+  it('leaves an iterator open if evaluating a close argument throws', () => {
+    const scan = scanJasmine(`function* prices(){yield 'bid';}
+const ticks=prices();
+function reject(){throw 'closed';}
+function title(...sides){return sides.join('/');}
+try{try{ticks.return(reject());}catch{it('keeps the order',()=>{});}
+it(title(...ticks),()=>{});}catch{it('recovers the market',()=>{});}`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['keeps the order', 'bid']);
+  });
+
+  it('closes a fresh iterator on throw and leaves subsequent advances exhausted', () => {
+    const scan = scanJasmine(`function* prices(){it('opens the book',()=>{});yield 'bid';}
+const ticks=prices();
+function title(...sides){return 'settles '+sides.join('/');}
+try{ticks.throw(it('retires the trade',()=>{}));}catch{it('recovers the trade',()=>{});}
+ticks.next();
+it(title(...ticks),()=>{});`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['retires the trade', 'recovers the trade', 'settles ']);
+  });
+
+  it('keeps later registrations after repeated advances of an iterator with no collection effects', () => {
+    const scan = scanJasmine(`function* prices(){yield 'bid';yield 'ask';}
+const ticks=prices();ticks.next();ticks.next();ticks.return();
+const order={next(){it('accepts the order',()=>{});}};
+order.next(it('reads the order',()=>{}));
+it('closes the desk',()=>{});`);
+    expect(scan.tests.map((test) => test.title)).toContain('reads the order');
+    expect(scan.tests.at(-1)?.title).toBe('closes the desk');
+  });
+
+  it('keeps a known argument before a delegated spread that yields opaque spec results', () => {
+    const scan = scanJasmine(`function* sides(){yield 'bid';yield* [it('opens the book',()=>{})];}
+function register(first){it(first,()=>{});}
+const ticks=sides();
+register(...ticks);
+const quotes=[...sides()];
+it(quotes,()=>{});`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['opens the book', 'bid', 'opens the book', 'quotes']);
+  });
+
   it('keeps earlier registrations when generator iteration throws in a Jasmine spread', () => {
     for (const failure of [
       "throw Error('closed');",

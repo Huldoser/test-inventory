@@ -9,7 +9,15 @@ import type {
 } from 'oxc-parser';
 import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
 import { literalArguments } from '../mutation-references.ts';
-import { isValueOperation, operationValue, type ParameterStep, type Resolved, type Value } from '../values.ts';
+import {
+  bindingNames,
+  type IteratorSpread,
+  isValueOperation,
+  operationValue,
+  type ParameterStep,
+  type Resolved,
+  type Value,
+} from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 function completesWithoutThrowing(node: Expression): boolean {
@@ -344,6 +352,13 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
   function call(node: CallExpression, scopes: readonly Node[], children: Children, iteration?: Iteration): Flow {
     const callee = unwrap(node.callee);
     if (--remaining < 0) return 'unknown';
+    const method = file.values.iteratorMethods.get(node);
+    if (method) {
+      const evaluated = elements(node.arguments, scopes, children);
+      if (evaluated !== 'next') return evaluated;
+      results.set(node, nonIterableObject);
+      return method;
+    }
     if (
       callee.type === 'MemberExpression' ||
       (callee.type === 'Identifier' &&
@@ -420,6 +435,16 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     return result;
   }
   function spread(operand: Expression, scopes: readonly Node[], children: Children, out: Collected): Flow {
+    const saved = file.values.iteratorSpreads.get(operand);
+    if (saved) {
+      if (saved.registered === true) children.registered = true;
+      else children.registered ||= saved.registered;
+      if (out.complete) {
+        for (const value of saved.values) out.values.push(value);
+        out.complete = saved.complete;
+      }
+      return saved.outcome;
+    }
     const iteration: Iteration = {};
     const result = expression(operand, scopes, children, iteration);
     if (result !== 'next') return result;
@@ -530,6 +555,12 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       const declaration = file.values.declarationOf(value.name, scopes);
       const binding = parameters.findLast((entry) => entry.fn === declaration);
       if (binding) return binding.initialized.has(value.name) ? 'next' : 'throw';
+      if (
+        declaration &&
+        (declaration.type === 'FunctionDeclaration' || isFunctionNode(declaration)) &&
+        file.values.resolve(value, scopes).ok
+      )
+        return 'next';
       if ((!declaration && value.name === 'undefined') || argument(value, scopes)) return 'next';
     }
     return completesWithoutThrowing(value) ? 'next' : 'unknown';
@@ -603,7 +634,18 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
         return 'unknown';
     }
   }
-  return { expression, statement, suite, valueOf };
+  function iterate(fn: FunctionNode, scopes: readonly Node[]): IteratorSpread {
+    const yielded: Collected = { values: [], complete: true };
+    const children: Children = { registered: false };
+    parameters.push({ fn, initialized: new Set(fn.params.flatMap((param) => bindingNames(param))), yielded });
+    const end = statement(fn.body as BlockStatement, [...scopes, fn], children);
+    return { ...yielded, registered: children.registered, outcome: typeof end === 'object' ? 'next' : end };
+  }
+  return { expression, statement, suite, valueOf, iterate };
+}
+
+export function iterateJasmineGenerator(fn: FunctionNode, scopes: readonly Node[], file: FileContext): IteratorSpread {
+  return registrationFlow(fn.start, scopes, file).iterate(fn, scopes);
 }
 
 export function registrationExit(

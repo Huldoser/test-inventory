@@ -1,10 +1,9 @@
 import type { CallExpression, Expression, Node } from 'oxc-parser';
-import { isFunctionNode, unwrap } from '../ast.ts';
+import { isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
 import type { ApiCall, CallContext, ModuleReader, Problem } from '../model.ts';
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { DiagnosticCode, HookCounts } from '../types.ts';
-import { nonIterable } from '../values.ts';
 import {
   atLeast,
   problem,
@@ -22,6 +21,7 @@ import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
 import {
   functionLength,
   isRuntimeFunction,
+  iterateJasmineGenerator,
   jasmineArguments,
   jasmineCallback,
   jasmineRegistration,
@@ -73,9 +73,11 @@ const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
   readonly catchesSuiteErrors = true;
-  rejectsRegistrationSpread(operand: Expression, scopes: readonly Node[]): boolean {
-    const value = jasmineValue(operand, scopes, this.file);
-    return value.ok ? nonIterable(value.value) : value.nonIterable === true;
+  iterateGenerator(fn: FunctionNode, scopes: readonly Node[]) {
+    return iterateJasmineGenerator(fn, scopes, this.file);
+  }
+  registrationValue(operand: Expression, scopes: readonly Node[]) {
+    return jasmineValue(operand, scopes, this.file);
   }
   registrationExit(block: Extract<Node, { type: 'BlockStatement' }>, scopes: readonly Node[]) {
     return registrationExit(block, scopes, this.file);
