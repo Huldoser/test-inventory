@@ -475,9 +475,22 @@ export function registrationExit(
   return typeof end === 'object' ? 'return' : end;
 }
 
-export function jasmineTitleValue(title: JasmineArgument, file: FileContext): Resolved | undefined {
-  if (title.resolved || title.node.type !== 'CallExpression') return title.resolved;
-  const flow = registrationFlow(title.node.start, title.scopes, file);
-  flow.call(title.node, title.scopes, { registered: false });
-  return flow.valueOf(title.node, title.scopes);
+/** Specs replace falsy descriptions with an empty string. Suite paths keep false and zero. */
+export function jasmineTitleValue(title: JasmineArgument, file: FileContext, spec: boolean): Resolved | undefined {
+  const node = title.node;
+  if (node.type === 'SpreadElement') return undefined;
+  let resolved: Resolved | undefined = title.resolved;
+  if (!resolved && node.type === 'CallExpression') {
+    const flow = registrationFlow(node.start, title.scopes, file);
+    flow.call(node, title.scopes, { registered: false });
+    resolved = flow.valueOf(node, title.scopes);
+  }
+  const literal = node.type === 'UnaryExpression' && node.operator === '-' ? unwrap(node.argument) : node;
+  if (literal.type === 'Literal' && typeof literal.value === 'bigint') {
+    const value = node === literal ? literal.value : -literal.value;
+    return { ok: true, value: spec && !value ? '' : String(value) };
+  }
+  const result = resolved ?? file.values.resolve(node, title.scopes);
+  if (!result.ok || (result.value !== null && typeof result.value === 'object')) return result;
+  return { ok: true, value: String((spec && !result.value ? '' : result.value) ?? '') };
 }

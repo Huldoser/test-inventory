@@ -161,7 +161,7 @@ export class JasmineAdapter extends SuiteAdapter {
         titleArg.scopes,
         titleArg.node,
         { stripTags: false, functionNames: false },
-        jasmineTitleValue(titleArg, this.file),
+        jasmineTitleValue(titleArg, this.file, spec),
       );
       title = read.title;
       if (read.problem) problems.push(read.problem);

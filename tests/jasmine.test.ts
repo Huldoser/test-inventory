@@ -345,6 +345,31 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('normalizes primitive Jasmine descriptions separately for specs and suites', () => {
+    for (const [source, suiteName, specName] of [
+      ['false', 'false', ''],
+      ['0', '0', ''],
+      ['null', '', ''],
+      ['undefined', '', ''],
+      ['true', 'true', 'true'],
+      ['-7', '-7', '-7'],
+      ['0n', '0', ''],
+      ['-5n', '-5', '-5'],
+      ['0x17n', '23', '23'],
+    ]) {
+      const scan = scanJasmine(`describe(${source}, () => it(${source}, () => {}));`);
+      expect(onlyTest(scan).title, source).toBe(specName);
+      expect(scan.suites[0].path, source).toEqual([suiteName]);
+      expect(codes(scan), source).not.toContain('dynamic-title');
+    }
+    const returned = scanJasmine('const market = false; describe(...[(() => market)(), () => it(...[0, () => {}])]);');
+    expect(onlyTest(returned).title).toBe('');
+    expect(returned.suites[0].path).toEqual(['false']);
+    const promised = scanJasmine('it((async () => false)(), () => {});');
+    expect(onlyTest(promised).title).toBe('(async () => false)()');
+    expect(codes(promised)).toContain('dynamic-title');
+  });
+
   it('uses the title returned by a Jasmine helper on the path that completed', () => {
     for (const [title, expected] of [
       ['((name = desk) => name)()', 'cash desk'],
