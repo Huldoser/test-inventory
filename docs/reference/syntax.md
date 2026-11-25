@@ -363,7 +363,8 @@ Bun 1.2.23 and newer, which runs tests the way 1.3 and 1.4 do; see [framework ve
 
 In an object row, `$legs.0.qty` reads the first leg’s quantity, and `$venue.length` reads a string’s length.
 Bun keeps the text of a missing, null or undefined field and consumes the next separator, so `$missing, open` becomes
-`$missing open`. A dollar or percent sign inserted from the row stays literal.
+`$missing open`. A dollar or percent sign inserted from the row stays literal. If the row explicitly sets `desk` to null or undefined,
+`$desk.name` throws during collection. At the top level the file fails. Inside a describe its suite fails.
 
 A refusal inside a describe fails that describe, whose tests are `notLoaded` with `stateSource: "suite"`; tests outside it still run.
 

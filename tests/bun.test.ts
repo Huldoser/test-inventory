@@ -362,6 +362,31 @@ test.if(true).skip.failingIf(process.env.CROSSED)('prices a crossed quote', () =
     ]);
   });
 
+  it.each([false, true])(
+    'marks the file or suite Bun rejects for a null table path (expandCases %s)',
+    (expandCases) => {
+      const registration =
+        "describe.skip.each([{ items: [1], desk: { name: 'floor' } }, { items: [2], desk: null }])('$items at $desk.name', () => { test('fills the order', () => {}); });";
+      const open = "test('opens the desk', () => {});";
+      const close = "test('closes the desk', () => {});";
+      const file = scanBun(open + registration + close, { expandCases });
+      expect(file.tests.map((test) => test.state)).toEqual(['notLoaded', 'notLoaded', 'notLoaded']);
+      expect(codes(file)).toContain('invalid-chain');
+      const nested = scanBun(open + "describe('auction', () => {" + open + registration + close + '});' + close, {
+        expandCases,
+      });
+      expect(nested.tests.map((test) => test.state)).toEqual([
+        'active',
+        'notLoaded',
+        'notLoaded',
+        'notLoaded',
+        'active',
+      ]);
+      const missing = scanBun("test.each([{}])('$desk.name', () => {});" + close, { expandCases });
+      expect(missing.tests.map((test) => test.state)).toEqual(['active', 'active']);
+    },
+  );
+
   it.each([
     ['1.2.23', 'posts 2 legs for "N", venue length 4', 'fills "$venue" or "%#"'],
     ['1.4.4', 'posts 2 legs for N, venue length 4', 'fills $venue or %#'],

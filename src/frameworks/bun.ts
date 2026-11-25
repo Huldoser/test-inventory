@@ -1,6 +1,6 @@
 import type { Argument, CallExpression, Expression } from 'oxc-parser';
 import { isFunctionNode, unwrap } from '../ast.ts';
-import { bunCaseTitle } from '../case-titles.ts';
+import { BUN_INVALID_TITLE, bunCaseTitle } from '../case-titles.ts';
 import type {
   ApiCall,
   CallContext,
@@ -15,6 +15,7 @@ import type {
 import type { ParsedFile } from '../parse.ts';
 import { snippet } from '../source.ts';
 import type { HookCounts } from '../types.ts';
+import type { Value } from '../values.ts';
 import { requiredModule } from './bindings.ts';
 import {
   atLeast,
@@ -180,6 +181,10 @@ export class BunAdapter extends SuiteAdapter {
     const line = this.file.source.line(call.start);
     const states = this.states(links, line, context);
     const table = links.find((link) => link.name === 'each') ?? null;
+    const rows = (table?.args as Argument[] | undefined)?.at(0);
+    const resolvedRows = rows && rows.type !== 'SpreadElement' ? this.file.values.resolve(rows, context.scopes) : null;
+    const cases =
+      resolvedRows?.ok && Array.isArray(resolvedRows.value) ? this.tableCases(resolvedRows.value, title) : null;
     const run = this.options(options, problems, context);
     const base = {
       title,
@@ -191,15 +196,22 @@ export class BunAdapter extends SuiteAdapter {
       hashed: fn ?? namedFunction(this.file, context.scopes, body) ?? wrappedFunction(body),
       isParameterized: table !== null,
       caseCount: table ? this.caseCount(table, problems, context) : null,
-      cases: table ? this.tableCases(table, title, context) : null,
+      cases: cases === BUN_INVALID_TITLE ? null : cases,
       problems,
     };
     const declared: ApiCall =
       kind === 'describe'
         ? { kind: 'describe', ...base, isShuffled: false, passesDown: null }
         : { kind: 'test', ...base, testContext: null, fixtures: [], takesAllFixtures: false, usesBench: false };
-    const rows = (table?.args as Argument[] | undefined)?.at(0);
-    const resolvedRows = rows && rows.type !== 'SpreadElement' ? this.file.values.resolve(rows, context.scopes) : null;
+    if (cases === BUN_INVALID_TITLE) {
+      const refusal = problem(
+        'invalid-chain',
+        call,
+        `${callee}() cannot read a title property from null or undefined.`,
+        title.text,
+      );
+      return refused(call, refusal, context, () => declared);
+    }
     if (resolvedRows?.ok && !Array.isArray(resolvedRows.value)) {
       const source = snippet(text(this.file, rows as Argument));
       const refusal = problem(
@@ -338,14 +350,15 @@ export class BunAdapter extends SuiteAdapter {
   }
 
   /** The cases of a table the scan can work out: an item that is an array is spread into the arguments, another is one. */
-  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | null {
-    const first = (table.args as Argument[]).at(0);
-    const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
-    if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
-    return resolved.value.map((item, index) => {
+  private tableCases(items: Value[], title: Title): TableCase[] | typeof BUN_INVALID_TITLE {
+    const cases: TableCase[] = [];
+    for (const [index, item] of items.entries()) {
       const row = Array.isArray(item) ? item : [item];
-      return { title: title.isDynamic ? null : bunCaseTitle(title.text, row, index, this.file.version), args: row };
-    });
+      const formatted = title.isDynamic ? null : bunCaseTitle(title.text, row, index, this.file.version);
+      if (formatted === BUN_INVALID_TITLE) return formatted;
+      cases.push({ title: formatted, args: row });
+    }
+    return cases;
   }
 }
 

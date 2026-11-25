@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bunCaseTitle, jestKeysTitle, jestRowTitle, vitestCaseTitle } from '../src/case-titles.ts';
+import { BUN_INVALID_TITLE, bunCaseTitle, jestKeysTitle, jestRowTitle, vitestCaseTitle } from '../src/case-titles.ts';
 import type { Value } from '../src/values.ts';
 
 const LONG = 'a limit order for one hundred shares of AAPL at the bid';
@@ -958,7 +958,7 @@ describe("Bun's case titles", () => {
     ['$01, $desk.a$b', [{ '01': 1, desk: { a$b: true } }], '$01 true'],
     ['$.venue', [{ venue: 'XNAS' }], '$venue'],
     ['$venue.toUpperCase', [{ venue: 'XNAS' }], null],
-    ['$desk.name', [{ desk: null }], null],
+    ['$desk.name', [{ desk: null }], BUN_INVALID_TITLE],
     ['$missing北', [{ venue: 'XNAS' }], null],
     ['$mic.name', [{ mic: 'XNAS' }], '$mic.name'],
     ['row $px and %d', [{ px: -0 }], 'row -0 and %d'],

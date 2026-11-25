@@ -352,13 +352,14 @@ function prettyFormatMin(value: Value, depth = 0): string {
 }
 
 const BUN_KEY_PATH = /[\w$]+(?:\.[\w$]+)*/y;
+export const BUN_INVALID_TITLE = Symbol('invalid Bun table title');
 
 /** Bun accepts decimal indices after a dot. A digit cannot start a top-level key. */
-function bunProperty(row: Record<string, Value>, path: string): Value | typeof NOT_PLAIN {
+function bunProperty(row: Record<string, Value>, path: string): Value | typeof NOT_PLAIN | typeof BUN_INVALID_TITLE {
   if (!path || /^\d/.test(path)) return undefined;
   let value: Value = row;
   for (const key of path.split('.')) {
-    if (value === null || value === undefined) return NOT_PLAIN;
+    if (value === null || value === undefined) return BUN_INVALID_TITLE;
     const object = Object(value) as Record<string, Value>;
     if (!Object.hasOwn(object, key)) return key in object ? NOT_PLAIN : undefined;
     value = object[key];
@@ -372,11 +373,12 @@ export function bunCaseTitle(
   args: readonly Value[],
   index: number,
   version: readonly [number, number] | null,
-): string | null {
+): string | null | typeof BUN_INVALID_TITLE {
   const [first] = args;
   const quotes = version !== null && (version[0] < 1 || (version[0] === 1 && version[1] < 3));
   let out = '';
   let used = 0;
+  let known = true;
   for (let at = 0; at < template.length; at++) {
     const char = template[at];
     if (char === '$' && isObject(first)) {
@@ -386,13 +388,14 @@ export function bunCaseTitle(
       // Bun can split a UTF-8 sequence when it advances past an unknown key.
       if (template.charCodeAt(at + 1) > 127) return null;
       const value = bunProperty(first, path);
+      if (value === BUN_INVALID_TITLE) return value;
       if (value === undefined || value === null) {
         out += '$' + path;
         at++;
       } else if (typeof value === 'string') out += quotes ? JSON.stringify(value) : value.toWellFormed();
       else if (typeof value === 'number') out += Object.is(value, -0) ? '-0' : String(value);
       else if (typeof value === 'boolean') out += String(value);
-      else return null;
+      else known = false;
       continue;
     }
     if (char !== '%' || at === template.length - 1 || used >= args.length) {
@@ -402,15 +405,17 @@ export function bunCaseTitle(
     const placeholder = template[at + 1];
     if (placeholder === '#') out += String(index);
     else if (placeholder === '%') out += '%';
-    else if (placeholder === 'p') return null;
-    else if ('sdfijo'.includes(placeholder)) {
+    else if (placeholder === 'p') {
+      used++;
+      known = false;
+    } else if ('sdfijo'.includes(placeholder)) {
       const formatted = bunValue(placeholder, args[used++]);
-      if (formatted === null) return null;
-      out += formatted;
+      if (formatted === null) known = false;
+      else out += formatted;
     } else continue;
     at++;
   }
-  return out;
+  return known ? out : null;
 }
 
 /** One placeholder of a Bun title, or the placeholder as written for a value of another type; null for a JSON Bun shows otherwise. */
