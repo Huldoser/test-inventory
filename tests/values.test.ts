@@ -655,6 +655,51 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     });
   });
 
+  it('tracks the function and receiver supplied to Reflect.apply by a named argument array', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'const items=[close,null,[night]],alias=items;Reflect.apply(...alias);',
+      'const prefix=[close,null];Reflect.apply(...prefix,[night]);',
+      'const desk=night,items=[close,null,[desk]];{const desk=day;Reflect.apply(...items);}',
+      'function update(){this.label="closed";}const items=[update,night,[]];Reflect.apply(...items);',
+      'const items=[read,null,[night]],alias=items;alias[0]=close;Reflect.apply(...items);',
+      'const items=[close,null,[night]];Reflect.apply(...items);items[0]=read;',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    const replaced = 'const items=[close,null,[night]];items[0]=read;Reflect.apply(...items);';
+    expect(resolve(setup + replaced + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
+  it('reads the Reflect.apply receiver and argument list as they stand at the call', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const route of [
+      'const items=[close,null,[day]];items[2]=[night];Reflect.apply(...items);',
+      'const rows=[day],items=[close,null,rows];rows[0]=night;Reflect.apply(...items);',
+      'function update(){this.label="closed";}const items=[update,day,[]];items[1]=night;Reflect.apply(...items);',
+      'const items=[close,null,[night]];Reflect.apply(...items);items[2]=[day];',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('follows a forwarded Reflect.apply list and uses a default for a deleted array entry', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row=night){row.label="closed";}';
+    for (const route of [
+      'function dispatch(rows){Reflect.apply(close,null,rows);}dispatch([night]);',
+      'const rows=[day],items=[close,null,rows];delete rows[0];Reflect.apply(...items);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+    const conditional =
+      'const active=true,items=[close,null,[day]];if(active)items[2]=[night];Reflect.apply(...items);';
+    expect(resolve(setup + conditional + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
   it('tracks the arguments captured by the bound function that actually runs', () => {
     const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closing";}';
     for (const route of [

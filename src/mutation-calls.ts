@@ -13,6 +13,7 @@ import {
   type CallbackContext,
   type HelperInvocation,
   type InvocationMode,
+  type ParameterSource,
   type ScopedFunction,
 } from './mutation-references.ts';
 import { analyzeReturns, capturedResult, conditionArgument, markReturnedLocals } from './mutation-returns.ts';
@@ -103,16 +104,42 @@ export function mutationCalls(
       value = unwrapChain(alias.init);
       scopes = alias.scopes;
     }
-    return value;
+    return { value, scopes };
   };
   const objectWrites = new Map<Expression, MethodWrite[]>();
   for (const write of methodWrites) {
-    const value = constantValue(write.object, write.scopes);
+    const { value } = constantValue(write.object, write.scopes);
     if (value.type !== 'ObjectExpression' && value.type !== 'ArrayExpression') continue;
     const writes = objectWrites.get(value);
     if (writes) writes.push(write);
     else objectWrites.set(value, [write]);
   }
+  const writesAt = (container: Expression, key: string | null, time: number | null) =>
+    (objectWrites.get(container) ?? []).filter(
+      (write) =>
+        (key === null || write.name === null || write.name === key) &&
+        (write.owner !== program || time === null || write.end <= time),
+    );
+
+  // A named Reflect.apply array supplies its receiver and arguments at the call, after any indexed assignments.
+  const reflectSources = (source: ParameterSource, time: number | null, seen = new Set<Node>()): ParameterSource[] => {
+    const { ref } = source;
+    if (!ref.path.length || ref.capture) return [source];
+    const { value, scopes } = constantValue(ref.value, source.scopes);
+    if (value.type !== 'ArrayExpression' || seen.has(value)) return [source];
+    seen.add(value);
+    const [key, ...suffix] = ref.path;
+    const choices: ParameterSource[] = [];
+    for (const child of property({ value, path: [] }, key))
+      if (child)
+        choices.push({ ...source, scopes, ref: { ...ref, value: child.value, path: [...child.path, ...suffix] } });
+    for (const write of writesAt(value, key, time)) {
+      if (write.unconditional && time !== null && key !== null && key === write.name) choices.length = 0;
+      if (write.assigned)
+        choices.push({ ...source, scopes: write.scopes, ref: { ...ref, value: write.assigned, path: suffix } });
+    }
+    return choices.flatMap((choice) => reflectSources(choice, time, new Set(seen)));
+  };
   const returns = new Map<FunctionNode, ReturnType<typeof analyzeReturns>>();
   const returnedBy = (fn: FunctionNode) => {
     let result = returns.get(fn);
@@ -236,12 +263,7 @@ export function mutationCalls(
           choices.push(callable(selected, scopes, context, new Set(seen), frame, [...projection, ...rest]));
         } else choices.push(UNKNOWN);
       }
-      for (const write of objectWrites.get(value) ?? []) {
-        if (
-          (step.key !== null && write.name !== null && write.name !== step.key) ||
-          (write.owner === program && step.time !== null && write.end > step.time)
-        )
-          continue;
+      for (const write of writesAt(value, step.key, step.time)) {
         if (accessorOnly && write.assigned) continue;
         if (!write.assigned) accessorOnly = false;
         if (write.unconditional && step.time !== null && step.key !== null && step.key === write.name)
@@ -376,10 +398,16 @@ export function mutationCalls(
       object.name === 'Reflect' &&
       !values.declarationOf('Reflect', scopes)
     ) {
-      const fn = literalArguments(call.arguments).next().value;
-      return fn && fn.type !== 'SpreadElement'
-        ? callable(fn, scopes, caller).targets.map((helper) => ({ helper, mode: 'reflect' }))
-        : [];
+      const args: Expression = {
+        type: 'ArrayExpression',
+        elements: [...literalArguments(call.arguments)],
+        start: call.start,
+        end: call.end,
+      };
+      return callable(args, scopes, caller, new Set(), undefined, [{ key: '0', time }]).targets.map((helper) => ({
+        helper,
+        mode: 'reflect',
+      }));
     }
     const targets: Target[] = callable(callee, scopes, caller).targets.map((helper) => ({
       helper,
@@ -431,10 +459,13 @@ export function mutationCalls(
           fn: helper.fn,
           parameterScopes: [...helper.scopes, helper.fn],
         };
-        const parameters = helperParameters(site, (expr, capture) => {
+        const supplied = helperParameters(site, (expr, capture) => {
           const at = capture?.scopes ?? scopes;
-          return DEFINED.has(constantValue(expr, at).type) || callable(expr, at, capture?.caller ?? caller).definite;
+          return (
+            DEFINED.has(constantValue(expr, at).value.type) || callable(expr, at, capture?.caller ?? caller).definite
+          );
         });
+        const parameters = mode === 'reflect' ? supplied.flatMap((source) => reflectSources(source, time)) : supplied;
         const choices = new Map<string, CallbackChoice[]>();
         for (const param of parameters) {
           const choice =
