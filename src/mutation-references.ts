@@ -16,6 +16,7 @@ interface Site {
   statement: Node | null;
 }
 export interface MutationTarget extends Site {
+  owner: Node;
   value: Expression;
 }
 export interface AliasBinding extends Site {
@@ -34,11 +35,13 @@ export interface HelperSite extends Site {
   parameterScopes: readonly Node[];
 }
 export interface CapturedCall extends Site {
+  factory?: HelperInvocation;
   repeated?: boolean;
   call: CallExpression;
   caller: CallbackContext;
 }
 export interface ScopedFunction {
+  factory?: HelperInvocation;
   bound?: CapturedCall[];
   fn: FunctionNode;
   scopes: readonly Node[];
@@ -49,6 +52,8 @@ export interface CallbackChoice {
   definite: boolean;
 }
 export interface CallbackContext {
+  factory?: HelperInvocation;
+  factories: Map<CallExpression, HelperInvocation>;
   owner: Node;
   functions: Map<string, CallbackChoice>;
   id: number;
@@ -60,11 +65,18 @@ export interface ParameterSource extends Site {
   fromDefault: boolean;
 }
 export interface HelperInvocation extends HelperSite {
+  id: number;
   key: string;
   caller: CallbackContext;
   context: CallbackContext;
   parameters: ParameterSource[];
 }
+/** The invocation whose local bindings a nested function captured. */
+export function enclosingFactory(context: CallbackContext | undefined, owner: Node): HelperInvocation | undefined {
+  for (let frame = context?.factory; frame; frame = frame.context.factory) if (frame.fn === owner) return frame;
+  return undefined;
+}
+
 interface AliasSource extends Site {
   ref: Reference;
   end: number | null;
@@ -76,6 +88,8 @@ interface Reference {
   value: Expression;
   path: Key[];
   capture?: CapturedCall;
+  accessor?: 'get' | 'set';
+  counterpart?: Expression;
   parts?: ArgumentPart[];
   /** A rest binding is a shallow copy. Array rest starts at this index in the original array. */
   rest?: number;
@@ -88,7 +102,7 @@ interface ArgumentPart {
 }
 
 const direct = (value: Expression): Reference => ({ value: unwrapChain(value), path: [] });
-const DEFINED = new Set<Node['type']>([
+export const DEFINED = new Set<Node['type']>([
   'Literal',
   'ArrayExpression',
   'ObjectExpression',
@@ -98,7 +112,7 @@ const DEFINED = new Set<Node['type']>([
   'TemplateLiteral',
 ]);
 
-function memberKey(member: Extract<Expression, { type: 'MemberExpression' }>): Key {
+export function memberKey(member: Extract<Expression, { type: 'MemberExpression' }>): Key {
   const key = member.property;
   return key.type === 'Literal' && typeof key.value === 'number' ? String(key.value) : propertyName(member);
 }
@@ -106,9 +120,10 @@ function memberKey(member: Extract<Expression, { type: 'MemberExpression' }>): K
 /** Which operand supplies a reference when the condition can be decided without reading mutable bindings. */
 export function referenceOperands(
   value: Extract<Expression, { type: 'ConditionalExpression' | 'LogicalExpression' }>,
+  evaluatedTest?: Expression,
 ): Expression[] {
   const conditional = value.type === 'ConditionalExpression';
-  const test = unwrapChain(conditional ? value.test : value.left);
+  const test = unwrapChain(evaluatedTest ?? (conditional ? value.test : value.left));
   const present = !conditional && value.operator === '??';
   let truth: boolean | null = null;
   if (test.type === 'Literal') truth = 'regex' in test || (present ? test.value !== null : Boolean(test.value));
@@ -122,7 +137,7 @@ export function referenceOperands(
 }
 
 /** Possible references at a property, including a missing value when destructuring could use its default. */
-function* property(ref: Reference, key: Key): Generator<Reference | null, void> {
+export function* property(ref: Reference, key: Key): Generator<Reference | null, void> {
   for (const source of propertySources(ref, key)) {
     yield source && ref.capture ? { ...source, capture: ref.capture } : source;
   }
@@ -152,12 +167,34 @@ function* propertySources(ref: Reference, key: Key): Generator<Reference | null,
     for (let index = value.properties.length - 1; index >= 0; index--) {
       const entry = value.properties[index];
       if (entry.type === 'SpreadElement') {
-        yield* property(direct(entry.argument), key);
+        let mayMiss = false;
+        for (const source of property(direct(entry.argument), key)) {
+          if (!source || source.path.length) mayMiss = true;
+          if (source) yield source;
+        }
+        if (!mayMiss) return;
         continue;
       }
       const name = propertyKey(entry);
       if (key !== null && name !== null && key !== name) continue;
-      yield direct(entry.value);
+      const child = direct(entry.value);
+      if (entry.kind !== 'init') {
+        child.accessor = entry.kind;
+        // Defining the other half of an accessor retains its previous getter or setter.
+        if (key !== null && key === name)
+          for (let prior = index - 1; prior >= 0; prior--) {
+            const earlier = value.properties[prior];
+            if (earlier.type === 'SpreadElement') break;
+            const previousKey = propertyKey(earlier);
+            if (previousKey !== key && previousKey !== null) continue;
+            if (earlier.kind === 'init') break;
+            if (earlier.kind !== entry.kind) {
+              child.counterpart = earlier.value;
+              break;
+            }
+          }
+      }
+      yield child;
       if (key !== null && key === name) return;
     }
   } else {
@@ -272,6 +309,18 @@ function bind(
   }
 }
 
+/** References extracted once when a module evaluates a constant destructuring declaration. */
+export function patternReferences(pattern: BindingPattern, source: Expression, scopes: readonly Node[]) {
+  const entries = new Map<string, { ref: Reference; fromDefault?: boolean }[]>();
+  bind(pattern, direct(source), (name, ref, fromDefault) => {
+    const options = entries.get(name);
+    const option = { ref, fromDefault };
+    if (options) options.push(option);
+    else entries.set(name, [option]);
+  });
+  return { entries, scopes };
+}
+
 /** Reflect.apply takes its target and receiver from the same expanded list as its argument array. */
 export function* literalArguments(
   elements: ArrayExpression['elements'],
@@ -299,7 +348,7 @@ function argumentPart(list: Reference, offset: number): ArgumentPart {
 /** Bind positional, rest and default references once for both callback discovery and write tracking. */
 export function helperParameters(
   site: HelperSite,
-  isCallable: (expression: Expression, capture?: CapturedCall) => boolean,
+  isDefined: (expression: Expression, capture?: CapturedCall) => boolean,
 ): ParameterSource[] {
   const { call, fn, scopes, statement, parameterScopes } = site;
   const elements = site.mode === 'reflect' ? [...literalArguments(call.arguments)] : call.arguments;
@@ -315,7 +364,7 @@ export function helperParameters(
     });
   };
   const defined = (ref: Reference) =>
-    (!ref.path.length && isCallable(ref.value, ref.capture)) || suppliedMember(ref, site);
+    (!ref.path.length && isDefined(ref.value, ref.capture)) || suppliedMember(ref, site);
   const bound = (site.bound ?? []).map((capture) => ({
     ...direct({
       type: 'ArrayExpression',
@@ -361,6 +410,7 @@ export function changedReferences(
   targets: MutationTarget[],
   calls: ReadonlyMap<CallExpression, HelperInvocation[]>,
   callTimes: ReadonlyMap<Node, number | null>,
+  returnedContexts: ReadonlyMap<Node, CallbackContext[]>,
   bindingKey: (name: string, scopes: readonly Node[]) => string | null,
 ): Set<string> {
   const names = new Set<string>();
@@ -392,10 +442,17 @@ export function changedReferences(
   }
   const activeRoots = new Set<Node>();
   const returning: { invocation: HelperInvocation; active: Set<Node> }[] = [];
-  const follow = (ref: Reference, suffix: Key[], site: Site, context?: CallbackContext): void => {
+  const follow = (
+    ref: Reference,
+    suffix: Key[],
+    site: Site,
+    context?: CallbackContext,
+    factory?: HelperInvocation,
+  ): void => {
     if (ref.capture) {
       site = ref.capture;
       context = ref.capture.caller;
+      factory = ref.capture.factory;
     }
     if (ref.rest !== undefined && suffix.length === 0) return;
     const path = [...ref.path, ...suffix];
@@ -433,10 +490,12 @@ export function changedReferences(
             !(ref.capture?.repeated && invocation.context.ancestors.has(ref.capture.call))
           )
             continue;
+          const captured = factory?.fn === invocation.fn ? factory : enclosingFactory(context, invocation.fn);
+          if (captured && captured !== invocation) continue;
           const frame = returning.findLast((frame) => frame.invocation.fn === invocation.fn)?.invocation;
           if (frame && frame !== invocation) continue;
         }
-        follow(source.ref, path, source, source.context ?? context);
+        follow(source.ref, path, source, source.context ?? context, invocation === factory ? undefined : factory);
       }
       active.delete(value);
     } else if (value.type === 'CallExpression') {
@@ -452,20 +511,25 @@ export function changedReferences(
             path,
             { scopes: [...invocation.parameterScopes, ...result.around], statement: null },
             invocation.context,
+            factory,
           );
         returning.pop();
       }
     } else if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
-      for (const source of referenceOperands(value)) follow(direct(source), path, site, context);
+      for (const source of referenceOperands(value)) follow(direct(source), path, site, context, factory);
     } else if (value.type === 'SequenceExpression') {
-      follow(direct(value.expressions[value.expressions.length - 1]), path, site, context);
+      follow(direct(value.expressions[value.expressions.length - 1]), path, site, context, factory);
     } else if (value.type === 'AssignmentExpression' && value.operator === '=') {
-      follow(direct(value.right), path, site, context);
+      follow(direct(value.right), path, site, context, factory);
     } else if (path.length && (value.type === 'ObjectExpression' || value.type === 'ArrayExpression')) {
       for (const child of property({ value, path: [], parts: ref.parts }, path[0]))
-        if (child) follow(child, path.slice(1), site, context);
+        if (child) follow(child, path.slice(1), site, context, factory);
     }
   };
-  for (const target of targets) follow(direct(target.value), [], target);
+  for (const target of targets) {
+    const contexts = returnedContexts.get(target.owner);
+    if (contexts) for (const context of contexts) follow(direct(target.value), [], target, context);
+    else follow(direct(target.value), [], target);
+  }
   return names;
 }

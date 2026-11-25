@@ -8,7 +8,13 @@ import {
   unwrapChain,
   type FunctionNode,
 } from './ast.ts';
-import { changedReferences, type AliasBinding, type MutationTarget } from './mutation-references.ts';
+import {
+  changedReferences,
+  memberKey,
+  patternReferences,
+  type AliasBinding,
+  type MutationTarget,
+} from './mutation-references.ts';
 import { mutationCalls, type MethodWrite, type MutationCallSite } from './mutation-calls.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
@@ -166,7 +172,7 @@ export class Values {
     return this.withBound(declarator, names, read);
   }
 
-  private assignedIn(body: Node): Set<string> {
+  assignedIn(body: Node): ReadonlySet<string> {
     let names = this.assigned.get(body);
     if (!names) {
       names = assignedNames(body);
@@ -1000,6 +1006,20 @@ function changedNames(program: Node, values: Values): Set<string> {
   const declarations: AliasBinding[] = [];
   const callsByOwner = new Map<Node, MutationCallSite[]>();
   const methodWrites: MethodWrite[] = [];
+  const accessors = { get: new Set<string | null>(), set: new Set<string | null>() };
+  const accesses: {
+    assigned?: Expression;
+    member: Extract<Expression, { type: 'MemberExpression' }>;
+    site: Omit<MutationCallSite, 'call'>;
+    owner: Node;
+  }[] = [];
+  const writeOnly = new Set<Node>();
+  const patterns = new Map<Node, ReturnType<typeof patternReferences>>();
+  const addSite = (owner: Node, site: MutationCallSite) => {
+    const sites = callsByOwner.get(owner);
+    if (sites) sites.push(site);
+    else callsByOwner.set(owner, [site]);
+  };
   const walk = (
     node: Node,
     ancestors: readonly Node[],
@@ -1014,7 +1034,7 @@ function changedNames(program: Node, values: Values): Set<string> {
     } else if (node.type === 'ClassBody') statement = null;
     const target = mutatedObject(node);
     if (target) {
-      targets.push({ value: target, scopes, statement });
+      targets.push({ value: target, scopes, statement, owner });
       const member =
         node.type === 'AssignmentExpression' && node.operator === '='
           ? node.left
@@ -1022,21 +1042,29 @@ function changedNames(program: Node, values: Values): Set<string> {
             ? unwrapChain(node.argument)
             : null;
       if (member?.type === 'MemberExpression') {
-        const name = propertyName(member);
-        if (name === 'call' || name === 'apply' || name === 'bind') {
-          const unconditional = statement?.type === 'ExpressionStatement' && statement.expression === node;
-          methodWrites.push({
-            name,
-            object: unconditional ? previousAliasValue(member.object, before) : member.object,
-            assigned: node.type === 'AssignmentExpression' ? node.right : null,
-            scopes,
-            owner,
-            end: node.end,
-            unconditional,
-          });
-        }
+        writeOnly.add(member);
+        if (node.type === 'AssignmentExpression')
+          accesses.push({ member, assigned: node.right, site: { scopes, statement, runsLater: true }, owner });
+        const name = memberKey(member);
+        const unconditional = statement?.type === 'ExpressionStatement' && statement.expression === node;
+        methodWrites.push({
+          name,
+          object: unconditional ? previousAliasValue(member.object, before) : member.object,
+          assigned: node.type === 'AssignmentExpression' ? node.right : null,
+          scopes,
+          owner,
+          end: node.end,
+          unconditional,
+        });
       }
     }
+    if (node.type === 'Property' && node.kind !== 'init') accessors[node.kind].add(propertyKey(node));
+    if (node.type === 'MemberExpression' && !writeOnly.has(node))
+      accesses.push({ member: node, site: { scopes, statement, runsLater: false }, owner });
+    if (node.type === 'VariableDeclaration' && node.kind === 'const')
+      for (const declaration of node.declarations)
+        if (declaration.init && (declaration.id.type === 'ObjectPattern' || declaration.id.type === 'ArrayPattern'))
+          patterns.set(declaration, patternReferences(declaration.id, declaration.init, scopes));
     if (node.type === 'VariableDeclarator' && node.init)
       declarations.push({ pattern: node.id, source: node.init, scopes, statement, end: node.end, replaces: false });
     if (node.type === 'AssignmentExpression' && node.operator === '=')
@@ -1056,15 +1084,12 @@ function changedNames(program: Node, values: Values): Set<string> {
     if (node.type === 'CallExpression') {
       const callee = calleeNames(node.callee);
       const runsLater = callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
-      const sites = callsByOwner.get(owner);
       const member = unwrapChain(node.callee);
       const bindOwner =
         member.type === 'MemberExpression' && propertyName(member) === 'bind'
           ? previousAliasValue(member.object, before)
           : undefined;
-      const site = { call: node, scopes, statement, runsLater, bindOwner };
-      if (sites) sites.push(site);
-      else callsByOwner.set(owner, [site]);
+      addSite(owner, { call: node, scopes, statement, runsLater, bindOwner });
       walk(node.callee, scopes, statement, owner);
       for (const argument of node.arguments)
         if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes, statement, owner);
@@ -1089,8 +1114,24 @@ function changedNames(program: Node, values: Values): Set<string> {
   };
   walk(program, [], null, program);
   if (!targets.length) return new Set();
-  const { calls, callTimes } = mutationCalls(program, callsByOwner, methodWrites, values);
-  return changedReferences(declarations, targets, calls, callTimes, (identifier, scopes) => {
+  if (accessors.get.size || accessors.set.size)
+    for (const { member, owner, site, assigned } of accesses) {
+      const accessor = assigned ? 'set' : 'get';
+      const keys = accessors[accessor];
+      const key = memberKey(member);
+      if (!keys.size || (key !== null && !keys.has(key) && !keys.has(null))) continue;
+      const call: CallExpression = {
+        type: 'CallExpression',
+        callee: member,
+        arguments: assigned ? [assigned] : [],
+        optional: false,
+        start: member.start,
+        end: member.end,
+      };
+      addSite(owner, { ...site, call, accessor });
+    }
+  const { calls, callTimes, returnedContexts } = mutationCalls(program, callsByOwner, methodWrites, values, patterns);
+  return changedReferences(declarations, targets, calls, callTimes, returnedContexts, (identifier, scopes) => {
     const declaration =
       identifier === 'this'
         ? (scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || scope.type === 'FunctionExpression') ??

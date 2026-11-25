@@ -763,6 +763,293 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     ).toEqual(UNRESOLVED);
   });
 
+  it('pairs a returned function with the factory call whose captured object it changes', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const factory of [
+      'function make(row){return ()=>close(row);}',
+      'function make(row){return ()=>{row.label="closed";};}',
+      'function make(row){const run=()=>close(row);return run;}',
+    ]) {
+      const route = factory + 'const unused=make(day);const edit=make(night);edit();';
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('keeps direct writes inside unused and deferred returned functions out of collection', () => {
+    const setup = 'const desk={label:"opening"};function make(row){return ()=>{row.label="closed";};}';
+    for (const use of ['make(desk);', 'const edit=make(desk);test("places an order",edit);'])
+      expect(resolve(setup + use + 'desk.label;')).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('follows a returned callback argument and callbacks captured by a custom bind method', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function write(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'function select(fn){return fn;}select(read)(day);select(write)(night);',
+      'read.bind=(receiver,row)=>()=>write(row);const unused=read.bind(null,day);read.bind(null,night)();',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('preserves the factory binding when a returned closure calls or forwards a sibling helper', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function write(row){row.label="closed";}function invoke(fn){fn();}';
+    for (const body of [
+      'function dispatch(){write(row);}return ()=>dispatch();',
+      'function dispatch(){row.label="closed";}return ()=>dispatch();',
+      'const dispatch=()=>write(row);return ()=>invoke(dispatch);',
+      'function next(){return ()=>write(row);}return next;',
+    ]) {
+      const route =
+        'function make(row){' +
+        body +
+        '}' +
+        (body.endsWith('return next;') ? 'make(day)(); make(night)()();' : 'make(day); make(night)();');
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('uses a callback default when a factory can return without a value', () => {
+    const setup =
+      'const desk={label:"opening"};function read(row){return row.label;}function close(row){row.label="closed";}function apply(fn=close){fn(desk);}';
+    for (const route of [
+      'function pick(flag){if(flag)return;return read;}apply(pick(true));',
+      'function pick(flag){if(flag)return read;}apply(pick(false));',
+    ])
+      expect(resolve(setup + route + 'desk.label;')).toEqual(UNRESOLVED);
+    expect(
+      resolve(setup + 'function pick(flag){if(flag)return read;return read;}apply(pick(true));desk.label;'),
+    ).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('keeps a closure factory default out of a call supplied with a defined constant', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function make(row=day){return ()=>{row.label="closed";};}';
+    const route = 'const early=make();make(night)();';
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
+  it('selects a returned callback using a literal factory argument unless its parameter is reassigned', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function write(row){row.label="closed";}function read(row){return row.label;}';
+    const route =
+      'function make(flag,row){return flag?()=>write(row):()=>read(row);}make(false,day)();make(true,night)();';
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+    expect(
+      resolve(
+        setup +
+          'function make(flag,row){flag=true;return flag?()=>write(row):()=>read(row);}make(false,day)();day.label;',
+      ),
+    ).toEqual(UNRESOLVED);
+  });
+
+  it('keeps direct writes in unused conditional return branches out of collection', () => {
+    const setup = 'const desk={label:"opening"};';
+    for (const route of [
+      'function make(flag,row){return flag?()=>{row.label="closed";}:()=>{};}make(true,desk);',
+      'function make(row){const edit=()=>{row.label="closed";};return true&&edit;}make(desk);',
+    ])
+      expect(resolve(setup + route + 'desk.label;')).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('follows returned callbacks also invoked from an object, an array, or a getter during the factory call', () => {
+    const setup = 'const desk={label:"opening"};';
+    for (const invocation of [
+      'const ops={edit};ops.edit();',
+      '[edit][0]();',
+      'const obj={get run(){edit();return 1;}};void obj.run;',
+    ])
+      expect(
+        resolve(
+          setup +
+            'function make(row){function edit(){row.label="closed";}' +
+            invocation +
+            'return edit;}make(desk);desk.label;',
+        ),
+      ).toEqual(UNRESOLVED);
+    expect(
+      resolve(
+        setup +
+          'function make(row){function edit(){row.label="closed";}const ops={edit};return edit;}make(desk);desk.label;',
+      ),
+    ).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('pairs methods selected from a freshly returned object or array with the right factory', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function write(row){row.label="closed";}';
+    for (const [returned, invoked] of [
+      ['{apply(){write(row);}}', '.apply()'],
+      ['{edit:()=>write(row)}', '["edit"]()'],
+      ['[()=>write(row)]', '[0]()'],
+    ]) {
+      const route = 'function make(row){return ' + returned + ';}make(day);make(night)' + invoked + ';';
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('keeps a captured bind argument paired with its factory through local aliases', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const arg of [
+      'const local=row;return close.bind(null,local);',
+      'const local={desk:row};return close.bind(null,local.desk);',
+    ]) {
+      const route = 'function make(row){' + arg + '}make(day);make(night)();';
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+    }
+  });
+
+  it('keeps an unused factory default readable through aliases of a defined call argument', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function make(row=day){return ()=>{row.label="closed";};}';
+    const route = 'const selected=night,alias=selected;make(alias)();';
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('follows methods selected by constant destructuring from a factory result', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const [returned, pattern] of [
+      ['{edit:()=>close(row)}', '{edit:run}'],
+      ['[()=>close(row)]', '[run]'],
+      ['{ops:[()=>close(row)]}', '{ops:[run]}'],
+    ]) {
+      const route = 'function make(row){return ' + returned + ';}make(day);const ' + pattern + '=make(night);run();';
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('follows paired getter and setter bodies when the module reads or assigns the property', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'const ops={get edit(){close(night);return read;},set edit(fn){}};void ops.edit;',
+      'const ops={set edit(row){close(row);},get edit(){return read;}};ops.edit=night;',
+      'const ops={get edit(){close(night);return read;},set edit(fn){}};ops.edit=read;void ops.edit;',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('uses a getter’s returned callback before deciding whether a parameter default runs', () => {
+    const setup =
+      'const desk={label:"opening"};function read(row){return row.label;}function close(row){row.label="closed";}function route(fn=close){fn(desk);}';
+    expect(resolve(setup + 'const ops={get edit(){return read;}};route(ops.edit);desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+    expect(resolve(setup + 'const ops={get edit(){return;}};route(ops.edit);desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'const ops={set edit(fn){}};route(ops.edit);desk.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('uses the active object method after replacement, deletion and literal spreads', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'const ops={edit:read};ops.edit=close;ops.edit(night);delete ops.edit;ops.edit=read;ops.edit(day);',
+      'const ops={edit:read,...{edit:close}};ops.edit(night);',
+      'const ops={edit:close,...{quote:read}};ops.edit(night);',
+      'const extra=externalMethods();const ops={edit:close,...extra};ops.edit(night);',
+      'const ops={edit:read};ops[selectSlot()]=close;ops.edit(night);',
+      'const ops={edit:read};if(trading)ops.edit=close;ops.edit(night);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('selects the final accessor across interleaved methods, data and spreads', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const route of [
+      'const ops={set edit(v){close(v);},other:1,get edit(){},get edit(){}};ops.edit=night;',
+      'const ops={get edit(){close(day);},edit:1,get edit(){close(night);}};void ops.edit;',
+      'const ops={get edit(){close(day);},...{edit:1},get edit(){close(night);}};void ops.edit;',
+      'const key="edit";const ops={get [key](){close(night);}};void ops[key];',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('retains or discards a returned write through sequence, assignment and repeated aliases', () => {
+    const setup = 'const desk={label:"opening"};function make(row){const edit=()=>{row.label="closed";};let selected;';
+    for (const result of ['(row,edit)', 'selected=edit', 'edit||edit']) {
+      const code = setup + 'return ' + result + ';}';
+      expect(resolve(code + 'make(desk);desk.label;')).toEqual({ ok: true, value: 'opening' });
+      expect(resolve(code + 'make(desk)();desk.label;')).toEqual(UNRESOLVED);
+    }
+  });
+
+  it('tracks conditional helper returns with omitted, spread or defaulted arguments', () => {
+    const setup =
+      'const desk={label:"opening"};function close(){desk.label="closed";}function read(){return desk.label;}';
+    for (const route of [
+      'function make(flag=true){return flag?close:read;}make()();',
+      'function make(flag){return flag?close:read;}make(...[true])();',
+      'function make(prefix,flag){return flag?close:read;}make(...[0],true)();',
+      'function make(flag){return flag?read:close;}make()();',
+    ])
+      expect(resolve(setup + route + 'desk.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('forwards a bound callback from outside the factory and honors a possible custom bind', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const route of [
+      'const bound=close.bind(null,night);function get(){return bound;}get()();',
+      'if(special)close.bind=()=>()=>{};const edit=close.bind(null,night);edit();',
+      'function get(){if(false)return external();return close;}get()(night);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('honors defaults on destructured callbacks and copies only the remaining object fields', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    for (const route of [
+      'const {edit=()=>close(night)}={};edit();',
+      'const {edit=()=>close(day)}={edit:()=>close(night)};edit();',
+      'function make(row){return {edit:()=>close(row)};}const {edit=()=>close(day)}=make(night);edit();',
+      'const {edit,...remaining}={edit:()=>close(night)};remaining.edit?.();edit();',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
+  it('retains the captured row when the same returned callback is forwarded twice', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    const route =
+      'function both(first,second){first();second();}function make(row){return ()=>close(row);}const same=make(night);both(same,same);';
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('retains outer bindings when a returned callback creates a second local factory', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    const route =
+      'function make(row){return ()=>{function next(){return ()=>close(row);}return next();};}make(day)();make(night)()();';
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+  });
+
+  it('resolves a recursively selected callback through a forwarding helper', () => {
+    const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}';
+    const route =
+      'function forward(fn){return fn;}function make(n){const fn=n?make(n-1):close;return forward(fn);}make(2)(night);';
+    expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
   it('flags titles changed through helper arguments resolved in the calling scope', () => {
     const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
     for (const route of [
