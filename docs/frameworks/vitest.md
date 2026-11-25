@@ -53,11 +53,13 @@ repeat those options here.
 This selects source declarations marked skip; it is not a report of a test run.
 See [query recipes](/guide/recipes) for other inventory queries.
 
-A suite's `{ skip: ... }` and `{ todo: ... }` options pass to its descendants. Before Vitest 4.1 they set the
+A suite's `only`, `skip` and `todo` options pass to its descendants. Before Vitest 4.1 they set the
 children's options without changing the suite's own mode. From 4.1 they also set the suite's mode. In Vitest 4 and
 earlier, an inherited `skip: false` can clear a test's `.skip`, and `todo: false` can clear its `.todo`. From Vitest 5
 the test's modifier wins over the inherited option. A test's own explicit option wins in both cases. A configured tag
 can override the inherited suite option in Vitest 5. In Vitest 4.1 the inherited option takes precedence over a tag.
+For example, a suite with `{ only: true }` can make a child marked `.skip` run. In Vitest 5 a tag with
+`only: false` restores that child's skip. The suite still focuses the file.
 
 ## Example
 

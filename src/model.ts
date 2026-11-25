@@ -122,6 +122,8 @@ export interface TestDeclaration extends Declaration {
   usesBench: boolean;
   /** Vitest: the state options the test sets itself, to `false` too, which replace those of its tags. */
   ownStateOptions?: StateOption[];
+  /** Vitest: a suite's only option takes priority over skip and todo unless a tag clears the inherited focus. */
+  statesWhenFocusedBySuite?: StateSetting[];
 }
 
 export interface SuiteDeclaration extends Declaration {

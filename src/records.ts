@@ -201,10 +201,11 @@ function declaredStates(
   options: TagOptions | null,
   { isOnly, skipPassedDown, todoPassedDown }: TestDeclaration,
   tagsFirst: boolean,
+  focusedBySuite: StateSetting[] | undefined,
 ): Chosen[] {
   const clearsSkip = tagsFirst && options?.skip === false;
   const inheritedSkip = clearsSkip ? undefined : skipPassedDown;
-  const states = clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared;
+  const states = focusedBySuite ?? (clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared);
   const own = states.map((setting) => ({ setting, source: 'test' as const }));
   const todo: Chosen[] =
     todoPassedDown !== undefined && !inheritedSkip && !(tagsFirst && options?.todo !== undefined)
@@ -223,7 +224,8 @@ function declaredStates(
     ...todo,
     ...(options ? tagStates(options).map((setting) => ({ setting, source: 'config' as const })) : []),
   ];
-  const kept = isOnly || options?.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
+  const kept =
+    isOnly || focusedBySuite || options?.only ? all.filter(({ setting }) => setting.state === 'expectedToFail') : all;
   return kept.sort((a, b) => FLAG_ORDER.indexOf(a.setting.state) - FLAG_ORDER.indexOf(b.setting.state));
 }
 
@@ -660,6 +662,8 @@ class RecordBuilder {
       ...declaration.details.tags,
     ]);
     const fromTags = this.tagOptions(tags, declaration.ownStateOptions ?? []);
+    const focusedBySuite = fromTags?.only === false ? undefined : declaration.statesWhenFocusedBySuite;
+    const declaredOnly = declaration.isOnly || focusedBySuite !== undefined;
     // In Vitest 5 the options of a test's tags win over those the describes pass down; before, the describes' win.
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
@@ -693,7 +697,13 @@ class RecordBuilder {
       : chooseState([
           // Outermost first, as the outermost of them decides.
           ...around.filter((candidate) => candidate.overrides).reverse(),
-          ...declaredStates(pending.states.slice(0, declaration.states.length), fromTags, declaration, tagsFirst),
+          ...declaredStates(
+            pending.states.slice(0, declaration.states.length),
+            fromTags,
+            declaration,
+            tagsFirst,
+            focusedBySuite,
+          ),
           ...pending.states.slice(declaration.states.length).map((setting) => ({ setting, source: 'test' as const })),
           // A test the declaration skips never runs its body, so its subtests never run; one its body skips still runs it.
           ...parents.flatMap((parent) =>
@@ -737,7 +747,7 @@ class RecordBuilder {
         ? focus !== null
         : mocha
           ? this.mochaFocus(pending, scopes)
-          : declaration.isOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
+          : declaredOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments
@@ -768,7 +778,7 @@ class RecordBuilder {
       );
     }
     if (
-      (declaration.isOnly || fromTags?.only === true) &&
+      (declaredOnly || fromTags?.only === true) &&
       chosen &&
       chosen.source !== 'test' &&
       chosen.setting.state === 'skip'
@@ -863,7 +873,7 @@ class RecordBuilder {
       defaults: null,
     };
     const skippedOnly = chosen && ['skip', 'todo'].includes(chosen.setting.state) && chosen.setting.condition === null;
-    if (declaration.isOnly && this.options.framework === 'vitest' && !skippedOnly) {
+    if (declaredOnly && this.options.framework === 'vitest' && !skippedOnly) {
       this.forbidOnly(located, pending.site ? null : pending.call, forbidOnly);
     }
     return {

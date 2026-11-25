@@ -251,6 +251,36 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
     expect(inventory.tests.map((test) => test.state)).toEqual(expected);
   });
 
+  it.each([
+    { version: '4.1.12', fromSuite: 'active', fromTag: 'todo', tagFocus: false },
+    { version: '5.1.1', fromSuite: 'skip', fromTag: 'active', tagFocus: true },
+  ])(
+    'resolves focus from tags and inherited options in Vitest $version',
+    async ({ version, fromSuite, fromTag, tagFocus }) => {
+      const inventory = await scanned(
+        "export default {test:{allowOnly:true,tags:[{name:'regular',only:false},{name:'focus',only:true}]}};",
+        {
+          'tests/orders.test.ts': `import {describe,test} from 'vitest';
+        describe('opening auction',{only:true},()=>{
+          test.skip('clears the opening order',{tags:['regular']},()=>{});
+          test.only.skip('posts the opening price',{tags:['regular']},()=>{});
+        });
+        describe('closing auction',{only:false},()=>{
+          test.todo('clears the closing order',{tags:['focus']},()=>{});
+          test('posts the closing price',{tags:['focus']},()=>{});
+        });`,
+        },
+        version,
+      );
+      expect(inventory.tests.map((test) => [test.state, test.isOnly])).toEqual([
+        [fromSuite, true],
+        ['active', true],
+        [fromTag, tagFocus],
+        ['active', tagFocus],
+      ]);
+    },
+  );
+
   it('picks only over skip over todo from all of them, as one declaration does', async () => {
     const inventory = await scanned(TAGS, {
       'tests/orders.test.ts': [

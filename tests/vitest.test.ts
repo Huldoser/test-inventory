@@ -776,6 +776,38 @@ describe('closing auction',{skip:process.env.FEED_CLOSED},()=>{
     ]);
   });
 
+  it.each([
+    { version: '3.2.7', nested: 'skip', cleared: false, child: false },
+    { version: '4.1.12', nested: 'active', cleared: true, child: false },
+    { version: '5.1.1', nested: 'active', cleared: true, child: true },
+  ])(
+    'applies inherited only independently of a suite focus in Vitest $version',
+    ({ version, nested, cleared, child }) => {
+      const inventory = scanVitest(
+        `import {describe,test} from 'vitest';
+describe('margin desk',{only:true},()=>{
+  test.skip('marks the margin',()=>{});
+  test.todo('settles the credit',()=>{});
+  describe.skip('liquidation',()=>{test('recalls shares',()=>{});});
+  describe('auction',{only:false},()=>{test('posts a price',()=>{});});
+});
+describe('rates desk',{only:false},()=>{
+  test.only('prices a swap',()=>{});
+  test.only('records the spread',{skip:true},()=>{});
+});`,
+        { frameworkVersion: version },
+      );
+      expect(inventory.tests.map((t) => [t.title, t.state, t.isOnly])).toEqual([
+        ['marks the margin', 'active', true],
+        ['settles the credit', 'active', true],
+        ['recalls shares', nested, true],
+        ['posts a price', 'active', cleared],
+        ['prices a swap', 'active', child],
+        ['records the spread', child ? 'active' : 'skip', child],
+      ]);
+    },
+  );
+
   it("passes a describe's skip option down to everything inside, where skip goes before todo", () => {
     const inventory = scanVitest(`${VITEST_IMPORT}
 describe('crypto desk', { skip: true }, () => {

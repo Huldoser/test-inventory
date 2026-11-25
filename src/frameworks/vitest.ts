@@ -189,6 +189,7 @@ interface PassedSkip {
 interface SuiteOptions {
   skip: PassedSkip | null;
   todo?: { enabled: boolean; line: number };
+  only?: boolean;
 }
 
 /**
@@ -476,7 +477,7 @@ export class VitestAdapter extends SuiteAdapter {
     const suiteOptionModes = atLeast(this.file.version, 4, 1);
     const readsOwnMode = kind === 'test' || suiteOptionModes;
     for (const [flag, value] of read.flags) {
-      if (!readsOwnMode && flag === 'todo') continue;
+      if (!readsOwnMode && (flag === 'todo' || flag === 'only')) continue;
       if (value) flags.add(flag);
       else if (kind === 'test' && flag !== 'sequential') flags.delete(flag);
     }
@@ -493,7 +494,10 @@ export class VitestAdapter extends SuiteAdapter {
     const passed = read.skip || conditionSetsSkip ? null : around?.skip;
     // Before Vitest 5, test options inherited from a suite override the test's chain; its own options still win.
     const inheritsBeforeChain = !atLeast(this.file.version, 5, 0);
+    const inheritsOnly = around?.only === true && !read.flags.has('only');
+    if (kind === 'describe' && suiteOptionModes && inheritsOnly) flags.add('only');
     if (kind === 'test' && inheritsBeforeChain) {
+      if (around?.only === false && !read.flags.has('only')) flags.delete('only');
       if (passed?.condition.applies === 'never') {
         flags.delete('skip');
         conditions = [];
@@ -549,6 +553,7 @@ export class VitestAdapter extends SuiteAdapter {
       const passesDown: SuiteOptions = {
         skip: own ? { ...own, covered: (around?.skip?.covered ?? false) || skipped() } : null,
         todo: todo === undefined ? around?.todo : { enabled: todo, line },
+        only: read.flags.get('only') ?? around?.only,
       };
       declared = { kind: 'describe', ...base, isShuffled: flags.has('shuffle'), passesDown };
     } else {
@@ -560,10 +565,13 @@ export class VitestAdapter extends SuiteAdapter {
         fixtures: fixturesOf(base.hashed, index, this.file.version),
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
+        statesWhenFocusedBySuite: inheritsOnly ? this.states(new Set([...flags, 'only']), [], false, line) : undefined,
         ownStateOptions: [
           ...(read.skip || conditionSetsSkip || (inheritsBeforeChain && around?.skip) ? ['skip' as const] : []),
           ...STATE_FLAGS.filter(
-            (flag) => read.flags.has(flag) || (inheritsBeforeChain && flag === 'todo' && around?.todo),
+            (flag) =>
+              read.flags.has(flag) ||
+              (inheritsBeforeChain && (flag === 'todo' || flag === 'only') && around?.[flag] !== undefined),
           ),
         ],
       };
