@@ -23,7 +23,7 @@ export function generateSchema(kind: 'inventory' | 'diff' = 'inventory'): string
   const isDiff = kind === 'diff';
   const type = isDiff ? 'InventoryDiff' : 'Inventory';
   const schema = createGenerator({
-    path: path.join(root, 'src', isDiff ? 'diff.ts' : 'types.ts'),
+    path: path.join(root, 'src', 'types.ts'),
     tsconfig: path.join(root, 'tsconfig.json'),
     type,
     schemaId: `https://huldoser.github.io/test-inventory/schema/${isDiff ? 'diff-v1' : 'v1'}.json`,
