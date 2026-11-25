@@ -31,3 +31,4 @@ Follow a collection-time helper that replaces or deletes a slot in an array supp
 Track array methods invoked on helper parameters during collection, including the caller’s references to inserted elements.
 Follow array edits through parameters and receivers captured by returned local functions.
 Keep untouched test titles exact when a returned setter is the only possible function, and retain both possibilities when its factory is uncertain.
+Follow array edits through nested helper calls in execution order, including forwarded callbacks.

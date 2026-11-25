@@ -980,6 +980,30 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + ambiguous + 'night.label;')).toEqual(UNRESOLVED);
   });
 
+  it('carries the array and row through each forwarding helper in execution order', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day],other=[night];function close(row){row.label="closed";}function put(list,row){list[0]=row;}function add(list,row){list.unshift(row);}';
+    for (const route of [
+      'function move(list,row){put(list,row);}move(rows,night);',
+      'function second(list,row){add(list,row);}function first(list,row){second(list,row);}first(other,day);first(rows,night);',
+      'function move(fn,list,row){fn(list,row);}move(add,rows,night);',
+      'function move(list,row){list[0]=day;put(list,row);}move(rows,night);',
+      'function later(list){return row=>put(list,row);}later(rows)(night);',
+    ]) {
+      expect(resolve(setup + route + 'close(rows[0]);night.label;'), route).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'close(rows[0]);day.label;'), route).toEqual({ ok: true, value: 'day' });
+    }
+    const restore = 'function move(list,row){put(list,row);list[0]=day;}move(rows,night);close(rows[0]);';
+    expect(resolve(setup + restore + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
+  it('includes slots moved more than once through identical forwarding calls', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function add(list,row){list.unshift(row);}function twice(list,row){add(list,row);add(list,row);}function close(row){row.label="closed";}';
+    expect(resolve(setup + 'twice(rows,night);close(rows[1]);night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'twice([day],night);close(rows[0]);night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

@@ -226,10 +226,16 @@ export function mutationCalls(
         });
     return choices.flatMap((choice) => reflectSources(choice.source, choice.times, invocationTime, new Set(seen)));
   };
-  const parameterWrites = Map.groupBy(
-    helperEdits.sort((a, b) => a.end - b.end),
-    (write) => write.owner,
-  );
+  const bodyOperations = new Map<Node, (ArrayChange | MutationCallSite)[]>();
+  for (const [owner, entries] of callsByOwner) if (owner !== program) bodyOperations.set(owner, [...entries]);
+  for (const edit of helperEdits) {
+    const entries = bodyOperations.get(edit.owner);
+    if (entries) entries.push(edit);
+    else bodyOperations.set(edit.owner, [edit]);
+  }
+  const endOf = (operation: ArrayChange | MutationCallSite) =>
+    'call' in operation ? operation.call.end : operation.end;
+  for (const entries of bodyOperations.values()) entries.sort((a, b) => endOf(a) - endOf(b));
   const schedules = new Map<Node, { straight: Set<Node>; awaitedAt: number }>();
   const writeSchedule = (body: Node) => {
     let schedule = schedules.get(body);
@@ -252,12 +258,19 @@ export function mutationCalls(
     schedules.set(body, schedule);
     return schedule;
   };
-  const recordArgumentWrites = (frame: HelperInvocation, writes: readonly ArrayChange[], unique: boolean) => {
-    const definite =
-      unique && frame.statement?.type === 'ExpressionStatement' && frame.statement.expression === frame.call;
-    const body = frame.fn.body as Node;
-    const { straight, awaitedAt } = writeSchedule(body);
-    const sources = (expression: Expression, at: readonly Node[]) => {
+  type ArgumentLookup = (
+    expression: Expression,
+    at: readonly Node[],
+  ) => {
+    parameter: boolean;
+    choices: { value: Expression; scopes: readonly Node[] }[];
+  };
+  interface ArrayEdit {
+    array: Expression;
+    change: ArrayChange;
+  }
+  const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
+    return (expression, at) => {
       const source = constantValue(expression, at);
       const name = source.value.type === 'Identifier' ? source.value.name : 'this';
       const declared =
@@ -281,20 +294,67 @@ export function mutationCalls(
           ),
         )
         .filter((param) => !param.ref.path.length)
-        .map((param) => ({ value: param.ref.value, scopes: param.ref.capture?.scopes ?? param.scopes }));
+        .flatMap((param) => {
+          const scopes = param.ref.capture?.scopes ?? param.scopes;
+          return parent ? parent(param.ref.value, scopes).choices : [{ value: param.ref.value, scopes }];
+        });
       return { parameter: true, choices };
     };
-    for (const write of writes) {
+  };
+  const invocationEdits = (
+    frame: HelperInvocation,
+    end: number,
+    definite: boolean,
+    active: Set<Node>,
+    parent?: ArgumentLookup,
+  ): ArrayEdit[] => {
+    const operations = bodyOperations.get(frame.fn);
+    if (!operations || active.has(frame.fn) || frame.fn.generator) return [];
+    active.add(frame.fn);
+    const result = new Set<ArrayEdit>();
+    const children = new Map<string, ArrayEdit[]>();
+    const sources = invocationSources(frame, parent);
+    const { straight, awaitedAt } = writeSchedule(frame.fn.body as Node);
+    for (const operation of operations) {
+      const expression = 'call' in operation ? operation.call : operation.expression;
+      const when = expression.start >= awaitedAt ? (suspensions.find((at) => at >= end) ?? Infinity) : end;
+      const certain = definite && !frame.fn.async && straight.has(expression);
+      if ('call' in operation) {
+        const invocations = visit(operation, frame.context);
+        for (const child of invocations) {
+          const unique = certain && child.complete && invocations.length === 1;
+          // Identical forwarding calls can form a branching graph. Keep each possible source once when an edit repeats.
+          const key = JSON.stringify([
+            child.context.id,
+            when,
+            unique,
+            child.parameters.map((param) => [
+              param.name,
+              param.ref.path,
+              param.ref.rest,
+              param.ref.capture?.call.start,
+              sources(param.ref.value, param.ref.capture?.scopes ?? param.scopes).choices.map(
+                (choice) => choice.value.start,
+              ),
+            ]),
+          ]);
+          let edits = children.get(key);
+          if (!edits) {
+            edits = invocationEdits(child, when, unique, active, sources);
+            children.set(key, edits);
+          }
+          for (const edit of edits) {
+            if (result.delete(edit)) edit.change.unconditional = false;
+            result.add(edit);
+          }
+        }
+        continue;
+      }
+      const write = operation;
       const containers = sources(write.object, write.scopes);
       if (!containers.parameter) continue;
-      // Code after an await can only affect the module after its current synchronous evaluation yields.
-      const end =
-        write.expression.start >= awaitedAt
-          ? (suspensions.find((at) => at >= frame.call.end) ?? Infinity)
-          : frame.call.end;
-      const unconditional =
-        definite && !frame.fn.async && containers.choices.length === 1 && straight.has(write.expression);
-      const timing = { owner: program, end, unconditional };
+      const unconditional = certain && containers.choices.length === 1;
+      const timing = { owner: program, end: when, unconditional };
       const edits: ArrayChange[] = [];
       if ('args' in write) {
         const args = arrayArguments(write.expression, write.scopes, (expr) => sources(expr, write.scopes).choices);
@@ -315,23 +375,35 @@ export function mutationCalls(
       for (const container of containers.choices) {
         const { value: array } = constantValue(container.value, container.scopes);
         if (array.type !== 'ArrayExpression') continue;
-        const assignments = objectWrites.get(array) ?? [];
-        const changes = arrayChanges.get(array) ?? ('args' in write ? [...assignments] : undefined);
-        for (const edit of edits) {
-          changes?.push(edit);
-          if (!('args' in edit)) assignments.push(edit);
-        }
-        if (changes)
-          arrayChanges.set(
-            array,
-            changes.sort((a, b) => a.end - b.end),
-          );
+        for (const change of edits) result.add({ array, change });
+      }
+    }
+    active.delete(frame.fn);
+    return [...result];
+  };
+  const recordArgumentWrites = (invocation: HelperInvocation, unique: boolean) => {
+    const definite =
+      unique &&
+      invocation.statement?.type === 'ExpressionStatement' &&
+      invocation.statement.expression === invocation.call;
+    for (const { array, change } of invocationEdits(invocation, invocation.call.end, definite, new Set())) {
+      const assignments = objectWrites.get(array) ?? [];
+      const changes = arrayChanges.get(array) ?? ('args' in change ? [...assignments] : undefined);
+      if (changes) {
+        changes.push(change);
+        arrayChanges.set(
+          array,
+          changes.sort((a, b) => a.end - b.end),
+        );
+      }
+      if (!('args' in change)) {
+        assignments.push(change);
         objectWrites.set(
           array,
           assignments.sort((a, b) => a.end - b.end),
         );
-        arrayReaders.clear();
       }
+      arrayReaders.clear();
     }
   };
   const returns = new Map<FunctionNode, ReturnType<typeof analyzeReturns>>();
@@ -640,6 +712,7 @@ export function mutationCalls(
       }
       const key = functionKey(helper);
       let invocation = atSite.find((entry) => entry.caller === caller && entry.key === key && entry.mode === mode);
+      const fresh = !invocation;
       if (!invocation) {
         const site = {
           call,
@@ -698,13 +771,12 @@ export function mutationCalls(
           parameters,
           context: contextFor(helper.fn, functions, helper.factory),
         };
-        const writes = parameterWrites.get(helper.fn);
-        if (writes && caller === root && !helper.fn.generator)
-          recordArgumentWrites(invocation, writes, complete && helpers.length === 1);
         atSite.push(invocation);
       }
       found.push(invocation);
       activate(invocation.context, helper.fn.async || helper.fn.generator ? null : time);
+      if (fresh && caller === root && helperEdits.length)
+        recordArgumentWrites(invocation, complete && helpers.length === 1);
     }
     resolving.delete(callSite.call);
     return found;
