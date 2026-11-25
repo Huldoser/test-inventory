@@ -345,6 +345,46 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('binds standalone helper calls in the enclosing suite and stops later registrations when a binding throws', () => {
+    const result = scanJasmine(`
+function request({price}, side = it('loads the side', () => {})) { it('requests a trade', () => {}); }
+function* quotes(side = it('looks up the symbol', () => {})) { it('yields a quote', () => {}); }
+describe('cash desk', () => {
+  quotes('buy'); quotes();
+  try { request(null); it('finishes the request', () => {}); } catch { it('recovers the book', () => {}); }
+  request(...[{price: 10}, 'sell']);
+  it('closes the desk', () => {});
+});`);
+    expect(result.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.fullName)).toEqual([
+      'cash desk > looks up the symbol',
+      'cash desk > recovers the book',
+      'cash desk > requests a trade',
+      'cash desk > closes the desk',
+    ]);
+  });
+
+  it('evaluates standalone call arguments in order and enters only the synchronous body of an invoked function', () => {
+    const result = scanJasmine(`
+function read() { it('opens the feed', () => {}); return 1; }
+function collect(q) { it('collects the book', () => {}); }
+describe('cash desk', () => {
+  collect(read(), () => it('runs a deferred callback', () => {}));
+  (function*(price = it('loads the price', () => {})) { it('yields a price', () => {}); })();
+  (async function({bid}) { it('enters the async body', () => {}); })(null).catch(() => {});
+  try { collect(read(), ...false, it('reads a late quote', () => {})); }
+  catch { it('clears the quote', () => {}); }
+  it('closes the desk', () => {});
+});`);
+    expect(result.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.fullName)).toEqual([
+      'cash desk > opens the feed',
+      'cash desk > collects the book',
+      'cash desk > loads the price',
+      'cash desk > opens the feed',
+      'cash desk > clears the quote',
+      'cash desk > closes the desk',
+    ]);
+  });
+
   it('binds array patterns from string code points and object patterns from boxed properties', () => {
     const result = scanJasmine(`
 function readChars([first = it('loads first character', () => {}), ...[second = it('loads second character', () => {})]]) {

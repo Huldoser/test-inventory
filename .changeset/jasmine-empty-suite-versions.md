@@ -12,3 +12,4 @@ Collect specs declared while evaluating Jasmine runner arguments in call order, 
 Use supplied helper arguments when deciding which parameter defaults register specs.
 Honor synchronous errors from invalid spreads and destructuring in Jasmine declaration arguments.
 Read string elements and boxed properties in helper parameters so registration defaults and generated titles match the runner.
+Apply argument ordering and parameter binding to direct Jasmine helper calls and immediately invoked functions.

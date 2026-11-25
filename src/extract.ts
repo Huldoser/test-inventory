@@ -749,10 +749,17 @@ class Walker {
         if (context.test && !context.quiet) this.expectCall(node, context.test);
         const helper = this.helperCall(node, context);
         if (this.call(node, context) || this.loopCall(node, context)) return;
-        if (helper?.fn === unwrap(node.callee)) {
-          for (const argument of node.arguments) this.visit(argument, context);
-        } else this.visitChildren(node, context);
-        if (helper) this.walkAtCall(helper, node, context);
+        if (!helper) {
+          this.visitChildren(node, context);
+          return;
+        }
+        if (helper.fn !== unwrap(node.callee)) this.visit(node.callee, context);
+        const stopped = this.registrationArguments(node, context);
+        if (stopped) this.walkedAtCall.add(helper.fn);
+        else {
+          if (stopped === null) for (const arg of node.arguments) this.visit(arg, context);
+          this.walkAtCall(helper, node, context, stopped !== null);
+        }
         return;
       }
       case 'IfStatement':
@@ -1088,12 +1095,14 @@ class Walker {
   }
 
   /** Visits the body of a callback the framework or a loop calls, rather than a plain function. */
-  private visitCallback(fn: FunctionNode, context: Context, parametersOnly = false): void {
+  private visitCallback(fn: FunctionNode, context: Context, parameterSteps?: ReadonlyMap<Node, ParameterStep>): void {
     this.scopes.push(fn);
     this.parents.push(fn);
-    for (const parameter of fn.params) this.visit(parameter, context);
+    const bindings = parameterSteps ? { ...context, evaluatingArgument: true, parameterSteps } : context;
+    for (const parameter of fn.params) this.visit(parameter, bindings);
     // Function expressions and arrows always have a body; only declarations of overloads don't.
-    if (!parametersOnly) this.visit(fn.body as Node, context);
+    if (!parameterSteps || (!fn.generator && bindings.registration?.stoppedAt === undefined))
+      this.visit(fn.body as Node, context);
     this.parents.pop();
     this.scopes.pop();
   }
@@ -1238,16 +1247,20 @@ class Walker {
       returnsOf: (name, scopes) => this.returnsOf(name, scopes),
     });
     if (!api) return false;
-    if (context.registration && !context.skipImports && context.registration.stoppedAt === undefined) {
-      const args = {
-        ...context,
-        evaluatingArgument: true,
-        expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
-      };
-      for (const arg of call.arguments) this.visit(arg, args);
-      if (args.registration?.stoppedAt !== undefined) return true;
-    }
+    if (this.registrationArguments(call, context)) return true;
     return this.handle(call, api, context);
+  }
+
+  /** Whether argument evaluation stopped a call during collection, or null outside live Jasmine registration. */
+  private registrationArguments(call: CallExpression, context: Context): boolean | null {
+    if (!context.registration || context.skipImports || context.registration.stoppedAt !== undefined) return null;
+    const args = {
+      ...context,
+      evaluatingArgument: true,
+      expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
+    };
+    for (const arg of call.arguments) this.visit(arg, args);
+    return args.registration?.stoppedAt !== undefined;
   }
 
   private handle(call: CallExpression, api: ApiCall, context: Context): boolean {
@@ -1373,9 +1386,9 @@ class Walker {
     const runsHere = !context.test && !context.hookScope && !context.helper && this.callStack.length < MAX_DEPTH;
     if (
       runsHere &&
-      (this.options.collectImports || context.evaluatingArgument) &&
+      (this.options.collectImports || context.registration) &&
       (callee.type === 'ArrowFunctionExpression' ||
-        (callee.type === 'FunctionExpression' && (!callee.generator || context.evaluatingArgument)))
+        (callee.type === 'FunctionExpression' && (!callee.generator || context.registration)))
     )
       return this.withinLimit({ fn: callee, frame: this.frame }, call);
     if (callee.type === 'MemberExpression') {
@@ -1558,7 +1571,7 @@ class Walker {
    * where it is written, and its parameters bound to the call's arguments so that titles built from them resolve. A
    * function imported from another module is walked in that module, and what it registers points at this call.
    */
-  private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context): void {
+  private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context, registering: boolean): void {
     this.walkedAtCall.add(fn);
     // Arguments are worked out where the call is, in the file and scopes of the caller.
     const args: Resolved[] = [];
@@ -1568,14 +1581,14 @@ class Walker {
         args.push(this.frame.values.resolve(item, this.scopes));
         continue;
       }
-      const list = context.evaluatingArgument && this.frame.values.resolve(item.argument, this.scopes);
+      const list = registering && this.frame.values.resolve(item.argument, this.scopes);
       if (!list || !list.ok || !(Array.isArray(list.value) || typeof list.value === 'string')) {
         complete = false;
         break;
       }
       for (const value of list.value) args.push({ ok: true, value });
     }
-    const parameterSteps = context.evaluatingArgument ? new Map<Node, ParameterStep>() : undefined;
+    const parameterSteps = registering ? new Map<Node, ParameterStep>() : undefined;
     const caller = this.frame;
     const site = this.site;
     if (frame !== caller) {
@@ -1592,19 +1605,18 @@ class Walker {
       () => {
         // Async functions turn throws into rejections. Generator calls bind their arguments and defer their body.
         const registration =
-          context.evaluatingArgument && fn.async && !fn.generator ? { ...context.registration } : context.registration;
+          registering && fn.async && !fn.generator ? { ...context.registration } : context.registration;
         this.visitCallback(
           fn,
           {
             ...context,
             registration,
-            parameterSteps,
             isInFunction: true,
             declaredIn: null,
             calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
             registeredBy: context.registeredBy ?? call,
           },
-          context.evaluatingArgument && fn.generator,
+          parameterSteps,
         );
       },
       complete,
