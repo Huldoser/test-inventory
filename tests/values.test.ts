@@ -968,6 +968,18 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + deferred + 'night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('keeps untouched rows exact when a returned setter is the only possible callee', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function factory(list){return row=>list.unshift(row);}';
+    for (const route of ['factory(rows)(night);', 'const change=factory(rows);change(night);']) {
+      expect(resolve(setup + route + 'close(rows[0]);day.label;'), route).toEqual({ ok: true, value: 'day' });
+      expect(resolve(setup + route + 'close(rows[0]);night.label;'), route).toEqual(UNRESOLVED);
+    }
+    const ambiguous = 'const make=marketOpen?factory:exchangeFactory;make(rows)(night);close(rows[0]);';
+    expect(resolve(setup + ambiguous + 'day.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + ambiguous + 'night.label;')).toEqual(UNRESOLVED);
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

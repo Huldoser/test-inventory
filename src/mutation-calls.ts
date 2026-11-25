@@ -252,13 +252,9 @@ export function mutationCalls(
     schedules.set(body, schedule);
     return schedule;
   };
-  const recordArgumentWrites = (frame: HelperInvocation, writes: readonly ArrayChange[]) => {
-    const callee = unwrapChain(frame.call.callee);
+  const recordArgumentWrites = (frame: HelperInvocation, writes: readonly ArrayChange[], unique: boolean) => {
     const definite =
-      frame.statement?.type === 'ExpressionStatement' &&
-      frame.statement.expression === frame.call &&
-      callee.type === 'Identifier' &&
-      values.functionOf(callee.name, frame.scopes) === frame.fn;
+      unique && frame.statement?.type === 'ExpressionStatement' && frame.statement.expression === frame.call;
     const body = frame.fn.body as Node;
     const { straight, awaitedAt } = writeSchedule(body);
     const sources = (expression: Expression, at: readonly Node[]) => {
@@ -479,7 +475,7 @@ export function mutationCalls(
         const targets: ScopedFunction[] = [];
         let definite = original.definite;
         for (const helper of original.targets) {
-          const options = methodChoices(
+          const { methods: options, complete } = methodChoices(
             helper,
             'bind',
             caller,
@@ -495,7 +491,7 @@ export function mutationCalls(
               targets.push({ ...helper, bound: [...bound, next] });
             }
           }
-          if (options.length !== 1 || options[0] !== null) definite = false;
+          if (!complete || options.length !== 1 || options[0] !== null) definite = false;
         }
         const inherited = { targets, definite };
         if (definite) return inherited;
@@ -525,7 +521,7 @@ export function mutationCalls(
     const choices: CallbackChoice[] = [];
     for (const frame of visit(site, context)) {
       const { candidates, complete } = returnedBy(frame.fn);
-      if (!complete) choices.push(UNKNOWN);
+      if (!complete || !frame.complete) choices.push(UNKNOWN);
       for (const result of candidates) {
         const choice = callable(
           result.expression,
@@ -550,6 +546,7 @@ export function mutationCalls(
     time: number | null,
     seen = new Set<Node>(),
   ) => {
+    let complete = true;
     let possible: (ScopedFunction | null)[] = [null];
     for (const write of methodWrites) {
       if (
@@ -559,27 +556,37 @@ export function mutationCalls(
         continue;
       const owners = callable(write.object, write.scopes, caller, new Set(seen));
       if (!owners.targets.some((owner) => functionKey(owner) === functionKey(helper))) continue;
-      if (write.name === name && write.unconditional && time !== null && owners.definite && owners.targets.length === 1)
+      if (
+        write.name === name &&
+        write.unconditional &&
+        time !== null &&
+        owners.definite &&
+        owners.targets.length === 1
+      ) {
         possible = [];
-      if (write.assigned) possible.push(...callable(write.assigned, write.scopes, caller, new Set(seen)).targets);
-      else possible.push(null);
+        complete = true;
+      }
+      if (write.assigned) {
+        const replacement = callable(write.assigned, write.scopes, caller, new Set(seen));
+        possible.push(...replacement.targets);
+        complete &&= replacement.definite;
+      } else possible.push(null);
     }
-    return possible;
+    return { methods: possible, complete };
   };
-  const targetsFor = (site: MutationCallSite, caller: CallbackContext, time: number | null): Target[] => {
+  const targetsFor = (site: MutationCallSite, caller: CallbackContext, time: number | null) => {
     const { call, scopes } = site;
     const callee = unwrapChain(call.callee);
-    if (callee.type !== 'MemberExpression')
-      return callable(callee, scopes, caller).targets.map((helper) => ({ helper, mode: 'direct' }));
+    const select = (choice: CallbackChoice, mode: InvocationMode, methodOwner?: Expression) => ({
+      targets: choice.targets.map((helper): Target => ({ helper, mode, methodOwner })),
+      complete: choice.definite,
+    });
+    if (callee.type !== 'MemberExpression') return select(callable(callee, scopes, caller), 'direct');
     const name = propertyName(callee);
     const object = unwrapChain(callee.object);
     if (site.accessor) {
       const step = { key: memberKey(callee), accessor: site.accessor, time };
-      return callable(object, scopes, caller, new Set(), undefined, [step]).targets.map((helper) => ({
-        helper,
-        mode: 'own',
-        methodOwner: object,
-      }));
+      return select(callable(object, scopes, caller, new Set(), undefined, [step]), 'own', object);
     }
     if (
       name === 'apply' &&
@@ -593,24 +600,21 @@ export function mutationCalls(
         start: call.start,
         end: call.end,
       };
-      return callable(args, scopes, caller, new Set(), undefined, [{ key: '0', time }]).targets.map((helper) => ({
-        helper,
-        mode: 'reflect',
-      }));
+      return select(callable(args, scopes, caller, new Set(), undefined, [{ key: '0', time }]), 'reflect');
     }
-    const targets: Target[] = callable(callee, scopes, caller).targets.map((helper) => ({
-      helper,
-      mode: 'own',
-      methodOwner: object,
-    }));
-    if (name !== 'call' && name !== 'apply' && name !== 'bind') return targets;
-    for (const helper of callable(site.bindOwner ?? object, scopes, caller).targets) {
-      for (const own of methodChoices(helper, name, caller, time)) {
-        if (own) targets.push({ helper: own, mode: 'own', methodOwner: object });
-        else targets.push({ helper, mode: name });
+    const own = select(callable(callee, scopes, caller), 'own', object);
+    if (name !== 'call' && name !== 'apply' && name !== 'bind') return own;
+    const receivers = callable(site.bindOwner ?? object, scopes, caller);
+    let inheritedComplete = receivers.definite;
+    for (const helper of receivers.targets) {
+      const { methods, complete } = methodChoices(helper, name, caller, time);
+      inheritedComplete &&= complete;
+      for (const method of methods) {
+        if (method) own.targets.push({ helper: method, mode: 'own', methodOwner: object });
+        else own.targets.push({ helper, mode: name });
       }
     }
-    return targets;
+    return { targets: own.targets, complete: own.complete || inheritedComplete };
   };
   const resolving = new Set<CallExpression>();
   const visit = (callSite: MutationCallSite, caller: CallbackContext): HelperInvocation[] => {
@@ -619,7 +623,7 @@ export function mutationCalls(
     const found: HelperInvocation[] = [];
     const { call, scopes, statement, runsLater } = callSite;
     const time = statement ? call.start : (times.get(caller) ?? null);
-    const helpers = targetsFor(callSite, caller, time);
+    const { targets: helpers, complete } = targetsFor(callSite, caller, time);
     if (!helpers.length && !runsLater) {
       for (const arg of call.arguments) {
         if (arg.type === 'SpreadElement') continue;
@@ -689,12 +693,14 @@ export function mutationCalls(
         invocation = {
           ...site,
           id: nextInvocation++,
+          complete,
           caller,
           parameters,
           context: contextFor(helper.fn, functions, helper.factory),
         };
         const writes = parameterWrites.get(helper.fn);
-        if (writes && caller === root && !helper.fn.generator) recordArgumentWrites(invocation, writes);
+        if (writes && caller === root && !helper.fn.generator)
+          recordArgumentWrites(invocation, writes, complete && helpers.length === 1);
         atSite.push(invocation);
       }
       found.push(invocation);

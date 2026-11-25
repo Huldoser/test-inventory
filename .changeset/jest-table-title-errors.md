@@ -30,3 +30,4 @@ Use the array element selected when an argument is evaluated, including argument
 Follow a collection-time helper that replaces or deletes a slot in an array supplied by its caller.
 Track array methods invoked on helper parameters during collection, including the caller’s references to inserted elements.
 Follow array edits through parameters and receivers captured by returned local functions.
+Keep untouched test titles exact when a returned setter is the only possible function, and retain both possibilities when its factory is uncertain.

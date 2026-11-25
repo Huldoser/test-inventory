@@ -66,6 +66,8 @@ export interface ParameterSource extends Site {
   fromDefault: boolean;
 }
 export interface HelperInvocation extends HelperSite {
+  /** Every possible callee at this site is known in the calling context. */
+  complete: boolean;
   id: number;
   key: string;
   caller: CallbackContext;
