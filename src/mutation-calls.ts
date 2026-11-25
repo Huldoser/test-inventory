@@ -121,24 +121,41 @@ export function mutationCalls(
         (write.owner !== program || time === null || write.end <= time),
     );
 
-  // A named Reflect.apply array supplies its receiver and arguments at the call, after any indexed assignments.
-  const reflectSources = (source: ParameterSource, time: number | null, seen = new Set<Node>()): ParameterSource[] => {
+  // A spread reads its source immediately. An object contained in the copied slot is still shared.
+  const spreadTime = (value: Expression, scopes: readonly Node[], invocationTime: number | null) =>
+    scopes.some((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope))
+      ? invocationTime
+      : value.start;
+
+  const reflectSources = (
+    source: ParameterSource,
+    readTimes: readonly (number | null)[],
+    invocationTime: number | null,
+    seen = new Set<Node>(),
+  ): ParameterSource[] => {
     const { ref } = source;
     if (!ref.path.length || ref.capture) return [source];
     const { value, scopes } = constantValue(ref.value, source.scopes);
     if (value.type !== 'ArrayExpression' || seen.has(value)) return [source];
     seen.add(value);
     const [key, ...suffix] = ref.path;
-    const choices: ParameterSource[] = [];
+    const [time, ...later] = readTimes;
+    const choices: { source: ParameterSource; times: (number | null)[] }[] = [];
     for (const child of property({ value, path: [] }, key))
       if (child)
-        choices.push({ ...source, scopes, ref: { ...ref, value: child.value, path: [...child.path, ...suffix] } });
+        choices.push({
+          source: { ...source, scopes, ref: { ...ref, value: child.value, path: [...child.path, ...suffix] } },
+          times: [...child.path.map(() => spreadTime(child.value, scopes, invocationTime)), ...later],
+        });
     for (const write of writesAt(value, key, time)) {
       if (write.unconditional && time !== null && key !== null && key === write.name) choices.length = 0;
       if (write.assigned)
-        choices.push({ ...source, scopes: write.scopes, ref: { ...ref, value: write.assigned, path: suffix } });
+        choices.push({
+          source: { ...source, scopes: write.scopes, ref: { ...ref, value: write.assigned, path: suffix } },
+          times: later,
+        });
     }
-    return choices.flatMap((choice) => reflectSources(choice, time, new Set(seen)));
+    return choices.flatMap((choice) => reflectSources(choice.source, choice.times, invocationTime, new Set(seen)));
   };
   const returns = new Map<FunctionNode, ReturnType<typeof analyzeReturns>>();
   const returnedBy = (fn: FunctionNode) => {
@@ -259,7 +276,11 @@ export function mutationCalls(
         }
         const selected = ref && (ref.path.length || ref.accessor === step.accessor ? ref.value : ref.counterpart);
         if (ref && selected) {
-          const projection = ref.path.map((key) => ({ ...step, key }));
+          const projection = ref.path.map((key) => ({
+            ...step,
+            key,
+            time: spreadTime(ref.value, scopes, frame?.statement ? frame.call.start : step.time),
+          }));
           choices.push(callable(selected, scopes, context, new Set(seen), frame, [...projection, ...rest]));
         } else choices.push(UNKNOWN);
       }
@@ -465,7 +486,16 @@ export function mutationCalls(
             DEFINED.has(constantValue(expr, at).value.type) || callable(expr, at, capture?.caller ?? caller).definite
           );
         });
-        const parameters = mode === 'reflect' ? supplied.flatMap((source) => reflectSources(source, time)) : supplied;
+        const parameters =
+          mode === 'reflect'
+            ? supplied.flatMap((source) =>
+                reflectSources(
+                  source,
+                  source.ref.path.map(() => time),
+                  time,
+                ),
+              )
+            : supplied;
         const choices = new Map<string, CallbackChoice[]>();
         for (const param of parameters) {
           const choice =

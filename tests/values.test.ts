@@ -700,6 +700,22 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + conditional + 'night.label;')).toEqual(UNRESOLVED);
   });
 
+  it('uses values captured by array spread while preserving shared nested argument arrays', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'const items=[close,null,[night]],copy=[...items];items[0]=read;Reflect.apply(...copy);',
+      'const rows=[night],items=[close,null,[...rows]];rows[0]=day;Reflect.apply(...items);',
+      'const rows=[day],items=[close,null,rows],copy=[...items];rows[0]=night;Reflect.apply(...copy);',
+      'const items=[read,null,[night]];items[0]=close;const copy=[...items];items[0]=read;Reflect.apply(...copy);',
+      'const items=[close,null,[night]];function copy(){return [...items];}const saved=copy();items[0]=read;Reflect.apply(...saved);',
+      'const rows=[day];function dispatch(){const copied=[...rows];Reflect.apply(close,null,copied);}rows[0]=night;dispatch();',
+    ]) {
+      expect(resolve(setup + route + 'night.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    }
+  });
+
   it('tracks the arguments captured by the bound function that actually runs', () => {
     const setup = 'const day={label:"day"},night={label:"night"};function close(row){row.label="closing";}';
     for (const route of [

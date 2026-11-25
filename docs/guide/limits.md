@@ -89,7 +89,7 @@ the reassignment still points to the earlier desk. A helper can also change a ti
 passed as an argument, including through a destructured parameter, a forwarded argument, or a reference
 returned by a synchronous local helper. Nested calls can pass the same object back through several returns.
 A local helper invoked with `call`, `apply`, or the global `Reflect.apply` can change its arguments or its explicit
-`this` receiver. An arrow function keeps its enclosing receiver. The target, receiver and arguments of `Reflect.apply` can come from a spread array literal or a local constant that holds the array. The scan follows indexed assignments to those arrays before the call.
+`this` receiver. An arrow function keeps its enclosing receiver. The target, receiver and arguments of `Reflect.apply` can come from a spread array literal or a local constant that holds the array. The scan follows indexed assignments to those arrays before the call. Array spread copies the slots at the time the spread runs. Nested arrays in those slots keep their original identity.
 A bound local function keeps its first receiver and prepends the arguments supplied to `bind` when it runs.
 When a local helper returns a function, a collection-time call to that function uses the bindings from the helper invocation that created it. The scan also follows local methods selected by property name, array index, or constant destructuring. Reading a local getter or assigning to a local setter can change the object used for a title.
 Calls through a local constant such as `const publish = register` use the original helper and its declaration scope.
