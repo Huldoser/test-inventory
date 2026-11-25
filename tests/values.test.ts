@@ -1050,6 +1050,25 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(setup + setter + restore + 'night.label;')).toEqual({ ok: true, value: 'night' });
   });
 
+  it('pairs a callback read from a supplied container with the row from the same call', () => {
+    const setup =
+      'const day={label:"day"},night={label:"night"};function close(row){row.label="closed";}function read(row){return row.label;}';
+    for (const route of [
+      'function run(list,row){list[0](row);}run([read],day);run([close],night);',
+      'function run(book,row){book.update(row);}run({update:read},day);run({update:close},night);',
+      'function run(list,row){list[0](row);}function route(list,row){run(list,row);}route([close],night);',
+      'function make(book){return row=>book.update(row);}make({update:close})(night);',
+      'function run(row){this.update(row);}run.call({update:close},night);',
+      'const handlers=[read];function run(list,row){list[0](row);}run(handlers,day);handlers[0]=close;run(handlers,night);',
+      'function run(list,row){list[0]=close;list[0](row);}run([read],night);',
+    ]) {
+      expect(resolve(setup + route + 'night.label;'), route).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'day.label;'), route).toEqual({ ok: true, value: 'day' });
+    }
+    const restore = 'function run(list,row){list[0]=read;list[0](row);}run([close],night);';
+    expect(resolve(setup + restore + 'night.label;')).toEqual({ ok: true, value: 'night' });
+  });
+
   it('reads a returned array element at the invocation that supplied the changed object', () => {
     const setup =
       'const day={label:"day"},night={label:"night"},rows=[day];function close(row){row.label="closed";}function select(){return rows[0];}function forward(){return select();}';

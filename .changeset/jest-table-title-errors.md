@@ -34,3 +34,4 @@ Keep untouched test titles exact when a returned setter is the only possible fun
 Follow array edits through nested helper calls in execution order, including forwarded callbacks.
 Resolve reads inside a helper against writes already made during the same invocation.
 Follow methods installed on a local object by an earlier helper call.
+Follow callbacks selected from a module-level object or array passed to a local helper, including when separate calls supply different containers.

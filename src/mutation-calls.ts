@@ -53,7 +53,7 @@ interface MemberStep {
   read?: { site: MutationCallSite; context: CallbackContext };
   key: string | null;
   accessor?: 'get' | 'set';
-  time: number | null;
+  time: ArrayReadTime;
 }
 
 interface Target {
@@ -192,14 +192,14 @@ export function mutationCalls(
     return sources;
   };
   // A spread reads its source immediately. An object contained in the copied slot is still shared.
-  const spreadTime = (value: Expression, scopes: readonly Node[], invocationTime: number | null) =>
+  const spreadTime = (value: Expression, scopes: readonly Node[], invocationTime: ArrayReadTime) =>
     scopes.some((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope))
       ? invocationTime
       : value.start;
 
   const reflectSources = (
     source: ParameterSource,
-    readTimes: readonly (number | null)[],
+    readTimes: readonly ArrayReadTime[],
     invocationTime: number | null,
     seen = new Set<Node>(),
   ): ParameterSource[] => {
@@ -219,7 +219,7 @@ export function mutationCalls(
     seen.add(value);
     const [key, ...suffix] = path;
     const [time, ...later] = readTimes;
-    const choices: { source: ParameterSource; times: (number | null)[] }[] = [];
+    const choices: { source: ParameterSource; times: ArrayReadTime[] }[] = [];
     for (const { ref: child, scopes: at } of memberSources(value, scopes, key, time))
       if (child)
         choices.push({
@@ -279,6 +279,7 @@ export function mutationCalls(
   }
   type Step = ContainerEdit | Boundary;
   const readTimes = new HelperReadTimes();
+  let pendingWrites = new Set<Expression>();
   const invocationSources = (frame: HelperInvocation, parent?: ArgumentLookup): ArgumentLookup => {
     return (expression, at) => {
       const source = constantValue(expression, at);
@@ -390,7 +391,10 @@ export function mutationCalls(
       for (const container of containers.choices) {
         const { value } = constantValue(container.value, container.scopes);
         if (value.type !== 'ArrayExpression' && (value.type !== 'ObjectExpression' || 'args' in write)) continue;
-        for (const change of edits) result.add({ container: value, change });
+        for (const change of edits) {
+          pendingWrites.add(value);
+          result.add({ container: value, change });
+        }
       }
       result.add({ owner: frame.fn, position: expression.end, end: when });
     }
@@ -402,7 +406,10 @@ export function mutationCalls(
       unique &&
       invocation.statement?.type === 'ExpressionStatement' &&
       invocation.statement.expression === invocation.call;
+    const previous = pendingWrites;
+    pendingWrites = new Set();
     const trace = invocationEdits(invocation, invocation.call.end, definite, new Set());
+    pendingWrites = previous;
     if (!trace.some((step) => 'change' in step)) return;
     let index = 0;
     for (const step of trace) {
@@ -438,10 +445,14 @@ export function mutationCalls(
   const returnedFns = new Set<Node>();
   let nextContext = 0;
   let nextInvocation = 0;
+  type Container = ReturnType<typeof constantValue>;
+  const containers = new Map<CallbackContext, Map<string, Container>>();
   const contextFor = (
     owner: Node,
     functions: Map<string, CallbackChoice>,
     factory?: HelperInvocation,
+    inputs?: Map<string, Container>,
+    time?: number | null,
   ): CallbackContext => {
     let groups = contexts.get(owner);
     if (!groups) {
@@ -450,6 +461,7 @@ export function mutationCalls(
     }
     const signature = JSON.stringify([
       factory?.id,
+      inputs?.size ? [time, ...[...inputs].map(([name, source]) => [name, source.value.start])] : null,
       ...[...functions].map(([name, choice]) => [name, choice.definite, choice.targets.map(functionKey)]),
     ]);
     let context = groups.get(signature);
@@ -473,6 +485,7 @@ export function mutationCalls(
           }
         }
       context = { owner, functions, id: nextContext++, ancestors, factory, factories };
+      if (inputs?.size) containers.set(context, inputs);
       groups.set(signature, context);
     }
     return context;
@@ -484,6 +497,23 @@ export function mutationCalls(
     pending.push(context);
   };
   const root = contextFor(program, new Map());
+  const containerFor = (expr: Expression, scopes: readonly Node[], context: CallbackContext): Container | undefined => {
+    const source = constantValue(expr, scopes);
+    const { value } = source;
+    if (value.type === 'ObjectExpression' || value.type === 'ArrayExpression') {
+      if (!source.scopes.some((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope))) return source;
+    } else if (value.type === 'Identifier' || value.type === 'ThisExpression') {
+      const name = value.type === 'Identifier' ? value.name : 'this';
+      const declared =
+        value.type === 'Identifier'
+          ? values.declarationOf(name, source.scopes)
+          : source.scopes.findLast(
+              (scope) => scope.type === 'FunctionExpression' || scope.type === 'FunctionDeclaration',
+            );
+      const binding = declared === context.owner ? context : declared && enclosingFactory(context, declared)?.context;
+      if (binding) return containers.get(binding)?.get(name);
+    }
+  };
   const callable = (
     expression: Expression,
     scopes: readonly Node[],
@@ -493,6 +523,14 @@ export function mutationCalls(
     path: readonly MemberStep[] = [],
   ): CallbackChoice => {
     let value = unwrapChain(expression);
+    if (path.length && (value.type === 'Identifier' || value.type === 'ThisExpression')) {
+      const input = containerFor(value, scopes, context);
+      if (input) {
+        // A second walk reads the completed history after earlier writes in this invocation have been recorded.
+        if (pendingWrites.has(input.value)) return UNKNOWN;
+        return callable(input.value, input.scopes, root, seen, frame, path);
+      }
+    }
     while (value.type === 'Identifier') {
       const constant = values.constantOf(value.name, scopes);
       if (!constant) {
@@ -528,7 +566,8 @@ export function mutationCalls(
     }
     if (value.type === 'MemberExpression' && !seen.has(value)) {
       seen.add(value);
-      const time = context.owner === program ? value.start : (times.get(context) ?? null);
+      const time =
+        context.owner === program ? value.start : readTimes.at(context.owner, value.start, times.get(context) ?? null);
       const site = getterSites.get(value);
       const step = { key: memberKey(value), time, read: site && { site, context } };
       return callable(value.object, scopes, context, seen, frame, [step, ...path]);
@@ -761,7 +800,7 @@ export function mutationCalls(
                 ),
               )
             : supplied;
-        const choices = new Map<string, CallbackChoice[]>();
+        const choices = new Map<string, { source: ParameterSource; options: CallbackChoice[] }>();
         for (const param of parameters) {
           const choice =
             param.ref.path.length || param.ref.rest !== undefined
@@ -775,13 +814,29 @@ export function mutationCalls(
           const direct = param.fromDefault || (param.ref.capture?.call ?? call).arguments.includes(param.ref.value);
           const possible = { targets: choice.targets, definite: direct && choice.definite };
           const previous = choices.get(param.name);
-          if (previous) previous.push(possible);
-          else choices.set(param.name, [possible]);
+          if (previous) previous.options.push(possible);
+          else choices.set(param.name, { source: param, options: [possible] });
         }
         const functions = new Map<string, CallbackChoice>();
-        for (const [name, options] of choices) {
+        const inputs = new Map<string, Container>();
+        const body = helper.fn.body as Node;
+        for (const [name, { source, options }] of choices) {
           const choice = alternatives(options);
           if (choice.targets.length) functions.set(name, choice);
+          if (
+            options.length === 1 &&
+            source.ref.path.length === 0 &&
+            source.ref.rest === undefined &&
+            !values.assignedIn(body, false).has(name) &&
+            !values.assignedIn(body).has('arguments')
+          ) {
+            const input = containerFor(
+              source.ref.value,
+              source.ref.capture?.scopes ?? source.scopes,
+              source.ref.capture?.caller ?? caller,
+            );
+            if (input) inputs.set(name, input);
+          }
         }
         invocation = {
           ...site,
@@ -789,7 +844,7 @@ export function mutationCalls(
           complete,
           caller,
           parameters,
-          context: contextFor(helper.fn, functions, helper.factory),
+          context: contextFor(helper.fn, functions, helper.factory, inputs, time),
         };
         atSite.push(invocation);
       }
