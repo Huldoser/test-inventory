@@ -101,6 +101,11 @@ Flow annotations cannot be parsed, even if Babel would compile them before Jest 
 When a local preset is missing, Jest cannot start. Config-based discovery then returns no test files; explicit
 globs retain the declarations with empty `projects` and a `file-not-run` diagnostic.
 
+When Jest cannot format a row title, `test.each` registers one test with the title as written.
+Its original callback and timeout are unused. With `describe.each` the same error prevents the whole file from loading.
+For example, on Jest 29 a title containing `$desk.name` fails to format if a row sets `desk` to `null`.
+Jest 30 renders that value as `null`.
+
 ## Supported syntax
 
 <!--@include: ../reference/syntax.md#syntax-jest-->

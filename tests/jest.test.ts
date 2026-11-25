@@ -389,6 +389,65 @@ jest.retryTimes(...counts);
 });
 
 describe('Jest tables', () => {
+  it('counts the fallback test when Jest cannot interpolate a row and keeps its unused body out of the inventory', () => {
+    const code = `
+const desks = [{desk:{name:'paper'}},{desk:null},{desk:{name:'live'}}];
+function settle() { expect('filled').toBe('filled'); }
+test.each(desks)('settles at $desk.name', settle, 500);
+test('closes the book', () => {});
+`;
+    for (const expandCases of [false, true]) {
+      const result = scanJest(code, { expandCases, frameworkVersion: '29.7.0' });
+      expect(result.tests).toHaveLength(2);
+      expect(result.tests[0]).toMatchObject({
+        title: 'settles at $desk.name',
+        state: 'active',
+        isParameterized: true,
+        caseCount: 1,
+        caseIndex: null,
+        expectCount: 0,
+        timeout: null,
+        bodyHash: null,
+      });
+      expect(result.tests[1].state).toBe('active');
+    }
+    expect(scanJest(code, { expandCases: true, frameworkVersion: '30.5.2' }).tests.map((t) => t.title)).toEqual([
+      'settles at paper',
+      'settles at null',
+      'settles at live',
+      'closes the book',
+    ]);
+  });
+
+  it('marks the file as not loaded when Jest cannot interpolate a tagged describe row', () => {
+    const code = `
+test('opens the book', () => {});
+describe.skip.each\`
+  desk | venue
+  \${{name:'paper'}} | \${'simulated'}
+  \${undefined} | \${'live'}
+\`('routes to $desk.name', () => { test('settles the order', () => {}); });
+test('closes the book', () => {});
+`;
+    for (const expandCases of [false, true]) {
+      const result = scanJest(code, { expandCases, frameworkVersion: '29.7.0' });
+      expect(result.tests.map((t) => [t.title, t.state])).toEqual([
+        ['opens the book', 'notLoaded'],
+        ['settles the order', 'notLoaded'],
+        ['closes the book', 'notLoaded'],
+      ]);
+      expect(codes(result)).toContain('describe-throws');
+    }
+    expect(
+      scanJest(code, { expandCases: true, frameworkVersion: '30.5.2' }).tests.map((t) => [t.fullName, t.state]),
+    ).toEqual([
+      ['opens the book', 'active'],
+      ['routes to paper > settles the order', 'skip'],
+      ['routes to undefined > settles the order', 'skip'],
+      ['closes the book', 'active'],
+    ]);
+  });
+
   it("counts the cases of arrays and tagged templates, and Jest's one failing test for a bad table", () => {
     const inventory = scanJest(`
 test.each([[1, 2], [3, 4]])('nets %i and %i', () => {});

@@ -188,6 +188,9 @@ export class JestAdapter extends SuiteAdapter {
     const fn = isFunctionNode(body) ? body : null;
     const callback = fn ?? namedFunction(this.file, context.scopes, body);
     const table = links.find((link) => link.name === 'each') ?? null;
+    const cases = table ? this.tableCases(table, title, context) : null;
+    const titleFailed = cases === 'invalid-title';
+    const fallbackTest = titleFailed && kind === 'test';
     const line = this.file.source.line(call.start);
     const declared = (given: FunctionNode | null = fn): ApiCall => {
       const base = {
@@ -196,15 +199,24 @@ export class JestAdapter extends SuiteAdapter {
         isOnly: flags.has('only'),
         mode: flags.has('concurrent') && !flags.has('skip') ? ('parallel' as const) : null,
         details: { tags: [], annotations: [], locks: [], meta: null, run: {} },
-        fn: given,
-        hashed: given ?? callback ?? wrappedFunction(body),
+        fn: fallbackTest ? null : given,
+        hashed: fallbackTest ? null : (given ?? callback ?? wrappedFunction(body)),
         isParameterized: table !== null,
-        caseCount: table ? this.caseCount(table, context, problems) : null,
-        cases: table ? this.tableCases(table, title, context) : null,
+        caseCount: titleFailed ? 1 : table ? this.caseCount(table, context, problems) : null,
+        cases: titleFailed
+          ? [
+              {
+                title: {
+                  reason: 'Jest cannot format a case title and registers a single declaration with the original title',
+                },
+                args: [],
+              },
+            ]
+          : cases,
         problems,
       };
       // With the function given third, after an argument that isn't one, there is no timeout to read.
-      const timeout = spread || kind === 'describe' || given !== fn ? undefined : args.at(2);
+      const timeout = spread || kind === 'describe' || fallbackTest || given !== fn ? undefined : args.at(2);
       if (timeout && timeout.type !== 'SpreadElement') {
         const option = { node: timeout, resolved: this.file.values.resolve(timeout, context.scopes) };
         const value = readCount(this.file, 'timeout', option, problems);
@@ -249,6 +261,15 @@ export class JestAdapter extends SuiteAdapter {
         callee,
       );
       return refused(call, refusal, context, () => declared(findFunction(args, 2)));
+    }
+    if (kind === 'describe' && titleFailed) {
+      const refusal = problem(
+        'describe-throws',
+        call,
+        `${head}() cannot format a case title, so its describe throws and Jest fails the file.`,
+        head,
+      );
+      return refused(call, refusal, context, declared);
     }
     if (kind === 'describe' && table && this.isInvalidTable(table, context)) {
       const refusal = problem(
@@ -337,18 +358,26 @@ export class JestAdapter extends SuiteAdapter {
    * into the callback's arguments when every case is one; otherwise each case is passed whole. A tagged template gives
    * one object per row, keyed by the names in its first line.
    */
-  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | null {
+  private tableCases(table: Link, title: Title, context: CallContext): TableCase[] | 'invalid-title' | null {
     const version = this.file.version;
+    const keyedCases = (items: Record<string, Value>[], tagged: boolean): TableCase[] | 'invalid-title' => {
+      const rows = items.map((item, index) => ({
+        title: title.isDynamic ? null : jestKeysTitle(title.text, item, index, version, tagged),
+        args: [item],
+      }));
+      // jest-each formats every row before registering the first. One interpolation error rejects the whole table.
+      return !title.isDynamic && rows.some((row) => row.title === null) ? 'invalid-title' : rows;
+    };
     if (table.template) {
       const headings = templateHeadings(table.template);
       const resolved = table.template.expressions.map((item) => this.file.values.resolve(item, context.scopes));
       const rows = headings && resolved.length / headings.length;
       if (!headings || !rows || !Number.isInteger(rows) || !resolved.every((item) => item.ok)) return null;
       const values = resolved.map((item) => (item as { value: Value }).value);
-      return Array.from({ length: rows }, (_, row) => {
-        const item = Object.fromEntries(headings.map((name, column) => [name, values[row * headings.length + column]]));
-        return { title: title.isDynamic ? null : jestKeysTitle(title.text, item, row, version, true), args: [item] };
-      });
+      const items = Array.from({ length: rows }, (_, row) =>
+        Object.fromEntries(headings.map((name, column) => [name, values[row * headings.length + column]])),
+      );
+      return keyedCases(items, true);
     }
     const first = (table.args as Argument[]).at(0);
     const resolved = first && first.type !== 'SpreadElement' ? this.file.values.resolve(first, context.scopes) : null;
@@ -359,15 +388,10 @@ export class JestAdapter extends SuiteAdapter {
       !arraysOnly &&
       !/%[#Odfijops]/.test(title.text.replaceAll('%%', '')) &&
       cases.every((item) => item !== null && typeof item === 'object');
+    if (byKeys) return keyedCases(cases as Record<string, Value>[], false);
     return cases.map((item, index) => {
       const row = arraysOnly ? (item as Value[]) : [item];
-      let caseTitle: string | null = null;
-      if (!title.isDynamic) {
-        caseTitle = byKeys
-          ? jestKeysTitle(title.text, item as Record<string, Value>, index, version, false)
-          : jestRowTitle(title.text, row, index, version);
-      }
-      return { title: caseTitle, args: row };
+      return { title: title.isDynamic ? null : jestRowTitle(title.text, row, index, version), args: row };
     });
   }
 }
