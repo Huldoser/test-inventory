@@ -185,7 +185,7 @@ describe('reports', () => {
     expect(inventory.diagnostics).toEqual([]);
   });
 
-  it('reads it() as a pending spec titled empty, undefined as no function, and nothing from spread arguments', () => {
+  it('reads pending Jasmine specs and the timeout following a spread callback', () => {
     const inventory = scanJasmine(`
 const CASES = [['sums the vega', () => {}, 5000]];
 describe('greeks', () => {
@@ -199,7 +199,7 @@ describe('greeks', () => {
       ['', 'skip', null],
       ['sums the theta', 'skip', null],
       ['...CASES[0]', 'active', null],
-      ['sums the rho', 'active', null],
+      ['sums the rho', 'active', 5000],
     ]);
   });
 
@@ -464,6 +464,79 @@ catch { it('recovers the hook', () => {}); }`);
     expect(testNamed(thrown, 'continues registration').state).toBe('notLoaded');
     expect(testNamed(thrown, 'prices a quote').state).toBe('active');
     expect(testNamed(thrown, 'recovers the hook').hooks.beforeEach).toBe(0);
+  });
+
+  it('stops when Jasmine rejects a spec callback or timeout after evaluating its arguments', () => {
+    for (const api of ['it', 'xit', 'fit']) {
+      for (const args of [
+        "'quotes the fill', prices",
+        "'quotes the fill', async function* quotes() {}",
+        "'quotes the fill', count",
+        "'quotes the fill', ready, [2147483648]",
+        "...['quotes the fill', ready, 2147483648]",
+        "'quotes the fill', it('records a bid', ready)",
+        "'quotes the fill', ready, '2147483648', it('records a bid', ready)",
+      ]) {
+        const scan = scanJasmine(`const count = 42; const ready = () => {}; function* prices() {}
+try { ${api}(${args}); it('continues registration', ready); }
+catch { it('recovers the fill', ready); }`);
+        expect(testNamed(scan, 'continues registration').state, api + args).toBe('notLoaded');
+        expect(testNamed(scan, 'recovers the fill').state).toBe('active');
+        if (args.includes('records a bid')) expect(testNamed(scan, 'records a bid').state).toBe('active');
+      }
+    }
+  });
+
+  it('resolves omitted, undefined and shadowed callbacks before applying the Jasmine spec timeout', () => {
+    for (const [api, args, version, pending] of [
+      ['it', "'quotes the fill', absent, 2147483648", '3.9.0', true],
+      ['it', "'quotes the fill', absent, 2147483648", '3.10.0', null],
+      ['xit', "...['quotes the fill',, 2147483648]", '7.0.2', null],
+      ['fit', "'quotes the fill', absent", '7.0.2', null],
+      ['it', "'quotes the fill', absent", '7.0.2', true],
+      ['it', "'quotes the fill', undefined", '7.0.2', false],
+      ['fit', "'quotes the fill', undefined", '7.0.2', false],
+      ['it', '...fields', '7.0.2', false],
+    ] as const) {
+      const scan = scanJasmine(
+        `
+const absent = void 0;
+{ const undefined = () => {}; const fields = ['quotes the fill', undefined, 25];
+try { ${api}(${args}); it('continues registration', undefined); }
+catch { it('recovers the fill', undefined); } }`,
+        { frameworkVersion: version },
+      );
+      expect(testNamed(scan, 'continues registration').state, api + args + version).toBe(
+        pending === null ? 'notLoaded' : 'active',
+      );
+      expect(
+        scan.tests.some((t) => t.title === 'recovers the fill'),
+        args,
+      ).toBe(pending === null);
+      if (pending !== null) expect(testNamed(scan, 'quotes the fill').state).toBe(pending ? 'skip' : 'active');
+      if (args === '...fields') expect(testNamed(scan, 'quotes the fill').timeout).toBe(25);
+    }
+  });
+
+  it('evaluates a void spec callback operand and leaves a catch reachable for custom timeout coercion', () => {
+    const scan = scanJasmine(`try { it('quotes the fill', void it('records a bid', () => {})); }
+catch { it('recovers the fill', () => {}); }`);
+    expect(testNamed(scan, 'records a bid').state).toBe('active');
+    expect(testNamed(scan, 'quotes the fill').state).toBe('skip');
+    expect(scan.tests.some((test) => test.title === 'recovers the fill')).toBe(false);
+    const ambiguous = scanJasmine(`try { it('quotes the fill', () => {}, [{ toString: 0, valueOf: 0 }]); }
+catch { it('recovers the fill', () => {}); }`);
+    expect(testNamed(ambiguous, 'recovers the fill').state).toBe('active');
+    expect(ambiguous.diagnostics.some((d) => d.level === 'error')).toBe(false);
+  });
+
+  it('checks the actual binding when a Jasmine suite callback is named undefined', () => {
+    const accepted = scanJasmine(
+      `{ const undefined = () => it('quotes a bid', () => {}); describe('cash desk', undefined); }`,
+    );
+    expect(onlyTest(accepted).fullName).toBe('cash desk > quotes a bid');
+    const refused = scanJasmine("describe('cash desk', undefined); it('quotes a bid', () => {});");
+    expect(onlyTest(refused).state).toBe('notLoaded');
   });
 
   it('checks the parameters and body of each ordinary Jasmine helper call before collecting its catch', () => {
@@ -1302,6 +1375,7 @@ finally { it('closes the ledger', () => {}); }`,
       'function check() {} beforeEach(check, 1000); afterEach(() => {});',
       "beforeEach(() => {}, 'slow');",
       'beforeEach(() => {}, 10, 20);',
+      "it('quotes', () => {}, 1, 2);",
       "function register() { return it('prices a fill', () => {}); } register([1]);",
       "const register = () => it('prices a fill', () => {}); register();",
       'function register() { return; } register();',
@@ -1346,7 +1420,6 @@ finally { it('closes the ledger', () => {}); }`,
       'beforeEach(function* quotes() {});',
       "it('quotes', function* ticks() {});",
       "it('quotes', () => {}, 2147483648);",
-      "it('quotes', () => {}, 1, 2);",
       "describe('quotes', () => { externalFeed(); });",
       "describe('quotes', getCallback());",
       "try { throw Error('closed'); } catch ({ message }) { it('reports the outage'); }",

@@ -18,7 +18,14 @@ import {
   wrappedFunction,
 } from './common.ts';
 import { SuiteAdapter, type Dialect, type Kind } from './test-functions.ts';
-import { functionLength, isRuntimeFunction, jasmineHook, registrationExit } from './jasmine-registration.ts';
+import {
+  functionLength,
+  isRuntimeFunction,
+  jasmineArguments,
+  jasmineRegistration,
+  registrationExit,
+  type JasmineArgument,
+} from './jasmine-registration.ts';
 
 const HOOKS = ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
@@ -84,7 +91,8 @@ export class JasmineAdapter extends SuiteAdapter {
   }
 
   protected hook(call: CallExpression, name: keyof HookCounts, context: CallContext): ApiCall {
-    const { status, fn } = jasmineHook(call.arguments, context.scopes, this.file);
+    const [body, limit] = jasmineArguments(call.arguments, context.scopes, this.file, 2);
+    const { status, fn } = jasmineRegistration(body, limit, this.file, false);
     if (status === 'callback' || status === 'timeout') {
       const reason = status === 'callback' ? 'requires a non-generator function' : 'refuses a timeout above 2147483647';
       return { kind: 'invalid', problem: this.refusal('invalid-hook', call, `${name}() ${reason}`, context) };
@@ -141,22 +149,32 @@ export class JasmineAdapter extends SuiteAdapter {
     }
     const flags = new Set(links.map((link) => link.name));
     const problems: Problem[] = [];
+    const spec = kind === 'test';
+    const slots = spec ? jasmineArguments(args, context.scopes, this.file, this.trailingRetries ? 4 : 3) : null;
+    const titleArg: JasmineArgument | null | undefined = slots ? slots[0] : { node: args[0], scopes: context.scopes };
     let title = { text: '', withoutTags: '', isDynamic: false };
-    if (args.length > 0) {
-      const read = readTitle(this.file, context.scopes, args[0], { stripTags: false, functionNames: false });
+    if (titleArg) {
+      const read = readTitle(
+        this.file,
+        titleArg.scopes,
+        titleArg.node,
+        { stripTags: false, functionNames: false },
+        titleArg.resolved,
+      );
       title = read.title;
       if (read.problem) problems.push(read.problem);
     }
-    const spread = args.some((arg) => arg.type === 'SpreadElement');
-    const written = spread ? null : args.at(1);
-    // `undefined` given as the function is no function, as when none is given.
-    const body = written?.type === 'Identifier' && written.name === 'undefined' ? undefined : written;
-    const fn = isFunctionNode(body) ? body : null;
-    const binding = body?.type === 'Identifier' ? this.file.values.functionWithScopes(body.name, context.scopes) : null;
-    const callback = fn ?? binding?.fn;
+    const spreadSuite = !spec && args.some((arg) => arg.type === 'SpreadElement');
+    const written = slots ? slots[1]?.node : args.at(1);
+    const body = spreadSuite ? null : written;
+    const registration = slots ? jasmineRegistration(slots[1], slots[2], this.file, !flags.has('only')) : null;
+    const binding =
+      body?.type === 'Identifier' && !spec ? this.file.values.functionWithScopes(body.name, context.scopes) : null;
+    const callback = registration ? registration.fn : isFunctionNode(body) ? body : binding?.fn;
+    // A function in a named tuple uses its defining scope, like a named callback.
+    const fn = isFunctionNode(body) && (!slots || slots[1]?.scopes === context.scopes) ? body : null;
     const line = this.file.source.line(call.start);
-    // A spec without a function is pending, unless it is focused: `fit` needs one.
-    const isSkipped = flags.has('skip') || (kind === 'test' && body === undefined);
+    const isSkipped = flags.has('skip') || registration?.missing;
     const base = {
       title,
       states: isSkipped
@@ -172,7 +190,7 @@ export class JasmineAdapter extends SuiteAdapter {
       cases: null,
       problems,
     };
-    if (kind === 'test') {
+    if (slots && registration) {
       const declared: ApiCall = {
         kind: 'test',
         ...base,
@@ -181,26 +199,38 @@ export class JasmineAdapter extends SuiteAdapter {
         takesAllFixtures: false,
         usesBench: false,
       };
-      const timeout = spread ? undefined : args.at(2);
-      if (timeout && timeout.type !== 'SpreadElement') {
-        const option = { node: timeout, resolved: this.file.values.resolve(timeout, context.scopes) };
-        const value = readCount(this.file, 'timeout', option, problems);
-        if (value !== null) declared.details.run = { timeout: value };
+      const readOption = (name: string, slot: JasmineArgument | null | undefined) => {
+        if (!slot || slot.node.type === 'SpreadElement') return null;
+        const resolved = slot.resolved ?? this.file.values.resolve(slot.node, slot.scopes);
+        return readCount(this.file, name, { node: slot.node, resolved }, problems);
+      };
+      if (registration.status === 'timeout') {
+        const refusal = this.refusal(
+          'unresolved-option',
+          call,
+          `${callee}() refuses a timeout above 2147483647`,
+          context,
+        );
+        return refused(call, { ...refusal, level: 'error' }, context, () => declared);
       }
-      const retries = this.trailingRetries && !spread ? args.at(3) : undefined;
-      if (retries && retries.type !== 'SpreadElement') {
-        const option = { node: retries, resolved: this.file.values.resolve(retries, context.scopes) };
-        const count = readCount(this.file, 'retries', option, problems);
-        if (count !== null)
-          declared.details.run = { ...declared.details.run, retry: { count, delay: null, condition: null } };
-      }
-      if (body === null || (body === undefined ? !flags.has('only') : isFunctionLike(body))) return declared;
-      const reason = body === undefined ? `${callee}() has no function` : `${callee}() takes a function second`;
+      const timeout = readOption('timeout', slots[2]);
+      if (timeout !== null) declared.details.run = { timeout };
+      const retries = readOption('retries', slots[3]);
+      if (retries !== null)
+        declared.details.run = { ...declared.details.run, retry: { count: retries, delay: null, condition: null } };
+      if (registration.status !== 'callback') return declared;
+      const reason = registration.missing ? `${callee}() has no function` : `${callee}() takes a function second`;
       return refused(call, this.refusal('test-without-body', call, reason, context), context, () => declared);
     }
     const declared: ApiCall = { kind: 'describe', ...base, isShuffled: false, passesDown: IN_DESCRIBE };
     if (body === null) return declared;
-    if (body === undefined || !isFunctionLike(body)) {
+    if (
+      body === undefined ||
+      (body.type === 'Identifier' &&
+        body.name === 'undefined' &&
+        !this.file.values.declarationOf(body.name, context.scopes)) ||
+      !isFunctionLike(body)
+    ) {
       const refusal = this.refusal('test-without-body', call, `${callee}() has no function`, context);
       return refused(call, refusal, context, () => declared);
     }

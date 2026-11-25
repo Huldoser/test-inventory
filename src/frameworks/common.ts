@@ -274,9 +274,10 @@ export function readTitle(
   scopes: readonly Node[],
   node: Argument,
   options: { stripTags: boolean; functionNames: false | 'vitest' | { bun: Resolved | null } },
+  known?: Resolved,
 ): { title: Title; problem: Problem | null } {
   const expression = node.type === 'SpreadElement' ? null : node;
-  const resolved = expression ? file.values.resolve(expression, scopes) : null;
+  const resolved = known ?? (expression ? file.values.resolve(expression, scopes) : null);
   let value: string | null = resolved?.ok && typeof resolved.value === 'string' ? resolved.value : null;
   // Vitest turns a title that is a number, boolean or null into a string.
   const other = resolved?.ok ? resolved.value : undefined;

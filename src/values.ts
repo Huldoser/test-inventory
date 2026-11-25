@@ -371,6 +371,7 @@ export class Values {
       case 'CallExpression':
         return this.call(expression, scopes);
       case 'UnaryExpression': {
+        if (expression.operator === 'void') return { ok: true, value: undefined };
         if (expression.operator !== '!' && expression.operator !== '-') return UNRESOLVED;
         const argument = this.resolve(expression.argument, scopes);
         if (!argument.ok) return argument;

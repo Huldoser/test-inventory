@@ -41,25 +41,28 @@ interface ArgumentValue {
 type RuntimeFunction = FunctionNode & { body: NonNullable<FunctionNode['body']> };
 const owner = (scopes: readonly Node[]) =>
   scopes.findLast((n) => n.type === 'FunctionDeclaration' || isFunctionNode(n));
-export const isRuntimeFunction = (node: Node | undefined): node is RuntimeFunction =>
+export const isRuntimeFunction = (node: Node | null | undefined): node is RuntimeFunction =>
   node?.type === 'FunctionDeclaration' || isFunctionNode(node);
-const timeout = (node: Node | undefined) =>
-  node?.type === 'Literal' && typeof node.value === 'number' && node.value <= 2147483647;
+type RegistrationStatus = 'valid' | 'callback' | 'timeout' | 'unknown';
 
-type HookStatus = 'valid' | 'callback' | 'timeout' | 'unknown';
+export interface JasmineArgument {
+  node: Argument;
+  scopes: readonly Node[];
+  resolved?: { ok: true; value: Value };
+}
+type Position = JasmineArgument | null | undefined;
 
-type HookArgument = { node: Argument; scopes: readonly Node[] } | { value: Value };
-
-/** Read only as far as the two positions Jasmine consumes. A spread of unknown width obscures later positions. */
-function* hookArguments(
+/** A hole supplies undefined. A spread of unknown width obscures this and all subsequent positions. */
+function* spreadArguments(
   args: readonly (Argument | null)[],
   scopes: readonly Node[],
   file: FileContext,
-  arrays = new Map<Node, HookArgument[]>(),
-): Generator<HookArgument, undefined> {
+  count: number,
+  arrays = new Map<Node, (JasmineArgument | null)[]>(),
+): Generator<JasmineArgument | null, undefined> {
   for (const item of literalArguments(args)) {
     if (item?.type !== 'SpreadElement') {
-      yield item ? { node: unwrap(item), scopes } : { value: undefined };
+      yield item ? { node: unwrap(item), scopes } : null;
       continue;
     }
     const spread = unwrap(item.argument);
@@ -68,12 +71,12 @@ function* hookArguments(
     if (init && init.type === 'ArrayExpression') {
       let positions = arrays.get(init);
       if (!positions) {
-        // A circular initializer has unknown width. Shared tuples need their first two positions only once.
+        // A circular initializer has unknown width. Cache just the positions the runner consumes.
         arrays.set(init, [{ node: item, scopes }]);
         positions = [];
-        for (const arg of hookArguments(init.elements, source.scopes, file, arrays)) {
+        for (const arg of spreadArguments(init.elements, source.scopes, file, count, arrays)) {
           positions.push(arg);
-          if (positions.length === 2) break;
+          if (positions.length === count) break;
         }
         arrays.set(init, positions);
       }
@@ -82,7 +85,7 @@ function* hookArguments(
     }
     const result = file.values.resolve(spread, scopes);
     if (result.ok && (Array.isArray(result.value) || typeof result.value === 'string')) {
-      for (const value of result.value) yield { value };
+      for (const value of result.value) yield { node: spread, scopes, resolved: { ok: true, value } };
       continue;
     }
     yield { node: item, scopes };
@@ -90,49 +93,83 @@ function* hookArguments(
   }
 }
 
-/** Jasmine checks only the first two argument values, after JavaScript has evaluated the whole argument list. */
-export function jasmineHook(
+export function jasmineArguments(
   args: readonly Argument[],
   scopes: readonly Node[],
   file: FileContext,
-): { status: HookStatus; fn: FunctionNode | null } {
-  const positions = hookArguments(args, scopes, file);
-  const first = positions.next().value;
-  if (!first || 'value' in first) return { status: 'callback', fn: null };
-  const value = first.node;
-  if (value.type === 'SpreadElement') return { status: 'unknown', fn: null };
-  const assigned = file.values.assignedIn(first.scopes[0], false);
-  const fn = isFunctionNode(value)
-    ? value
-    : value.type === 'Identifier' && !assigned.has(value.name)
-      ? file.values.functionOf(value.name, first.scopes)
+  count: number,
+): Position[] {
+  const reader = spreadArguments(args, scopes, file, count);
+  const positions: Position[] = [];
+  let current: Position;
+  for (let index = 0; index < count; index++) {
+    if (current?.node.type !== 'SpreadElement') current = reader.next().value;
+    positions.push(current);
+  }
+  return positions;
+}
+
+function callback(
+  body: Position,
+  file: FileContext,
+): {
+  status: 'valid' | 'callback' | 'unknown' | 'missing';
+  fn: FunctionNode | null;
+} {
+  if (!body) return { status: 'missing', fn: null };
+  const { node, scopes } = body;
+  if (node.type === 'SpreadElement') return { status: 'unknown', fn: null };
+  const resolved = body.resolved ?? file.values.resolve(node, scopes);
+  if (resolved.ok) return { status: resolved.value === undefined ? 'missing' : 'callback', fn: null };
+  const assigned = file.values.assignedIn(scopes[0], false);
+  const fn = isFunctionNode(node)
+    ? node
+    : node.type === 'Identifier' && !assigned.has(node.name)
+      ? file.values.functionOf(node.name, scopes)
       : null;
   if (fn?.generator) return { status: 'callback', fn: null };
-  const valid = fn !== null || value.type === 'ClassExpression';
-  if (!valid) {
-    // Jasmine's declarations return a spec, suite or undefined. None can serve as a hook callback.
-    const callee = value.type === 'CallExpression' && unwrap(value.callee);
-    const registration =
-      callee &&
-      callee.type === 'Identifier' &&
-      ['it', 'fit', 'xit', 'describe', 'fdescribe', 'xdescribe'].includes(callee.name) &&
-      !assigned.has(callee.name) &&
-      !file.values.declarationOf(callee.name, first.scopes);
-    if (registration || file.values.resolve(value, first.scopes).ok) return { status: 'callback', fn: null };
-  }
-  const limit = positions.next().value;
+  if (fn || node.type === 'ClassExpression') return { status: 'valid', fn };
+  // Jasmine's spec and suite declarations return objects which cannot serve as callbacks.
+  const callee = node.type === 'CallExpression' && unwrap(node.callee);
+  const registration =
+    callee &&
+    callee.type === 'Identifier' &&
+    ['it', 'fit', 'xit', 'describe', 'fdescribe', 'xdescribe'].includes(callee.name) &&
+    !assigned.has(callee.name) &&
+    !file.values.declarationOf(callee.name, scopes);
+  const nonfunction =
+    registration || ['Literal', 'ArrayExpression', 'ObjectExpression', 'TemplateLiteral'].includes(node.type);
+  return { status: nonfunction ? 'callback' : 'unknown', fn: null };
+}
+
+export function jasmineRegistration(
+  body: Position,
+  limit: Position,
+  file: FileContext,
+  allowsPending: boolean,
+): {
+  status: RegistrationStatus;
+  fn: FunctionNode | null;
+  missing: boolean;
+} {
+  const read = callback(body, file);
+  const missing = read.status === 'missing';
+  const fn = read.fn;
+  if (read.status === 'callback' || (missing && !allowsPending)) return { status: 'callback', fn, missing };
   if (limit && atLeast(file.version, 3, 10)) {
-    let resolved: Resolved;
-    if ('value' in limit) resolved = { ok: true, value: limit.value };
-    else {
-      if (limit.node.type === 'SpreadElement') return { status: 'unknown', fn };
-      resolved = file.values.resolve(limit.node, limit.scopes);
-    }
-    if (!resolved.ok || (typeof resolved.value === 'object' && resolved.value !== null))
-      return { status: 'unknown', fn };
-    if (Number(resolved.value) > 2147483647) return { status: 'timeout', fn: null };
+    if (limit.node.type === 'SpreadElement') return { status: 'unknown', fn, missing };
+    const resolved = limit.resolved ?? file.values.resolve(limit.node, limit.scopes);
+    if (!resolved.ok) return { status: 'unknown', fn, missing };
+    const value = resolved.value;
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !(Array.isArray(value) && value.every((item) => item === null || typeof item !== 'object'))
+    )
+      return { status: 'unknown', fn, missing };
+    if (Number(value) > 2147483647) return { status: 'timeout', fn, missing };
   }
-  return { status: valid ? 'valid' : 'unknown', fn };
+  return { status: read.status === 'unknown' ? 'unknown' : 'valid', fn, missing };
 }
 
 interface SuiteCall {
@@ -271,27 +308,22 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       const actual = file.values.callArguments(node, scopes, true);
       return invoke(helper.node, helper.scopes, children, actual.args, actual.complete);
     }
-    if (['beforeEach', 'afterEach', 'beforeAll', 'afterAll'].includes(name)) {
+    const spec = ['it', 'xit', 'fit'].includes(name);
+    if (spec || ['beforeEach', 'afterEach', 'beforeAll', 'afterAll'].includes(name)) {
       const evaluated = elements(args, scopes, children);
       if (evaluated !== 'next') return evaluated;
-      const { status } = jasmineHook(args, scopes, file);
-      return status === 'valid' ? 'next' : status === 'unknown' ? 'unknown' : 'throw';
+      const positions = jasmineArguments(args, scopes, file, spec ? 3 : 2);
+      const index = spec ? 1 : 0;
+      const { status } = jasmineRegistration(positions[index], positions[index + 1], file, spec && name !== 'fit');
+      if (status === 'unknown') return 'unknown';
+      if (status !== 'valid') return 'throw';
+      if (spec) children.registered = true;
+      return 'next';
     }
     const first = argument(args.at(0), scopes)?.node;
     const secondArg = argument(args.at(1), scopes);
-    const second = secondArg?.node;
     if (first?.type !== 'Literal' || typeof first.value !== 'string') return 'unknown';
-    if (['it', 'xit', 'fit'].includes(name)) {
-      if (
-        !(args.length === 1 && name !== 'fit') &&
-        !(
-          isRuntimeFunction(second) &&
-          !second.generator &&
-          (args.length === 2 || (args.length === 3 && timeout(argument(args[2], scopes)?.node)))
-        )
-      )
-        return 'unknown';
-    } else if (
+    if (
       ['describe', 'xdescribe', 'fdescribe'].includes(name) &&
       args.length === 2 &&
       secondArg &&
@@ -302,9 +334,8 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
       // Jasmine attaches the suite before running its callback and checking its children.
       children.registered = true;
       return suite(secondArg.node, secondArg.scopes, name === 'describe');
-    } else return 'unknown';
-    children.registered = true;
-    return 'next';
+    }
+    return 'unknown';
   }
   function elements(items: readonly (Argument | null)[], scopes: readonly Node[], children: Children): Exit {
     for (const item of items) {
@@ -325,6 +356,8 @@ export function registrationExit(root: BlockStatement | SuiteCall, outer: readon
     const value = unwrap(node);
     if (value.type === 'ArrayExpression') return elements(value.elements, scopes, children);
     if (value.type === 'CallExpression') return call(value, scopes, children);
+    if (value.type === 'UnaryExpression' && value.operator === 'void')
+      return expression(value.argument, scopes, children);
     if (value.type === 'Identifier') {
       const declaration = file.values.declarationOf(value.name, scopes);
       const binding = parameters.findLast((entry) => entry.fn === declaration);

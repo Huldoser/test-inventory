@@ -205,7 +205,6 @@ export class JestAdapter extends SuiteAdapter {
       node = unwrap(binding.init);
       scopes = binding.scopes;
     }
-    if (node.type === 'UnaryExpression' && node.operator === 'void') return stringsOnly ? false : 'undefined';
     if (
       node.type === 'ArrayExpression' ||
       node.type === 'ObjectExpression' ||
