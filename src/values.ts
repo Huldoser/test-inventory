@@ -123,7 +123,7 @@ export class Values {
   private readonly cache = new Map<Expression, Resolved>();
   private readonly pending = new Set<Expression>();
   /** The functions being read at one of their calls, innermost last. */
-  private readonly calls: BoundCall[] = [];
+  private calls: BoundCall[] = [];
   private readonly imports: ImportReader | null;
   private readonly assigned = new WeakMap<Node, Set<string>>();
   private readonly rebound = new WeakMap<Node, Set<string>>();
@@ -132,6 +132,20 @@ export class Values {
   /** Without `imports`, a value imported from another module is not worked out. */
   constructor(imports: ImportReader | null = null) {
     this.imports = imports;
+  }
+
+  /** A suspended helper still sees its own arguments and the parameters of the enclosing calls that created it. */
+  captureBindings<T>(read: (value: T) => void): (value: T) => void {
+    const bindings = this.calls.slice();
+    return (value) => {
+      const caller = this.calls;
+      this.calls = bindings;
+      try {
+        read(value);
+      } finally {
+        this.calls = caller;
+      }
+    };
   }
 
   /**

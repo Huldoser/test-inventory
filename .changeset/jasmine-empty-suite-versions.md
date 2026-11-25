@@ -15,3 +15,4 @@ Read string elements and boxed properties in helper parameters so registration d
 Apply argument ordering and parameter binding to direct Jasmine helper calls and immediately invoked functions.
 Attach Jasmine declarations and hooks to the suite left open by their arguments.
 Preserve the current Jasmine suite across the synchronous part of an async registration helper.
+Collect successive statements after a Jasmine helper suspends in microtask order, with their captured parameters.

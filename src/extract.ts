@@ -187,10 +187,15 @@ export interface Extraction {
   fileTags: { name: string; span: Span }[];
 }
 
+interface AsyncRegistration {
+  body: Node;
+  atAwait?: { scope?: Scope };
+}
+
 interface Registration {
   stoppedAt?: number;
   /** The suite an async helper leaves current when it gives control back to the caller. */
-  onAwait?: (scope: Scope | undefined) => void;
+  asyncCall?: AsyncRegistration;
   /** Current suite after user code caught an empty-suite error. */
   scope?: Scope;
   /** Suite Jasmine left current as a registration error escaped. */
@@ -590,6 +595,7 @@ class Walker {
    */
   private readonly declaredIn = new Map<PendingTest, { fn: Node; call: CallExpression | null }>();
   private readonly deferred: Deferred[] = [];
+  private continuations: ((root: Registration) => void)[] = [];
   private readonly isDeferred = new Set<Node>();
   /**
    * Functions walked at one of their calls, or as a test or hook body passed by name, so that their tests are recorded
@@ -659,6 +665,13 @@ class Walker {
       quiet: false,
       registeredBy: null,
     });
+    if (registration) {
+      while (this.continuations.length) {
+        const batch = this.continuations;
+        this.continuations = [];
+        for (const resume of batch) resume(registration);
+      }
+    }
     // Functions defined inside these are deferred in turn; the loop reaches them too, as they are added to the end.
     for (const entry of this.deferred) this.walkWhereWritten(entry);
     // Records follow the order the file registers them in; the sort is stable, so one call's tests keep theirs.
@@ -753,7 +766,8 @@ class Walker {
       case 'AwaitExpression': {
         this.visit(node.argument, context);
         const registration = context.registration;
-        if (!context.skipImports && registration?.stoppedAt === undefined) registration?.onAwait?.(registration.scope);
+        if (registration?.asyncCall && !context.skipImports && registration.stoppedAt === undefined)
+          registration.asyncCall.atAwait ??= { scope: registration.scope };
         return;
       }
       case 'CallExpression': {
@@ -1028,9 +1042,15 @@ class Walker {
    * condition; a branch taken for certain, or both branches leaving, ends the walk. A branch that leaves on only some
    * of its paths leaves what follows as it is.
    */
-  private visitStatements(statements: readonly Node[], context: Context): void {
+  private visitStatements(statements: readonly Node[], context: Context, start = 0): void {
     let current = context;
-    for (const statement of statements) {
+    for (let index = start; index < statements.length; index++) {
+      const task = current.registration?.asyncCall;
+      if (task?.atAwait && task.body === this.parents.at(-1)) {
+        if (!current.skipImports) this.deferStatements(statements, index, current, task.body);
+        return;
+      }
+      const statement = statements[index];
       this.visit(statement, current);
       if (statement.type !== 'IfStatement') {
         if ((this.options.collectImports || context.registration) && alwaysLeaves(statement))
@@ -1049,6 +1069,48 @@ class Walker {
       current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
       if (taken) current.skipImports = true;
     }
+  }
+
+  /** Resume in the active file suite, retaining the lexical environment where the helper suspended. */
+  private deferStatements(statements: readonly Node[], index: number, context: Context, body: Node): void {
+    const { frame, site, importDepth } = this;
+    const scopes = this.scopes.slice(),
+      parents = this.parents.slice(),
+      calls = this.callStack.slice();
+    this.continuations.push(
+      frame.values.captureBindings<Registration>((root) => {
+        this.frame = frame;
+        this.site = site;
+        this.importDepth = importDepth;
+        this.scopes.push(...scopes);
+        this.parents.push(...parents);
+        this.callStack.push(...calls);
+        this.asyncRegistration(root, body, (registration) => {
+          this.visitStatements(
+            statements,
+            {
+              ...context,
+              scope: root.scope ?? this.fileScope,
+              registration,
+              emptySuiteAt: undefined,
+              expandedAt: this.main.parsed.program.end + 1,
+            },
+            index,
+          );
+        });
+        this.callStack.length = this.parents.length = this.scopes.length = 0;
+        this.importDepth = 0;
+        this.site = null;
+        this.frame = this.main;
+      }),
+    );
+  }
+
+  private asyncRegistration(caller: Registration, body: Node, visit: (registration: Registration) => void): void {
+    const asyncCall: AsyncRegistration = { body };
+    const registration = { ...caller, asyncCall };
+    visit(registration);
+    caller.scope = asyncCall.atAwait ? asyncCall.atAwait.scope : (registration.recoveryScope ?? registration.scope);
   }
 
   private placement(context: Context): Placement {
@@ -1628,18 +1690,9 @@ class Walker {
             parameterSteps,
           );
         };
-        if (registering && context.registration && fn.async && !fn.generator) {
-          // A rejection stays inside the promise. Changes to Jasmine's current suite before suspension are shared.
-          let atAwait: { scope?: Scope } | undefined;
-          const registration: Registration = {
-            ...context.registration,
-            onAwait: (scope) => {
-              atAwait ??= { scope };
-            },
-          };
-          visitBody(registration);
-          context.registration.scope = atAwait ? atAwait.scope : (registration.recoveryScope ?? registration.scope);
-        } else visitBody(context.registration);
+        if (registering && context.registration && fn.async && !fn.generator)
+          this.asyncRegistration(context.registration, fn.body as Node, visitBody);
+        else visitBody(context.registration);
       },
       complete,
       parameterSteps,

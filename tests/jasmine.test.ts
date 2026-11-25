@@ -345,6 +345,52 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('collects resumed Jasmine helpers in microtask order after the calling suite has closed', () => {
+    const result = scanJasmine(`
+function start(symbol) {
+  async function price() {
+    it('starts ' + symbol, () => {});
+    await 0;
+    it('reads ' + symbol, () => {});
+    await 1;
+    it('settles ' + symbol, () => {});
+  }
+  price();
+}
+async function finish() { return await 0; it('reopens the desk', () => {}); }
+describe('cash desk', () => {
+  start('bid'); start('ask'); finish();
+  it('closes the desk', () => {});
+});
+it('closes the market', () => {});`);
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'cash desk > starts bid',
+      'cash desk > starts ask',
+      'cash desk > closes the desk',
+      'closes the market',
+      'reads bid',
+      'reads ask',
+      'settles bid',
+      'settles ask',
+    ]);
+  });
+
+  it('shares the suite opened by a resumed Jasmine helper with the next resumed helper', () => {
+    const result = scanJasmine(
+      `
+async function price() { await 0; try { xdescribe('suspended prices', () => {}); } catch {} }
+async function settle() { await 0; it('settles the trade', () => {}); }
+describe('cash desk', () => {
+  price(); settle(); it('closes the desk', () => {});
+});`,
+      { frameworkVersion: '7.0.2' },
+    );
+    expect(states(result)).toEqual([
+      ['cash desk > closes the desk', 'active', false],
+      ['suspended prices > settles the trade', 'skip', false],
+    ]);
+  });
+
   it('keeps the Jasmine suite an async helper opens before it returns, rejects or reaches its first await', () => {
     const reopen = "try { xdescribe('suspended prices', () => {}); } catch {}";
     for (const [body, skipped] of [
