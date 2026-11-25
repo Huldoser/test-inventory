@@ -43,7 +43,8 @@ jobs:
       - run: npm run typecheck
       # Coverage is measured once, on Linux, where every test runs. The symbolic link tests are skipped on Windows.
       - if: matrix.os == 'ubuntu-latest' && matrix.node == 24
-        run: npm run coverage -- --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=html
+        # Schema generation starts the TypeScript compiler. Keep it from competing with other coverage workers.
+        run: npm run coverage -- --maxWorkers=1 --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=html
       - if: matrix.os != 'ubuntu-latest' || matrix.node != 24
         run: npm test
       - name: Coverage summary
