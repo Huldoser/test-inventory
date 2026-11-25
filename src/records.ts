@@ -192,6 +192,11 @@ function undefinedTags(extraction: Extraction, tags: VitestTags): { problem: Pro
 const FLAG_ORDER: State[] = ['skip', 'todo', 'expectedToFail'];
 const ALWAYS = { condition: null, reason: null, hasDynamicReason: false };
 
+/** Vitest checks allowOnly during collection, before a hook or a test body can skip the test. */
+function skippedAtCollection(setting: StateSetting): boolean {
+  return !setting.afterLoad && setting.condition === null && (setting.state === 'skip' || setting.state === 'todo');
+}
+
 /**
  * The states of a test's declaration with those of its Vitest tags. Vitest merges the options and then takes `only`
  * over `skip` over `todo`, so a `.only` on either side drops the skip and todo of both.
@@ -526,10 +531,7 @@ class RecordBuilder {
   private suite(pending: PendingSuite): SuiteRecord {
     const { scope, declaration, call } = pending;
     const skipped =
-      this.options.framework === 'vitest' &&
-      outward(scope).some((parent) =>
-        parent.states.some((setting) => ['skip', 'todo'].includes(setting.state) && setting.condition === null),
-      );
+      this.options.framework === 'vitest' && outward(scope).some((parent) => parent.states.some(skippedAtCollection));
     if (declaration.isOnly && !skipped) this.forbidOnly(pending.site ?? call, pending.site ? null : call);
     const parents = outward(scope).slice(1, -1).reverse();
     const title = declaration.title;
@@ -663,7 +665,7 @@ class RecordBuilder {
     ]);
     const fromTags = this.tagOptions(tags, declaration.ownStateOptions ?? []);
     const focusedBySuite = fromTags?.only === false ? undefined : declaration.statesWhenFocusedBySuite;
-    const declaredOnly = declaration.isOnly || focusedBySuite !== undefined;
+    const declaredOnly = declaration.isOnly || focusedBySuite !== undefined || fromTags?.only === true;
     // In Vitest 5 the options of a test's tags win over those the describes pass down; before, the describes' win.
     const tagsFirst = this.options.config?.tags?.beatsDescribes ?? true;
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
@@ -747,7 +749,7 @@ class RecordBuilder {
         ? focus !== null
         : mocha
           ? this.mochaFocus(pending, scopes)
-          : declaredOnly || scopes.some((scope) => scope.isOnly) || fromTags?.only === true;
+          : declaredOnly || scopes.some((scope) => scope.isOnly);
     const comments =
       this.options.comments === 'all' || (this.options.comments === 'non-active' && state !== 'active')
         ? pending.comments
@@ -777,12 +779,7 @@ class RecordBuilder {
         ),
       );
     }
-    if (
-      (declaredOnly || fromTags?.only === true) &&
-      chosen &&
-      chosen.source !== 'test' &&
-      chosen.setting.state === 'skip'
-    ) {
+    if (declaredOnly && chosen && chosen.source !== 'test' && chosen.setting.state === 'skip') {
       this.diagnostics.push(
         this.diagnostic(
           problem(
@@ -872,7 +869,7 @@ class RecordBuilder {
       projects: null,
       defaults: null,
     };
-    const skippedOnly = chosen && ['skip', 'todo'].includes(chosen.setting.state) && chosen.setting.condition === null;
+    const skippedOnly = chosen && skippedAtCollection(chosen.setting);
     if (declaredOnly && this.options.framework === 'vitest' && !skippedOnly) {
       this.forbidOnly(located, pending.site ? null : pending.call, forbidOnly);
     }

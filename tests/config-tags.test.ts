@@ -298,8 +298,34 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
       ['cancels an order', 'active', true, null],
       ['amends an order', 'skip', false, 'config'],
     ]);
-    // A .only, which Vitest fails in CI, where allowOnly is off by default.
-    expect(codes(inventory)).toEqual(['forbidden-only']);
+    expect(inventory.diagnostics.map((d) => [d.code, d.level, d.lineStart])).toEqual([
+      ['forbidden-only', 'warning', 2],
+      ['forbidden-only', 'warning', 3],
+      ['forbidden-only', 'warning', 4],
+    ]);
+  });
+
+  it('reports forbidden focus at collection before a test or hook can skip', async () => {
+    const inventory = await scanned("export default {test:{allowOnly:false,tags:[{name:'auction',only:true}]}};", {
+      'tests/orders.test.ts': [
+        "import {describe,test,beforeEach} from 'vitest';",
+        "test.only('clears a limit order', ctx => ctx.skip());",
+        "describe.only('opening auction', () => {",
+        '  beforeEach(ctx => ctx.skip());',
+        "  test('posts the opening price', {tags:['auction']}, () => {});",
+        '});',
+        "describe.skip('closed exchange', () => {",
+        "  test('cancels the closing order', {tags:['auction']}, ctx => ctx.skip());",
+        '});',
+      ].join('\n'),
+    });
+    expect(inventory.diagnostics.filter((d) => d.code === 'forbidden-only').map((d) => [d.lineStart, d.level])).toEqual(
+      [
+        [2, 'error'],
+        [3, 'error'],
+        [5, 'error'],
+      ],
+    );
   });
 
   it("lets skipIf and runIf replace a tag's skip from Vitest 5, and an option set to undefined leave it", async () => {

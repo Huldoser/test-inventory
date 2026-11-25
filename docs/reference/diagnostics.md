@@ -129,4 +129,6 @@ the runner refuses, as `it('title')` without a function in Jest: the runner refu
 }
 ```
 
-Vitest's `allowOnly` is read from the projects that run the test. Projects that disagree produce a warning; a focused test or describe that is unconditionally skipped or todo is not failed by this check.
+Vitest's `allowOnly` is read from the projects that run the test. Projects that disagree produce a warning.
+Vitest checks focus from modifiers, options and configured tags during collection. A surrounding suite marked skip
+or todo can suppress the error. A skip inside a test body or a hook happens after the focus check.
