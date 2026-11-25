@@ -394,6 +394,7 @@ CI workflow names, aren't followed. A file that a collected test file
 imports gets no warning either, as its tests run in that file.
 
 During discovery, a config used by a filtered package command contributes the files selected by its scripts.
+Vitest file filters support Windows short paths such as `C:/DESK~1/orders.spec.js`.
 `jest --runTestsByPath` takes exact paths from the script's folder, `vitest run` takes case-insensitive path
 substrings and `playwright test` matches regular expressions against full file paths. Several arguments or scripts
 select their combined set. Playwright file filters also collect prerequisite projects and teardown for a project whose selected

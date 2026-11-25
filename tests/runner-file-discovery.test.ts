@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { scan } from '../src/index.ts';
@@ -475,6 +475,13 @@ describe('Mocha spec lookup and options', () => {
     await expectFiles(root, [source, fees]);
   });
 
+  it('discovers an extensionless preload when the project root is reached through a directory link', async () => {
+    const root = mochaProject(`mocha ${fees} --file preload/orders`, [fees, 'preload/orders.js']);
+    const linked = path.join(project({}), 'desk');
+    symlinkSync(root, linked, 'junction');
+    await expectFiles(linked, ['preload/orders.js', fees]);
+  });
+
   it('matches repeated configured extensions on an extensionless spec', async () => {
     const root = mochaProject('mocha test/orders', [
       'test/orders.cjs',
@@ -560,7 +567,11 @@ describe('Mocha character classes and extension values', () => {
     { spec: 'test/[a].js', expected: ['test/a.js.cjs', 'test/fees.js'] },
     { spec: 'test/[!a].js', expected: ['test/b.js', 'test/fees.js'] },
     { spec: 'test/!(a).js', expected: ['test/ab.js', 'test/b.js', 'test/fees.js'] },
-    { spec: 'test/{a,b}/../a.js', expected: ['test/a.js.cjs', 'test/fees.js'] },
+    // Windows resolves the parent component before Mocha tests the literal path for existence.
+    {
+      spec: 'test/{a,b}/../a.js',
+      expected: [process.platform === 'win32' ? 'test/a.js' : 'test/a.js.cjs', 'test/fees.js'],
+    },
   ])('collects the files selected by $spec', async ({ spec, expected }) => {
     const root = project({
       'package.json': manifest('mocha', '12.0.3', `mocha test/fees.js '${spec}'`),

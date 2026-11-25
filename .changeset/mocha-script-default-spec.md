@@ -23,3 +23,5 @@ Assign a shared Playwright module's top-level tests to the first spec that loads
 Follow immediately invoked functions during Playwright collection and skip module initialization in branches ruled out by a known condition.
 
 Keep shared Playwright registrations in the spec that reaches the import when a loop is empty or a statement exits early.
+
+Discover extensionless Mocha preloads under linked project roots and preserve Vitest file filters that contain Windows short directory names.

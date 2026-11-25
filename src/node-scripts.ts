@@ -233,9 +233,7 @@ function fileFilters(program: string, args: string[]): string[] {
     files = args;
   } else return [];
   // Variables, shell globs, redirects and options with unmodeled values cannot safely narrow a command.
-  return files.every((file) => !file.startsWith('-') && /^(?:[A-Za-z]:\/)?[\p{L}\p{N}_./ -]+$/u.test(file))
-    ? files
-    : [];
+  return files.every((file) => !/^[-~]/.test(file) && /^(?:[A-Za-z]:\/)?[\p{L}\p{N}_./ ~-]+$/u.test(file)) ? files : [];
 }
 
 /**

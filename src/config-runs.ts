@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -915,7 +915,9 @@ export class ConfigRuns {
       if (isFileAt(target)) loaded.add(target);
       else {
         try {
-          loaded.add(createRequire(import.meta.url).resolve(target));
+          const resolved = createRequire(import.meta.url).resolve(target);
+          // Node resolves symlinks, while discovery preserves the path used to reach the project.
+          loaded.add(path.resolve(folder, path.relative(realpathSync(folder), resolved)));
         } catch {
           // A missing preload identifies no source file.
         }
@@ -2210,7 +2212,7 @@ function mochaSpec(
   included: (name: string) => boolean,
 ): (file: string) => boolean {
   const target = path.resolve(folder, spec);
-  // A missing component before `..` prevents a literal lookup, even if its normalized target exists.
+  // Let the host filesystem decide whether a missing component before `..` prevents a literal lookup.
   const literal = path.isAbsolute(spec) ? spec : folder + path.sep + spec;
   const stat = statSync(literal, { throwIfNoEntry: false });
   if (stat?.isFile()) return (file) => file === target && included(posix(spec));

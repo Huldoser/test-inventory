@@ -182,6 +182,12 @@ describe('the test runner commands of a package.json script', () => {
     expect(runnerCommands('wdio run', 'webdriverio')).toEqual([named(null)]);
   });
 
+  it('keeps Vitest filters under a Windows short directory name', () => {
+    const file = 'C:/Users/DESK~1/orders.spec.js';
+    expect(runnerCommands(`vitest run "${file}"`, 'vitest')[0].filters).toEqual([file]);
+    expect(runnerCommands('vitest run ~/orders.spec.js', 'vitest')[0].filters).toBeUndefined();
+  });
+
   it('finds the runner past variables, cross-env, dotenv and the package managers that start it', () => {
     const scripts = [
       'TZ=UTC vitest run -c vitest.orders.config.ts',
