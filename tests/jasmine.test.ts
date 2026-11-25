@@ -345,6 +345,63 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('stops an async helper at return, a rejected await or a pending promise, preserving caller registrations', () => {
+    for (const body of [
+      'return;',
+      'await 0; return;',
+      'await Promise.reject("closed");',
+      'await Promise.resolve(Promise.reject("closed"));',
+      'await new Promise(() => {});',
+      'await new Promise((resolve, reject) => { const quote = 25; });',
+    ]) {
+      const result = scanJasmine(`
+async function price() { ${body} it('registers a late quote', () => {}); }
+describe('cash desk', () => { price().catch(() => {}); it('closes the desk', () => {}); });`);
+      expect(
+        result.tests.map((test) => test.fullName),
+        body,
+      ).toEqual(['cash desk > closes the desk']);
+    }
+  });
+
+  it('leaves recovery and cleanup suspended when the awaited promise never settles', () => {
+    const result = scanJasmine(`
+async function price() {
+  try { await new Promise(() => {}); it('prices a trade', () => {}); }
+  catch { it('recovers the feed', () => {}); }
+  finally { it('clears the feed', () => {}); }
+  it('settles the trade', () => {});
+}
+price(); it('closes the desk', () => {});`);
+    expect(result.tests.map((test) => test.title)).toEqual(['closes the desk']);
+  });
+
+  it('keeps possible continuations for shadowed or modified Promise methods and unknown executors', () => {
+    for (const source of [
+      'const Promise = marketPromise; async function run() { await Promise.reject();',
+      'Promise.reject = () => 5; async function run() { await Promise.reject();',
+      'async function run() { await Promise.resolve();',
+      'async function run() { await Promise.resolve(...prices);',
+      'async function run() { await Promise.all([]);',
+      'async function run() { await new MarketFeed();',
+      'async function run() { await new Promise(executor);',
+      'async function run() { await new Promise((resolve = fallback) => { resolve(5); });',
+      'async function run() { await new Promise(resolve => resolve(5));',
+      'async function run() { await new Promise(resolve => { const { mark } = feed; resolve(mark); });',
+      'async function run() { await new Promise(resolve => { const value = settle(resolve); });',
+      'async function run() { if (feed.closed) await new Promise(() => {});',
+      "async function run() { for (const quote of JSON.parse('[]')) await new Promise(() => {});",
+      'async function run() { try { await new Promise(() => { using book = 25; }); } catch {}',
+      "async function run() { try { await Promise.reject('closed'); } catch {}",
+    ]) {
+      const inventory = scanJasmine(source + " it('checks the price', () => {}); } run();");
+      expect(
+        inventory.tests.map((test) => test.title),
+        source,
+      ).toContain('checks the price');
+    }
+  });
+
   it('collects resumed Jasmine helpers in microtask order after the calling suite has closed', () => {
     const result = scanJasmine(`
 function start(symbol) {

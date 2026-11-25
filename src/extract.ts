@@ -190,6 +190,7 @@ export interface Extraction {
 interface AsyncRegistration {
   body: Node;
   atAwait?: { scope?: Scope };
+  pending?: boolean;
 }
 
 interface Registration {
@@ -200,6 +201,10 @@ interface Registration {
   scope?: Scope;
   /** Suite Jasmine left current as a registration error escaped. */
   recoveryScope?: Scope;
+}
+
+function possibleRegistration(registration: Registration | undefined): Registration | undefined {
+  return registration && { ...registration, asyncCall: registration.asyncCall && { ...registration.asyncCall } };
 }
 
 interface Context {
@@ -714,6 +719,8 @@ class Walker {
   }
 
   private visitNode(node: Node, context: Context): void {
+    const task = context.registration?.asyncCall;
+    if (task && (context.skipImports || task.pending || context.registration?.stoppedAt !== undefined)) return;
     if (context.evaluatingArgument && context.registration) {
       if (
         context.skipImports ||
@@ -766,8 +773,12 @@ class Walker {
       case 'AwaitExpression': {
         this.visit(node.argument, context);
         const registration = context.registration;
-        if (registration?.asyncCall && !context.skipImports && registration.stoppedAt === undefined)
+        if (registration?.asyncCall && registration.stoppedAt === undefined) {
           registration.asyncCall.atAwait ??= { scope: registration.scope };
+          const failure = this.awaitedFailure(node.argument);
+          if (failure === 'pending') registration.asyncCall.pending = true;
+          if (failure === 'rejected') this.stopRegistration(node, context);
+        }
         return;
       }
       case 'CallExpression': {
@@ -824,7 +835,10 @@ class Walker {
             : undefined;
         if (node.handler && exit !== 'next' && exit !== 'return') {
           const handler = this.guarded(context, this.catchCondition(node.handler));
-          if (handler.registration) handler.registration.scope = scope;
+          if (handler.registration) {
+            handler.registration.scope = scope;
+            if (failure !== undefined) handler.registration.asyncCall = attempt?.asyncCall;
+          }
           this.visit(node.handler, handler);
           if (failure !== undefined && handler.registration) {
             failure = handler.registration.stoppedAt;
@@ -1047,7 +1061,8 @@ class Walker {
     for (let index = start; index < statements.length; index++) {
       const task = current.registration?.asyncCall;
       if (task?.atAwait && task.body === this.parents.at(-1)) {
-        if (!current.skipImports) this.deferStatements(statements, index, current, task.body);
+        if (!current.skipImports && !task.pending && current.registration?.stoppedAt === undefined)
+          this.deferStatements(statements, index, current, task.body);
         return;
       }
       const statement = statements[index];
@@ -1069,6 +1084,42 @@ class Walker {
       current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
       if (taken) current.skipImports = true;
     }
+  }
+
+  /** Terminal outcomes of the built-in Promise constructor and its static methods that the scan can prove. */
+  private awaitedFailure(expression: Expression): 'pending' | 'rejected' | null {
+    if (
+      this.frame.values.declarationOf('Promise', this.scopes) ||
+      this.frame.values.assignedIn(this.frame.parsed.program).has('Promise')
+    )
+      return null;
+    let node = unwrap(expression);
+    while (node.type === 'CallExpression') {
+      const method = unwrap(node.callee);
+      if (method.type !== 'MemberExpression' || method.object.type !== 'Identifier' || method.object.name !== 'Promise')
+        return null;
+      if (propertyName(method) === 'reject') return 'rejected';
+      const value = node.arguments.at(0);
+      if (propertyName(method) !== 'resolve' || !value || value.type === 'SpreadElement') return null;
+      node = unwrap(value);
+    }
+    if (node.type !== 'NewExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'Promise')
+      return null;
+    const executor = node.arguments[0];
+    if (
+      !isFunctionNode(executor) ||
+      !executor.params.every((p) => p.type === 'Identifier') ||
+      executor.body?.type !== 'BlockStatement'
+    )
+      return null;
+    return executor.body.body.every(
+      (s) =>
+        s.type === 'VariableDeclaration' &&
+        ['var', 'let', 'const'].includes(s.kind) &&
+        s.declarations.every((d) => d.id.type === 'Identifier' && d.init?.type === 'Literal'),
+    )
+      ? 'pending'
+      : null;
   }
 
   /** Resume in the active file suite, retaining the lexical environment where the helper suspended. */
@@ -1159,7 +1210,7 @@ class Walker {
       ...context,
       isInCondition: true,
       guards: guard === null ? context.guards : [...context.guards, guard],
-      registration: !certain && context.registration ? { ...context.registration } : context.registration,
+      registration: certain ? context.registration : possibleRegistration(context.registration),
     };
   }
 
@@ -1189,7 +1240,7 @@ class Walker {
     return {
       ...context,
       isInLoop: true,
-      registration: !passes && context.registration ? { ...context.registration } : context.registration,
+      registration: passes ? context.registration : possibleRegistration(context.registration),
       loops: [...context.loops, passes],
       loopConditions: [...context.loopConditions, context.isInCondition || pass !== null],
       caseIndex: pass?.index ?? context.caseIndex,

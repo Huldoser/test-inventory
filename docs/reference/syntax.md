@@ -244,6 +244,7 @@ From Jasmine 4.5, an empty-suite error leaves that suite open. Specs registered 
 If a helper catches that error while evaluating a declaration argument, the declaration itself also belongs to the suite that is open when Jasmine receives the call.
 An async helper can change that suite before it first suspends. The caller inherits the suite active at that point, including changes made while evaluating the operand of `await`.
 For successive statements after `await` in an async helper, the scan resumes collection after the file's synchronous code. Resumed helpers retain their argument bindings and share Jasmine's current suite in microtask order.
+An unconditional return or a known rejected await ends the normal path. Awaiting a built-in promise with an empty executor suspends the helper indefinitely, including its cleanup.
 `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
 `hooks`.

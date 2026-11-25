@@ -16,3 +16,4 @@ Apply argument ordering and parameter binding to direct Jasmine helper calls and
 Attach Jasmine declarations and hooks to the suite left open by their arguments.
 Preserve the current Jasmine suite across the synchronous part of an async registration helper.
 Collect successive statements after a Jasmine helper suspends in microtask order, with their captured parameters.
+Omit unreachable Jasmine registrations after an async return, a rejected await or a promise that remains pending.
