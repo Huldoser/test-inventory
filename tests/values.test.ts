@@ -453,6 +453,101 @@ test(\`trades \${LIMITS.lots} lot\`, () => {});
     expect(resolve(code + 'if(false) {} else { desk=book; } desk.label="closing"; book.label;')).toEqual(UNRESOLVED);
   });
 
+  it('flags titles changed through helper arguments resolved in the calling scope', () => {
+    const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
+    for (const route of [
+      'function close(desk){desk.label="closing";} close(evening.desk);',
+      'function close({desk}){desk.label="closing";} {const opening=evening;close(opening);}',
+      'const close=desk=>{desk.label="closing";}; function route(desk){close(desk);} route(evening.desk);',
+      '((desk)=>{desk.label="closing";})(evening.desk);',
+    ]) {
+      expect(resolve(setup + route + 'evening.desk.label;')).toEqual(UNRESOLVED);
+      expect(resolve(setup + route + 'opening.desk.label;')).toEqual({ ok: true, value: 'opening' });
+    }
+    const deferred = 'function close(desk){desk.label="closing";} test("settles late",()=>close(evening.desk));';
+    expect(resolve(setup + deferred + 'evening.desk.label;')).toEqual({ ok: true, value: 'evening' });
+  });
+
+  it('uses the call time when a helper forwards an outer alias to another helper', () => {
+    const setup = 'const opening={label:"opening"}; const evening={label:"evening"}; let desk=opening;';
+    const functions = 'function close(entry){entry.label="closing";} function route(){close(desk);}';
+    const before = setup + functions + 'route(); desk=evening;';
+    const after = setup + functions + 'desk=evening; route();';
+    expect(resolve(before + 'evening.label;')).toEqual({ ok: true, value: 'evening' });
+    expect(resolve(before + 'opening.label;')).toEqual(UNRESOLVED);
+    expect(resolve(after + 'opening.label;')).toEqual({ ok: true, value: 'opening' });
+    expect(resolve(after + 'evening.label;')).toEqual(UNRESOLVED);
+    const twice = setup + functions + 'route(); desk=evening; route();';
+    expect(resolve(twice + 'opening.label;')).toEqual(UNRESOLVED);
+    expect(resolve(twice + 'evening.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('follows a helper return to the object supplied on that particular call', () => {
+    const setup = 'const opening={label:"opening"}; const evening={label:"evening"};';
+    const route =
+      'function select(desk){const chosen=desk;return chosen;} select(opening); select(evening).label="closing";';
+    expect(resolve(setup + route + 'evening.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + route + 'opening.label;')).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('keeps unrelated titles readable when a write uses the return of an ambient helper', () => {
+    const code = 'declare function externalDesk(): {label:string}; const opening={label:"opening"};';
+    expect(resolve(code + 'externalDesk().label="closing"; opening.label;')).toEqual({ ok: true, value: 'opening' });
+  });
+
+  it('uses the default reference only when the supplied argument could be undefined', () => {
+    const setup = 'const opening={desk:{label:"opening"}}; const evening={desk:{label:"evening"}};';
+    const helper = 'function close(desk=opening.desk){desk.label="closing";}';
+    expect(resolve(setup + helper + 'close(evening.desk); opening.desk.label;')).toEqual({
+      ok: true,
+      value: 'opening',
+    });
+    expect(resolve(setup + helper + 'close(); opening.desk.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + helper + 'delete evening.desk;close(evening.desk); opening.desk.label;')).toEqual(
+      UNRESOLVED,
+    );
+  });
+
+  it('keeps a default object independent when a caller supplies a known array element', () => {
+    const code = 'const opening={label:"opening"};const desks=[,{label:"evening"}];const flags=[true];';
+    const close = 'function close(desk=opening){desk.label="closing";}';
+    expect(resolve(code + close + 'close(desks[1]); opening.label;')).toEqual({ ok: true, value: 'opening' });
+    expect(resolve(code + close + 'close(desks[0]); opening.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('preserves possible defaults for missing members, opaque arguments and spread data', () => {
+    const setup = 'const opening={label:"opening"};function close(desk=opening){if(desk)desk.label="closing";}';
+    for (const call of [
+      'const book={};close(book.desk);',
+      'const book={desk:0};close(book.desk.label);',
+      'const book={desk:{}};close(book[key()]);',
+      'const book={__proto__:null};close(book.__proto__);',
+      'const desks=[...readDesks()];close(desks[0]);',
+      'close(findDesk());',
+      'function route(){close(findDesk());} route();',
+    ])
+      expect(resolve(setup + call + ' opening.label;')).toEqual(UNRESOLVED);
+  });
+
+  it('follows changes to shared rest arguments and preserves independent argument objects', () => {
+    const setup = 'const day={label:"day"}; const night={label:"night"};';
+    const change = 'function close(...desks){desks[1].label="closing";} close(day,night);';
+    expect(resolve(setup + change + 'day.label;')).toEqual({ ok: true, value: 'day' });
+    expect(resolve(setup + change + 'night.label;')).toEqual(UNRESOLVED);
+    expect(resolve(setup + 'function reverse(...desks){desks.reverse();} reverse(day,night); day.label;')).toEqual({
+      ok: true,
+      value: 'day',
+    });
+  });
+
+  it('distinguishes writing to a promise or iterator from writing to the object its function returns', () => {
+    for (const declaration of ['async function select(desk){return desk;}', 'function* select(desk){return desk;}']) {
+      expect(
+        resolve('const book={label:"opening"};' + declaration + 'select(book).label="closing"; book.label;'),
+      ).toEqual({ ok: true, value: 'opening' });
+    }
+  });
+
   it('tracks objects selected by an expression and preserves titles when their branch cannot supply the alias', () => {
     const prefix = 'const book={desk:{label:"opening auction"}};';
     for (const expression of [

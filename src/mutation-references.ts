@@ -1,5 +1,12 @@
-import type { AssignmentTarget, AssignmentTargetMaybeDefault, BindingPattern, Expression, Node } from 'oxc-parser';
-import { propertyKey, propertyName, unwrapChain } from './ast.ts';
+import type {
+  AssignmentTarget,
+  AssignmentTargetMaybeDefault,
+  BindingPattern,
+  CallExpression,
+  Expression,
+  Node,
+} from 'oxc-parser';
+import { isFunctionNode, propertyKey, propertyName, returnValues, unwrapChain, type FunctionNode } from './ast.ts';
 
 type Key = string | null;
 interface Site {
@@ -16,10 +23,16 @@ export interface AliasBinding extends Site {
   end: number;
   replaces: boolean;
 }
+export interface HelperInvocation extends Site {
+  call: CallExpression;
+  fn: FunctionNode;
+  parameterScopes: readonly Node[];
+}
 interface AliasSource extends Site {
   ref: Reference;
-  end: number;
+  end: number | null;
   replaces: boolean;
+  invocation?: HelperInvocation;
 }
 interface Reference {
   value: Expression;
@@ -39,6 +52,11 @@ const DEFINED = new Set<Node['type']>([
   'TemplateLiteral',
 ]);
 
+function memberKey(member: Extract<Expression, { type: 'MemberExpression' }>): Key {
+  const key = member.property;
+  return key.type === 'Literal' && typeof key.value === 'number' ? String(key.value) : propertyName(member);
+}
+
 /** Which operand supplies a reference when the condition can be decided without reading mutable bindings. */
 function selected(value: Extract<Expression, { type: 'ConditionalExpression' | 'LogicalExpression' }>): Expression[] {
   const conditional = value.type === 'ConditionalExpression';
@@ -56,7 +74,7 @@ function selected(value: Extract<Expression, { type: 'ConditionalExpression' | '
 }
 
 /** Possible references at a property, including a missing value when destructuring could use its default. */
-function* property(ref: Reference, key: Key): Generator<Reference | null> {
+function* property(ref: Reference, key: Key): Generator<Reference | null, void> {
   const value = ref.value;
   if (ref.path.length || (value.type !== 'ObjectExpression' && value.type !== 'ArrayExpression')) {
     yield { value, path: [...ref.path, key] };
@@ -93,26 +111,95 @@ function* property(ref: Reference, key: Key): Generator<Reference | null> {
   yield null;
 }
 
+/** Literal data cannot call a getter, evaluate a computed key or change an earlier declaration. */
+function plainData(node: Expression): boolean {
+  if (node.type === 'Literal') return true;
+  if (node.type === 'ArrayExpression')
+    return node.elements.every((item) => !item || (item.type !== 'SpreadElement' && plainData(item)));
+  return (
+    node.type === 'ObjectExpression' &&
+    node.properties.every(
+      (entry) => entry.type === 'Property' && entry.kind === 'init' && !entry.computed && plainData(entry.value),
+    )
+  );
+}
+
+/** A top-level call can read consecutive declarations of literal data before anything can change their properties. */
+function suppliedMember(ref: Reference, invocation: HelperInvocation): boolean {
+  const { call, scopes, statement } = invocation;
+  const program = scopes[0];
+  if (
+    statement?.type !== 'ExpressionStatement' ||
+    statement.expression !== call ||
+    program.type !== 'Program' ||
+    call.arguments.length !== 1 ||
+    call.arguments[0] !== ref.value
+  )
+    return false;
+  let root = ref.value;
+  const path = [...ref.path];
+  while (root.type === 'MemberExpression') {
+    path.unshift(memberKey(root));
+    root = unwrapChain(root.object);
+  }
+  if (root.type !== 'Identifier') return false;
+  for (let i = program.body.indexOf(statement) - 1; i >= 0; i--) {
+    const previous = program.body[i];
+    if (previous.type === 'FunctionDeclaration' || previous.type === 'EmptyStatement') continue;
+    if (
+      previous.type !== 'VariableDeclaration' ||
+      previous.kind !== 'const' ||
+      !previous.declarations.every((d) => d.id.type === 'Identifier' && d.init && plainData(d.init))
+    )
+      break;
+    const initial = previous.declarations.find((d) => d.id.type === 'Identifier' && d.id.name === root.name)?.init;
+    if (!initial) continue;
+    let current = direct(initial);
+    for (const key of path) {
+      if (
+        key === null ||
+        key === '__proto__' ||
+        (current.value.type !== 'ObjectExpression' && current.value.type !== 'ArrayExpression')
+      )
+        return false;
+      const next = property(current, key).next().value;
+      if (!next) return false;
+      current = next;
+    }
+    return true;
+  }
+  return false;
+}
+
 function bind(
-  pattern: BindingPattern | AssignmentTargetMaybeDefault,
+  pattern: BindingPattern | AssignmentTargetMaybeDefault | FunctionNode['params'][number],
   ref: Reference | null,
-  add: (name: string, ref: Reference) => void,
+  add: (name: string, ref: Reference, fromDefault?: boolean) => void,
+  invocation?: HelperInvocation,
 ): void {
   if (pattern.type === 'AssignmentPattern') {
-    if (ref) bind(pattern.left, ref, add);
-    if (!ref || ref.path.length || !DEFINED.has(ref.value.type)) bind(pattern.left, direct(pattern.right), add);
+    if (ref) bind(pattern.left, ref, add, invocation);
+    if (!ref || ((ref.path.length || !DEFINED.has(ref.value.type)) && !(invocation && suppliedMember(ref, invocation))))
+      bind(
+        pattern.left,
+        direct(pattern.right),
+        (name, value) => {
+          add(name, value, true);
+        },
+        invocation,
+      );
   } else if (!ref) return;
   else if (pattern.type === 'Identifier') add(pattern.name, ref);
   else if (pattern.type === 'ObjectPattern') {
     for (const entry of pattern.properties) {
-      if (entry.type === 'RestElement') bind(entry.argument, { ...ref, rest: 0 }, add);
-      else for (const child of property(ref, propertyKey(entry))) bind(entry.value, child, add);
+      if (entry.type === 'RestElement') bind(entry.argument, { ...ref, rest: 0 }, add, invocation);
+      else for (const child of property(ref, propertyKey(entry))) bind(entry.value, child, add, invocation);
     }
   } else if (pattern.type === 'ArrayPattern') {
     for (const [index, item] of pattern.elements.entries()) {
       if (!item) continue;
-      if (item.type === 'RestElement') bind(item.argument, { ...ref, rest: index }, add);
-      else for (const child of property(ref, String(index))) bind(item, child, add);
+      if (item.type === 'RestElement') bind(item.argument, { ...ref, rest: index }, add, invocation);
+      else for (const child of property(ref, String(index))) bind(item, child, add, invocation);
     }
   }
 }
@@ -121,30 +208,54 @@ function bind(
 export function changedReferences(
   declarations: AliasBinding[],
   targets: MutationTarget[],
+  calls: ReadonlyMap<CallExpression, HelperInvocation>,
+  callTimes: ReadonlyMap<Node, number | null>,
   bindingKey: (name: string, scopes: readonly Node[]) => string | null,
 ): Set<string> {
   const names = new Set<string>();
-  if (!targets.length) return names;
   const bindings = new Map<string, AliasSource[]>();
+  const add = (name: string, scopes: readonly Node[], source: AliasSource) => {
+    const key = bindingKey(name, scopes);
+    if (key === null) return;
+    const previous = bindings.get(key);
+    if (previous) previous.push(source);
+    else bindings.set(key, [source]);
+  };
   for (const { pattern, source, scopes, statement, end, replaces } of declarations) {
     bind(pattern, direct(source), (name, ref) => {
-      const key = bindingKey(name, scopes);
-      if (key === null) return;
-      const source = { ref, scopes, statement, end, replaces };
-      const previous = bindings.get(key);
-      if (previous) previous.push(source);
-      else bindings.set(key, [source]);
+      add(name, scopes, { ref, scopes, statement, end: statement ? end : null, replaces });
     });
   }
+  for (const invocation of calls.values()) {
+    const { call, fn, scopes, statement, parameterScopes } = invocation;
+    // A parameter list destructures the argument list. Rest parameters share its elements, not the list itself.
+    const args = direct({ type: 'ArrayExpression', elements: call.arguments, start: call.start, end: call.end });
+    const bindArgument = (name: string, ref: Reference, fromDefault = false) => {
+      add(name, parameterScopes, {
+        ref,
+        scopes: fromDefault ? parameterScopes : scopes,
+        statement: fromDefault ? null : statement,
+        end: null,
+        invocation,
+        replaces: false,
+      });
+    };
+    for (const [index, parameter] of fn.params.entries()) {
+      if (parameter.type === 'RestElement') bind(parameter.argument, { ...args, rest: index }, bindArgument);
+      else {
+        for (const source of property(args, String(index))) bind(parameter, source, bindArgument, invocation);
+      }
+    }
+  }
   const active = new Set<Node>();
+  const returning: HelperInvocation[] = [];
   const follow = (ref: Reference, suffix: Key[], site: Site): void => {
     if (ref.rest !== undefined && suffix.length === 0) return;
     const path = [...ref.path, ...suffix];
     if (ref.rest && suffix[0] !== null) path[ref.path.length] = String(Number(suffix[0]) + ref.rest);
     let value = ref.value;
     while (value.type === 'MemberExpression') {
-      const key = value.property;
-      path.unshift(key.type === 'Literal' && typeof key.value === 'number' ? String(key.value) : propertyName(value));
+      path.unshift(memberKey(value));
       value = unwrapChain(value.object);
     }
     if (value.type === 'Identifier') {
@@ -155,16 +266,38 @@ export function changedReferences(
       if (!sources || active.has(value)) return;
       active.add(value);
       // Only an unconditional module-level assignment rules out earlier top-level sources.
-      const readAt = value.start;
+      const owner = site.scopes.findLast((scope) => scope.type === 'FunctionDeclaration' || isFunctionNode(scope));
+      const readAt = site.statement ? value.start : owner && callTimes.get(owner);
       let replacedAt = 0;
-      if (site.statement) {
+      if (typeof readAt === 'number') {
         for (const source of sources)
-          if (source.replaces && source.end <= readAt) replacedAt = Math.max(replacedAt, source.end);
+          if (source.replaces && source.end !== null && source.end <= readAt)
+            replacedAt = Math.max(replacedAt, source.end);
       }
       for (const source of sources) {
-        if (site.statement && source.statement && (source.end < replacedAt || source.end > readAt)) continue;
+        if (typeof readAt === 'number' && source.end !== null && (source.end < replacedAt || source.end > readAt))
+          continue;
+        const invocation = source.invocation;
+        if (invocation) {
+          const frame = returning.findLast((call) => call.fn === invocation.fn);
+          if (frame && frame !== invocation) continue;
+        }
         follow(source.ref, path, source);
       }
+      active.delete(value);
+    } else if (value.type === 'CallExpression') {
+      const invocation = calls.get(value);
+      if (!invocation || active.has(value)) return;
+      const returns = returnValues(invocation.fn);
+      if (!returns) return;
+      active.add(value);
+      returning.push(invocation);
+      for (const result of returns)
+        follow(direct(result.expression), path, {
+          scopes: [...invocation.parameterScopes, ...result.around],
+          statement: null,
+        });
+      returning.pop();
       active.delete(value);
     } else if (value.type === 'ConditionalExpression' || value.type === 'LogicalExpression') {
       for (const source of selected(value)) follow(direct(source), path, site);

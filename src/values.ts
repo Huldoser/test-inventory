@@ -8,7 +8,12 @@ import {
   unwrapChain,
   type FunctionNode,
 } from './ast.ts';
-import { changedReferences, type AliasBinding, type MutationTarget } from './mutation-references.ts';
+import {
+  changedReferences,
+  type AliasBinding,
+  type HelperInvocation,
+  type MutationTarget,
+} from './mutation-references.ts';
 
 export type Value = string | number | boolean | null | undefined | Value[] | { [key: string]: Value };
 
@@ -743,10 +748,7 @@ export class Values {
   private changedAtLoad(program: Node, binding: Binding, name: string): boolean {
     let names = this.changed.get(program);
     if (!names) {
-      names = changedNames(program, (identifier, scopes) => {
-        const declaration = this.declarationOf(identifier, scopes);
-        return declaration && mutationKey(declaration, identifier);
-      });
+      names = changedNames(program, this);
       this.changed.set(program, names);
     }
     return names.has(mutationKey(binding.declaration, name));
@@ -973,15 +975,19 @@ function mutatedObject(node: Node): Expression | null {
  * `const all = SIDES`. The callbacks of tests, hooks and steps run after the runner has read titles and tables, so
  * what they change doesn't count.
  */
-function changedNames(
-  program: Node,
-  bindingKey: (name: string, scopes: readonly Node[]) => string | null,
-): Set<string> {
+function changedNames(program: Node, values: Values): Set<string> {
   const targets: MutationTarget[] = [];
   const declarations: AliasBinding[] = [];
-  const walk = (node: Node, ancestors: readonly Node[], statement: Node | null): void => {
+  const callsByOwner = new Map<
+    Node,
+    { call: CallExpression; scopes: readonly Node[]; statement: Node | null; runsLater: boolean }[]
+  >();
+  const walk = (node: Node, ancestors: readonly Node[], statement: Node | null, owner: Node): void => {
     const scopes = isScopeNode(node) ? [...ancestors, node] : ancestors;
-    if (isFunctionNode(node) || node.type === 'ClassBody') statement = null;
+    if (node.type === 'FunctionDeclaration' || isFunctionNode(node)) {
+      owner = node;
+      statement = null;
+    } else if (node.type === 'ClassBody') statement = null;
     const target = mutatedObject(node);
     if (target) targets.push({ value: target, scopes, statement });
     if (node.type === 'VariableDeclarator' && node.init)
@@ -997,24 +1003,63 @@ function changedNames(
       });
     if (node.type === 'IfStatement' && node.test.type === 'Literal' && typeof node.test.value === 'boolean') {
       const branch = node.test.value ? node.consequent : node.alternate;
-      if (branch) walk(branch, scopes, statement);
+      if (branch) walk(branch, scopes, statement, owner);
       return;
     }
     if (node.type === 'CallExpression') {
       const callee = calleeNames(node.callee);
       const runsLater = callee.some((name) => RUNS_LATER.has(name)) && !callee.some((name) => RUNS_NOW.has(name));
-      walk(node.callee, scopes, statement);
+      const sites = callsByOwner.get(owner);
+      const site = { call: node, scopes, statement, runsLater };
+      if (sites) sites.push(site);
+      else callsByOwner.set(owner, [site]);
+      walk(node.callee, scopes, statement, owner);
       for (const argument of node.arguments)
-        if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes, statement);
+        if (!runsLater || !isFunctionNode(argument)) walk(argument, scopes, statement, owner);
       return;
     }
     for (const child of childNodes(node)) {
       const top = node === program && (child.type === 'VariableDeclaration' || child.type === 'ExpressionStatement');
-      walk(child, scopes, top ? child : statement);
+      walk(child, scopes, top ? child : statement, owner);
     }
   };
-  walk(program, [], null);
-  return changedReferences(declarations, targets, bindingKey);
+  walk(program, [], null, program);
+  if (!targets.length) return new Set();
+  const calls = new Map<CallExpression, HelperInvocation>();
+  const callable = (expression: Expression, scopes: readonly Node[]) => {
+    const callee = unwrapChain(expression);
+    if (isFunctionNode(callee)) return { fn: callee, scopes };
+    return callee.type === 'Identifier' ? values.functionWithScopes(callee.name, scopes) : null;
+  };
+  // A single synchronous invocation gives reads of captured module variables a known point in module order.
+  const callTimes = new Map<Node, number | null>([[program, null]]);
+  const pending = [program];
+  const activate = (fn: FunctionNode, time: number | null) => {
+    const previous = callTimes.get(fn);
+    if (previous === null || previous === time) return;
+    callTimes.set(fn, previous === undefined ? time : null);
+    pending.push(fn);
+  };
+  for (const owner of pending) {
+    for (const { call, scopes, statement, runsLater } of callsByOwner.get(owner) ?? []) {
+      const helper = callable(call.callee, scopes);
+      if (helper) {
+        const time = statement ? call.start : (callTimes.get(owner) ?? null);
+        activate(helper.fn, helper.fn.async || helper.fn.generator ? null : time);
+        calls.set(call, { call, fn: helper.fn, parameterScopes: [...helper.scopes, helper.fn], scopes, statement });
+      } else if (!runsLater) {
+        for (const arg of call.arguments) {
+          if (arg.type === 'SpreadElement') continue;
+          const callback = callable(arg, scopes);
+          if (callback) activate(callback.fn, null);
+        }
+      }
+    }
+  }
+  return changedReferences(declarations, targets, calls, callTimes, (identifier, scopes) => {
+    const declaration = values.declarationOf(identifier, scopes);
+    return declaration && mutationKey(declaration, identifier);
+  });
 }
 
 /** A declaration can bind several names in a parameter list or destructuring pattern. */
