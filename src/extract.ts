@@ -190,6 +190,7 @@ interface Registration {
 interface Context {
   /** Evaluating an argument to a runner API at collection time, before the runner receives it. */
   evaluatingArgument?: boolean;
+  parameterDefaults?: ReadonlyMap<Node, boolean | null>;
   /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
   registration?: Registration;
   emptySuiteAt?: number;
@@ -695,6 +696,14 @@ class Walker {
         isFunctionNode(node)
       )
         return;
+      if (node.type === 'AssignmentPattern') {
+        const selected = context.parameterDefaults?.get(node);
+        if (selected !== undefined) {
+          this.visitBranch(node.right, context, `${this.text(node.left)} === undefined`, selected);
+          this.visit(node.left, context);
+          return;
+        }
+      }
       if (node.type === 'ClassBody') {
         // Class creation computes the keys first, then initializes static elements in declaration order.
         for (const member of node.body) if ('computed' in member && member.computed) this.visit(member.key, context);
@@ -1536,10 +1545,21 @@ class Walker {
   private walkAtCall({ fn, frame }: Callee, call: CallExpression, context: Context): void {
     this.walkedAtCall.add(fn);
     // Arguments are worked out where the call is, in the file and scopes of the caller.
-    const spread = call.arguments.findIndex((item) => item.type === 'SpreadElement');
-    const args = (spread === -1 ? call.arguments : call.arguments.slice(0, spread)).map((item) =>
-      this.frame.values.resolve(item as Expression, this.scopes),
-    );
+    const args: Resolved[] = [];
+    let complete = true;
+    for (const item of call.arguments) {
+      if (item.type !== 'SpreadElement') {
+        args.push(this.frame.values.resolve(item, this.scopes));
+        continue;
+      }
+      const list = context.evaluatingArgument && this.frame.values.resolve(item.argument, this.scopes);
+      if (!list || !list.ok || !(Array.isArray(list.value) || typeof list.value === 'string')) {
+        complete = false;
+        break;
+      }
+      for (const value of list.value) args.push({ ok: true, value });
+    }
+    const defaults = context.evaluatingArgument ? new Map<Node, boolean | null>() : undefined;
     const caller = this.frame;
     const site = this.site;
     if (frame !== caller) {
@@ -1562,6 +1582,7 @@ class Walker {
           {
             ...context,
             registration,
+            parameterDefaults: defaults,
             isInFunction: true,
             declaredIn: null,
             calledIn: context.declaredIn ? { fn: context.declaredIn, call } : context.calledIn,
@@ -1570,7 +1591,8 @@ class Walker {
           context.evaluatingArgument && fn.generator,
         );
       },
-      spread === -1,
+      complete,
+      defaults,
     );
     this.callStack.pop();
     this.scopes.splice(0, this.scopes.length, ...saved);

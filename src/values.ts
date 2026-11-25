@@ -130,7 +130,8 @@ export class Values {
    * titles and values built from them resolve, as in `test(\`${side} rejects a zero quantity\`)` inside
    * `validatesQuantity('buy')`. `args` stop at a spread argument, after which no position is known, and `complete` is
    * false then. A missing argument takes the parameter's default value, worked out in `scopes`, the scopes around the
-   * function. A rest parameter, as `...cycles`, holds the arguments left.
+   * function. A rest parameter, as `...cycles`, holds the arguments left. When collecting parameter side effects,
+   * `defaults` records whether each initializer runs. A null entry means the supplied value is unknown.
    */
   withArguments<T>(
     fn: FunctionNode,
@@ -138,6 +139,7 @@ export class Values {
     scopes: readonly Node[],
     read: () => T,
     complete = true,
+    defaults?: Map<Node, boolean | null>,
   ): T {
     const parameters = new Map<string, () => Resolved>();
     for (const [index, parameter] of fn.params.entries()) {
@@ -145,9 +147,10 @@ export class Values {
         const rest = args.slice(index);
         const unknown = complete ? rest.find((item) => !item.ok) : UNRESOLVED;
         const value = unknown ?? { ok: true, value: rest.map((item) => (item as { value: Value }).value) };
-        this.bind(parameter.argument, value, parameters, [...scopes, fn]);
+        this.bind(parameter.argument, value, parameters, [...scopes, fn], defaults);
       } else {
-        this.bind(parameter, args.at(index), parameters, [...scopes, fn]);
+        const value = args.at(index) ?? (!complete && defaults ? UNRESOLVED : undefined);
+        this.bind(parameter, value, parameters, [...scopes, fn], defaults);
       }
     }
     // A parameter the function assigns to may hold another value by the time it is read.
@@ -201,6 +204,7 @@ export class Values {
     value: Resolved | undefined,
     names: Map<string, () => Resolved>,
     scopes: readonly Node[],
+    defaults?: Map<Node, boolean | null>,
   ): void {
     switch (pattern.type) {
       case 'Identifier':
@@ -208,8 +212,9 @@ export class Values {
         return;
       case 'AssignmentPattern': {
         const useDefault = !value || (value.ok && value.value === undefined);
+        defaults?.set(pattern, value && !value.ok ? null : useDefault);
         if (!useDefault) {
-          this.bind(pattern.left, value, names, scopes);
+          this.bind(pattern.left, value, names, scopes, defaults);
           return;
         }
         const fallback = pattern.right;
@@ -217,7 +222,7 @@ export class Values {
           names.set(pattern.left.name, () => this.resolve(fallback, scopes));
           return;
         }
-        this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes);
+        this.bind(pattern.left, this.resolve(fallback, scopes), names, scopes, defaults);
         return;
       }
       case 'ArrayPattern':
@@ -226,8 +231,8 @@ export class Values {
           const list = value.ok && Array.isArray(value.value) ? value.value : null;
           const part = (rest: boolean): Resolved =>
             list ? { ok: true, value: rest ? list.slice(index) : list[index] } : value.ok ? UNRESOLVED : value;
-          if (element.type === 'RestElement') this.bind(element.argument, part(true), names, scopes);
-          else this.bind(element, part(false), names, scopes);
+          if (element.type === 'RestElement') this.bind(element.argument, part(true), names, scopes, defaults);
+          else this.bind(element, part(false), names, scopes, defaults);
         }
         return;
       case 'ObjectPattern': {
@@ -242,6 +247,7 @@ export class Values {
               rest ? { ok: true, value: rest } : value.ok ? UNRESOLVED : value,
               names,
               scopes,
+              defaults,
             );
             continue;
           }
@@ -250,7 +256,7 @@ export class Values {
           if (name !== null) taken.push(name);
           const part: Resolved =
             object && name !== null ? { ok: true, value: object[name] } : value.ok ? UNRESOLVED : value;
-          this.bind(property.value, part, names, scopes);
+          this.bind(property.value, part, names, scopes, defaults);
         }
         return;
       }

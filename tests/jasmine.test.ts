@@ -412,6 +412,42 @@ it('records the trade', () => {}, 4, class {
     ]);
   });
 
+  it('runs helper parameter defaults only for undefined values, including spread and destructured arguments', () => {
+    const result = scanJasmine(`
+function quote(price = it('loads a price', () => {})) {}
+function fees({rates: [rate = it('loads a rate', () => {})]} = {rates: []}) {}
+function limit() { const {daily = it('loads the desk limit', () => {})} = {}; }
+describe('cash desk', () => {
+  it('uses supplied prices', () => {}, 25, quote(null), quote(...[30]), fees(...[{rates: [15]}]));
+  it('uses default prices', () => {}, 25, quote(undefined), fees(), limit());
+});`);
+    expect(result.tests.map((test) => test.title)).toEqual([
+      'uses supplied prices',
+      'loads a price',
+      'loads a rate',
+      'loads the desk limit',
+      'uses default prices',
+    ]);
+  });
+
+  it('keeps a possible default registration after an unresolved spread without stopping the enclosing call', () => {
+    const result = scanJasmine(`
+function fallback() { it('opens the reserve feed', () => {}); throw Error('reserve unavailable'); }
+function quote(price = fallback()) {}
+function fees({price = it('loads the fee', () => {})}) {}
+it('reads the feed', () => {}, 25, quote(...currentPrices));
+it('reads a symbol', () => {}, 25, quote(...'FX'));
+it('reads the fee', () => {}, 25, fees(currentBook));
+it('closes the ledger', () => {});`);
+    for (const title of ['opens the reserve feed', 'loads the fee']) {
+      expect(testNamed(result, title).isInCondition).toBe(true);
+    }
+    expect(result.tests.filter((test) => test.title === 'opens the reserve feed')).toHaveLength(1);
+    for (const title of ['reads the feed', 'reads a symbol', 'reads the fee', 'closes the ledger']) {
+      expect(testNamed(result, title).state).toBe('active');
+    }
+  });
+
   it('omits a recovery spec when the preceding Jasmine registrations complete normally', () => {
     for (const frameworkVersion of ['3.99.1', '4.0.0', '5.13.0', '7.0.2']) {
       for (const [api, refused] of [
