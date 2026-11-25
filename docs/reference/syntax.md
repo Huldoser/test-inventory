@@ -230,9 +230,10 @@ Jasmine 3 accepts empty suites. From 4.0, a plain `describe` that registers no s
 The scan also recognizes an empty suite when its only spec is inside an uncalled function, follows an unconditional return, or sits in a branch guarded by a false literal or local constant. If evaluating an initializer or hook argument could register a spec or throw, the scan leaves the suite's registration open.
 
 Where an error is written decides what Jasmine does. At the top level of a file, it stops Jasmine before it runs any
-spec, in this file or any other, and every test in the file is `notLoaded`. Inside a describe, Jasmine catches it: it
-reports the describe as failed and registers none of the specs written after the call in it; the scan reports the
-error, keeps the file's tests as they are, and still lists those later specs. `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
+spec, in this file or any other, and every test in the file is `notLoaded`. Inside a describe, Jasmine catches errors
+that escape its callback. The scan marks subsequent specs in that callback `notLoaded`, including registrations made
+through helpers. Earlier specs and sibling suites keep their states. A user-written `catch` can resume collection,
+and `finally` can register specs before the error escapes. `jasmine.DEFAULT_TIMEOUT_INTERVAL` set in
 a helper or spec file is not read. A `beforeEach` in a helper file runs around every spec, but is not counted in
 `hooks`.
 

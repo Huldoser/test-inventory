@@ -61,6 +61,7 @@ const IN_SPEC = Symbol('in a spec');
 const IN_DESCRIBE = Symbol('in a describe');
 
 export class JasmineAdapter extends SuiteAdapter {
+  readonly catchesSuiteErrors = true;
   /** What the runner does with a call it refuses at the top level of a file, as the end of a sentence. */
   protected readonly refusedEffect: string = 'Jasmine stops before it runs any spec';
   /** Whether a number after a spec's timeout is a retry count, as WebdriverIO reads it. */

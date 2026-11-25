@@ -696,7 +696,11 @@ class RecordBuilder {
     const tagged = <T>(own: T[], tag: T[], around: T[]) =>
       tagsFirst ? [...own, ...tag, ...around] : [...own, ...around, ...tag];
     const jest = this.options.framework === 'jest' ? this.jestState(pending, scopes) : null;
-    const focus = this.options.focusesLikeJasmine ? this.jasmineFocus(pending, scopes) : undefined;
+    const focus = this.options.focusesLikeJasmine
+      ? pending.registrationStoppedAt === undefined
+        ? this.jasmineFocus(pending, scopes)
+        : null
+      : undefined;
     const mocha =
       !this.options.focusesLikeJasmine && ['mocha', 'cypress', 'webdriverio'].includes(this.options.framework);
     // A focus inside an `xdescribe` runs, as the describe's own skip doesn't reach it; `pending()` still does. An
@@ -743,13 +747,15 @@ class RecordBuilder {
           ...around.filter((candidate) => !candidate.overrides),
         ]);
     // When the runner refuses the file, no test in it runs, whatever else is written, or none after the refused call.
-    const scopeFailure = scopes
-      .map((scope) => this.rejectedScopes.get(scope))
-      .find(
-        (failure) => failure !== undefined && (this.options.framework === 'bun' || located.start >= failure.offset),
-      );
+    const scopeFailureLine =
+      (this.rejectedAt === null ? pending.registrationStoppedAt : undefined) ??
+      scopes
+        .map((scope) => this.rejectedScopes.get(scope))
+        .find(
+          (failure) => failure !== undefined && (this.options.framework === 'bun' || located.start >= failure.offset),
+        )?.line;
     const rejected =
-      scopeFailure !== undefined ||
+      scopeFailureLine !== undefined ||
       (this.rejectedAt !== null &&
         !(this.keepsEarlierTests && this.parsed.source.line(located.start) < this.rejectedAt));
     const state: TestState = rejected ? 'notLoaded' : (chosen?.setting.state ?? 'active');
@@ -852,8 +858,8 @@ class RecordBuilder {
       condition: setting?.condition ?? null,
       reason: setting?.reason ?? null,
       hasDynamicReason: setting?.hasDynamicReason ?? false,
-      stateSource: scopeFailure ? 'suite' : rejected ? 'file' : (chosen?.source ?? null),
-      stateLine: scopeFailure ? scopeFailure.line : rejected ? this.rejectedAt : (setting?.line ?? null),
+      stateSource: scopeFailureLine !== undefined ? 'suite' : rejected ? 'file' : (chosen?.source ?? null),
+      stateLine: scopeFailureLine ?? (rejected ? this.rejectedAt : (setting?.line ?? null)),
       isParallel: mode === 'parallel',
       isSerial: mode === 'serial',
       tags,

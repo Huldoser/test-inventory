@@ -345,6 +345,107 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('uses registration order when a helper interrupts its containing suite', () => {
+    const inventory = scanJasmine(`
+function recordFill() { it('records a fill', () => {}); }
+function rejectFee() { it('charges a fee', 42); }
+describe('cash trades', () => {
+  recordFill();
+  rejectFee();
+  recordFill();
+  describe('at close', () => { it('posts interest', () => {}); });
+});
+describe('margin trades', () => { recordFill(); });
+`);
+    expect(inventory.tests.map((t) => [t.fullName, t.state, t.stateLine])).toEqual([
+      ['cash trades > records a fill', 'active', null],
+      ['cash trades > records a fill', 'notLoaded', 3],
+      ['cash trades > at close > posts interest', 'notLoaded', 3],
+      ['margin trades > records a fill', 'active', null],
+    ]);
+  });
+
+  it('preserves earlier focus and isolates failures for each invocation of a named suite callback', () => {
+    const inventory = scanJasmine(`
+function checkBook() { it('opens the desk', () => {}); it('checks a fee', 42); fit('closes the desk', () => {}); }
+fdescribe('cash book', checkBook);
+describe('margin book', checkBook);
+it('balances both books', () => {});
+`);
+    expect(Object.fromEntries(states(inventory).map(([name, ...state]) => [name, state]))).toEqual({
+      'cash book > opens the desk': ['active', true],
+      'cash book > closes the desk': ['notLoaded', false],
+      'margin book > opens the desk': ['active', false],
+      'margin book > closes the desk': ['notLoaded', false],
+      'balances both books': ['active', false],
+    });
+  });
+
+  it('collects recovery and cleanup specs on the paths Jasmine reaches', () => {
+    for (const expandCases of [false, true]) {
+      for (const [route, late] of [
+        ['try { rejectFee(); lateQuote(); } catch (e) { recover(); } finally { clean(); }', 'active'],
+        ['try { rejectFee(); lateQuote(); } finally { clean(); }', 'notLoaded'],
+        ['try { rejectFee(); lateQuote(); } catch (e) { recover(); throw e; } finally { clean(); }', 'notLoaded'],
+      ] as const) {
+        const inventory = scanJasmine(
+          `
+function rejectFee() { it('charges a fee', 42); }
+function lateQuote() { it('quotes a late price', () => {}); }
+function recover() { it('recovers the trade', () => {}); }
+function clean() { it('clears the ledger', () => {}); }
+describe('order desk', () => { ${route} it('closes the desk', () => {}); });
+it('balances both desks', () => {});
+`,
+          { expandCases },
+        );
+        expect(testNamed(inventory, 'quotes a late price').state, route).toBe('notLoaded');
+        expect(testNamed(inventory, 'clears the ledger').state, route).toBe('active');
+        expect(testNamed(inventory, 'closes the desk').state, route).toBe(late);
+        expect(testNamed(inventory, 'balances both desks').state, route).toBe('active');
+      }
+    }
+  });
+
+  it('propagates only faults on paths that run during suite registration', () => {
+    for (const [route, state] of [
+      ['if (true) rejectFee();', 'notLoaded'],
+      ['if (false) rejectFee();', 'active'],
+      ['if (process.env.SETTLEMENT) rejectFee();', 'active'],
+      ["for (const venue of ['lit']) rejectFee();", 'notLoaded'],
+      ['for (const venue of []) rejectFee();', 'active'],
+      ['for (const venue of venues) rejectFee();', 'active'],
+      ['function chooseDesk() { if (false) return; rejectFee(); } chooseDesk();', 'notLoaded'],
+      ['function chooseDesk() { if (true) return; rejectFee(); } chooseDesk();', 'active'],
+      ['function chooseDesk() { return; rejectFee(); } chooseDesk();', 'active'],
+      ['function chooseDesk() { rejectFee(); }', 'active'],
+      ["it('checks the close', () => { throw Error('late quote'); });", 'active'],
+    ]) {
+      const inventory = scanJasmine(`
+function rejectFee() { it('charges a fee', 42); }
+describe('trades', () => { ${route} it('closes the desk', () => {}); });
+`);
+      expect(testNamed(inventory, 'closes the desk').state, route).toBe(state);
+    }
+    const late = scanJasmine(`
+fdescribe('closing auction', () => {
+  it('opens the desk', () => {});
+  it('charges a fee', 42);
+  beforeEach(() => pending());
+  fdescribe('fees', () => { it('posts interest', () => {}); });
+});`);
+    expect(testNamed(late, 'opens the desk')).toMatchObject({
+      isOnly: true,
+      state: 'active',
+      hooks: { beforeEach: 0 },
+    });
+    expect(testNamed(late, 'posts interest')).toMatchObject({
+      isOnly: false,
+      stateSource: 'suite',
+      state: 'notLoaded',
+    });
+  });
+
   it("counts a describe callback's arguments by its length, as Jasmine does: not TypeScript's this, a default or a rest", () => {
     const inventory = scanJasmine(`
 describe('order router', function (this: object) {

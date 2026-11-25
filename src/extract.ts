@@ -93,6 +93,8 @@ export interface PendingSuite {
 }
 
 export interface PendingTest {
+  /** Line where collection stopped before this spec could register in its suite. */
+  registrationStoppedAt?: number;
   scope: Scope;
   /** The test whose body declares this one as a subtest; null for a test declared in the file or a describe. */
   parent: PendingTest | null;
@@ -176,6 +178,8 @@ export interface Extraction {
 }
 
 interface Context {
+  /** Shared by synchronous helper calls, copied for paths that might not run and for nested suites. */
+  registration?: { stoppedAt?: number };
   /** Direct declarations are inventoried under guards even where an import cannot execute. */
   skipImports?: boolean;
   scope: Scope;
@@ -710,11 +714,22 @@ class Walker {
         this.visitBranch(node.right, context, guard, right);
         return;
       }
-      case 'TryStatement':
-        this.visit(node.block, context);
-        // A `catch` block runs only when the `try` block throws, as when a test server can't start.
-        if (node.handler) this.visit(node.handler, this.guarded(context, this.catchCondition(node.handler)));
+      case 'TryStatement': {
+        const attempt = context.registration && { ...context.registration };
+        this.visit(node.block, { ...context, registration: attempt });
+        let failure = attempt?.stoppedAt;
+        if (node.handler) {
+          const handler = this.guarded(context, this.catchCondition(node.handler));
+          this.visit(node.handler, handler);
+          if (failure !== undefined) failure = handler.registration?.stoppedAt;
+        }
         if (node.finalizer) this.visit(node.finalizer, context);
+        if (context.registration && failure !== undefined) context.registration.stoppedAt ??= failure;
+        return;
+      }
+      case 'ThrowStatement':
+        this.visit(node.argument, context);
+        this.stopRegistration(node, context);
         return;
       case 'SwitchStatement': {
         const discriminant = this.text(node.discriminant);
@@ -800,6 +815,7 @@ class Walker {
           ...context,
           isInFunction: true,
           helper: helper ?? context.helper,
+          registration: undefined,
           guards: helper ? [] : context.guards,
         });
         return;
@@ -893,7 +909,12 @@ class Walker {
    * the values of a case or pass; null otherwise, and then both branches are walked under the condition.
    */
   private known(test: Expression, context: Context): { value: Value } | null {
-    if ((!this.options.expandCases && !this.options.collectImports) || context.test || context.hookScope) return null;
+    if (
+      (!this.options.expandCases && !this.options.collectImports && !context.registration) ||
+      context.test ||
+      context.hookScope
+    )
+      return null;
     // Only the values of the case, pass or helper call decide: a constant of the module may be changed in ways the scan
     // doesn't see, and taking a branch away would drop a test the runner registers.
     const names = referencedNames(test);
@@ -913,7 +934,8 @@ class Walker {
     for (const statement of statements) {
       this.visit(statement, current);
       if (statement.type !== 'IfStatement') {
-        if (this.options.collectImports && alwaysLeaves(statement)) current = { ...current, skipImports: true };
+        if ((this.options.collectImports || context.registration) && alwaysLeaves(statement))
+          current = { ...current, skipImports: true };
         continue;
       }
       if (isImportMetaVitest(statement.test)) continue;
@@ -923,7 +945,7 @@ class Walker {
       const known = this.known(statement.test, current);
       const taken = known && (known.value ? thenLeaves : elseLeaves);
       if ((taken && this.options.expandCases) || (thenLeaves && elseLeaves)) return;
-      if (known && this.options.expandCases) continue;
+      if (known && (this.options.expandCases || (context.registration && !taken))) continue;
       const condition = this.text(statement.test);
       current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
       if (taken) current.skipImports = true;
@@ -967,12 +989,21 @@ class Walker {
       if (selected) this.visit(node, context);
       return;
     }
-    const guarded = this.guarded(context, guard);
+    const guarded = this.guarded(context, guard, selected === true);
     this.visit(node, selected === false ? { ...guarded, skipImports: true } : guarded);
   }
 
-  private guarded(context: Context, guard: string | null): Context {
-    return { ...context, isInCondition: true, guards: guard === null ? context.guards : [...context.guards, guard] };
+  private guarded(context: Context, guard: string | null, certain = false): Context {
+    return {
+      ...context,
+      isInCondition: true,
+      guards: guard === null ? context.guards : [...context.guards, guard],
+      registration: !certain && context.registration ? { ...context.registration } : context.registration,
+    };
+  }
+
+  private stopRegistration(node: Span, context: Context): void {
+    if (context.registration && !context.skipImports) context.registration.stoppedAt ??= this.lineOf(node);
   }
 
   /** Visits the body of a callback the framework or a loop calls, rather than a plain function. */
@@ -995,6 +1026,7 @@ class Walker {
     return {
       ...context,
       isInLoop: true,
+      registration: !passes && context.registration ? { ...context.registration } : context.registration,
       loops: [...context.loops, passes],
       loopConditions: [...context.loopConditions, context.isInCondition || pass !== null],
       caseIndex: pass?.index ?? context.caseIndex,
@@ -1176,6 +1208,7 @@ class Walker {
         return true;
       case 'hook':
         if (context.test) return false;
+        if (context.registration?.stoppedAt !== undefined) return true;
         // A function with a name registers its hooks where it is called, not where it is written.
         if (!context.hookScope && context.declaredIn === null) {
           context.scope.hooks[api.name] += 1;
@@ -1188,6 +1221,7 @@ class Walker {
           this.visitCallback(api.fn, {
             ...context,
             hookScope: context.scope,
+            registration: undefined,
             hookName: api.name,
             testContext: api.testContext,
             guards: [],
@@ -1200,6 +1234,7 @@ class Walker {
         context.test?.problems.push(...api.problems.map((item) => this.here(item)));
         return true;
       case 'invalid': {
+        this.stopRegistration(call, context);
         // Code that runs after the file loads, only when a condition holds, or in a function the scan can't place, which
         // runs only if something calls it, can't be sure to stop it loading.
         const afterLoad =
@@ -1486,6 +1521,7 @@ class Walker {
       helper: fn,
       guards: [],
       declaredIn: fn,
+      registration: undefined,
       quiet: this.walkedAtCall.has(fn),
     });
     this.scopes.splice(0, this.scopes.length, ...savedScopes);
@@ -1863,9 +1899,12 @@ class Walker {
     { declaration, index, args }: Case<TestDeclaration>,
     context: Context,
   ): void {
+    const registrationStoppedAt = context.registration?.stoppedAt;
+    if (registrationStoppedAt !== undefined && declaration.isOnly) declaration = { ...declaration, isOnly: false };
     const statement = this.statement(call);
     const empty = emptyTitle(declaration, call);
     const test: PendingTest = {
+      registrationStoppedAt,
       scope: context.scope,
       parent: context.test,
       declaration,
@@ -1904,6 +1943,7 @@ class Walker {
         this.visitCallback(body, {
           ...context,
           test,
+          registration: undefined,
           hookScope: null,
           hookName: null,
           stepDepth: 0,
@@ -1962,6 +2002,8 @@ class Walker {
     { declaration, index, args }: Case<SuiteDeclaration>,
     context: Context,
   ): void {
+    if (context.registration?.stoppedAt !== undefined && declaration.isOnly)
+      declaration = { ...declaration, isOnly: false };
     for (const item of [...declaration.problems, ...emptyTitle(declaration, call)]) this.report(item);
     const scope: Scope = {
       kind: 'describe',
@@ -2000,6 +2042,7 @@ class Walker {
         this.visitCallback(fn, {
           ...context,
           scope,
+          registration: this.frame.adapter.catchesSuiteErrors ? { ...context.registration } : undefined,
           test: null,
           hookScope: null,
           hookName: null,
