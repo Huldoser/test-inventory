@@ -1,6 +1,6 @@
 import type { Argument, BlockStatement, CallExpression, Expression, Node, Statement } from 'oxc-parser';
 import { childNodes, isFunctionNode, unwrap, type FunctionNode } from '../ast.ts';
-import { nonIterable, type ParameterStep } from '../values.ts';
+import { nonIterable, type ParameterStep, type Resolved } from '../values.ts';
 import { atLeast, type FileContext } from './common.ts';
 
 /** Constructing these values cannot call user code or throw during registration. */
@@ -36,9 +36,10 @@ interface ArgumentValue {
   node: Expression | FunctionNode;
   scopes: readonly Node[];
 }
+type RuntimeFunction = FunctionNode & { body: NonNullable<FunctionNode['body']> };
 const owner = (scopes: readonly Node[]) =>
   scopes.findLast((n) => n.type === 'FunctionDeclaration' || isFunctionNode(n));
-const callback = (node: Node | undefined): node is FunctionNode =>
+const callback = (node: Node | undefined): node is RuntimeFunction =>
   node?.type === 'FunctionDeclaration' || isFunctionNode(node);
 const timeout = (node: Node | undefined) =>
   node?.type === 'Literal' && typeof node.value === 'number' && node.value <= 2147483647;
@@ -72,21 +73,14 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
     }
     return undefined;
   }
-  function invoke(fn: FunctionNode, scopes: readonly Node[], children: Children): Exit {
-    if (!fn.body || fn.async || fn.generator || !fn.params.every((p) => p.type === 'Identifier')) return 'unknown';
-    const inside = [...scopes, fn];
-    const outcome =
-      fn.body.type === 'BlockStatement' ? statement(fn.body, inside, children) : expression(fn.body, inside, children);
-    return outcome === 'return' ? 'next' : outcome;
-  }
-  function generatorCall(
-    fn: FunctionNode,
+  function invoke(
+    fn: RuntimeFunction,
     definition: readonly Node[],
-    site: CallExpression,
-    scopes: readonly Node[],
     children: Children,
+    args: readonly Resolved[] = [],
+    complete = true,
   ): Exit {
-    const { args, complete } = file.values.callArguments(site, scopes, true);
+    const body = fn.body;
     const steps = new Map<Node, ParameterStep>();
     const initialized = new Set<string>();
     const inside = [...definition, fn];
@@ -136,6 +130,11 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
           result = bind(param);
           if (result !== 'next') break;
         }
+        if (result === 'next' && !fn.generator) {
+          result =
+            body.type === 'BlockStatement' ? statement(body, inside, children) : expression(body, inside, children);
+          if (result === 'return') result = 'next';
+        }
         parameters.pop();
         return result;
       },
@@ -154,13 +153,13 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       if (!helper || !callback(helper.node)) return 'unknown';
       const evaluated = elements(args, scopes, children);
       if (evaluated !== 'next') return evaluated;
-      if (helper.node.generator) return generatorCall(helper.node, helper.scopes, node, scopes, children);
-      if (helper.node.async) {
+      if (helper.node.async && !helper.node.generator) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
         children.registered ||= 'possible';
         return 'next';
       }
-      return invoke(helper.node, helper.scopes, children);
+      const actual = file.values.callArguments(node, scopes, true);
+      return invoke(helper.node, helper.scopes, children, actual.args, actual.complete);
     }
     const first = argument(args.at(0), scopes)?.node;
     const secondArg = argument(args.at(1), scopes);
@@ -187,6 +186,7 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       callback(secondArg.node)
     ) {
       if (name === 'describe' && functionLength(secondArg.node) > 0) return 'throw';
+      if (secondArg.node.async || secondArg.node.generator) return 'unknown';
       const nested: Children = { registered: false };
       const result = invoke(secondArg.node, secondArg.scopes, nested);
       if (result === 'unknown') return result;
@@ -260,8 +260,16 @@ export function registrationExit(block: BlockStatement, outer: readonly Node[], 
       case 'ThrowStatement':
         return 'throw';
       case 'IfStatement': {
-        const guard = argument(node.test, scopes)?.node;
-        if (guard?.type !== 'Literal') return 'unknown';
+        const test = unwrap(node.test);
+        const declaration = test.type === 'Identifier' && file.values.declarationOf(test.name, scopes);
+        const bound =
+          test.type === 'Identifier' &&
+          parameters.some((entry) => entry.fn === declaration && entry.initialized.has(test.name));
+        const literal = argument(test, scopes)?.node;
+        const guard = bound
+          ? file.values.resolve(test, scopes)
+          : literal?.type === 'Literal' && { ok: true, value: literal.value };
+        if (!guard || !guard.ok) return 'unknown';
         const arm = guard.value ? node.consequent : node.alternate;
         return arm ? statement(arm, scopes, children) : 'next';
       }

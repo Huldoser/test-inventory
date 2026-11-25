@@ -345,6 +345,62 @@ describe('stress tests', () => {
 });
 
 describe('declarations Jasmine refuses', () => {
+  it('checks the parameters and body of each ordinary Jasmine helper call before collecting its catch', () => {
+    for (const [parameters, body, args, recovery] of [
+      ['bid = 5', 'return bid;', '', false],
+      ['bid = 5, offer = bid', 'return offer;', 'undefined', false],
+      ['bid = closed()', 'return bid;', '7', false],
+      ['bid = closed()', 'return bid;', '...[]', true],
+      ['{bid} = {}', 'return bid;', '...[]', false],
+      ['{bid} = {}', 'return bid;', 'null', true],
+      ['[bid] = [7]', 'return settle(bid);', '', false],
+      ['...bids', 'return bids;', '...[4, 7]', false],
+      ['bid = 5', 'throw Error("closed");', '10', true],
+      ['bid = quote()', 'return bid;', '', false],
+      ['bid = 5', 'if (bid) return; throw Error("closed");', '', false],
+      ['bid = 5', 'if (bid) return; throw Error("closed");', '0', true],
+    ] as const) {
+      const result = scanJasmine(`
+function closed() { throw Error('closed'); }
+function quote() { it('reads the opening quote', () => {}); return 5; }
+function settle(value) { return value; }
+function price(${parameters}) { ${body} }
+function register() { price(${args}); }
+try { register(); } catch { it('recovers the order', () => {}); }`);
+      expect(
+        result.tests.some((test) => test.title === 'recovers the order'),
+        parameters + body + args,
+      ).toBe(recovery);
+    }
+  });
+
+  it('counts specs from ordinary helper defaults when Jasmine checks for an empty suite', () => {
+    for (const [arg, recovery] of [
+      ['', false],
+      ['5', true],
+    ] as const) {
+      const result = scanJasmine(
+        `
+function quote() { it('opens the desk', () => {}); return 5; }
+function price(bid = quote()) { return bid; }
+try { describe('closing auction', () => price(${arg})); }
+catch { it('recovers the order', () => {}); }`,
+        { frameworkVersion: '7.0.2' },
+      );
+      expect(
+        result.tests.some((test) => test.title === 'recovers the order'),
+        arg,
+      ).toBe(recovery);
+    }
+  });
+
+  it('keeps the caller catch when a generator is passed to Jasmine as a suite callback', () => {
+    const result = scanJasmine(`
+function* orders() { it('reads the closing price', () => {}); }
+try { describe('closing auction', orders); } catch { it('recovers the callback', () => {}); }`);
+    expect(result.tests.some((test) => test.title === 'recovers the callback')).toBe(true);
+  });
+
   it('stops Jasmine registration when a default reads a parameter before it has been initialized', () => {
     for (const kind of ['function', 'function*', 'async function', 'async function*']) {
       for (const [parameters, args, fails] of [

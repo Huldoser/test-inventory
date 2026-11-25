@@ -23,3 +23,4 @@ Distinguish a rejected async helper from an exception thrown while evaluating it
 Account for registrations and exceptions from calls inside arguments to local Jasmine helpers when checking a catch.
 Check generator parameter defaults and destructuring at the call, including specs registered while binding a default.
 Stop registration at a parameter read before initialization while preserving reads deferred inside a closure.
+Use the arguments supplied to ordinary Jasmine helpers when checking whether a default or the function body reaches the caller's catch.
