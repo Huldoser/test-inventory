@@ -335,7 +335,7 @@ export class Values {
           const name = this.functionName(expression.object, scopes);
           if (name) return name;
         }
-        const own = this.ownProperty(expression, scopes);
+        const own = this.dataProperty(expression, scopes);
         if (own) return own.value ? this.resolveConstant(own.value, own.scopes) : { ok: true, value: undefined };
         const object = this.resolve(expression.object, scopes);
         if (!object.ok) return object;
@@ -423,7 +423,7 @@ export class Values {
     const seen = new Set<Node>();
     while (node.type === 'Identifier' || node.type === 'MemberExpression') {
       if (node.type === 'MemberExpression') {
-        const own = this.ownProperty(node, scopes);
+        const own = this.dataProperty(node, scopes);
         if (!own?.value || seen.has(own.value)) return null;
         seen.add(own.value);
         inferred = bun && (own.computed || (own.staticField && !bun.inferStaticFieldNames)) ? '' : own.name;
@@ -544,55 +544,62 @@ export class Values {
     return this.imported(binding.source, String(key.value));
   }
 
-  /**
-   * The last definition of an own data property, in the scope where the object was created. A later spread,
-   * unknown key or accessor can hide its value.
-   */
-  private ownProperty(
+  /** A local data property, in the scope where its value was defined. */
+  private dataProperty(
     expression: Extract<Expression, { type: 'MemberExpression' }>,
     scopes: readonly Node[],
   ): DataProperty | null {
-    let object: Node = unwrap(expression.object);
-    let objectScopes = scopes;
-    let prototype = false;
-    const seen = new Set<Node>();
-    while (object.type === 'Identifier' || object.type === 'MemberExpression') {
-      if (object.type === 'MemberExpression') {
-        if (prototype || propertyName(object) !== 'prototype') return null;
-        prototype = true;
-        object = unwrap(object.object);
-        continue;
-      }
-      const found = this.lookup(object.name, objectScopes);
-      if (!found || this.changedAtLoad(found.scopes[0]).has(object.name) || seen.has(found.binding.declaration))
-        return null;
-      seen.add(found.binding.declaration);
-      const binding = found.binding;
-      if (binding.kind === 'const') object = unwrap(binding.init);
-      else if (binding.declaration.type === 'ClassDeclaration') object = binding.declaration;
-      else return null;
-      objectScopes = found.scopes;
-    }
     const key = expression.computed
       ? this.resolve(expression.property, scopes)
       : { ok: true as const, value: propertyName(expression) };
     if (!key.ok || !isKey(key.value)) return null;
     const name = String(key.value);
-    if (object.type === 'ClassDeclaration' || object.type === 'ClassExpression') {
+    let object: Node = unwrap(expression.object);
+    let inferredName = '';
+    let prototype = false;
+    let inherited = false;
+    const seen = new Set<Node>();
+    for (;;) {
+      if (object.type === 'Identifier') {
+        const found = this.lookup(object.name, scopes);
+        if (!found || this.changedAtLoad(found.scopes[0]).has(object.name) || seen.has(found.binding.declaration))
+          return null;
+        seen.add(found.binding.declaration);
+        inferredName = object.name;
+        const binding = found.binding;
+        if (binding.kind === 'const') object = unwrap(binding.init);
+        else if (binding.declaration.type === 'ClassDeclaration') object = binding.declaration;
+        else return null;
+        scopes = found.scopes;
+        continue;
+      }
+      if (object.type === 'MemberExpression') {
+        if (inherited || prototype || propertyName(object) !== 'prototype') return null;
+        prototype = true;
+        object = unwrap(object.object);
+        continue;
+      }
+      if (object.type !== 'ClassDeclaration' && object.type !== 'ClassExpression') break;
       if (object.decorators.length) return null;
-      const member = this.classProperty(object.body, name, prototype, objectScopes);
-      return member === 'unknown' ? null : member;
+      const member = this.classProperty(object.body, name, prototype, scopes);
+      if (member === 'unknown') return null;
+      if (member) return member;
+      // Each class installs its own prototype.constructor before it installs any computed methods.
+      if (prototype && name === 'constructor')
+        return { name: object.id?.name ?? inferredName, computed: false, value: object, scopes };
+      if (!object.superClass) return null;
+      inherited = true;
+      object = unwrap(object.superClass);
+      inferredName = '';
     }
-    if (object.type !== 'ObjectExpression' || prototype) return null;
+    if (object.type !== 'ObjectExpression' || prototype || inherited) return null;
     for (let index = object.properties.length - 1; index >= 0; index--) {
       const property = object.properties[index];
       if (property.type === 'SpreadElement') return null;
-      const candidate = this.propertyKey(property.key, property.computed, objectScopes);
+      const candidate = this.propertyKey(property.key, property.computed, scopes);
       if (!candidate.ok || !isKey(candidate.value)) return null;
       if (String(candidate.value) === name)
-        return property.kind === 'init'
-          ? { name, computed: property.computed, value: property.value, scopes: objectScopes }
-          : null;
+        return property.kind === 'init' ? { name, computed: property.computed, value: property.value, scopes } : null;
     }
     return null;
   }
@@ -616,6 +623,7 @@ export class Values {
       if (key.ok && isKey(key.value) && String(key.value) !== name) continue;
       const known = key.ok && isKey(key.value) && !member.decorators.length;
       if (member.type === 'MethodDefinition') {
+        if (member.kind === 'constructor') continue;
         method =
           known && member.kind === 'method'
             ? { name, computed: member.computed, value: member.value, scopes }

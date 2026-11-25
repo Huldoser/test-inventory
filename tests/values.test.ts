@@ -65,6 +65,29 @@ describe('Values', () => {
       expect(resolve(code)).toEqual(UNRESOLVED);
   });
 
+  it('reads inherited properties until a derived class supplies its own definition', () => {
+    expect(resolve('class Book extends (class { static desk = "closing"; }) {} Book.desk;')).toEqual({
+      ok: true,
+      value: 'closing',
+    });
+    expect(resolve('class Venue {static desk = "closing"} class Book extends Venue {static desk;} Book.desk;')).toEqual(
+      { ok: true, value: undefined },
+    );
+    expect(resolve('class Book { ["constructor"]() {} constructor() {} } Book.prototype.constructor.name;')).toEqual({
+      ok: true,
+      value: 'constructor',
+    });
+    expect(resolve('(class {}).prototype.constructor.name;')).toEqual({ ok: true, value: '' });
+    for (const code of [
+      'class Venue { static desk = "opening"; } class Book extends Venue { static get desk() { return currentWindow(); } } Book.desk;',
+      'class Venue { static desk = "opening"; } Venue.desk = currentWindow(); class Book extends Venue {} Book.desk;',
+      'class Book extends selectVenue() {} Book.desk;',
+      'const tables = {}; class Book extends tables.Venue {} Book.desk;',
+      'class Book extends Book {} Book.desk;',
+    ])
+      expect(resolve(code)).toEqual(UNRESOLVED);
+  });
+
   it.each([
     ["'AAPL';", 'AAPL'],
     ['187.5;', 187.5],

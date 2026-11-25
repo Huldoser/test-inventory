@@ -118,7 +118,8 @@ Jest uses the function's name even when the declaration passes it through a loca
 `book.post`, a local object method `post() {}` gives the title `post`, while `post: function routeOrder() {}`
 gives `routeOrder`. The scanner reads a local class's static fields and methods, prototype methods, and a
 function or class's `.name` property. A static field takes precedence over a method with the same name
-even when the method appears later in the class. An invalid title prevents
+even when the method appears later in the class. An inherited method supplies its original name.
+Passing `Book.prototype.constructor` normally supplies the class's own title. An invalid title prevents
 the entire file from loading, including when its declaration is skipped. `test.todo` requires a string in every
 supported version. In Jest 27 ordinary tests and table titles also require strings.
 

@@ -1275,6 +1275,34 @@ describe(desk[key], () => {
     expect(onlyTest(property)).toMatchObject({ title: '', state: 'active', hasDynamicTitle: false });
   });
 
+  it('expands Jest rows named by inherited methods and uses the derived prototype constructor', () => {
+    const result = scanJest(
+      `
+class Venue {
+  static desk = 'closing auction';
+  settleOrder() {}
+}
+const Base = Venue;
+class Market extends Base {}
+const AuctionDesk = class extends Market { constructor() { super(); } };
+const desk = AuctionDesk.prototype;
+describe(AuctionDesk.desk, () => {
+  test.each([1, 2])(desk.settleOrder, () => {});
+  test(desk.constructor, () => {});
+  test(Market.prototype.constructor.name, () => {});
+});
+`,
+      { expandCases: true },
+    );
+    expect(result.tests.map((test) => test.fullName)).toEqual([
+      'closing auction > settleOrder',
+      'closing auction > settleOrder',
+      'closing auction > AuctionDesk',
+      'closing auction > Market',
+    ]);
+    expect(codes(result)).not.toContain('dynamic-title');
+  });
+
   it('rejects a class with a null name and defers a class name computed at runtime', () => {
     const rejected = scanJest(
       "class Desk { static name = null; } test('opens the book', () => {}); test(Desk, () => {});",
