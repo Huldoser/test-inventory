@@ -43,6 +43,11 @@ export interface IteratorSpread {
 /** Whether a default runs, a pattern throws or a parameter name becomes initialized. Null denotes uncertainty. */
 export type ParameterStep = boolean | null | 'throw' | 'initialize';
 
+export interface GeneratorLocals {
+  operands: Map<Node, Resolved>;
+  catches: Map<Node, Map<string, () => Resolved>>;
+}
+
 /** Only strings and values with an iterator can be spread into a call or bound to an array pattern. */
 export function nonIterable(value: Value): boolean {
   return typeof value !== 'string' && (value === null || typeof value !== 'object' || !(Symbol.iterator in value));
@@ -77,7 +82,7 @@ interface BoundCall {
   parameters: Map<string, () => Resolved>;
   /** Constants are worked out again for each call, since they may be built from the parameters. */
   cache: Map<Expression, Resolved>;
-  operands?: ReadonlyMap<Node, Resolved>;
+  locals?: GeneratorLocals;
   iterators?: WeakMap<Expression, Resolved>;
 }
 
@@ -274,9 +279,9 @@ export class Values {
   }
 
   /** Branches may resume the same suspension with different values. Keep their constant caches independent. */
-  withGeneratorOperands<T>(operands: ReadonlyMap<Node, Resolved>, read: () => T): T {
+  withGeneratorLocals<T>(locals: GeneratorLocals, read: () => T): T {
     const binding = this.calls[this.calls.length - 1];
-    this.calls.push({ ...binding, operands, cache: new Map() });
+    this.calls.push({ ...binding, locals, cache: new Map() });
     try {
       return read();
     } finally {
@@ -287,10 +292,24 @@ export class Values {
   completedOperand(node: Node, scopes: readonly Node[]): Resolved | undefined {
     for (let i = this.calls.length - 1; i >= 0; i--) {
       const call = this.calls[i];
-      if (call.operands && scopes.includes(call.fn) && call.fn.start <= node.start && node.end <= call.fn.end)
-        return call.operands.get(node);
+      if (call.locals && scopes.includes(call.fn) && call.fn.start <= node.start && node.end <= call.fn.end)
+        return call.locals.operands.get(node);
     }
     return undefined;
+  }
+
+  bindCatch(
+    clause: Extract<Node, { type: 'CatchClause' }>,
+    value: Resolved,
+    scopes: readonly Node[],
+    locals: GeneratorLocals,
+  ): ReadonlyMap<Node, ParameterStep> {
+    const names = new Map<string, () => Resolved>();
+    const steps = new Map<Node, ParameterStep>();
+    locals.catches.set(clause, names);
+    this.bind(clause.param as Node, value, names, scopes, steps);
+    for (const name of this.assignedIn(clause.body)) names.delete(name);
+    return steps;
   }
 
   /** Read arguments in the calling scope, up to the first spread whose length is unknown. */
@@ -638,7 +657,7 @@ export class Values {
   isBound(name: string, scopes: readonly Node[]): boolean {
     const binding = this.lookup(name, scopes)?.binding;
     if (binding?.kind !== 'other') return false;
-    return this.calls.findLast((item) => item.fn === binding.declaration)?.parameters.has(name) ?? false;
+    return this.boundValue(name, binding.declaration) !== undefined;
   }
 
   /** A local function's name. Bun reads the declared name and receives undefined for an unnamed function. */
@@ -956,8 +975,17 @@ export class Values {
 
   /** A parameter of a function read at one of its calls: the argument given there. */
   private resolveParameter(name: string, fn: Node): Resolved {
-    const call = this.calls.findLast((item) => item.fn === fn);
-    return call?.parameters.get(name)?.() ?? UNRESOLVED;
+    return this.boundValue(name, fn)?.() ?? UNRESOLVED;
+  }
+
+  private boundValue(name: string, declaration: Node): (() => Resolved) | undefined {
+    for (let i = this.calls.length - 1; i >= 0; i--) {
+      const call = this.calls[i];
+      if (call.fn === declaration) return call.parameters.get(name);
+      const caught = call.locals?.catches.get(declaration);
+      if (caught) return caught.get(name);
+    }
+    return undefined;
   }
 
   /** Names the module changes while it loads, as in `WATCHED.push('MSFT')`, whose declared value isn't the one used. */

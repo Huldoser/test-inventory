@@ -46,3 +46,4 @@ Use values sent by `next(value)` when a Jasmine generator resumes and preserve t
 Follow yields inside arithmetic, template strings and branching expressions so Jasmine collects the chosen titles in order.
 Apply the same evaluation to fresh generator spreads and retain earlier delegated yields when the generator recovers from an exception.
 Forward explicit iterator methods through Jasmine generator delegation and use the inner generator's completion value in titles.
+Use caught values in Jasmine generator titles and preserve their lexical bindings across yields.

@@ -1271,6 +1271,68 @@ it(orders.next('ignored').value,()=>{});it(book.next('bid').value,()=>{});it(ord
     expect(scan.tests.map((t) => t.title)).toEqual(['open', 'quotes bid', 'ask', 'desk filled']);
   });
 
+  it('retains the caught quote across a pause and restores the outer name after the catch', () => {
+    const scan = scanJasmine(`function* prices(){const reason='book';try{yield 'open';}catch(reason){
+it('caught '+reason,()=>{});yield 'closing';it('finishes '+reason,()=>{});}return reason;}
+const bids=prices(), asks=prices();bids.next();asks.next();
+it(bids.throw('bid').value,()=>{});it(asks.throw('ask').value,()=>{});
+it(bids.next().value,()=>{});it(asks.next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual([
+      'caught bid',
+      'closing',
+      'caught ask',
+      'closing',
+      'finishes bid',
+      'book',
+      'finishes ask',
+      'book',
+    ]);
+  });
+
+  it('destructures a delegated failure before rethrowing to a surrounding generator handler', () => {
+    const scan = scanJasmine(`function* bids(){yield 'open';throw ['bid',{reason:'closed'}];}
+function* desk(){try{try{yield* bids();}catch([side,{reason}]){throw side+' '+reason;}}
+catch(reason){return 'book '+reason;}}
+const quotes=desk();quotes.next();it(quotes.next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['book bid closed']);
+  });
+
+  it('catches the value a helper throws while evaluating a yielded registration argument', () => {
+    const scan = scanJasmine(`function reject(side){throw 'halted '+side;}
+function* desk(){try{yield reject('bid');}catch(reason){return 'book '+reason;}}
+it(desk().next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['book halted bid']);
+  });
+
+  it('catches a throw from a spread argument before resuming the outer generator', () => {
+    const scan = scanJasmine(`function* reject(){yield 'open';throw 'late fill';}
+function collect(...quotes){return quotes.join('/');}
+function* prices(){try{yield collect(...reject());}catch(reason){yield 'rejected '+reason;}}
+it(prices().next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['rejected late fill']);
+  });
+
+  it('unwinds failed catch destructuring and runs a catch default only for a missing price', () => {
+    const scan = scanJasmine(`function* prices(){
+try{try{throw null;}catch({amount}){yield 'incorrect fill';}}catch{it('invalid amount',()=>{});}
+try{throw ['bid'];}catch([side,quantity='small']){return side+' '+quantity;}
+}
+it(prices().next().value,()=>{});`);
+    expect(scan.tests.map((t) => t.title)).toEqual(['invalid amount', 'bid small']);
+  });
+
+  it('keeps a replacement exception distinct from the value injected into an array iterator', () => {
+    const scan = scanJasmine(`function* quotes(){try{yield* ['bid'];}catch(reason){it(reason,()=>{});}}
+const orders=quotes();orders.next();orders.throw('cancel bid');`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['reason']);
+  });
+
+  it('does not reuse the original caught price after the handler assigns a runtime value', () => {
+    const scan = scanJasmine(`function* quotes(){try{throw 'bid';}catch(price){price=runtimePrice;it(price,()=>{});}}
+quotes().next();`);
+    expect(scan.tests.map((test) => test.title)).toEqual(['price']);
+  });
+
   it('lets a delegate recover a throw and runs both generators’ cleanup on return', () => {
     const scan =
       scanJasmine(`function* bids(){try{yield 'open';}catch{yield 'retry';return 'recovered';}finally{it('closes bids',()=>{});}}

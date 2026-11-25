@@ -38,7 +38,7 @@ import type {
   SuiteDeclaration,
   TestDeclaration,
 } from './model.ts';
-import { omitted, stepGenerator, type IteratorMethod, type IteratorPosition } from './generator-steps.ts';
+import { omitted, stepGenerator, type IteratorMethod, type IteratorPosition, type Thrown } from './generator-steps.ts';
 import type { ParsedFile } from './parse.ts';
 import { snippet, splitLines, type SourceText } from './source.ts';
 import type { Annotation, HookCounts, Step } from './types.ts';
@@ -211,7 +211,7 @@ interface IteratorRun extends IteratorSpread {
 
 interface Registration {
   iterators: Map<Resolved, IteratorPosition>;
-  stoppedAt?: number;
+  failure?: { line: number; value?: Resolved };
   /** A return from the current registration callback, after its operand was evaluated. */
   returned?: boolean;
   /** The suite an async helper leaves current when it gives control back to the caller. */
@@ -233,7 +233,7 @@ function possibleRegistration(registration: Registration | undefined): Registrat
 }
 
 interface InitializingParameters {
-  fn: FunctionNode;
+  fn: FunctionNode | CatchClause;
   pending: Set<string>;
   steps: ReadonlyMap<Node, ParameterStep>;
   outer?: InitializingParameters;
@@ -724,7 +724,7 @@ class Walker {
     this.checkFunctionTests(exported);
     return {
       suites: this.suites,
-      registrationStoppedAt: registration?.stoppedAt,
+      registrationStoppedAt: registration?.failure?.line,
       tests: this.tests,
       problems: [...this.main.adapter.problems, ...this.problems],
       hooks: this.fileScope.hooks,
@@ -763,13 +763,13 @@ class Walker {
       (context.skipImports ||
         task.pending ||
         context.registration?.returned ||
-        context.registration?.stoppedAt !== undefined)
+        context.registration?.failure !== undefined)
     )
       return;
     if (context.evaluatingArgument && context.registration) {
       if (
         context.skipImports ||
-        context.registration.stoppedAt !== undefined ||
+        context.registration.failure !== undefined ||
         node.type === 'FunctionDeclaration' ||
         isFunctionNode(node)
       )
@@ -810,7 +810,7 @@ class Walker {
     if (
       context.registration &&
       !context.skipImports &&
-      context.registration.stoppedAt === undefined &&
+      context.registration.failure === undefined &&
       node.type === 'SpreadElement' &&
       this.parents.at(-2)?.type !== 'ObjectExpression'
     ) {
@@ -826,7 +826,7 @@ class Walker {
         const spread = this.resumeIterator(value, use, context.registration, 'spread', omitted);
         this.frame.values.iteratorSpreads.set(operand, spread);
         this.argumentRevision++;
-        if (spread.outcome === 'throw') this.stopRegistration(node, context);
+        if (spread.outcome === 'throw') this.stopRegistration(node, context, spread.result);
         return;
       }
       if (this.frame.values.iteratorSpreads.delete(operand)) this.argumentRevision++;
@@ -847,7 +847,7 @@ class Walker {
       case 'AwaitExpression': {
         this.visit(node.argument, context);
         const registration = context.registration;
-        if (registration?.asyncCall && registration.stoppedAt === undefined) {
+        if (registration?.asyncCall && registration.failure === undefined) {
           registration.asyncCall.atAwait ??= { scope: registration.scope };
           const failure = this.awaitedFailure(node.argument);
           if (failure === 'pending') registration.asyncCall.pending = true;
@@ -903,7 +903,7 @@ class Walker {
       case 'TryStatement': {
         const attempt = context.registration && { ...context.registration };
         this.visit(node.block, { ...context, registration: attempt, handlesRegistrationError: !!attempt });
-        let failure = attempt?.stoppedAt;
+        let failure = attempt?.failure;
         let returned = attempt?.returned;
         let scope = attempt?.recoveryScope ?? attempt?.scope;
         const exit =
@@ -920,7 +920,7 @@ class Walker {
           }
           this.visit(node.handler, handler);
           if (failure !== undefined && handler.registration) {
-            failure = handler.registration.stoppedAt;
+            failure = handler.registration.failure;
             returned = handler.registration.returned;
             scope = handler.registration.recoveryScope ?? handler.registration.scope;
           } else returned = returned && handler.registration?.returned;
@@ -935,7 +935,7 @@ class Walker {
           )
             failure = undefined;
         }
-        if (context.registration && failure !== undefined) context.registration.stoppedAt ??= failure;
+        if (context.registration && failure !== undefined) context.registration.failure ??= failure;
         if (returned && context.registration) context.registration.returned = true;
         return;
       }
@@ -950,7 +950,7 @@ class Walker {
             target.value = this.frame.values.iteratorOf(node.argument, this.scopes);
           }
         }
-        if (context.registration?.asyncCall && context.registration.stoppedAt === undefined)
+        if (context.registration?.asyncCall && context.registration.failure === undefined)
           context.registration.returned = true;
         return;
       case 'ThrowStatement':
@@ -1161,7 +1161,7 @@ class Walker {
       const task = current.registration?.asyncCall;
       if (current.registration?.returned) return;
       if (task?.atAwait && task.body === this.parents.at(-1)) {
-        if (!current.skipImports && !task.pending && current.registration?.stoppedAt === undefined)
+        if (!current.skipImports && !task.pending && current.registration?.failure === undefined)
           this.deferStatements(statements, index, current, task.body);
         return;
       }
@@ -1316,7 +1316,7 @@ class Walker {
 
   private advanceIterator(call: CallExpression, context: Context, registration: Registration): boolean {
     const callee = unwrap(call.callee);
-    if (callee.type !== 'MemberExpression' || context.skipImports || registration.stoppedAt !== undefined) return false;
+    if (callee.type !== 'MemberExpression' || context.skipImports || registration.failure !== undefined) return false;
     const name = propertyName(callee);
     if (name !== 'return' && name !== 'throw' && name !== 'next') return false;
     const values = this.frame.values;
@@ -1344,12 +1344,16 @@ class Walker {
         ? { ok: true, value: { value: step.result.value, done: step.position === 'closed' } }
         : unknownObject;
     values.iteratorMethods.set(call, { outcome: step.outcome, registered: step.registered, result });
-    if (step.outcome === 'throw') this.stopRegistration(call, context);
+    if (step.outcome === 'throw') this.stopRegistration(call, context, step.result);
     return true;
   }
 
-  private stopRegistration(node: Span, context: Context): void {
-    if (context.registration && !context.skipImports) context.registration.stoppedAt ??= this.lineOf(node);
+  private stopRegistration(node: Node, context: Context, value?: Resolved): void {
+    if (context.registration && !context.skipImports)
+      context.registration.failure ??= {
+        line: this.lineOf(node),
+        value: node.type === 'ThrowStatement' ? this.readArgument(node.argument, true) : value,
+      };
   }
 
   private readsUninitialized(node: Extract<Node, { type: 'Identifier' }>, parameters: InitializingParameters): boolean {
@@ -1381,7 +1385,7 @@ class Walker {
       : context;
     for (const parameter of fn.params) this.visit(parameter, bindings);
     // Function expressions and arrows always have a body; only declarations of overloads don't.
-    if (!parameterSteps || (!fn.generator && bindings.registration?.stoppedAt === undefined))
+    if (!parameterSteps || (!fn.generator && bindings.registration?.failure === undefined))
       this.visit(fn.body as Node, context);
     if (context.registration?.returned) context.registration.returned = false;
     this.parents.pop();
@@ -1542,14 +1546,14 @@ class Walker {
 
   /** Whether argument evaluation stopped a call during collection, or null outside live Jasmine registration. */
   private registrationArguments(call: CallExpression, context: Context): boolean | null {
-    if (!context.registration || context.skipImports || context.registration.stoppedAt !== undefined) return null;
+    if (!context.registration || context.skipImports || context.registration.failure !== undefined) return null;
     const args = {
       ...context,
       evaluatingArgument: true,
       expandedAt: context.expandedAt ?? context.registeredBy?.start ?? call.start,
     };
     for (const arg of call.arguments) this.visit(arg, args);
-    return args.registration?.stoppedAt !== undefined;
+    return args.registration?.failure !== undefined;
   }
 
   private handle(call: CallExpression, api: ApiCall, context: Context): boolean {
@@ -1601,7 +1605,7 @@ class Walker {
         return true;
       case 'hook':
         if (context.test) return false;
-        if (context.registration?.stoppedAt !== undefined) return true;
+        if (context.registration?.failure !== undefined) return true;
         // A function with a name registers its hooks where it is called, not where it is written.
         if (!context.hookScope && context.declaredIn === null) {
           context.scope.hooks[api.name] += 1;
@@ -1901,20 +1905,27 @@ class Walker {
             around: readonly Node[],
             readValue: boolean,
             handlesThrow: boolean,
-          ): Resolved | 'throw' => {
+            parameters?: InitializingParameters,
+          ): Resolved | Thrown => {
             this.scopes.splice(0, this.scopes.length, ...scopes, fn, ...around);
-            this.visit(node, { ...context, handlesRegistrationError: handlesThrow || use.handlesRegistrationError });
-            if (registration.stoppedAt !== undefined) {
+            this.visit(node, {
+              ...context,
+              parameters: parameters ?? use.parameters,
+              handlesRegistrationError: handlesThrow || use.handlesRegistrationError,
+            });
+            if (registration.failure !== undefined) {
+              const thrown = registration.failure.value ?? { ok: false, importedFrom: null };
               registration.scope = registration.recoveryScope ?? registration.scope;
               delete registration.recoveryScope;
-              delete registration.stoppedAt;
-              return 'throw';
+              delete registration.failure;
+              return { thrown };
             }
             return readValue ? this.readArgument(node as Expression, true) : omitted;
           };
           const body = fn.body as Extract<Node, { type: 'BlockStatement' }>;
           const yielded: { values: Resolved[]; complete: boolean } = { values: [], complete: true };
-          const operands = new Map(typeof position === 'object' ? position.operands : []);
+          const previous = typeof position === 'object' ? position.locals : undefined;
+          const locals = { operands: new Map(previous?.operands), catches: new Map(previous?.catches) };
           const enterCall = (name: string, around: readonly Node[]) => {
             // If an argument suspends or throws, the helper body cannot register at its declaration.
             const callee = this.functionNamed(name, [...scopes, fn, ...around]);
@@ -1928,8 +1939,17 @@ class Walker {
             return spread.outcome;
           };
           const env = {
-            operands,
+            locals,
             evaluate,
+            bindCatch: (clause: CatchClause, around: readonly Node[], value: Resolved, handlesThrow: boolean) => {
+              const steps = frame.values.bindCatch(clause, value, [...scopes, fn, ...around], locals);
+              return evaluate(clause.param as Node, around, false, handlesThrow, {
+                fn: clause,
+                steps,
+                pending: new Set(bindingNames(clause.param)),
+                outer: use.parameters,
+              });
+            },
             enterCall,
             iteratorOf: (operand: Expression, around: readonly Node[]) =>
               frame.values.iteratorOf(operand, [...scopes, fn, ...around]),
@@ -1950,7 +1970,7 @@ class Walker {
                     collect(readSpread(operand, [...scopes, fn, ...around]))
                 : undefined,
           };
-          const step = frame.values.withGeneratorOperands(operands, () => {
+          const step = frame.values.withGeneratorLocals(locals, () => {
             let next = stepGenerator(body, position, method === 'spread' ? 'next' : method, argument, env);
             while (method === 'spread' && typeof next.position === 'object') {
               if (yielded.complete) yielded.values.push(next.value);
@@ -2443,7 +2463,7 @@ class Walker {
     { declaration, index, args }: Case<TestDeclaration>,
     context: Context,
   ): void {
-    const registrationStoppedAt = context.registration?.stoppedAt ?? context.emptySuiteAt;
+    const registrationStoppedAt = context.registration?.failure?.line ?? context.emptySuiteAt;
     if (registrationStoppedAt !== undefined && declaration.isOnly) declaration = { ...declaration, isOnly: false };
     const statement = this.statement(call);
     const empty = emptyTitle(declaration, call);
@@ -2546,7 +2566,7 @@ class Walker {
     { declaration, index, args }: Case<SuiteDeclaration>,
     context: Context,
   ): void {
-    if ((context.registration?.stoppedAt !== undefined || context.emptySuiteAt !== undefined) && declaration.isOnly)
+    if ((context.registration?.failure !== undefined || context.emptySuiteAt !== undefined) && declaration.isOnly)
       declaration = { ...declaration, isOnly: false };
     for (const item of [...declaration.problems, ...emptyTitle(declaration, call)]) this.report(item);
     const scope: Scope = {
@@ -2588,7 +2608,7 @@ class Walker {
           scope,
           registration: this.frame.adapter.catchesSuiteErrors
             ? {
-                stoppedAt: context.registration?.stoppedAt,
+                failure: context.registration?.failure,
                 iterators: context.registration?.iterators ?? new Map<Resolved, IteratorPosition>(),
               }
             : undefined,
@@ -2611,8 +2631,8 @@ class Walker {
     const error = declaration.emptySuiteError;
     if (error) {
       this.report({ ...error.problem, afterLoad: true, scope: context.scope });
-      if (context.registration && !context.skipImports && context.registration.stoppedAt === undefined) {
-        context.registration.stoppedAt = this.lineOf(call);
+      if (context.registration && !context.skipImports && context.registration.failure === undefined) {
+        context.registration.failure = { line: this.lineOf(call) };
         if (error.keepsScope) context.registration.recoveryScope = scope;
       }
     }
