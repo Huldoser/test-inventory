@@ -363,6 +363,23 @@ test.if(true).skip.failingIf(process.env.CROSSED)('prices a crossed quote', () =
   });
 
   it.each([
+    ['1.2.23', 'posts 2 legs for "N", venue length 4', 'fills "$venue" or "%#"'],
+    ['1.4.4', 'posts 2 legs for N, venue length 4', 'fills $venue or %#'],
+  ])(
+    'expands Bun %s object rows with numeric paths, literal substitutions and missing fields',
+    (version, title, markers) => {
+      const inventory = scanBun(
+        `const rows = [{ venue: 'XNYS', legs: [2, 4], symbol: '$venue', sequence: '%#' }];
+test.each(rows)('posts $legs.length legs for $venue.1, venue length $venue.length', () => {});
+test.each(rows)('fills $symbol or $sequence', () => {});
+describe.each(rows)('desk $legs.0, $missing, open', () => { test('settles', () => {}); });`,
+        { frameworkVersion: version, expandCases: true },
+      );
+      expect(inventory.tests.map((test) => test.fullName)).toEqual([title, markers, 'desk 2, $missing open > settles']);
+    },
+  );
+
+  it.each([
     ['1.2.23', ['quotes XNAS for "rates"', 'quotes XLON for "fx"']],
     ['1.3.14', ['quotes XNAS for rates', 'quotes XLON for fx']],
   ])('titles each case as Bun %s does', (version, titles) => {

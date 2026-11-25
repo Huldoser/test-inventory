@@ -951,13 +951,20 @@ describe("Bun's case titles", () => {
     [
       '$mic at $depth.bid, $open, $missing %s',
       [{ mic: 'XNAS', depth: { bid: 2 }, open: true }],
-      'XNAS at 2, true, $missing %s',
+      'XNAS at 2, true, $missing%s',
     ],
+    ['$legs.0.qty on $venue.1 (%#)', [{ legs: [{ qty: 5 }], venue: 'XNAS' }], '5 on N (0)'],
+    ['$missing, $price!', [{ price: 4 }], '$missing 4!'],
+    ['$01, $desk.a$b', [{ '01': 1, desk: { a$b: true } }], '$01 true'],
+    ['$.venue', [{ venue: 'XNAS' }], '$venue'],
+    ['$venue.toUpperCase', [{ venue: 'XNAS' }], null],
+    ['$desk.name', [{ desk: null }], null],
+    ['$missing北', [{ venue: 'XNAS' }], null],
     ['$mic.name', [{ mic: 'XNAS' }], '$mic.name'],
     ['row $px and %d', [{ px: -0 }], 'row -0 and %d'],
     ['$desk', [{ desk: { name: 'rates' } }], null],
-    ['$closed', [{ closed: null }], null],
-    ['$closed', [{ closed: undefined }], null],
+    ['$closed', [{ closed: null }], '$closed'],
+    ['$closed', [{ closed: undefined }], '$closed'],
   ])('titles %j with %j as %j', (template, args, title) => {
     expect(bunCaseTitle(template, args, 0, [1, 3])).toBe(title);
   });

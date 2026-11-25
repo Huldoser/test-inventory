@@ -78,7 +78,7 @@ function isPrimitive(value: Value): value is Primitive {
   return typeof value !== 'object' || value === null;
 }
 
-function isObject(value: Value | undefined): boolean {
+function isObject(value: Value | undefined): value is Record<string, Value> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -351,49 +351,55 @@ function prettyFormatMin(value: Value, depth = 0): string {
   return `{${keys.map((key) => `${prettyFormatMin(key)}: ${prettyFormatMin(value[key], depth + 1)}`).join(', ')}}`;
 }
 
-/**
- * The title Bun gives one case of `.each`, read from Bun 1.2.23, 1.3.14 and 1.4.4: for a case whose first value is an
- * object, first `$key` and `$key.path` for its values, then for every case the placeholders, left to right. `%s` takes
- * a string, `%d` and `%f` a number, `%i` an integer, `%j` and `%o` any value as JSON; a value of another type leaves
- * the placeholder as written, but is used up. `%#` is the index, `%%` a `%`, and `%` before any other character is
- * dropped. Once the values are used up, the rest stays as written. Null where Bun pretty-prints: `%p`, and `$key`
- * of an object, `null` or `undefined`.
- */
+const BUN_KEY_PATH = /[\w$]+(?:\.[\w$]+)*/y;
+
+/** Bun accepts decimal indices after a dot. A digit cannot start a top-level key. */
+function bunProperty(row: Record<string, Value>, path: string): Value | typeof NOT_PLAIN {
+  if (!path || /^\d/.test(path)) return undefined;
+  let value: Value = row;
+  for (const key of path.split('.')) {
+    if (value === null || value === undefined) return NOT_PLAIN;
+    const object = Object(value) as Record<string, Value>;
+    if (!Object.hasOwn(object, key)) return key in object ? NOT_PLAIN : undefined;
+    value = object[key];
+  }
+  return value;
+}
+
+/** Bun reads both kinds of placeholders from the template. It never interprets text inserted from a row. */
 export function bunCaseTitle(
   template: string,
   args: readonly Value[],
   index: number,
   version: readonly [number, number] | null,
 ): string | null {
-  let text = template;
   const [first] = args;
-  if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
-    const quotes = version !== null && (version[0] < 1 || (version[0] === 1 && version[1] < 3));
-    const shown = { all: true };
-    text = text.replace(/\$([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/g, (written, path: string) => {
-      let value: Value | undefined = first;
-      for (const key of path.split('.')) {
-        value = value !== null && typeof value === 'object' && !Array.isArray(value) ? value[key] : undefined;
-      }
-      if (value === undefined && !hasPath(first, path)) return written;
-      if (typeof value === 'string') return quotes ? JSON.stringify(value) : value;
-      if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
-      if (typeof value === 'boolean') return String(value);
-      shown.all = false;
-      return written;
-    });
-    if (!shown.all) return null;
-  }
+  const quotes = version !== null && (version[0] < 1 || (version[0] === 1 && version[1] < 3));
   let out = '';
   let used = 0;
-  for (let at = 0; at < text.length; at++) {
-    const char = text[at];
-    if (char !== '%' || at === text.length - 1) {
+  for (let at = 0; at < template.length; at++) {
+    const char = template[at];
+    if (char === '$' && isObject(first)) {
+      BUN_KEY_PATH.lastIndex = at + 1;
+      const path = BUN_KEY_PATH.exec(template)?.[0] ?? '';
+      at += path.length;
+      // Bun can split a UTF-8 sequence when it advances past an unknown key.
+      if (template.charCodeAt(at + 1) > 127) return null;
+      const value = bunProperty(first, path);
+      if (value === undefined || value === null) {
+        out += '$' + path;
+        at++;
+      } else if (typeof value === 'string') out += quotes ? JSON.stringify(value) : value.toWellFormed();
+      else if (typeof value === 'number') out += Object.is(value, -0) ? '-0' : String(value);
+      else if (typeof value === 'boolean') out += String(value);
+      else return null;
+      continue;
+    }
+    if (char !== '%' || at === template.length - 1 || used >= args.length) {
       out += char;
       continue;
     }
-    if (used >= args.length) return out + text.slice(at);
-    const placeholder = text[++at];
+    const placeholder = template[at + 1];
     if (placeholder === '#') out += String(index);
     else if (placeholder === '%') out += '%';
     else if (placeholder === 'p') return null;
@@ -401,19 +407,10 @@ export function bunCaseTitle(
       const formatted = bunValue(placeholder, args[used++]);
       if (formatted === null) return null;
       out += formatted;
-    } else out += placeholder;
+    } else continue;
+    at++;
   }
   return out;
-}
-
-/** Whether an object has a value at a dotted path, `undefined` included. */
-function hasPath(item: Value, path: string): boolean {
-  let value: Value | undefined = item;
-  for (const key of path.split('.')) {
-    if (value === null || typeof value !== 'object' || Array.isArray(value) || !(key in value)) return false;
-    value = value[key];
-  }
-  return true;
 }
 
 /** One placeholder of a Bun title, or the placeholder as written for a value of another type; null for a JSON Bun shows otherwise. */
