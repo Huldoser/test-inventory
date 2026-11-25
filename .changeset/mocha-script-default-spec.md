@@ -19,3 +19,5 @@ Follow Playwright tests registered when local modules load. Honor Playwright's f
 Honor TypeScript import removal when collecting Playwright registrations, including imports used only in type annotations and imports retained for JSX.
 
 Assign a shared Playwright module's top-level tests to the first spec that loads it in each command, including when deciding whether a setup project runs.
+
+Follow immediately invoked functions during Playwright collection and skip module initialization in branches ruled out by a known condition.

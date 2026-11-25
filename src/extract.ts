@@ -176,6 +176,8 @@ export interface Extraction {
 }
 
 interface Context {
+  /** Direct declarations are inventoried under guards even where an import cannot execute. */
+  skipImports?: boolean;
   scope: Scope;
   test: PendingTest | null;
   /** The scope a hook body applies to, while in a hook. */
@@ -661,42 +663,35 @@ class Walker {
   }
 
   private visitNode(node: Node, context: Context): void {
-    if (this.options.collectImports && !context.test && !context.hookScope && !context.helper && !context.quiet)
+    if (
+      this.options.collectImports &&
+      !context.skipImports &&
+      !context.test &&
+      !context.hookScope &&
+      !context.helper &&
+      !context.quiet
+    )
       this.collectImport(node, context);
     switch (node.type) {
       case 'CallExpression': {
         if (context.test && !context.quiet) this.expectCall(node, context.test);
         const helper = this.helperCall(node, context);
         if (this.call(node, context) || this.loopCall(node, context)) return;
-        this.visitChildren(node, context);
+        if (helper?.fn === unwrap(node.callee)) {
+          for (const argument of node.arguments) this.visit(argument, context);
+        } else this.visitChildren(node, context);
         if (helper) this.walkAtCall(helper, node, context);
         return;
       }
-      case 'IfStatement': {
-        // In-source tests sit inside `if (import.meta.vitest)`, which is how they are written, not a condition.
-        if (isImportMetaVitest(node.test)) break;
-        const condition = this.text(node.test);
-        this.visit(node.test, context);
-        const known = this.known(node.test, context);
-        if (known) {
-          const taken = known.value ? node.consequent : node.alternate;
-          if (taken) this.visit(taken, context);
-          return;
-        }
-        this.visit(node.consequent, this.guarded(context, condition));
-        if (node.alternate) this.visit(node.alternate, this.guarded(context, `!(${condition})`));
-        return;
-      }
+      case 'IfStatement':
       case 'ConditionalExpression': {
+        // In-source tests sit inside `if (import.meta.vitest)`, which is how they are written, not a condition.
+        if (node.type === 'IfStatement' && isImportMetaVitest(node.test)) break;
         const condition = this.text(node.test);
         this.visit(node.test, context);
         const known = this.known(node.test, context);
-        if (known) {
-          this.visit(known.value ? node.consequent : node.alternate, context);
-          return;
-        }
-        this.visit(node.consequent, this.guarded(context, condition));
-        this.visit(node.alternate, this.guarded(context, `!(${condition})`));
+        this.visitBranch(node.consequent, context, condition, known && Boolean(known.value));
+        if (node.alternate) this.visitBranch(node.alternate, context, `!(${condition})`, known && !known.value);
         return;
       }
       case 'LogicalExpression': {
@@ -704,18 +699,14 @@ class Walker {
         const guard = node.operator === '&&' ? left : node.operator === '||' ? `!(${left})` : `(${left}) == null`;
         this.visit(node.left, context);
         const known = this.known(node.left, context);
-        if (known) {
-          const { value } = known;
-          const right =
-            node.operator === '&&'
-              ? Boolean(value)
-              : node.operator === '||'
-                ? !value
-                : value === null || value === undefined;
-          if (right) this.visit(node.right, context);
-          return;
-        }
-        this.visit(node.right, this.guarded(context, guard));
+        const right =
+          known &&
+          (node.operator === '&&'
+            ? Boolean(known.value)
+            : node.operator === '||'
+              ? !known.value
+              : known.value === null || known.value === undefined);
+        this.visitBranch(node.right, context, guard, right);
         return;
       }
       case 'TryStatement':
@@ -730,9 +721,18 @@ class Walker {
         // The default case runs when no other case matches.
         const otherwise = values.map((value) => `${discriminant} !== ${value}`).join(' && ');
         this.visit(node.discriminant, context);
-        for (const switchCase of node.cases) {
+        const start = this.switchStart(node, context);
+        let fallsThrough = false;
+        for (const [index, switchCase] of node.cases.entries()) {
           const guard = switchCase.test ? `${discriminant} === ${this.text(switchCase.test)}` : otherwise;
-          this.visit(switchCase, this.guarded(context, guard === '' ? null : guard));
+          const guarded = this.guarded(context, guard === '' ? null : guard);
+          const executes: boolean = start === null || index === start || fallsThrough;
+          this.visit(switchCase, executes ? guarded : { ...guarded, skipImports: true });
+          fallsThrough =
+            executes &&
+            !switchCase.consequent.some((statement) =>
+              ['BreakStatement', 'ReturnStatement', 'ThrowStatement', 'ContinueStatement'].includes(statement.type),
+            );
         }
         return;
       }
@@ -868,7 +868,7 @@ class Walker {
    * the values of a case or pass; null otherwise, and then both branches are walked under the condition.
    */
   private known(test: Expression, context: Context): { value: Value } | null {
-    if (!this.options.expandCases || context.test || context.hookScope) return null;
+    if ((!this.options.expandCases && !this.options.collectImports) || context.test || context.hookScope) return null;
     // Only the values of the case, pass or helper call decide: a constant of the module may be changed in ways the scan
     // doesn't see, and taking a branch away would drop a test the runner registers.
     const names = referencedNames(test);
@@ -913,6 +913,32 @@ class Walker {
   /** A `catch` block's condition, written as its clause: `catch` or `catch (error)`. */
   private catchCondition(handler: CatchClause): string {
     return this.text({ start: handler.start, end: handler.body.start }).trim();
+  }
+
+  /** First case entered at collection, -1 for none, or null when a value cannot be determined. */
+  private switchStart(node: Extract<Node, { type: 'SwitchStatement' }>, context: Context): number | null {
+    if (!this.options.collectImports) return null;
+    const key = this.known(node.discriminant, context);
+    if (!key || (key.value !== null && typeof key.value === 'object')) return null;
+    let fallback = -1;
+    for (const [index, entry] of node.cases.entries()) {
+      if (entry.test === null) fallback = index;
+      else {
+        const value = this.known(entry.test, context);
+        if (!value) return null;
+        if (value.value === key.value) return index;
+      }
+    }
+    return fallback;
+  }
+
+  private visitBranch(node: Node, context: Context, guard: string, selected: boolean | null): void {
+    if (selected !== null && this.options.expandCases) {
+      if (selected) this.visit(node, context);
+      return;
+    }
+    const guarded = this.guarded(context, guard);
+    this.visit(node, selected === false ? { ...guarded, skipImports: true } : guarded);
   }
 
   private guarded(context: Context, guard: string | null): Context {
@@ -1184,6 +1210,12 @@ class Walker {
   private helperCall(call: CallExpression, context: Context): Callee | null {
     const callee = unwrap(call.callee);
     const runsHere = !context.test && !context.hookScope && !context.helper && this.callStack.length < MAX_DEPTH;
+    if (
+      runsHere &&
+      this.options.collectImports &&
+      (callee.type === 'ArrowFunctionExpression' || (callee.type === 'FunctionExpression' && !callee.generator))
+    )
+      return this.withinLimit({ fn: callee, frame: this.frame }, call);
     if (callee.type === 'MemberExpression') {
       const object = unwrap(callee.object);
       const member = propertyName(callee);

@@ -89,6 +89,8 @@ A matching enclosing `test.describe` can still select tests it contains.
 During discovery, a shared module's top-level tests belong to the first spec that imports it in each Playwright
 command. Playwright collects files in project order and sorts entries within each directory. Separate package scripts
 can therefore register the same test in different specs. Calling an exported test helper registers its tests at each call.
+An immediately invoked function can load a module during collection. Imports in a branch that a literal condition
+rules out leave that module available to later specs. Direct test declarations under conditions retain their guards.
 
 In TypeScript specs, a type-only or unused import does not load the imported module's tests. A bare import, a
 re-export of a value, or an import used by an expression or JSX component can register tests when the module loads.

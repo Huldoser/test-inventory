@@ -211,6 +211,65 @@ describe('Playwright module initialization across spec files', () => {
       expect(specsFor('registers the exchange rate')).toEqual(owners.map((name) => 'tests/' + name + '.spec.cjs'));
     },
   );
+  it.each([
+    { registration: "(() => require('./fees.cjs'))();", owner: 'a' },
+    { registration: "(function registerFees(){require('./fees.cjs');})();", owner: 'a' },
+    { registration: "(function*(){require('./fees.cjs');})();", owner: 'b' },
+    { registration: "if (false) require('./fees.cjs');", owner: 'b' },
+    { registration: "if (true) {} else require('./fees.cjs');", owner: 'b' },
+    { registration: "true ? 0 : require('./fees.cjs');", owner: 'b' },
+    { registration: "false && require('./fees.cjs');", owner: 'b' },
+    { registration: "true || require('./fees.cjs');", owner: 'b' },
+    { registration: "'settled' ?? require('./fees.cjs');", owner: 'b' },
+    { registration: "null ?? require('./fees.cjs');", owner: 'a' },
+    { registration: "switch (null){case null: require('./fees.cjs');}", owner: 'a' },
+    { registration: "switch (process.env.LEDGER){case 'open': require('./fees.cjs');}", owner: 'a' },
+    { registration: "switch ('open'){case process.env.LEDGER: require('./fees.cjs');}", owner: 'a' },
+    { registration: "switch ({}){default: require('./fees.cjs');}", owner: 'a' },
+    { registration: "switch ('open'){case 'closed': require('./fees.cjs');break;}", owner: 'b' },
+    { registration: "switch ('open'){case 'open': break; default: require('./fees.cjs');}", owner: 'b' },
+    { registration: "switch ('open'){case 'open':; case 'closed': require('./fees.cjs');}", owner: 'a' },
+    { registration: "switch ('open'){default: require('./fees.cjs');break; case 'closed': break;}", owner: 'a' },
+  ])('collects the shared module first in $owner for $registration', async ({ registration, owner }) => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test'),
+      'playwright.config.cjs': "module.exports={testDir:'tests'};",
+      'tests/a.spec.cjs': registration + playwrightOrder,
+      'tests/b.spec.cjs': "require('./fees.cjs');" + playwrightOrder,
+      'tests/fees.cjs': "require('@playwright/test').test('calculates the settlement fee',()=>{});",
+    });
+    const { tests } = await scan({ root });
+    expect(
+      tests.filter((test) => test.title === 'calculates the settlement fee').map((test) => test.relativeFilePath),
+    ).toEqual(['tests/' + owner + '.spec.cjs']);
+  });
+
+  it('initializes a module in the suite passed as an argument before an immediate function body loads it', async () => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test'),
+      'playwright.config.cjs': "module.exports={testDir:'tests'};",
+      'tests/orders.spec.cjs': `const {test}=require('@playwright/test');
+        (()=>require('./fees.cjs'))(test.describe('closing auction',()=>require('./fees.cjs')));`,
+      'tests/fees.cjs': "require('@playwright/test').test('quotes a settlement fee',()=>{});",
+    });
+    const { tests } = await scan({ root });
+    expect(tests.map((test) => [test.suitePath, test.title])).toEqual([
+      [['closing auction'], 'quotes a settlement fee'],
+    ]);
+  });
+
+  it('keeps the guard on a direct declaration beside an unreachable module load', async () => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test'),
+      'playwright.config.cjs': "module.exports={testDir:'tests'};",
+      'tests/orders.spec.cjs':
+        "const {test}=require('@playwright/test'); if(false){require('./fees.cjs');test('quotes a fee',()=>{});}",
+      'tests/fees.cjs': "require('@playwright/test').test('charges a fee',()=>{});",
+    });
+    const { tests } = await scan({ root });
+    expect(tests.map((test) => [test.title, test.isInCondition])).toEqual([['quotes a fee', true]]);
+  });
+
   it('initializes only modules still new to either overlapping command', async () => {
     const root = project({
       'package.json': JSON.stringify({

@@ -172,7 +172,7 @@ export function scanFile(code: string | ParsedFile, relativeFilePath: string, se
       {
         expandCases: settings.expandCases ?? false,
         version: settings.version,
-        collectImports: settings.framework === 'playwright',
+        collectImports: settings.framework === 'playwright' && settings.readModule !== null,
         initializeModule: settings.initializeModule,
       },
     );
