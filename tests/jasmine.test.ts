@@ -1056,6 +1056,22 @@ try {
     }
   });
 
+  it('keeps registrations made while producing a noniterable Jasmine spec, suite or async iterator', () => {
+    for (const [operand, nested] of [
+      ['(async function*(){yield 7;})()', []],
+      ["it('records the fee', () => {})", ['records the fee']],
+      ["describe('fee ledger', () => it('quotes a fill', () => {}))", ['fee ledger > quotes a fill']],
+    ] as const) {
+      const scan = scanJasmine(`function title(){return 'cash order';}
+try {
+  it(title(it('opens the desk', () => {}), ...${operand}, it('records the late fee', () => {})), () => {});
+  it('finishes registration', () => {});
+} catch { it('recovers the market', () => {}); }`);
+      const registered = scan.tests.filter((test) => test.state !== 'notLoaded').map((test) => test.fullName);
+      expect(registered, operand).toEqual(['opens the desk', ...nested, 'recovers the market']);
+    }
+  });
+
   it('distinguishes successful spreads from noniterable or unreadable spreads in a Jasmine helper call', () => {
     for (const [arg, recovery] of [
       ["'BID'", false],

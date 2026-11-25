@@ -38,4 +38,4 @@ Format Jasmine array titles containing known primitive values or nested arrays.
 Preserve holes and evaluated helper or spread elements in Jasmine array descriptions.
 Follow standard string, array and object methods returned from Jasmine registration helpers.
 Format ordinary object descriptions in Jasmine, including data objects inside arrays and object spreads.
-Stop Jasmine argument evaluation when a helper returns a noniterable spread operand.
+Stop Jasmine argument evaluation when it spreads a noniterable helper result, async generator object, or Jasmine spec or suite result.

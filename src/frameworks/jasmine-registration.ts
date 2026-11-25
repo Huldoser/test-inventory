@@ -33,7 +33,7 @@ type Flow = 'next' | 'throw' | 'unknown';
 type Completion = Flow | { returned: Resolved };
 const omitted: Resolved = { ok: true, value: undefined };
 const objectResult: Resolved = { ok: false, importedFrom: null, defined: true, truthy: true };
-const promiseResult: Resolved = { ...objectResult, nonIterable: true };
+const nonIterableObject: Resolved = { ...objectResult, nonIterable: true };
 
 /** Format descriptions whose conversion uses only standard methods, including each element in a nested array. */
 function descriptionText(value: Value): string | undefined {
@@ -356,12 +356,13 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       if (helper.node.async && !helper.node.generator) {
         // Its synchronous prefix may register a child. Errors in its parameters or body reject the returned promise.
         children.registered ||= 'possible';
-        results.set(node, promiseResult);
+        results.set(node, nonIterableObject);
         return 'next';
       }
       const actual = file.values.callArguments(node, scopes, true);
       const result = invoke(helper.node, helper.scopes, children, actual.args, actual.complete, node);
-      if (helper.node.generator && result === 'next') results.set(node, objectResult);
+      if (helper.node.generator && result === 'next')
+        results.set(node, helper.node.async ? nonIterableObject : objectResult);
       return result;
     }
     const name = callee.name;
@@ -376,7 +377,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
       if (status === 'unknown') return 'unknown';
       if (status !== 'valid') return 'throw';
       if (spec) children.registered = true;
-      results.set(node, spec ? objectResult : omitted);
+      results.set(node, spec ? nonIterableObject : omitted);
       return 'next';
     }
     if (!['describe', 'xdescribe', 'fdescribe'].includes(name)) return 'unknown';
@@ -398,7 +399,7 @@ function registrationFlow(start: number, outer: readonly Node[], file: FileConte
     // Jasmine attaches the suite before running its callback and checking its children.
     children.registered = true;
     const result = suite(fn, callback.scopes, plain);
-    if (result === 'next') results.set(node, objectResult);
+    if (result === 'next') results.set(node, nonIterableObject);
     return result;
   }
   function elements(list: readonly Argument[] | ArrayExpression, scopes: readonly Node[], children: Children): Flow {
