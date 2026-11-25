@@ -1,8 +1,8 @@
 import type { RunsWith } from './config-dependencies.ts';
 import { DependencyGraph, fileDependencies, type Place, type SnapshotFiles } from './dependency-hash.ts';
 import { fileDiagnostic, toDiagnostic } from './diagnostics.ts';
-import { extract, noHooks, type Frame } from './extract.ts';
-import { parseModule } from './frameworks/bindings.ts';
+import { extract, initializesLocalModule, noHooks, type Frame } from './extract.ts';
+import { importsFrom, parseModule } from './frameworks/bindings.ts';
 import { ExportedValues } from './imported-values.ts';
 import { atLeast, problem, type FileContext } from './frameworks/common.ts';
 import { PlaywrightAdapter } from './frameworks/playwright.ts';
@@ -33,6 +33,7 @@ export interface FileSettings {
   /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
   expandCases?: boolean;
   readModule: ModuleReader | null;
+  initializeModule?: (file: string) => boolean;
   /** The project root, left out of error messages so that the output has no absolute paths. */
   root: string | null;
   /** Whether the config runs the file as a benchmark; null takes it from the file's name, as Vitest 5's default does. */
@@ -100,17 +101,42 @@ export function noRecords(relativeFilePath: string): Omit<FileRecords, 'diagnost
   return { file: fileRecord(relativeFilePath, noHooks(), { suites: [], tests: [] }), suites: [], tests: [] };
 }
 
-/** Playwright starts dependencies after collecting a test in the filtered project. Imported modules can register
- * tests as a side effect, even when the spec has no declarations of its own. */
-export function playwrightSelection(module: ModuleSource, version: FileSettings['version']): FileRecords | null {
-  const records = scanFile(parseModule(module), module.relativeFilePath, {
-    framework: 'playwright',
-    version,
-    readModule: module.readModule,
-    comments: 'none',
-    root: null,
-  });
-  return records.diagnostics.length || records.unknownRegistration ? null : records;
+export interface PlaywrightSelection {
+  parsed: ParsedFile | null;
+  imports: Set<string>;
+  records: () => FileRecords | null;
+}
+
+/** Record module initialization in collection order. A spec that imports only Playwright needs its records only
+ * when script filters or project dependencies select among its tests. */
+export function playwrightSelection(
+  module: ModuleSource | { reason: string },
+  version: FileSettings['version'],
+  preloaded?: Set<string>,
+): PlaywrightSelection {
+  const imports = new Set<string>();
+  if ('reason' in module) return { imports, parsed: null, records: () => null };
+  const parsed = parseModule(module);
+  let cached: FileRecords | null | undefined;
+  const records = () => {
+    if (cached === undefined) {
+      const result = scanFile(parsed, module.relativeFilePath, {
+        framework: 'playwright',
+        version,
+        readModule: module.readModule,
+        comments: 'none',
+        root: null,
+        initializeModule: (name) => {
+          imports.add(name);
+          return !preloaded?.has(name);
+        },
+      });
+      cached = result.diagnostics.length || result.unknownRegistration ? null : result;
+    }
+    return cached;
+  };
+  if (importsFrom(parsed.program, initializesLocalModule)) records();
+  return { imports, records, parsed };
 }
 
 /** Reads one file: parse, extract, build records, and drop the AST. Never throws. */
@@ -147,6 +173,7 @@ export function scanFile(code: string | ParsedFile, relativeFilePath: string, se
         expandCases: settings.expandCases ?? false,
         version: settings.version,
         collectImports: settings.framework === 'playwright',
+        initializeModule: settings.initializeModule,
       },
     );
     const isTypeTest = settings.framework === 'vitest' && TYPE_TEST.test(relativeFilePath);

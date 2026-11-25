@@ -39,9 +39,10 @@ import {
   type ScanOptions,
   toPosixPath,
 } from './options.ts';
+import type { ParsedFile } from './parse.ts';
 import type { FileRecords } from './records.ts';
 import { moduleResolver } from './resolve.ts';
-import { noRecords, playwrightSelection, scanFile } from './scan-file.ts';
+import { noRecords, playwrightSelection, scanFile, type PlaywrightSelection } from './scan-file.ts';
 import type { Diagnostic, Framework, Inventory } from './types.ts';
 import { globalsCheck } from './vitest-config.ts';
 
@@ -241,18 +242,18 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
   const graph = new DependencyGraph(root, framework);
   const exports = new ExportedValues();
   const configs = new Configs(root, framework, readerFor, rules);
-  const registering = new Map<string, FileRecords | null>();
+  const registering = new Map<string, PlaywrightSelection>();
   const runs = new ConfigRuns(
     configs,
     framework,
     rules,
     patterns === null ? found.files.map((file) => file.absolutePath) : null,
-    (file) => {
-      if (!registering.has(file)) {
-        const module = readerFor(file)(file);
-        registering.set(file, 'reason' in module ? null : playwrightSelection(module, rules));
-      }
-      return registering.get(file) as FileRecords | null;
+    (file, preloaded) => {
+      const cached = registering.get(file);
+      if (cached && !preloaded) return cached;
+      const selection = playwrightSelection(readerFor(file)(file), rules, preloaded);
+      if (!preloaded) registering.set(file, selection);
+      return selection;
     },
   );
   const placements = new Map(found.files.map((file) => [file.absolutePath, runs.placementOf(file.absolutePath)]));
@@ -298,9 +299,9 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
     const placement = placements.get(absolutePath) as Placement;
     if (placement.config) configs.use(placement.config);
     const config = placement.config?.record.relativeFilePath ?? null;
-    let code: string;
+    let code: string | ParsedFile;
     try {
-      code = await readFile(absolutePath, 'utf8');
+      code = registering.get(absolutePath)?.parsed ?? (await readFile(absolutePath, 'utf8'));
     } catch (error) {
       const records = noRecords(relativeFilePath);
       results.push({
@@ -313,12 +314,14 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
       continue;
     }
     const runsWith = configDependencies.of(placement);
+    const { preloaded } = placement;
     const result = scanFile(code, relativeFilePath, {
       framework,
       version: rules,
       comments,
       expandCases,
       readModule: readerFor(absolutePath, importMap(placement, framework)),
+      initializeModule: preloaded ? (name) => !preloaded.has(name) : undefined,
       root,
       isBenchmarkFile: placement.runs === null ? null : placement.runs === 'benchmark',
       config: fileConfig(placement, framework, rules, absolutePath),

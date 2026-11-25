@@ -173,6 +173,93 @@ describe('Playwright project dependencies with a package-script file filter', ()
   );
 });
 
+describe('Playwright module initialization across spec files', () => {
+  it.each([
+    { reverseProjects: false, commands: ['playwright test'], owners: ['orders-a'] },
+    { reverseProjects: true, commands: ['playwright test orders'], owners: ['orders-z'] },
+    {
+      reverseProjects: false,
+      commands: ['playwright test orders-a', 'playwright test orders-z'],
+      owners: ['orders-a', 'orders-z'],
+    },
+    {
+      reverseProjects: false,
+      commands: ['playwright test orders', 'playwright test orders-z'],
+      owners: ['orders-a', 'orders-z'],
+    },
+    { reverseProjects: true, commands: ['playwright test orders', 'playwright test orders-z'], owners: ['orders-z'] },
+  ])(
+    'keeps one initialization per process for $commands with reversed projects=$reverseProjects',
+    async ({ reverseProjects, commands, owners }) => {
+      const projects = ['orders-a', 'orders-z'].map((name) => ({ name, testMatch: '**/' + name + '.spec.cjs' }));
+      if (reverseProjects) projects.reverse();
+      const root = project({
+        'package.json': JSON.stringify({
+          devDependencies: { '@playwright/test': '1.65.1' },
+          scripts: Object.fromEntries(commands.map((command, i) => ['ledger' + String(i), command])),
+        }),
+        'playwright.config.cjs': 'module.exports=' + JSON.stringify({ testDir: 'tests', projects }),
+        'tests/orders-a.spec.cjs': "require('./ledger.cjs').settle();",
+        'tests/orders-z.spec.cjs': "require('./ledger.cjs').settle();",
+        'tests/ledger.cjs': `const {test}=require('@playwright/test');
+        test('registers the exchange rate', () => {}); exports.settle = () => test('settles a trade', () => {});`,
+      });
+      const { tests } = await scan({ root });
+      const specsFor = (title: string) =>
+        tests.filter((test) => test.title === title).map((test) => test.relativeFilePath);
+      expect(specsFor('settles a trade')).toEqual(['tests/orders-a.spec.cjs', 'tests/orders-z.spec.cjs']);
+      expect(specsFor('registers the exchange rate')).toEqual(owners.map((name) => 'tests/' + name + '.spec.cjs'));
+    },
+  );
+  it('initializes only modules still new to either overlapping command', async () => {
+    const root = project({
+      'package.json': JSON.stringify({
+        devDependencies: { '@playwright/test': '1.65.1' },
+        scripts: {
+          orders: 'playwright test orders',
+          market: 'playwright test market',
+        },
+      }),
+      'playwright.config.cjs': "module.exports={testDir:'tests'};",
+      'tests/a-orders.spec.cjs': "require('./prices.cjs');require('./fees.cjs');",
+      'tests/b-market.spec.cjs': "require('./fees.cjs');",
+      'tests/z-orders-market.spec.cjs': "require('./prices.cjs');require('./fees.cjs');",
+      'tests/prices.cjs': "require('@playwright/test').test('quotes a price',()=>{});",
+      'tests/fees.cjs': "require('@playwright/test').test('charges a fee',()=>{});",
+    });
+    const { tests } = await scan({ root });
+    expect(
+      tests.filter((test) => test.relativeFilePath.endsWith('z-orders-market.spec.cjs')).map((test) => test.title),
+    ).toEqual(['quotes a price']);
+  });
+
+  it.each([false, true])('starts the setup project when the later spec registers a local test=%s', async (local) => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test orders'),
+      'playwright.config.cjs':
+        'module.exports=' +
+        JSON.stringify({
+          testDir: 'tests',
+          projects: [
+            { name: 'early', testMatch: '**/orders-alpha.spec.cjs' },
+            { name: 'late', testMatch: '**/orders-zulu.spec.cjs', dependencies: ['seed'] },
+            { name: 'seed', testMatch: '**/*.seed.cjs' },
+          ],
+        }),
+      'tests/orders-alpha.spec.cjs': "require('./register.cjs');",
+      'tests/orders-zulu.spec.cjs': "require('./register.cjs');" + (local ? playwrightOrder : ''),
+      'tests/register.cjs': playwrightOrder,
+      'tests/ledger.seed.cjs': playwrightOrder,
+    });
+    const { tests } = await scan({ root });
+    expect(tests.map((test) => test.relativeFilePath)).toEqual(
+      local
+        ? ['tests/ledger.seed.cjs', 'tests/orders-alpha.spec.cjs', 'tests/orders-zulu.spec.cjs']
+        : ['tests/orders-alpha.spec.cjs'],
+    );
+  });
+});
+
 describe('working directory of a package-script file filter', () => {
   const runners: { pkg: string; version: string; command: string; config: Record<string, string>; source: string }[] = [
     {

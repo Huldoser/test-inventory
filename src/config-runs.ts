@@ -25,6 +25,7 @@ import {
 } from './node-scripts.ts';
 import { durationOf, type MochaInterface } from './frameworks/mocha.ts';
 import type { WebdriverIOFramework } from './frameworks/webdriverio.ts';
+import type { PlaywrightSelection } from './scan-file.ts';
 import type { RunSettings } from './model.ts';
 import type { ImportMap } from './resolve.ts';
 import type { ConfigDefaults, FileConfig, FileRecords, TagDefinition, TagOptions, VitestTags } from './records.ts';
@@ -137,6 +138,8 @@ export interface Placement {
   /** The projects of the config that run the file, which a Playwright `grep` may narrow per test; null when unknown. */
   projects: ProjectAbout[] | null;
   testFilters?: Map<ProjectAbout, RecordFilter>;
+  /** Imported modules already initialized in every command that collects this file. */
+  preloaded?: Set<string>;
   /** The tags Playwright's config `tag` gives every test; null when the scan can't work them out. */
   tags: string[] | null;
 }
@@ -163,6 +166,7 @@ const SCRIPT_RUNNERS = new Set<Framework>(['vitest', 'jest', 'playwright', 'cypr
 type RecordFilter = (test: TestRecord, suites: SuiteRecord[]) => boolean;
 
 interface Route {
+  preloaded?: Map<string, Set<string>>;
   config: ConfigFile | null;
   root: string;
   mocha?: MochaArguments;
@@ -310,7 +314,8 @@ export class ConfigRuns {
   /** Whether the configs find the test files, as in a scan without patterns, rather than the patterns. */
   private readonly findsFiles: boolean;
   private readonly candidates: readonly string[];
-  private readonly selectedTests: (file: string) => FileRecords | null;
+  private readonly selection: (file: string, preloaded?: Set<string>) => PlaywrightSelection;
+  private readonly unfiltered = new WeakMap<Project[], Map<string, Set<string>>>();
   private readonly projects = new Map<ConfigFile, Project[]>();
   private readonly ignoreRules = new Map<string, IgnoreRule[]>();
   private readonly folderStates = new Map<string, FolderState>();
@@ -334,14 +339,25 @@ export class ConfigRuns {
     framework: Framework,
     version: [number, number] | null,
     candidates: readonly string[] | null,
-    selectedTests: (file: string) => FileRecords | null,
+    selection: (file: string, preloaded?: Set<string>) => PlaywrightSelection,
   ) {
     this.configs = configs;
     this.framework = framework;
     this.version = version;
     this.findsFiles = candidates !== null;
-    this.candidates = candidates ?? [];
-    this.selectedTests = selectedTests;
+    this.candidates =
+      framework === 'playwright' && candidates
+        ? candidates
+            .map((file) => file.split(path.sep))
+            .sort((a, b) => {
+              // Playwright sorts directory entries before descending into each directory.
+              let i = 0;
+              while (a[i] === b[i] && i < a.length - 1) i++;
+              return a[i].localeCompare(b[i]);
+            })
+            .map((parts) => parts.join(path.sep))
+        : (candidates ?? []);
+    this.selection = selection;
   }
 
   /**
@@ -405,7 +421,11 @@ export class ConfigRuns {
       if (running.length > 0) {
         const [{ project, runs }] = running;
         const projects = running.map((item) => item.project.about);
-        return { config: project.config, settings: project.settings, runs, projects };
+        const preloaded =
+          this.framework === 'playwright' && this.findsFiles
+            ? this.unfilteredModules(this.projectsOf(config)).get(file)
+            : undefined;
+        return { config: project.config, settings: project.settings, runs, projects, preloaded };
       }
     }
     const unknown = standalone.flatMap((config) => this.projectsOf(config)).find((project) => project.unknown);
@@ -510,8 +530,22 @@ export class ConfigRuns {
               );
           }
         }
+        let preloaded = route.preloaded?.get(file);
+        if (preloaded) {
+          for (const other of this.scriptRoutesAbove(file)) {
+            if (other === route || 'unknown' in other || other.config !== route.config) continue;
+            if (!running.some(({ project }) => other.selects?.(file, project) !== false)) continue;
+            const skipped = other.preloaded?.get(file);
+            if (!skipped) {
+              preloaded = undefined;
+              break;
+            }
+            preloaded = new Set<string>([...preloaded].filter((name) => skipped.has(name)));
+          }
+        }
         return {
           config,
+          preloaded,
           settings: project.settings,
           runs,
           projects: running.map((item) => item.project.about),
@@ -592,11 +626,43 @@ export class ConfigRuns {
         const route: Route = { config, root };
         if (command.cwd && command.config === null) route.launchConfig = this.defaultConfigIn(folder);
         if (command.filters) route.selects = this.matchScriptFiles(command.filters, cwd, route);
+        else if (this.framework === 'playwright' && this.findsFiles)
+          route.preloaded = this.unfilteredModules(this.projectsOfRoute(route));
         routes.push(route);
       }
     }
     this.scriptRoutes.set(folder, routes);
     return routes;
+  }
+
+  /** A process initializes each imported module in the first spec that loads it, in project and directory order. */
+  private preloadedModules(
+    projects: Project[],
+    loads: (file: string, project: Project) => boolean,
+  ): Map<string, Set<string>> {
+    const visited = new Set<string>();
+    const initialized = new Set<string>();
+    const preloaded = new Map<string, Set<string>>();
+    for (const project of projects) {
+      for (const file of this.candidates) {
+        if (visited.has(file) || !project.runs?.(file) || !loads(file, project)) continue;
+        visited.add(file);
+        const { imports } = this.selection(file);
+        const skipped = new Set([...imports].filter((name) => initialized.has(name)));
+        if (skipped.size) preloaded.set(file, skipped);
+        for (const name of imports) initialized.add(name);
+      }
+    }
+    return preloaded;
+  }
+
+  private unfilteredModules(projects: Project[]): Map<string, Set<string>> {
+    let preloaded = this.unfiltered.get(projects);
+    if (!preloaded) {
+      preloaded = this.preloadedModules(projects, () => true);
+      this.unfiltered.set(projects, preloaded);
+    }
+    return preloaded;
   }
 
   private matchScriptFiles(filters: string[], folder: string, route: Route): NonNullable<Route['selects']> {
@@ -613,14 +679,32 @@ export class ConfigRuns {
         patterns.push(pattern);
       }
       const matchesFile = playwrightMatcher(patterns);
+      const projects = this.projectsOfRoute(route);
+      const prerequisites = new Set(
+        projects.flatMap((project) => {
+          const teardown = settingAt(project.about.settings, ['teardown']);
+          return teardown?.kind === 'value' && typeof teardown.value === 'string'
+            ? [...project.about.dependencies, teardown.value]
+            : project.about.dependencies;
+        }),
+      );
+      const preloaded = this.preloadedModules(
+        projects,
+        (file, project) => prerequisites.has(project.about.name) || matchesFile(file),
+      );
+      route.preloaded = preloaded;
+      const recordsByFile = new Map<string, FileRecords | null>();
+      const selectedTests = (file: string) => {
+        if (!recordsByFile.has(file)) recordsByFile.set(file, this.selection(file, preloaded.get(file)).records());
+        return recordsByFile.get(file) as FileRecords | null;
+      };
       const locations = new Map<string, RecordFilter | null>();
       const locationFilter = (file: string) => {
         if (!locations.has(file)) {
-          locations.set(file, playwrightLocationFilter(file, this.configs.root, this.selectedTests(file), matchesFile));
+          locations.set(file, playwrightLocationFilter(file, this.configs.root, selectedTests(file), matchesFile));
         }
         return locations.get(file) as RecordFilter | null;
       };
-      const projects = this.projectsOfRoute(route);
       const required = new Set<Project>();
       const visit = (project: Project) => {
         const teardown = settingAt(project.about.settings, ['teardown']);
@@ -637,7 +721,7 @@ export class ConfigRuns {
         if (!project.about.dependencies.length && !settingAt(project.about.settings, ['teardown'])) continue;
         const hasTests = this.candidates.some((file) => {
           if (!matchesFile(file) || !project.runs?.(file)) return false;
-          const records = this.selectedTests(file);
+          const records = selectedTests(file);
           if (!records) return true;
           const tags = this.configTags(project.config);
           return records.tests.some(
@@ -655,7 +739,7 @@ export class ConfigRuns {
         if (!project.runs?.(file)) return true;
         const filter = locationFilter(file);
         if (!filter) return true;
-        const records = this.selectedTests(file) as FileRecords;
+        const records = selectedTests(file) as FileRecords;
         return records.tests.some((test) => filter(test, records.suites));
       };
     }

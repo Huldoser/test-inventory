@@ -17,3 +17,5 @@ Collect tests registered by a helper called directly on a CommonJS import, such 
 Follow Playwright tests registered when local modules load. Honor Playwright's file filtering when tests originate in a helper with a different extension, including matching enclosing describes.
 
 Honor TypeScript import removal when collecting Playwright registrations, including imports used only in type annotations and imports retained for JSX.
+
+Assign a shared Playwright module's top-level tests to the first spec that loads it in each command, including when deciding whether a setup project runs.

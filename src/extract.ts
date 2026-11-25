@@ -145,6 +145,8 @@ export interface Frame {
 export interface ExtractOptions {
   /** Follow modules loaded while a Playwright spec registers its tests. */
   collectImports?: boolean;
+  /** Whether this local import still needs to run in the collecting Playwright process. */
+  initializeModule?: (file: string) => boolean;
   /** One test or describe per case of a table and per pass of a loop whose values the scan can work out. */
   expandCases: boolean;
   /** Vitest's `[major, minor]`, whose rules give each case its title; null for the newest rules. */
@@ -514,6 +516,10 @@ const TS_RUNTIME = new Set<string>([
   'TSExternalModuleReference',
 ]);
 
+export function initializesLocalModule(source: string): boolean {
+  return source !== '@playwright/test' && source !== 'playwright/test' && !isBuiltin(source);
+}
+
 class Walker {
   private readonly scopes: Node[] = [];
   private readonly parents: Node[] = [];
@@ -824,7 +830,7 @@ class Walker {
       source = requiredModule(node);
     else if (node.type === 'ImportExpression') source = null;
     else return;
-    if (source !== null && (source === '@playwright/test' || source === 'playwright/test' || isBuiltin(source))) return;
+    if (source !== null && !initializesLocalModule(source)) return;
     const frame = source !== null ? this.openFrom(this.frame, source) : null;
     if (!frame || this.importDepth >= MAX_DEPTH) {
       this.unknownRegistration = true;
@@ -832,6 +838,7 @@ class Walker {
     }
     if (this.loaded.has(frame.relativeFilePath)) return;
     this.loaded.add(frame.relativeFilePath);
+    if (this.options.initializeModule?.(frame.relativeFilePath) === false) return;
     const caller = this.frame;
     const site = this.site;
     const scopes = this.scopes.splice(0);
