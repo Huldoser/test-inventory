@@ -64,6 +64,10 @@ For example, a suite with `{ only: true }` can make a child marked `.skip` run. 
 From Vitest 4.0.17, a focused suite with focused tests or suites inside it selects those children.
 Other tests in the same suite have `isOnly: false`. Earlier versions also select the plain siblings.
 
+A suite's `fails: true` makes a test count as `expectedToFail` when the test inherits that option.
+A nested suite or test can clear it with `fails: false`. In Vitest 4 and earlier, an inherited
+`fails: false` also clears a test's `.fails` modifier. In Vitest 5 the modifier takes precedence.
+
 ## Example
 
 <!--@include: ../guide/examples.md#example-vitest-->

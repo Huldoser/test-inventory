@@ -307,6 +307,41 @@ describe('Vitest tags, merged with the options as Vitest merges them', () => {
     ]);
   });
 
+  it.each([
+    ['3.2.7', false, true, false],
+    ['4.1.12', false, true, false],
+    ['5.1.1', true, false, true],
+  ] as const)(
+    'resolves suite, tag and test expected-failure options in Vitest %s',
+    async (version, chain, clearedTag, enabledTag) => {
+      const inventory = await scanned(
+        "export default {test:{tags:[{name:'known',fails:true},{name:'settled',fails:false}]}};",
+        {
+          'tests/clearing.test.ts': `import {describe,test} from 'vitest';
+        describe('late settlement',{fails:true},()=>{
+          test('posts a settled trade',{fails:false},()=>{});
+          describe('fixed feed',{fails:false},()=>{test('records the fill',()=>{});});
+          test('keeps the expected rejection',()=>{});
+          test('honors the settled tag',{tags:['settled']},()=>{});
+        });
+        describe('verified trades',{fails:false},()=>{
+          test.fails('rejects an uncovered order',()=>{});
+          test('honors the known tag',{tags:['known']},()=>{});
+        });`,
+        },
+        version,
+      );
+      expect(inventory.tests.map((test) => test.isExpectedToFail)).toEqual([
+        false,
+        false,
+        true,
+        clearedTag,
+        chain,
+        enabledTag,
+      ]);
+    },
+  );
+
   it('narrows a focused suite to the test selected by a later tag', async () => {
     const inventory = await scanned("export default {test:{allowOnly:true,tags:[{name:'closing',only:true}]}};", {
       'tests/orders.test.ts': `import {describe,test} from 'vitest';

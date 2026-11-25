@@ -206,7 +206,7 @@ function skippedAtCollection(setting: StateSetting): boolean {
 function declaredStates(
   declared: StateSetting[],
   options: TagOptions | null,
-  { isOnly, skipPassedDown, todoPassedDown }: TestDeclaration,
+  { isOnly, skipPassedDown, todoPassedDown, failsPassedDown }: TestDeclaration,
   tagsFirst: boolean,
   focusedBySuite: StateSetting[] | undefined,
 ): Chosen[] {
@@ -214,11 +214,14 @@ function declaredStates(
   const inheritedSkip = clearsSkip ? undefined : skipPassedDown;
   const states = focusedBySuite ?? (clearsSkip && skipPassedDown ? skipPassedDown.withoutSkip : declared);
   const own = states.map((setting) => ({ setting, source: 'test' as const }));
-  const todo: Chosen[] =
+  const inherited: Chosen[] =
     todoPassedDown !== undefined && !inheritedSkip && !(tagsFirst && options?.todo !== undefined)
       ? [{ setting: { ...ALWAYS, state: 'todo', line: todoPassedDown }, source: 'suite' }]
       : [];
-  if (options === null && !todo.length) return own;
+  if (failsPassedDown !== undefined && options?.fails === undefined) {
+    inherited.push({ setting: { ...ALWAYS, state: 'expectedToFail', line: failsPassedDown }, source: 'suite' });
+  }
+  if (options === null && !inherited.length) return own;
   // A describe's `skip` option is merged in too, where the scan otherwise leaves it to the describe's own state; the
   // test's own skip, when it has one, sorts first.
   const passed: Chosen[] =
@@ -228,7 +231,7 @@ function declaredStates(
   const all = [
     ...own,
     ...passed,
-    ...todo,
+    ...inherited,
     ...(options ? tagStates(options).map((setting) => ({ setting, source: 'config' as const })) : []),
   ];
   const kept =
@@ -698,7 +701,11 @@ class RecordBuilder {
     const overriding = OVERRIDING_DESCRIBES[this.options.framework];
     const around = scopes.flatMap((scope, index) =>
       scope.states
-        .filter((setting) => !declaredSkip(scope, index, setting))
+        .filter(
+          (setting) =>
+            !declaredSkip(scope, index, setting) &&
+            !(this.options.framework === 'vitest' && setting.state === 'expectedToFail'),
+        )
         .map((setting) => ({
           setting,
           source: scope.kind === 'file' ? ('file' as const) : ('suite' as const),

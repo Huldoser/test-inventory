@@ -124,6 +124,8 @@ export interface TestDeclaration extends Declaration {
   ownStateOptions?: StateOption[];
   /** Vitest: a suite's only option takes priority over skip and todo unless a tag clears the inherited focus. */
   statesWhenFocusedBySuite?: StateSetting[];
+  /** Vitest: line of the inherited fails option, before the test's tags are resolved. */
+  failsPassedDown?: number;
 }
 
 export interface SuiteDeclaration extends Declaration {

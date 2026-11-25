@@ -189,6 +189,7 @@ interface PassedSkip {
 interface SuiteOptions {
   skip: PassedSkip | null;
   todo?: { enabled: boolean; line: number };
+  fails?: { enabled: boolean; line: number };
   only?: boolean;
 }
 
@@ -503,6 +504,7 @@ export class VitestAdapter extends SuiteAdapter {
         conditions = [];
       }
       if (around?.todo?.enabled === false && !read.flags.has('todo')) flags.delete('todo');
+      if (around?.fails?.enabled === false && !read.flags.has('fails')) flags.delete('fails');
       if (!suiteOptionModes && passed?.condition.applies === 'sometimes') conditions.push(passed.condition);
     }
     const skips = readsOwnMode && passed?.condition.applies === 'always' && !flags.has('only');
@@ -550,9 +552,11 @@ export class VitestAdapter extends SuiteAdapter {
       if (fn && first?.type === 'Identifier') this.suiteParameters.set(fn, first.name);
       const own = read.skip ? { condition: read.skip, line } : around?.skip;
       const todo = read.flags.get('todo');
+      const fails = read.flags.get('fails');
       const passesDown: SuiteOptions = {
         skip: own ? { ...own, covered: (around?.skip?.covered ?? false) || skipped() } : null,
         todo: todo === undefined ? around?.todo : { enabled: todo, line },
+        fails: fails === undefined ? around?.fails : { enabled: fails, line },
         only: read.flags.get('only') ?? around?.only,
       };
       declared = { kind: 'describe', ...base, isShuffled: flags.has('shuffle'), passesDown };
@@ -566,12 +570,11 @@ export class VitestAdapter extends SuiteAdapter {
         takesAllFixtures: takesWhole(base.hashed, index),
         usesBench: atLeast(this.file.version, 5, 0) && destructuredNames(base.hashed, index).includes('bench'),
         statesWhenFocusedBySuite: inheritsOnly ? this.states(new Set([...flags, 'only']), [], false, line) : undefined,
+        failsPassedDown: around?.fails?.enabled && !read.flags.has('fails') ? around.fails.line : undefined,
         ownStateOptions: [
           ...(read.skip || conditionSetsSkip || (inheritsBeforeChain && around?.skip) ? ['skip' as const] : []),
           ...STATE_FLAGS.filter(
-            (flag) =>
-              read.flags.has(flag) ||
-              (inheritsBeforeChain && (flag === 'todo' || flag === 'only') && around?.[flag] !== undefined),
+            (flag) => read.flags.has(flag) || (inheritsBeforeChain && around?.[flag] !== undefined),
           ),
         ],
       };
