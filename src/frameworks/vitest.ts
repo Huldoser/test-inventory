@@ -206,12 +206,16 @@ function readsItsFunction(kind: Kind, member: string, version: [number, number] 
 export class VitestAdapter extends SuiteAdapter {
   private warnedAboutTags = false;
 
-  /** The length a value in a case title is shortened to, as the config sets it. */
-  private readonly titleTruncate: number;
+  private readonly titleThresholds: readonly number[];
 
-  constructor(parsed: ParsedFile, file: FileContext, readModule: ModuleReader | null, titleTruncate = 40) {
+  constructor(
+    parsed: ParsedFile,
+    file: FileContext,
+    readModule: ModuleReader | null,
+    titleThresholds: readonly number[] = [40],
+  ) {
     super(parsed, file, readModule, VITEST, TEST_MEMBERS);
-    this.titleTruncate = titleTruncate;
+    this.titleThresholds = titleThresholds;
     if (atLeast(file.version, 5, 0)) {
       for (const call of nestedHoistedCalls(parsed.program)) {
         const callee = snippet(text(this.file, call.callee));
@@ -790,18 +794,25 @@ export class VitestAdapter extends SuiteAdapter {
       if (!resolved?.ok || !Array.isArray(resolved.value)) return null;
       cases = resolved.value;
     }
-    const caseTitle = (items: Value[], index: number) =>
-      title.isDynamic ? null : vitestCaseTitle(title.text, items, index, this.file.version, this.titleTruncate);
+    const [first, ...others] = this.titleThresholds;
+    const row = (items: Value[], index: number, args: Value[]): TableCase => {
+      const format = (length: number) => vitestCaseTitle(title.text, items, index, this.file.version, length);
+      const rendered = title.isDynamic ? null : format(first);
+      return {
+        title: rendered,
+        args,
+        projectTitlesDiffer: rendered !== null && others.some((length) => format(length) !== rendered),
+      };
+    };
     if (table.name === 'for') {
-      return cases.map((item, index) => ({
-        title: caseTitle(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index),
-        args: [item],
-      }));
+      return cases.map((item, index) =>
+        row(item === null || item === undefined ? [] : Array.isArray(item) ? item : [item], index, [item]),
+      );
     }
     const arraysOnly = cases.every((item) => Array.isArray(item));
     return cases.map((item, index) => {
       const items = Array.isArray(item) ? item : [item];
-      return { title: caseTitle(items, index), args: arraysOnly ? items : [item] };
+      return row(items, index, arraysOnly ? items : [item]);
     });
   }
 

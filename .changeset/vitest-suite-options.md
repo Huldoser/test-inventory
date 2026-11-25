@@ -12,3 +12,5 @@ Honor nested `fails: false` options and version-specific tag precedence when rep
 Preserve a test's failure expectation when a focus tag makes it run.
 
 Report Vitest concurrency from nested suite options, modifiers, tags and the root scheduling default through Vitest 4 and the selected project's default from Vitest 5, including the change to `concurrent: false` in 4.1.6 and the removal of the `sequential` option in Vitest 5.
+
+Keep the table declaration and report a warning when Vitest projects sharing a file generate different case titles.

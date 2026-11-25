@@ -92,17 +92,19 @@ function versionDiagnostics(
   ];
 }
 
-/**
- * The length Vitest shortens a value in a case title to: `test.taskTitleValueFormatTruncate` from Vitest 5,
- * `test.chaiConfig.truncateThreshold` before, from the project that runs the file; 40, Vitest's default, when it sets
- * none or the scan can't read it.
- */
-function titleTruncate(placement: Placement, version: [number, number] | null): number {
+/** The distinct case-title lengths used by the Vitest projects collecting the file. */
+function titleThresholds(placement: Placement, version: [number, number] | null): number[] {
   const key = atLeast(version, 5, 0)
     ? ['test', 'taskTitleValueFormatTruncate']
     : ['test', 'chaiConfig', 'truncateThreshold'];
-  const setting = placement.settings && settingAt(placement.settings, key);
-  return setting?.kind === 'value' && typeof setting.value === 'number' ? setting.value : 40;
+  const settings = placement.projects?.length
+    ? placement.projects.map((project) => project.settings)
+    : [placement.settings];
+  const lengths = settings.map((config) => {
+    const setting = config && settingAt(config, key);
+    return setting?.kind === 'value' && typeof setting.value === 'number' ? setting.value : 40;
+  });
+  return [...new Set(lengths)];
 }
 
 /** Why Jest gives a file that uses its globals none: a project that runs it sets `injectGlobals` to false. */
@@ -335,7 +337,7 @@ export async function scan(options: ScanOptions): Promise<Inventory> {
             ? webdriverioInterface(placement, configs)
             : undefined,
       webdriverioFramework: framework === 'webdriverio' ? webdriverioFramework(placement, configs) : undefined,
-      titleTruncate: framework === 'vitest' ? titleTruncate(placement, rules) : undefined,
+      titleThresholds: framework === 'vitest' ? titleThresholds(placement, rules) : undefined,
       graph,
       exports,
       runsWith,

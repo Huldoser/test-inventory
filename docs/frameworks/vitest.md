@@ -124,7 +124,9 @@ Vitest's titles follow the rules of the project's Vitest version: `%s`, `%d`, `%
 `%$` and `$name`, with values cut as the config of the project that runs the file cuts them:
 `taskTitleValueFormatTruncate`, or before Vitest 5 `chaiConfig.truncateThreshold`, and 40 characters, Vitest's default,
 when it sets neither. A table stays one record, with a `cases-not-expanded` warning, when the scan can't work out a
-value in it or its title, or the title would show an array or object.
+value in it or its title, or the title would show an array or object. A table shared by multiple projects also stays
+as one record when those projects shorten a case title differently. Cases whose titles agree still expand when the
+projects use different length limits.
 
 Loops over `var` are not expanded because the variable holds its last value by the time Vitest runs describes.
 Include source files when scanning in-source tests, and `*.test-d.ts` files for type tests. See the

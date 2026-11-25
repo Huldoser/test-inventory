@@ -108,6 +108,8 @@ interface Declaration {
 export interface TableCase {
   /** Null when the scan can't format it the way the runner does, as for a title that shows an object. */
   title: string | null;
+  /** The projects that collect this row produce different titles. */
+  projectTitlesDiffer?: boolean;
   args: Value[];
 }
 
