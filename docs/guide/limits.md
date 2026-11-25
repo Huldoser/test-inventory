@@ -260,6 +260,9 @@ Code after an `if` whose branch always returns, throws, breaks or continues, as 
 runs only when that branch isn't taken, so it is under the opposite condition, `!(!account.active)` here. A branch that
 leaves on only some of its paths, as in `if (isEquity) { if (isHoliday) return; }`, leaves what follows as it is.
 
+When discovering Playwright files, the scanner uses known conditions and empty iterables to decide whether a shared
+module loads in this spec. A direct test declaration still records its surrounding guard.
+
 ## Dependency coverage {#what-dependencyhash-leaves-out}
 
 ### Dependencies the hash cannot follow

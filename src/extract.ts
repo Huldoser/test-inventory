@@ -357,16 +357,17 @@ function referencedNames(node: Node): string[] | null {
  * Whether a loop body can end a pass before its end or stop the loop, with `break`, `continue`, `return` or `throw`,
  * so that a test in it may not be registered on every pass. Functions inside run later, and don't count.
  */
-function leavesEarly(body: Node): boolean {
+function leavesEarly(body: Node, continueOnly = false): boolean {
   if (body.type === 'FunctionDeclaration' || isFunctionNode(body)) return false;
   switch (body.type) {
     case 'BreakStatement':
-    case 'ContinueStatement':
     case 'ReturnStatement':
     case 'ThrowStatement':
+      return !continueOnly;
+    case 'ContinueStatement':
       return true;
   }
-  return childNodes(body).some(leavesEarly);
+  return childNodes(body).some((child) => leavesEarly(child, continueOnly));
 }
 
 /**
@@ -728,21 +729,22 @@ class Walker {
           const guarded = this.guarded(context, guard === '' ? null : guard);
           const executes: boolean = start === null || index === start || fallsThrough;
           this.visit(switchCase, executes ? guarded : { ...guarded, skipImports: true });
-          fallsThrough =
-            executes &&
-            !switchCase.consequent.some((statement) =>
-              ['BreakStatement', 'ReturnStatement', 'ThrowStatement', 'ContinueStatement'].includes(statement.type),
-            );
+          fallsThrough = executes && !switchCase.consequent.some((statement) => alwaysLeaves(statement));
         }
         return;
       }
+      case 'SwitchCase':
+        if (node.test) this.visit(node.test, context);
+        this.visitStatements(node.consequent, context);
+        return;
       case 'BlockStatement':
         this.visitStatements(node.body, context);
         return;
       case 'ForInStatement':
       case 'ForOfStatement': {
         const leaves = leavesEarly(node.body);
-        const values = leaves ? null : this.loopValues(node);
+        const iterable = this.loopValues(node);
+        const values = leaves ? null : iterable;
         const expands = values ? this.expands(node, values, context) : 'no';
         if (values && expands === 'yes') {
           this.expandLoop(node, values, context);
@@ -752,15 +754,31 @@ class Walker {
         const listed = node.type === 'ForOfStatement' && !leaves ? node.right : null;
         const count = values?.length ?? (listed ? this.frame.values.lengthOf(listed, this.scopes.slice(0, -1)) : null);
         this.walkUnexpanded(node, expands === 'limit', () => {
-          this.visitChildren(node, this.inLoop(context, count));
+          this.visit(node.right, context);
+          const loop = this.inLoop(context, count);
+          const body = iterable?.length === 0 ? { ...loop, skipImports: true } : loop;
+          this.visit(node.left, body);
+          this.visit(node.body, body);
         });
         return;
       }
       case 'ForStatement':
-      case 'WhileStatement':
-      case 'DoWhileStatement':
-        this.visitChildren(node, this.inLoop(context, null));
+      case 'WhileStatement': {
+        const loop = this.inLoop(context, null);
+        if (node.type === 'ForStatement' && node.init) this.visit(node.init, loop);
+        if (node.test) this.visit(node.test, loop);
+        const condition = node.test && this.known(node.test, context);
+        const body = condition && !condition.value ? { ...loop, skipImports: true } : loop;
+        this.visit(node.body, body);
+        if (node.type === 'ForStatement' && node.update) this.visit(node.update, this.loopTail(node.body, body));
         return;
+      }
+      case 'DoWhileStatement': {
+        const loop = this.inLoop(context, null);
+        this.visit(node.body, loop);
+        this.visit(node.test, this.loopTail(node.body, loop));
+        return;
+      }
       case 'FunctionDeclaration':
       case 'FunctionExpression':
       case 'ArrowFunctionExpression': {
@@ -854,6 +872,13 @@ class Walker {
     this.frame = caller;
   }
 
+  /** A continue reaches the update or trailing condition of its loop. A break, return or throw skips it. */
+  private loopTail(body: Node, context: Context): Context {
+    return this.options.collectImports && alwaysLeaves(body) && !leavesEarly(body, true)
+      ? { ...context, skipImports: true }
+      : context;
+  }
+
   /** Whether a function has a name it can be called by: `function name() {}` or `const name = () => {}`. */
   private isNamed(fn: Node): boolean {
     const parent = this.parents.at(-2);
@@ -887,16 +912,21 @@ class Walker {
     let current = context;
     for (const statement of statements) {
       this.visit(statement, current);
-      if (statement.type !== 'IfStatement' || isImportMetaVitest(statement.test)) continue;
+      if (statement.type !== 'IfStatement') {
+        if (this.options.collectImports && alwaysLeaves(statement)) current = { ...current, skipImports: true };
+        continue;
+      }
+      if (isImportMetaVitest(statement.test)) continue;
       const thenLeaves = alwaysLeaves(statement.consequent);
       const elseLeaves = statement.alternate !== null && alwaysLeaves(statement.alternate);
       if (!thenLeaves && !elseLeaves) continue;
       const known = this.known(statement.test, current);
       const taken = known && (known.value ? thenLeaves : elseLeaves);
-      if (taken || (thenLeaves && elseLeaves)) return;
-      if (known) continue;
+      if ((taken && this.options.expandCases) || (thenLeaves && elseLeaves)) return;
+      if (known && this.options.expandCases) continue;
       const condition = this.text(statement.test);
       current = this.guarded(current, thenLeaves ? `!(${condition})` : condition);
+      if (taken) current.skipImports = true;
     }
   }
 
@@ -1073,7 +1103,8 @@ class Walker {
         } else {
           const count = values?.length ?? (leaves ? null : this.frame.values.lengthOf(callee.object, this.scopes));
           this.walkUnexpanded(call, expands === 'limit', () => {
-            this.visitCallback(arg, this.inLoop(context, count));
+            const loop = this.inLoop(context, count);
+            this.visitCallback(arg, list?.length === 0 ? { ...loop, skipImports: true } : loop);
           });
         }
       } else {

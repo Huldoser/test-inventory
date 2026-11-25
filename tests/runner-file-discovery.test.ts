@@ -213,6 +213,7 @@ describe('Playwright module initialization across spec files', () => {
   );
   it.each([
     { registration: "(() => require('./fees.cjs'))();", owner: 'a' },
+    { registration: "for(;;){require('./fees.cjs');break;}", owner: 'a' },
     { registration: "(function registerFees(){require('./fees.cjs');})();", owner: 'a' },
     { registration: "(function*(){require('./fees.cjs');})();", owner: 'b' },
     { registration: "if (false) require('./fees.cjs');", owner: 'b' },
@@ -264,6 +265,45 @@ describe('Playwright module initialization across spec files', () => {
       'playwright.config.cjs': "module.exports={testDir:'tests'};",
       'tests/orders.spec.cjs':
         "const {test}=require('@playwright/test'); if(false){require('./fees.cjs');test('quotes a fee',()=>{});}",
+      'tests/fees.cjs': "require('@playwright/test').test('charges a fee',()=>{});",
+    });
+    const { tests } = await scan({ root });
+    expect(tests.map((test) => [test.title, test.isInCondition])).toEqual([['quotes a fee', true]]);
+  });
+
+  it.each([
+    "while(false){require('./fees.cjs');}",
+    "for(let i=0;false;require('./fees.cjs')){}",
+    "for(let i=0;i<1;require('./fees.cjs')){break;}",
+    "do{break;}while(require('./fees.cjs'));",
+    "for(const venue in {})require('./fees.cjs');",
+    "[].map(()=>{require('./fees.cjs');return 'settled';});",
+    "switch('open'){case 'open':break;require('./fees.cjs');}",
+    "closing:{break closing;require('./fees.cjs');}",
+    "for(const venue of ['open']){continue;require('./fees.cjs');}",
+    "for(const venue of []){require('./fees.cjs');}",
+    "[].forEach(()=>require('./fees.cjs'));",
+    "for(const venue of ['open']){break;require('./fees.cjs');}",
+  ])('leaves a shared registration to the next spec after %s', async (registration) => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test'),
+      'playwright.config.cjs': "module.exports={testDir:'tests'};",
+      'tests/a.spec.cjs': registration + playwrightOrder,
+      'tests/b.spec.cjs': "require('./fees.cjs');" + playwrightOrder,
+      'tests/fees.cjs': "require('@playwright/test').test('charges a settlement fee',()=>{});",
+    });
+    const { tests } = await scan({ root });
+    expect(
+      tests.filter((test) => test.title === 'charges a settlement fee').map((test) => test.relativeFilePath),
+    ).toEqual(['tests/b.spec.cjs']);
+  });
+
+  it('retains the guard on direct declarations following an early return during discovery', async () => {
+    const root = project({
+      'package.json': manifest('@playwright/test', '1.65.1', 'playwright test'),
+      'playwright.config.cjs': "module.exports={testDir:'tests'};",
+      'tests/orders.spec.cjs': `const {test}=require('@playwright/test');
+        function registerFees(active){if(!active) return; require('./fees.cjs'); test('quotes a fee',()=>{});}registerFees(false);`,
       'tests/fees.cjs': "require('@playwright/test').test('charges a fee',()=>{});",
     });
     const { tests } = await scan({ root });

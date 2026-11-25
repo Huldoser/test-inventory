@@ -3,6 +3,16 @@ import { codes, onlyTest, scanVitest, testNamed, titles, VITEST_IMPORT } from '.
 import type { Inventory } from '../src/index.ts';
 
 describe('Vitest imports', () => {
+  it('recognizes an in-source test guard inside a block without marking its test conditional', () => {
+    const inventory = scanVitest(`{
+      if (import.meta.vitest) {
+        const {test} = import.meta.vitest;
+        test('averages closing prices', () => {});
+      }
+    }`);
+    expect(onlyTest(inventory)).toMatchObject({ title: 'averages closing prices', isInCondition: false });
+  });
+
   it('recognizes test, it, describe and suite, also renamed', () => {
     const inventory = scanVitest(`
 import { describe as group, it, suite, test as check } from 'vitest';

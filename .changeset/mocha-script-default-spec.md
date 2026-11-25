@@ -21,3 +21,5 @@ Honor TypeScript import removal when collecting Playwright registrations, includ
 Assign a shared Playwright module's top-level tests to the first spec that loads it in each command, including when deciding whether a setup project runs.
 
 Follow immediately invoked functions during Playwright collection and skip module initialization in branches ruled out by a known condition.
+
+Keep shared Playwright registrations in the spec that reaches the import when a loop is empty or a statement exits early.
