@@ -1,6 +1,6 @@
 {
   "name": "test-inventory",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "Scan JS/TS test suites without running them: find skipped tests, diff revisions, and get commands for changed files.",
   "keywords": [
     "testing",

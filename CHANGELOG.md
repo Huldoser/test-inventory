@@ -1,5 +1,11 @@
 # test-inventory
 
+## 0.12.3
+
+### Patch Changes
+
+- [#162](https://github.com/Huldoser/test-inventory/pull/162) [`3badf47`](https://github.com/Huldoser/test-inventory/commit/3badf47122baebe2de93941c3e28e3ac28d0fa88) - Update the package description and getting-started guides for scanning suites and comparing revisions.
+
 ## 0.12.2
 
 ### Patch Changes
